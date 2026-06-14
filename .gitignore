@@ -15,10 +15,14 @@ venv/
 *.key
 minisign.sec
 *.sec
-# Stray credential drop files (e.g. a Cloudflare API token handed off via disk)
+# Stray credential drop files (e.g. a Cloudflare API token / R2 keys handed off via disk)
 *CloudflareToken*
 .cf_token
 *api*token*.txt
+*[Kk]eys.txt
+*[Kk]ey*.txt
+CloudFlare*
+*R2*[Kk]ey*
 
 # Built data artifacts — packs are large and live in R2, not git.
 /packs/
