@@ -9,8 +9,6 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-import requests
-
 _UA = "makerplane-data/0.1 (+https://github.com/makerplane/makerplane-data)"
 _CHUNK = 1 << 20  # 1 MiB
 
@@ -22,6 +20,8 @@ def download(url: str, dest: str | Path, *, resume: bool = True,
     Downloads to ``dest.part`` then renames on completion, so a partial or
     interrupted transfer never looks like a finished file.
     """
+    import requests  # lazy: only the real fetch path needs it (not tests)
+
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_suffix(dest.suffix + ".part")
