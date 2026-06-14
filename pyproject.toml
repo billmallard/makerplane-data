@@ -13,12 +13,12 @@ authors = [{ name = "MakerPlane / AeroCommons contributors" }]
 dependencies = [
     "PyNaCl>=1.5",   # ed25519 signing/verification (minisign-compatible)
     "PyYAML>=6.0",   # regions.yaml, config
+    "requests>=2.28",  # HTTP fetch — needed by the Pi updater (Leg 3) and the builder
 ]
 
 [project.optional-dependencies]
 # Cloud build pipeline (Leg 1) — only needed in CI / on the build host.
 build = [
-    "requests>=2.28",
     "boto3>=1.28",   # R2 upload via the S3 API
 ]
 # Tool-sharing shim (Phase A interim, per data_manager_implementation.md):
