@@ -12,8 +12,11 @@ After=network-online.target
 Type=oneshot
 # A failed/offline update must never be fatal to the aircraft — it just
 # means "no new data", which the DATA annunciation surfaces.
+# NB: ExecStart path is the pyefis-data entry point. With a venv install,
+# symlink it: ln -s ~/pyefis-data-venv/bin/pyefis-data ~/.local/bin/pyefis-data
 ExecStart=%h/.local/bin/pyefis-data update
-ExecStartPost=-/bin/sh -c '%h/.local/bin/pyefis-data status --json > %h/makerplane-data/status.json'
+# Refresh the status JSON the EFIS reads (fixed path, not under the data root).
+ExecStartPost=-%h/.local/bin/pyefis-data status --json --out %h/.makerplane/pyefis/status.json
 
 [Install]
 WantedBy=default.target

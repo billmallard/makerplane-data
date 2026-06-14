@@ -47,6 +47,30 @@ SQLITE_KINDS: dict[str, tuple[str, str]] = {
     "water": ("water", "water.sqlite"),
 }
 
+# Selection policy (what a Pi tracks):
+#   core navdata kinds  -> tracked by default (small, CONUS-wide)
+#   bulk kinds          -> opt-in by region (large, region-grouped)
+BULK_KINDS = ("water", "terrain", "charts")
+
+# Human labels for the on-device status screen.
+KIND_LABELS = {
+    "navdata": "Airports & Runways",
+    "obstacles": "Obstacles",
+    "cifp": "Procedures & Waypoints",
+    "water": "Water",
+    "terrain": "Terrain",
+    "charts": "Charts",
+}
+
+# status -> display severity. Subtle by design: expired/out-of-window is amber,
+# soon-to-expire/missing is white, healthy is none. The EFIS informs; it never
+# restricts (old data with awareness beats no data).
+SEVERITY = {
+    CURRENT: "none", STAGED: "none",
+    EXPIRES: "white", MISSING: "white", UNKNOWN: "white",
+    UPDATE: "amber", EXPIRED: "amber",
+}
+
 
 class VerificationError(Exception):
     """Signature or sha256 mismatch — caller must not install."""
@@ -144,6 +168,23 @@ class PackStatus:
     pack_id: str
     status: str
     detail: str
+    kind: str = ""
+    name: str = ""
+    cycle: str = ""                 # installed cycle, or "" if none
+    expires: str | None = None      # installed cycle's expiry (ISO)
+    days: int | None = None         # days until that expiry (negative if past)
+
+    @property
+    def severity(self) -> str:
+        return SEVERITY.get(self.status, "white")
+
+    def as_dict(self) -> dict:
+        return {
+            "id": self.pack_id, "name": self.name, "kind": self.kind,
+            "status": self.status, "severity": self.severity,
+            "cycle": self.cycle, "expires": self.expires, "days": self.days,
+            "detail": self.detail,
+        }
 
 
 class Updater:
@@ -156,6 +197,7 @@ class Updater:
         self.log = log
         self.inventory = Inventory.load(config.root / "installed.json")
         self.errors: list[str] = []   # verification failures during the last update
+        self.manifest_generated: str | None = None   # set on each fetch
 
     # --- manifest fetch + verify ---
     def _verify(self, raw: bytes, sig: str) -> str:
@@ -175,7 +217,7 @@ class Updater:
             self.config.root.mkdir(parents=True, exist_ok=True)
             cache.write_bytes(raw)
             cache_sig.write_text(sig, encoding="ascii")
-            return Manifest.from_bytes(raw)
+            return self._loaded(raw)
         except VerificationError:
             raise
         except Exception as e:
@@ -183,38 +225,61 @@ class Updater:
                 raw = cache.read_bytes()
                 self._verify(raw, cache_sig.read_text("ascii"))
                 self.log(f"offline: using cached manifest ({type(e).__name__})")
-                return Manifest.from_bytes(raw)
+                return self._loaded(raw)
             raise
+
+    def _loaded(self, raw: bytes) -> Manifest:
+        m = Manifest.from_bytes(raw)
+        self.manifest_generated = m.generated
+        return m
+
+    def _tracked_ids(self, m: Manifest) -> list[str]:
+        """Which pack ids this Pi tracks: all core-navdata kinds by default,
+        plus bulk packs whose region is opted-in, plus any explicit ids."""
+        by_id: dict[str, PackEntry] = {}
+        for e in m.packs:
+            by_id.setdefault(e.id, e)
+        ids = set(self.config.packs)
+        for pid, e in by_id.items():
+            if e.kind in self.config.track_kinds:
+                ids.add(pid)
+            elif e.kind in BULK_KINDS and set(e.regions) & set(self.config.regions):
+                ids.add(pid)
+        return sorted(ids)
 
     # --- status ---
     def status(self) -> list[PackStatus]:
         m = self.fetch_manifest()
-        return [self._status_for(m, pid) for pid in self.config.packs]
+        return [self._status_for(m, pid) for pid in self._tracked_ids(m)]
 
     def _status_for(self, m: Manifest, pid: str) -> PackStatus:
         entries = m.for_id(pid)
+        kind = entries[0].kind if entries else ""
+        name = KIND_LABELS.get(kind, pid)
+        inv = self.inventory.get(pid) or {}
+        installed = inv.get("current", "")
+        inst_entry = next((e for e in entries if e.cycle == installed), None) if installed else None
+        days = inst_entry.days_until_expiry(self.today) if inst_entry else None
+        expires = inst_entry.expires if inst_entry else None
+        status, detail = self._classify(m, pid, entries, inv, installed, inst_entry, days)
+        return PackStatus(pid, status, detail, kind=kind, name=name,
+                          cycle=installed, expires=expires, days=days)
+
+    def _classify(self, m, pid, entries, inv, installed, inst_entry, days):
         if not entries:
-            return PackStatus(pid, UNKNOWN, "not in catalog")
+            return UNKNOWN, "not in catalog"
         cur = m.select(pid, self.today)             # entry whose window covers today
-        inv = self.inventory.get(pid)
-        if not inv or "current" not in inv:
-            return PackStatus(pid, MISSING,
-                              f"available: {cur.cycle}" if cur else "no current cycle")
-        installed = inv["current"]
-        inst_entry = next((e for e in entries if e.cycle == installed), None)
-        if inst_entry is not None:
-            days = inst_entry.days_until_expiry(self.today)
-            if days is not None and days < 0:
-                return PackStatus(pid, EXPIRED, f"{installed} expired {inst_entry.expires}")
+        if not installed:
+            return MISSING, (f"available: {cur.cycle}" if cur else "no current cycle")
+        if days is not None and days < 0:
+            return EXPIRED, f"{installed} expired {inst_entry.expires}"
         if cur and cur.cycle != installed:
             if inv.get("staged") == cur.cycle:
-                return PackStatus(pid, STAGED, f"{cur.cycle} staged (effective {cur.effective})")
-            return PackStatus(pid, UPDATE, f"{installed} -> {cur.cycle}")
-        if inst_entry is not None:
-            days = inst_entry.days_until_expiry(self.today)
-            if days is not None and days <= 7:
-                return PackStatus(pid, EXPIRES, f"{installed} expires {inst_entry.expires} ({days}d)")
-        return PackStatus(pid, CURRENT, installed)
+                return STAGED, f"{cur.cycle} staged (effective {cur.effective})"
+            return UPDATE, f"{installed} -> {cur.cycle}"
+        if days is not None and days <= 7:
+            return EXPIRES, f"{installed} expires {inst_entry.expires} ({days}d)"
+        return CURRENT, installed
 
     # --- install (verify-then-atomic-swap) ---
     def install_pack(self, entry: PackEntry, *, make_current: bool, remote=None) -> Path:
@@ -287,7 +352,7 @@ class Updater:
         m = self.fetch_manifest(remote)
         self.errors = []
         results: list[PackStatus] = []
-        for pid in self.config.packs:
+        for pid in self._tracked_ids(m):
             entries = m.for_id(pid)
             if not entries:
                 results.append(PackStatus(pid, UNKNOWN, "not in catalog"))

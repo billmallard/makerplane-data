@@ -72,6 +72,46 @@ class CountingRemote:
         return self.inner.download(url, dest)
 
 
+def test_selection_navdata_by_kind_bulk_opt_in(tmp_path):
+    """Default tracks core navdata kinds; terrain is opt-in by region."""
+    import datetime as _dt
+    from packtools.manifest import Manifest, PackEntry
+    m = Manifest.new("2026-06-14T00:00:00Z")
+    m.upsert(PackEntry(id="airports-conus", kind="navdata", cycle="2606",
+                       bytes=1, sha256="a"*64, url="u", effective="2026-06-11",
+                       expires="2026-07-09"))
+    m.upsert(PackEntry(id="obstacles-conus", kind="obstacles", cycle="260611",
+                       bytes=1, sha256="a"*64, url="u", effective="2026-06-11",
+                       expires="2026-08-06"))
+    m.upsert(PackEntry(id="terrain-us-west", kind="terrain", cycle="2024ed",
+                       bytes=1, sha256="a"*64, url="u", regions=["us-west"]))
+
+    # Fresh defaults: navdata + obstacles, NOT terrain.
+    cfg = Config(base_url=ORIGIN, root=tmp_path / "pi1")
+    up = Updater(cfg, "x", today=TODAY)
+    assert up._tracked_ids(m) == ["airports-conus", "obstacles-conus"]
+
+    # Opt into the us-west region: terrain joins.
+    cfg2 = Config(base_url=ORIGIN, root=tmp_path / "pi2", regions=("us-west",))
+    up2 = Updater(cfg2, "x", today=TODAY)
+    assert "terrain-us-west" in up2._tracked_ids(m)
+
+
+def test_status_json_is_rich(tmp_path):
+    root, pub = build_store(tmp_path)
+    up = make_updater(tmp_path, pub, remote_root=root)
+    up.update()
+    up2 = make_updater(tmp_path, pub, remote_root=root)
+    rows = {r.pack_id: r for r in up2.status()}
+    a = rows["airports-conus"]
+    assert a.name == "Airports & Runways"
+    assert a.kind == "navdata" and a.cycle == "2606"
+    assert a.severity == "none"
+    d = a.as_dict()
+    assert set(d) >= {"id", "name", "kind", "status", "severity", "cycle",
+                      "expires", "days", "detail"}
+
+
 def test_status_missing_then_current(tmp_path):
     root, pub = build_store(tmp_path)
     up = make_updater(tmp_path, pub, remote_root=root)

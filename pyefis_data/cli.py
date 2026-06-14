@@ -48,6 +48,9 @@ def _replace(cfg: Config, **kw) -> Config:
     return replace(cfg, **kw)
 
 
+_SEV_RANK = {"none": 0, "white": 1, "amber": 2}
+
+
 def cmd_status(args) -> int:
     up = _updater(args)
     try:
@@ -58,16 +61,30 @@ def cmd_status(args) -> int:
         else:
             print(f"ERROR: could not read catalog: {e}", file=sys.stderr)
         return 2
+    worst = max((r.severity for r in rows), key=lambda s: _SEV_RANK.get(s, 1), default="none")
     if args.json:
-        print(json.dumps({
+        doc = json.dumps({
             "ok": True,
-            "generated": None,
+            "generated": up.manifest_generated,
+            "worst": worst,
             "any_attention": any(r.status in _ATTENTION for r in rows),
-            "packs": [{"id": r.pack_id, "status": r.status, "detail": r.detail} for r in rows],
-        }, indent=2))
+            "packs": [r.as_dict() for r in rows],
+        }, indent=2)
+        if args.out:
+            from .config import default_status_path
+            out = Path(args.out) if args.out is not True else default_status_path()
+            out.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out.with_suffix(".json.tmp")
+            tmp.write_text(doc, encoding="utf-8")
+            import os as _os
+            _os.replace(tmp, out)           # atomic: the EFIS never sees a half-written file
+            print(f"wrote {out}")
+        else:
+            print(doc)
     else:
         for r in rows:
-            print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
+            mark = {"amber": "!", "white": "*", "none": " "}.get(r.severity, " ")
+            print(f" {mark} {r.name:<24} {r.status:<18} {r.detail}")
     return 0
 
 
@@ -126,6 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("status", help="show installed vs catalog currency")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--out", nargs="?", const=True, default=None,
+                   help="with --json, write to PATH (default ~/.makerplane/pyefis/status.json)")
     s.set_defaults(func=cmd_status)
 
     u = sub.add_parser("update", help="download + verify + install stale packs")

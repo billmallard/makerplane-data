@@ -15,9 +15,13 @@ from pathlib import Path
 # data.yaml so the same build runs against the r2.dev URL or a staging bucket.
 DEFAULT_BASE_URL = "https://navdata.aerocommons.org"
 
-# What a typical US deployment tracks out of the box.
-DEFAULT_PACKS = ["airports-conus", "obstacles-conus"]
-DEFAULT_REGIONS = ["conus"]
+# Selection policy. A fresh Pi tracks all CORE NAVDATA kinds automatically
+# (small, CONUS-wide, everyone wants them) and no bulk packs — terrain/charts
+# are opt-in by region. `packs` adds explicit ids on top; nothing here ever
+# forces a bulk download or restricts what the EFIS may use.
+DEFAULT_TRACK_KINDS = ("navdata", "obstacles", "cifp")
+DEFAULT_PACKS: tuple[str, ...] = ()      # explicit extra ids (none by default)
+DEFAULT_REGIONS: tuple[str, ...] = ()    # opted-in bulk regions (none by default)
 
 
 def _default_root() -> Path:
@@ -28,12 +32,20 @@ def _default_config_path() -> Path:
     return Path(os.path.expanduser("~/.makerplane/pyefis/data.yaml"))
 
 
+# Fixed, well-known path for the status JSON the EFIS reads. Deliberately NOT
+# under the data root (which may live on a separate disk, e.g. /data on the
+# M.2) so pyEfis can find it without knowing where the data lives.
+def default_status_path() -> Path:
+    return Path(os.path.expanduser("~/.makerplane/pyefis/status.json"))
+
+
 @dataclass(frozen=True)
 class Config:
     base_url: str = DEFAULT_BASE_URL
     root: Path = field(default_factory=_default_root)
-    packs: tuple[str, ...] = tuple(DEFAULT_PACKS)
-    regions: tuple[str, ...] = tuple(DEFAULT_REGIONS)
+    track_kinds: tuple[str, ...] = DEFAULT_TRACK_KINDS  # core kinds tracked automatically
+    packs: tuple[str, ...] = DEFAULT_PACKS              # explicit extra pack ids
+    regions: tuple[str, ...] = DEFAULT_REGIONS          # opted-in bulk regions
     auto_update: bool = True
     stage_next: bool = True          # pre-download the next cycle before it's effective
     storage_budget_gb: float | None = None
@@ -69,6 +81,8 @@ class Config:
             kw["base_url"] = data["base_url"]
         if isinstance(data.get("root"), str):
             kw["root"] = Path(os.path.expanduser(data["root"]))
+        if isinstance(data.get("track_kinds"), list):
+            kw["track_kinds"] = tuple(str(x) for x in data["track_kinds"])
         if isinstance(data.get("packs"), list):
             kw["packs"] = tuple(str(x) for x in data["packs"])
         if isinstance(data.get("regions"), list):

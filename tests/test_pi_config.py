@@ -8,7 +8,11 @@ from pyefis_data.config import Config, DEFAULT_BASE_URL
 def test_defaults_when_no_file(tmp_path):
     cfg = Config.load(tmp_path / "nope.yaml")
     assert cfg.base_url == DEFAULT_BASE_URL
-    assert "airports-conus" in cfg.packs
+    # Selection is kind-driven now: core navdata tracked, no explicit packs,
+    # no bulk regions opted in.
+    assert set(cfg.track_kinds) == {"navdata", "obstacles", "cifp"}
+    assert cfg.packs == ()
+    assert cfg.regions == ()
     assert cfg.manifest_url.endswith("/manifest.json")
     assert cfg.sig_url.endswith("/manifest.json.minisig")
     assert cfg.pack_url("airports-conus-2606.pack").endswith(
