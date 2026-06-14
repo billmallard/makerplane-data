@@ -115,7 +115,7 @@
     <div class="howto">
       <h3>How to use these on the Pi</h3>
       <ol>
-        <li><b>Over the air (simplest):</b> on the device run <code>pyefis-data update</code> &mdash; it pulls and verifies everything you&rsquo;ve opted into. No download here needed.</li>
+        <li><b>Over the air (simplest):</b> on the device run <code>pyefis-data update</code> &mdash; it pulls and verifies everything you&rsquo;ve opted into, then stages the next cycle. No download here needed. <b>What it downloads is set by one config file on the Pi</b>, <span class="mono">~/.makerplane/pyefis/data.yaml</span>: the core navigation data is tracked automatically, while terrain, water and road regions are opt-in. Start from the <a href="data.yaml.sample" download="data.yaml">sample&nbsp;<span class="mono">data.yaml</span></a> &mdash; it documents every setting &mdash; put it at that path, list the <span class="mono">regions</span> you fly, and run <code>pyefis-data update</code>.</li>
         <li><b>USB / offline (hangar with no Wi-Fi):</b> select packs above, click <b>Download selected</b> &mdash; it grabs the packs plus the signed <span class="mono">manifest.json</span> and <span class="mono">manifest.json.minisig</span>. Put them all in a folder named <span class="mono">makerplane-data/</span> on a USB stick, plug it into the Pi, and it imports and verifies automatically (or run <code>pyefis-data import /path/to/makerplane-data</code>).</li>
       </ol>
     </div>

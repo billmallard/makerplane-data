@@ -1,0 +1,45 @@
+# MakerPlane navigation-data updater config
+# Install at:  ~/.makerplane/pyefis/data.yaml   (on the Pi running pyEfis)
+#
+# This file controls what the over-the-air updater downloads. It is OPTIONAL:
+# with no file present, a fresh Pi automatically tracks the core navigation
+# data (airports, obstacles, procedures) and downloads nothing bulky. Edit
+# this file to opt into terrain / water / road regions.
+#
+# Apply changes with:   pyefis-data update
+# See what's installed:  pyefis-data status
+# A typo here never breaks anything -- unreadable config falls back to the
+# defaults shown below.
+
+# Where the catalog and packs are fetched from. Leave as-is for the public
+# AeroCommons mirror.
+base_url: https://navdata.aerocommons.org
+
+# Where packs are installed on the device. Point this at a disk with room --
+# terrain regions are several GB each. (The bench units use the M.2 at /data.)
+root: /data/makerplane-data
+
+# === What to download =======================================================
+#
+# 1) track_kinds -- kinds pulled AUTOMATICALLY (small, nationwide core data).
+#    Omit this line to accept the default: [navdata, obstacles, cifp]
+track_kinds: [navdata, obstacles, cifp]
+
+# 2) regions -- the opt-in list for the BULK kinds (terrain, water, charts,
+#    highways). A bulk pack is downloaded ONLY if one of its regions appears
+#    here. Empty (or omitted) = no bulk downloads at all.
+#    Example: pull west-coast terrain plus the nationwide roads pack
+#    (highways-conus is tagged region "conus"):
+#
+# regions: [us-west, conus]
+regions: []
+
+# 3) packs -- explicit pack ids to ALWAYS install, by id, regardless of the
+#    rules above. Use this to pin exactly the packs you want.
+#
+# packs: [airports-conus, obstacles-conus]
+
+# === Behaviour ==============================================================
+auto_update: true     # let the systemd timer refresh on the FAA cycle
+stage_next: true      # pre-download the next AIRAC cycle before it takes effect
+# storage_budget_gb: 64   # optional cap; updater skips bulk packs over budget
