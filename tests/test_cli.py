@@ -63,3 +63,21 @@ def test_build_pack_noncyclical_requires_cycle(tmp_path):
         cli.main(["build-pack", str(src), "--id", "terrain-na", "--kind", "terrain",
                   "--date", "2026-06-14", "--sec", str(keys / "minisign.sec"),
                   "--out", str(tmp_path / "w")])
+
+
+def test_build_pack_noncyclical_cycle_only_ok(tmp_path):
+    # --cycle alone is sufficient for a non-cyclical kind (water/terrain/highways);
+    # no --effective needed. Regression for the build-pack && bug.
+    keys = tmp_path / "keys"
+    cli.main(["genkey", "--out", str(keys)])
+    src = tmp_path / "w.sqlite"
+    _make_sqlite(src)
+    out = tmp_path / "out"
+    rc = cli.main(["build-pack", str(src), "--id", "water-conus", "--kind", "water",
+                   "--cycle", "2026q2", "--attribution", "OSM ODbL", "--regions", "conus",
+                   "--date", "2026-06-14", "--sec", str(keys / "minisign.sec"), "--out", str(out)])
+    assert rc == 0
+    from packtools.manifest import Manifest
+    m = Manifest.read(out / "manifest.json")
+    e = next(p for p in m.packs if p.id == "water-conus")
+    assert e.cycle == "2026q2" and e.effective is None     # non-cyclical entry

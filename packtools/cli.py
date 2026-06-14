@@ -64,17 +64,19 @@ def cmd_build_pack(args) -> int:
     if not src.exists():
         raise SystemExit(f"source not found: {src}")
 
-    # Resolve the cycle + currency window.
-    if args.cycle and args.effective:
-        cycle, effective = args.cycle, args.effective
+    # Resolve the cycle + currency window. An explicit --cycle is enough
+    # (non-cyclical kinds like water/terrain/highways have no effective/expires);
+    # otherwise auto-compute from the kind's cadence.
+    if args.cycle:
+        cycle = args.cycle
+        effective = args.effective
         expires = args.expires
     else:
         cadence = _KIND_CADENCE.get(args.kind)
         if cadence is None:
-            raise SystemExit(f"kind {args.kind!r} is non-cyclical; pass --cycle (and "
-                             f"--effective/--expires if dated) explicitly")
+            raise SystemExit(f"kind {args.kind!r} is non-cyclical; pass --cycle explicitly")
         cur, _nxt = cycles.current_and_next(cadence, today=date)
-        cycle = args.cycle or cur.cycle
+        cycle = cur.cycle
         effective = cur.effective.isoformat()
         expires = cur.expires.isoformat()
 
