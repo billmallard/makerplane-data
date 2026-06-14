@@ -102,8 +102,20 @@ def cmd_build_pack(args) -> int:
                                 regions=args.regions or [],
                                 min_pyefis=args.min_pyefis)
     print(f"sha256 {entry.sha256}  bytes {entry.bytes:,}")
+    sk = _load_secret(args)
 
-    # Load-or-create the manifest, upsert, prune, write.
+    # --upload: push to R2 and re-sign the live manifest (adds this pack
+    # alongside whatever is already published). Used for water and one-offs.
+    if args.upload:
+        from .upload import R2Store
+        from .publish import publish
+        store = R2Store.from_env(args.bucket)
+        publish(store, sk, [(entry, pack_path)], generated=_utc_stamp(date),
+                sign=signing.sign, comment=f"{args.id} {cycle}")
+        print(f"uploaded {pack_path.name} -> R2, manifest re-signed")
+        return 0
+
+    # Otherwise write a local signed manifest (dev / staging).
     manifest_path = out_dir / "manifest.json"
     if manifest_path.exists():
         m = Manifest.read(manifest_path)
@@ -115,9 +127,6 @@ def cmd_build_pack(args) -> int:
     m.prune_old_cycles(keep=args.keep)
     m.write(manifest_path)
     print(f"wrote {manifest_path} ({len(m.packs)} pack(s))")
-
-    # Sign the manifest.
-    sk = _load_secret(args)
     sig = signing.sign_file(manifest_path, sk,
                             trusted_comment=f"generated {date.isoformat()}")
     print(f"signed -> {sig}")
@@ -184,6 +193,8 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--keep", type=int, default=2)
     b.add_argument("--date", help="treat this ISO date as 'today' (reproducible builds)")
     b.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    b.add_argument("--upload", action="store_true", help="upload to R2 + re-sign the live manifest")
+    b.add_argument("--bucket", default="makerplane-data")
     b.set_defaults(func=cmd_build_pack)
 
     v = sub.add_parser("verify", help="verify a signed manifest")

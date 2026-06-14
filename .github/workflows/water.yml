@@ -1,18 +1,56 @@
 name: water-packs
 
-# OSM/Natural-Earth water packs change slowly (quarterly is plenty).
-# Manual dispatch for now; the water source + builder land in Phase B.2
-# (pyEfis tools/build_water_db.py + fetch_geofabrik_water.py).
+# Build the SVS water-polygon database (OSM inland water via Geofabrik +
+# OSM/Natural-Earth coastline) and upload it as a signed `water` sqlite pack.
+#
+# Unlike terrain (too big for a runner — workstation only), water is small
+# enough to build entirely in CI for modest scopes. Full CONUS is a large
+# multi-GB Geofabrik download; prefer a workstation or a self-hosted runner
+# for that, or split by state group.
 on:
   workflow_dispatch:
+    inputs:
+      states:
+        description: "Geofabrik states (e.g. 'texas' or 'conus')"
+        default: "texas"
+      cycle:
+        description: "Edition tag"
+        default: "2026q2"
+
+env:
+  PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
+  PYEFIS_REF:  ${{ vars.PYEFIS_REF  || 'gpu-required' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          echo "Water pack build is not yet wired (Phase B.2)."
-          echo "Plan: register a 'water-<region>' source in packtools/sources.py,"
-          echo "add a 'water' builder shim around pyEfis build_water_db.py, then"
-          echo "reuse the same run_cyclical orchestration on a quarterly cron."
-          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PYEFIS_REPO }}
+          ref: ${{ env.PYEFIS_REF }}
+          path: pyefis-src
+      - run: pip install -e .[build] pyshp
+
+      - name: Fetch + build water.sqlite (pyEfis tools)
+        run: |
+          python pyefis-src/tools/fetch_geofabrik_water.py --states "${{ inputs.states }}"
+          # produces water.sqlite via build_water_db (see the tool's --help for
+          # the ocean coastline extract it expects)
+
+      - name: Pack + upload (signed)
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          python -m packtools.cli build-pack water.sqlite \
+            --id water-conus --kind water --cycle "${{ inputs.cycle }}" \
+            --attribution "OpenStreetMap contributors (ODbL); Natural Earth" \
+            --regions conus --url-base https://navdata.aerocommons.org/packs \
+            --upload --bucket makerplane-data

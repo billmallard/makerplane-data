@@ -115,23 +115,11 @@ def make_terrain_packs(*, src_root: str | Path, out_dir: str | Path,
 def update_manifest(store, secret, packs: list[TerrainPack], *,
                     generated: str, sign, log=print) -> Manifest:
     """Upsert terrain entries into the manifest in ``store`` and re-sign.
-
-    Loads the existing (navdata) manifest so terrain is *added* alongside it,
-    not replacing it. ``sign`` is packtools.signing.sign.
-    """
-    from .run_cyclical import MANIFEST_KEY, SIG_KEY
-    raw = store.get_bytes(MANIFEST_KEY)
-    m = Manifest.from_bytes(raw) if raw else Manifest.new(generated)
-    m.generated = generated
-    for tp in packs:
-        store.put_file(f"packs/{tp.path.name}", tp.path, content_type="application/zip")
-        m.upsert(tp.entry)
-    raw = m.to_bytes()
-    store.put_bytes(MANIFEST_KEY, raw, content_type="application/json")
-    store.put_bytes(SIG_KEY, sign(raw, secret, trusted_comment=f"terrain {generated}").encode("ascii"),
-                    content_type="text/plain")
-    log(f"manifest: {len(m.packs)} pack(s), +{len(packs)} terrain, signed + uploaded")
-    return m
+    Adds terrain alongside whatever is already published (navdata, water)."""
+    from .publish import publish
+    return publish(store, secret, [(tp.entry, tp.path) for tp in packs],
+                   generated=generated, sign=sign,
+                   comment=f"terrain {generated}", log=log)
 
 
 def _now_stamp(today: _dt.date | None = None) -> str:

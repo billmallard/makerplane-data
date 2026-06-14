@@ -186,9 +186,11 @@ refused, offline-cache, idempotent re-run, and USB import are all unit-tested
   (`packtool make-terrain`), served from R2, pulled + verified on the Pi, read
   by the SVS. See [docs/terrain.md](docs/terrain.md). **Phase F** (boot Data
   Status screen + PFD DATA flag) is also done and on the Pi.
-- **Water pipeline** (`water.yml` is a dispatch stub) → Phase B.2.
-  **The website / pack-picker** → Phase E. **CIFP** packs → deferred (GPL
-  indexer in pyAvTools).
+- **Water (coastlines/lakes)** — a single sqlite pack (`kind: water`); build
+  with `build-pack --upload`, served + consumed like navdata. ODbL
+  attribution required. See [docs/water.md](docs/water.md) and `water.yml`
+  (CI-buildable for modest scopes). **The website / pack-picker** → Phase E.
+  **CIFP** packs → deferred (GPL indexer in pyAvTools).
 
 ## Data licensing
 
