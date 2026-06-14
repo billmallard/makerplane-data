@@ -52,6 +52,10 @@ SQLITE_KINDS: dict[str, tuple[str, str]] = {
 #   bulk kinds          -> opt-in by region (large, region-grouped)
 BULK_KINDS = ("water", "terrain", "charts")
 
+# Zip "tile" packs that are unzipped and merged into a shared tile tree
+# (vs. sqlite packs that are swapped via the current symlink).
+TILE_KINDS = ("terrain",)
+
 # Human labels for the on-device status screen.
 KIND_LABELS = {
     "navdata": "Airports & Runways",
@@ -283,10 +287,11 @@ class Updater:
 
     # --- install (verify-then-atomic-swap) ---
     def install_pack(self, entry: PackEntry, *, make_current: bool, remote=None) -> Path:
+        if entry.kind in TILE_KINDS:
+            return self._install_tile_pack(entry, remote=remote)
         if entry.kind not in SQLITE_KINDS:
             raise NotImplementedError(
-                f"installing kind {entry.kind!r} is not supported yet "
-                f"(terrain/cifp land in later phases)")
+                f"installing kind {entry.kind!r} is not supported yet")
         remote = remote or self.remote
         subdir, filename = SQLITE_KINDS[entry.kind]
         root = self.config.root
@@ -311,6 +316,49 @@ class Updater:
         if make_current:
             self._flip_current(root / subdir, entry.cycle)
         return final
+
+    def _install_tile_pack(self, entry: PackEntry, remote=None) -> Path:
+        """Install a zip tile pack (terrain): verify, then unzip-merge the HGT
+        tree into terrain/tiles/. Tiles union across region packs into one
+        tree the SVS reads; there is no current-symlink (tiles aren't
+        versioned). Verify-then-extract keeps a bad download out of the tree."""
+        remote = remote or self.remote
+        root = self.config.root
+        staging = root / "staging"
+        staging.mkdir(parents=True, exist_ok=True)
+        part = staging / f"{entry.id}-{entry.cycle}.pack"
+
+        self.log(f"  download {entry.id} {entry.cycle} ({entry.bytes:,} B)")
+        remote.download(entry.url, part)
+        got = signing.sha256_file(part)
+        if got != entry.sha256:
+            part.unlink(missing_ok=True)
+            raise VerificationError(
+                f"sha256 mismatch for {entry.id} {entry.cycle}: "
+                f"expected {entry.sha256[:12]}…, got {got[:12]}…")
+
+        tiles_dir = root / "terrain" / "tiles"
+        tiles_dir.mkdir(parents=True, exist_ok=True)
+        import zipfile
+        with zipfile.ZipFile(part) as z:
+            for member in z.namelist():
+                if member.endswith("/") or member == "pack_meta.json":
+                    continue
+                z.extract(member, tiles_dir)   # zipfile sanitizes path traversal
+        part.unlink(missing_ok=True)
+        self._record_terrain_region(entry)
+        return tiles_dir
+
+    def _record_terrain_region(self, entry: PackEntry) -> None:
+        """Track which terrain regions/edition are merged into the tile tree."""
+        f = self.config.root / "terrain" / "tiles" / ".regions.json"
+        try:
+            data = json.loads(f.read_text())
+        except Exception:
+            data = {}
+        for region in (entry.regions or [entry.id]):
+            data[region] = entry.cycle
+        f.write_text(json.dumps(data, indent=2, sort_keys=True))
 
     def _flip_current(self, kind_dir: Path, cycle: str) -> None:
         """Atomically point ``<kind_dir>/current`` at the ``cycle`` subdir.

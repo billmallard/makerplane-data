@@ -140,6 +140,26 @@ def cmd_verify(args) -> int:
     return 0
 
 
+def cmd_make_terrain(args) -> int:
+    from . import make_terrain
+    packs = make_terrain.make_terrain_packs(
+        src_root=args.source, out_dir=args.out, edition=args.edition,
+        url_base=args.url_base, regions_path=args.regions,
+        only_regions=args.only or None, compress=not args.no_compress)
+    if not packs:
+        return 1
+    if args.upload:
+        from .upload import R2Store
+        store = R2Store.from_env(args.bucket)
+        secret = _load_secret(args)
+        make_terrain.update_manifest(store, secret, packs,
+                                     generated=make_terrain._now_stamp(), sign=signing.sign)
+    else:
+        print(f"built {len(packs)} pack(s) under {args.out}/packs "
+              f"(not uploaded; pass --upload with R2_* env + a key)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="packtool")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -170,6 +190,19 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("manifest")
     v.add_argument("--pub", default="keys/minisign.pub")
     v.set_defaults(func=cmd_verify)
+
+    t = sub.add_parser("make-terrain", help="build terrain packs from an HGT tile tree")
+    t.add_argument("source", help="root of the HGT tile tree (e.g. .../glo30hgt)")
+    t.add_argument("--edition", required=True, help="edition tag, e.g. 2024ed")
+    t.add_argument("--regions", help="regions.yaml path (default: repo regions.yaml)")
+    t.add_argument("--only", nargs="*", help="limit to these region keys")
+    t.add_argument("--out", default="work")
+    t.add_argument("--url-base", default=_DEFAULT_URL_BASE)
+    t.add_argument("--no-compress", action="store_true", help="store uncompressed (faster)")
+    t.add_argument("--upload", action="store_true", help="upload to R2 + update the manifest")
+    t.add_argument("--bucket", default="makerplane-data")
+    t.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    t.set_defaults(func=cmd_make_terrain)
 
     return ap
 
