@@ -112,6 +112,21 @@ def test_status_json_is_rich(tmp_path):
                       "expires", "days", "detail"}
 
 
+def test_update_refreshes_status_doc(tmp_path):
+    """`update` must leave a fresh status doc (this is what flips the EFIS
+    boot screen amber->green after a manual Update)."""
+    root, pub = build_store(tmp_path)
+    up = make_updater(tmp_path, pub, remote_root=root)
+    up.update()
+    doc = cli._status_doc(up)
+    assert doc["ok"] and doc["worst"] == "none"        # all current after install
+    assert {p["id"] for p in doc["packs"]} == {"airports-conus", "obstacles-conus"}
+    out = tmp_path / "sj.json"
+    cli._write_status_json(doc, out)
+    import json
+    assert json.loads(out.read_text())["packs"][0]["severity"] in ("none", "white", "amber")
+
+
 def test_status_missing_then_current(tmp_path):
     root, pub = build_store(tmp_path)
     up = make_updater(tmp_path, pub, remote_root=root)

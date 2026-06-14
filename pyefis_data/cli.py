@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -51,40 +52,48 @@ def _replace(cfg: Config, **kw) -> Config:
 _SEV_RANK = {"none": 0, "white": 1, "amber": 2}
 
 
+def _status_doc(up) -> dict:
+    rows = up.status()
+    worst = max((r.severity for r in rows), key=lambda s: _SEV_RANK.get(s, 1), default="none")
+    return {
+        "ok": True,
+        "generated": up.manifest_generated,
+        "worst": worst,
+        "any_attention": any(r.status in _ATTENTION for r in rows),
+        "packs": [r.as_dict() for r in rows],
+    }
+
+
+def _write_status_json(doc: dict, path) -> Path:
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    os.replace(tmp, out)            # atomic: the EFIS never sees a half-written file
+    return out
+
+
 def cmd_status(args) -> int:
     up = _updater(args)
     try:
-        rows = up.status()
+        doc = _status_doc(up)
     except Exception as e:
         if args.json:
             print(json.dumps({"ok": False, "error": str(e), "packs": []}))
         else:
             print(f"ERROR: could not read catalog: {e}", file=sys.stderr)
         return 2
-    worst = max((r.severity for r in rows), key=lambda s: _SEV_RANK.get(s, 1), default="none")
     if args.json:
-        doc = json.dumps({
-            "ok": True,
-            "generated": up.manifest_generated,
-            "worst": worst,
-            "any_attention": any(r.status in _ATTENTION for r in rows),
-            "packs": [r.as_dict() for r in rows],
-        }, indent=2)
         if args.out:
             from .config import default_status_path
-            out = Path(args.out) if args.out is not True else default_status_path()
-            out.parent.mkdir(parents=True, exist_ok=True)
-            tmp = out.with_suffix(".json.tmp")
-            tmp.write_text(doc, encoding="utf-8")
-            import os as _os
-            _os.replace(tmp, out)           # atomic: the EFIS never sees a half-written file
-            print(f"wrote {out}")
+            out = default_status_path() if args.out is True else Path(args.out)
+            print(f"wrote {_write_status_json(doc, out)}")
         else:
-            print(doc)
+            print(json.dumps(doc, indent=2))
     else:
-        for r in rows:
-            mark = {"amber": "!", "white": "*", "none": " "}.get(r.severity, " ")
-            print(f" {mark} {r.name:<24} {r.status:<18} {r.detail}")
+        for p in doc["packs"]:
+            mark = {"amber": "!", "white": "*", "none": " "}.get(p["severity"], " ")
+            print(f" {mark} {p['name']:<24} {p['status']:<18} {p['detail']}")
     return 0
 
 
@@ -93,6 +102,15 @@ def cmd_update(args) -> int:
     rows = up.update(dry_run=args.dry_run)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
+    # Refresh the status JSON the EFIS reads, so the boot screen / DATA flag
+    # reflect the result of this update (this is why a manual Update on the
+    # device flips amber -> green without a separate `status` call).
+    if not args.dry_run:
+        try:
+            from .config import default_status_path
+            _write_status_json(_status_doc(up), default_status_path())
+        except Exception as e:
+            print(f"(could not refresh status.json: {e})", file=sys.stderr)
     if up.errors:
         print(f"FAILED: {len(up.errors)} verification error(s); current data left untouched",
               file=sys.stderr)
