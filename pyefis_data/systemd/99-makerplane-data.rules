@@ -1,0 +1,8 @@
+# udev rule — installs to /etc/udev/rules.d/99-makerplane-data.rules
+# Fires when a USB stick with a mountable filesystem is plugged in, launching
+# the templated import service for that partition (the Garmin-card path for
+# hangars without WiFi). The service checks for makerplane-data/ and ignores
+# any stick that doesn't carry one.
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", \
+  ENV{ID_FS_USAGE}=="filesystem", TAG+="systemd", \
+  ENV{SYSTEMD_WANTS}="makerplane-usb-import@%k.service"

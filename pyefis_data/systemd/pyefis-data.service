@@ -1,0 +1,19 @@
+# systemd USER unit — installs to ~/.config/systemd/user/pyefis-data.service
+# Runs one update pass, then refreshes the status JSON the EFIS reads.
+#
+#   systemctl --user enable --now pyefis-data.timer
+#
+[Unit]
+Description=MakerPlane navigation-data update
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# A failed/offline update must never be fatal to the aircraft — it just
+# means "no new data", which the DATA annunciation surfaces.
+ExecStart=%h/.local/bin/pyefis-data update
+ExecStartPost=-/bin/sh -c '%h/.local/bin/pyefis-data status --json > %h/makerplane-data/status.json'
+
+[Install]
+WantedBy=default.target

@@ -9,10 +9,11 @@ This repo covers **reference-data currency only** — terrain, airports,
 obstacles, instrument procedures, water, charts. It is *not* the runtime
 flight-data bus; that contract lives in `canfix.json` / FIX-Gateway.
 
-> Status: **Phase A** (the data contract) ✅ and **Phase B** (the build
-> pipeline) ✅ — code complete and proven end-to-end against live FAA data.
-> The only thing not yet live is the R2 upload target (awaiting the
-> Cloudflare account/bucket). See
+> Status: **Phases A, B, C complete** ✅ — the data contract, the daily build
+> pipeline (live on Cloudflare R2 at `navdata.aerocommons.org`), and the on-Pi
+> updater, all proven end-to-end against live FAA data and the production
+> origin. Remaining: terrain/CIFP/water packs (B.2/D), the website (E), the
+> in-EFIS DATA flag (F). See
 > [docs/data_manager_implementation.md](docs/data_manager_implementation.md)
 > for the full phase plan (A–G).
 
@@ -51,7 +52,7 @@ needs the offline secret key. The Pi treats **any** verification failure as
 |---|---|---|---|
 | `packtools/` | 1 | A/B | pack builder: cycles, signing, pack_meta, manifest, regions, sources, fetch, build, upload, orchestrator, CLI |
 | `.github/workflows/` | 1/2 | B | `ci.yml` (tests + dry-run), `cyclical.yml` (daily build+sign+upload), water/terrain dispatch stubs |
-| `pyefis_data/` | 3 | C | on-Pi updater CLI (status / update / import) |
+| `pyefis_data/` | 3 | C | on-Pi updater: config, core (Remote/Inventory/Updater), CLI, systemd units |
 | `site/` | 2 | E | static Cloudflare Pages dashboard + region picker |
 | `regions.yaml` | — | A | region bboxes for terrain grouping & Pi region-of-interest |
 | `keys/minisign.pub` | — | A | signing public key (committed; secret never is) |
@@ -133,6 +134,40 @@ python -m packtools.run_cyclical --no-upload --only airports-conus \
     --sec keys/minisign.sec --work work/live
 ```
 
+## Phase C — the on-Pi updater (Leg 3)
+
+`pyefis-data` keeps a Pi 5 current. It shares `packtools.signing` /
+`packtools.manifest` with the build side, so verify can never drift from sign.
+
+- **`config.py`** — `~/.makerplane/pyefis/data.yaml` (base_url, packs, root,
+  auto_update, stage_next). Construct-never-raises: a missing/bad config yields
+  defaults, never an exception.
+- **`core.py`** — `Updater` with the safety contract: the manifest signature is
+  verified (embedded public key) *before* it's trusted or cached; a pack is
+  downloaded to `staging/`, **sha256-verified against the signed manifest, then
+  moved into place and `current` atomically symlink-flipped** — a bad
+  download/signature can never disturb the live data. Offline falls back to the
+  last good (still-verified) cached manifest. Pre-stages the next AIRAC cycle so
+  rollover is seamless.
+- **`cli.py`** — `pyefis-data status [--json] | update | import <dir> | verify`,
+  with the production public key embedded.
+- **`systemd/`** — user service + daily timer, and a udev rule + templated
+  service for the USB-stick import path (hangars without WiFi).
+
+```bash
+pyefis-data verify                 # check the live manifest signature
+pyefis-data status                 # installed vs catalog, per-pack currency
+pyefis-data update                 # pull stale packs, verify, atomic-swap
+pyefis-data import /media/usb/makerplane-data   # same verify path, offline
+```
+
+Proven against the **live production origin**: `verify` validates the signed
+manifest with the embedded key; `update` pulls airports current+next from R2,
+verifies sha256, installs the real 19,407-airport sqlite, and pre-stages the
+next cycle. Verify-then-swap, bad-sha-leaves-current-untouched, bad-signature-
+refused, offline-cache, idempotent re-run, and USB import are all unit-tested
+(75 tests total).
+
 ## What's deliberately *not* done yet
 
 - **R2 is LIVE and publicly served.** The daily pipeline builds + signs +
@@ -148,7 +183,8 @@ python -m packtools.run_cyclical --no-upload --only airports-conus \
   (`PYEFIS_TOOLS_DIR`); the standalone `pyefis-tools` package is a later
   refactor.
 - **Water/terrain pipelines** (`water.yml`/`terrain.yml` are dispatch stubs)
-  → Phases B.2 / D. **The Pi updater and website** → Phases C and E.
+  → Phases B.2 / D. **The website** → Phase E. **The in-EFIS DATA
+  annunciation** (pyEfis reads `status.json`) → Phase F.
 
 ## Data licensing
 

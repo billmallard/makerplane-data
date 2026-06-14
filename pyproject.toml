@@ -41,7 +41,11 @@ pyefis-data = "pyefis_data.cli:main"
 packtool = "packtools.cli:main"
 
 [tool.setuptools]
-packages = ["packtools", "pyefis_data"]
+packages = ["packtools", "packtools.build", "pyefis_data"]
+
+[tool.setuptools.package-data]
+# Ship the systemd/udev units so a Pi install can reference them directly.
+pyefis_data = ["systemd/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

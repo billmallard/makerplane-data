@@ -1,0 +1,13 @@
+# systemd USER timer — installs to ~/.config/systemd/user/pyefis-data.timer
+# Daily check for fresh data when the network is up. Randomized so a fleet
+# of aircraft doesn't hit the origin at the same second.
+[Unit]
+Description=Daily MakerPlane navigation-data update
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

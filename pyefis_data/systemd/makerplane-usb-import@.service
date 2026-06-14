@@ -1,0 +1,14 @@
+# systemd SYSTEM template unit — installs to
+#   /etc/systemd/system/makerplane-usb-import@.service
+# Instantiated per-partition by the udev rule (e.g. ...@sdb1.service).
+# Mounts the stick read-only, runs the import as the pyefis user, unmounts.
+[Unit]
+Description=MakerPlane USB data import for /dev/%I
+After=dev-%i.device
+BindsTo=dev-%i.device
+
+[Service]
+Type=oneshot
+# PYEFIS_USER is the account that owns ~/makerplane-data (default: pi/pyefis).
+Environment=PYEFIS_USER=pyefis
+ExecStart=/usr/local/lib/makerplane/usb-import.sh %I
