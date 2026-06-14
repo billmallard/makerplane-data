@@ -45,12 +45,13 @@ SQLITE_KINDS: dict[str, tuple[str, str]] = {
     "navdata": ("navdata", "airports.sqlite"),
     "obstacles": ("obstacles", "obstacles.sqlite"),
     "water": ("water", "water.sqlite"),
+    "highways": ("highways", "highways.sqlite"),
 }
 
 # Selection policy (what a Pi tracks):
 #   core navdata kinds  -> tracked by default (small, CONUS-wide)
 #   bulk kinds          -> opt-in by region (large, region-grouped)
-BULK_KINDS = ("water", "terrain", "charts")
+BULK_KINDS = ("water", "terrain", "charts", "highways")
 
 # Zip "tile" packs that are unzipped and merged into a shared tile tree
 # (vs. sqlite packs that are swapped via the current symlink).
@@ -64,6 +65,7 @@ KIND_LABELS = {
     "water": "Water",
     "terrain": "Terrain",
     "charts": "Charts",
+    "highways": "Roads & Highways",
 }
 
 # status -> display severity. Subtle by design: expired/out-of-window is amber,
