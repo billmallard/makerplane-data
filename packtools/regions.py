@@ -15,8 +15,9 @@ from pathlib import Path
 
 import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_REGIONS = _REPO_ROOT / "regions.yaml"
+# Ships inside the package so make-terrain works from any install (not just a
+# repo checkout).
+_DEFAULT_REGIONS = Path(__file__).resolve().parent / "regions.yaml"
 
 _TILE_RE = re.compile(r"^([NS])(\d{2})([EW])(\d{3})")
 

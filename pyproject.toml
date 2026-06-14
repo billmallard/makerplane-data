@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "makerplane-data"
-version = "0.1.2"
+version = "0.1.3"
 description = "Garmin-style navigation-data currency system for pyEfis / MakerPlane avionics"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,6 +46,8 @@ packages = ["packtools", "packtools.build", "pyefis_data"]
 [tool.setuptools.package-data]
 # Ship the systemd/udev units so a Pi install can reference them directly.
 pyefis_data = ["systemd/*"]
+# Ship regions.yaml so make-terrain works from an install, not just a checkout.
+packtools = ["regions.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
