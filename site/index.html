@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Navigation Data &middot; AeroCommons / MakerPlane</title>
+<link rel="icon" href="assets/aerocommons-logo.svg">
+<style>
+  :root {
+    --navy: #152238; --navy2: #1F3151; --orange: #E8702A; --mpred: #B3231F;
+    --ink: #1c2430; --muted: #5d6675; --line: #e6e8ec; --bg: #ffffff;
+    --amber: #b8860b; --green: #2e7d4f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  a { color: var(--orange); }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 22px; }
+
+  header.site { border-bottom: 1px solid var(--line); }
+  .brandbar { display: flex; align-items: center; gap: 26px; padding: 22px 0 20px; flex-wrap: wrap; }
+  .brandbar img.mp { height: 46px; }
+  .brandbar .ac { display: flex; align-items: center; gap: 11px; }
+  .brandbar .ac img { height: 44px; }
+  .brandbar .ac .name { font-weight: 700; color: var(--navy); letter-spacing: .2px; font-size: 19px; }
+  .brandbar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 4px 0; }
+  .lede { padding: 4px 0 26px; }
+  .lede h1 { margin: 0 0 6px; font-size: 27px; color: var(--navy); }
+  .lede p { margin: 0; color: var(--muted); font-size: 17px; }
+
+  main { padding: 30px 0 10px; }
+  section { margin-bottom: 44px; }
+  h2 { font-size: 21px; color: var(--navy); margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+
+  .group { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+  .group > h3 { margin: 0; padding: 13px 18px; background: #fafbfc; border-bottom: 1px solid var(--line);
+    font-size: 16px; color: var(--navy); display: flex; align-items: baseline; gap: 10px; }
+  .group > h3 small { font-weight: 400; color: var(--muted); font-size: 13px; }
+  .pack { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-top: 1px solid var(--line); }
+  .pack:first-of-type { border-top: 0; }
+  .pack input { width: 17px; height: 17px; accent-color: var(--orange); flex: none; }
+  .pack .meta { flex: 1; min-width: 0; }
+  .pack .meta .name { font-weight: 600; }
+  .pack .meta .det { color: var(--muted); font-size: 13.5px; }
+  .pack .size { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; white-space: nowrap; }
+  .badge { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+  .b-current { background: #e8f5ee; color: var(--green); }
+  .b-amber { background: #fbf2dd; color: var(--amber); }
+  .b-edition { background: #eef1f6; color: var(--navy2); }
+  .dl { text-decoration: none; font-weight: 600; font-size: 14px; border: 1px solid var(--line);
+    padding: 7px 13px; border-radius: 8px; color: var(--navy); white-space: nowrap; }
+  .dl:hover { border-color: var(--orange); color: var(--orange); }
+
+  .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0 4px; }
+  .btn { background: var(--orange); color: #fff; border: 0; border-radius: 9px; padding: 11px 18px;
+    font-size: 15px; font-weight: 700; cursor: pointer; }
+  .btn:disabled { background: #cfd4dc; cursor: default; }
+  .actions .note { color: var(--muted); font-size: 13.5px; }
+
+  .howto { background: #fafbfc; border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+  .howto h3 { margin: 0 0 10px; font-size: 16px; color: var(--navy); }
+  .howto ol { margin: 0; padding-left: 20px; }
+  .howto li { margin: 6px 0; }
+  code, .mono { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 13.5px;
+    background: #eef1f6; padding: 1px 6px; border-radius: 5px; }
+
+  table.src { width: 100%; border-collapse: collapse; }
+  table.src th, table.src td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.src th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  table.src td .lic { color: var(--muted); font-size: 13px; }
+  .about p { margin: 0 0 12px; }
+  .about ul { margin: 0 0 12px; padding-left: 20px; }
+  .disclaimer { border-left: 3px solid var(--amber); background: #fffaf0; padding: 12px 16px; border-radius: 0 8px 8px 0; color: #6b5a2e; font-size: 14.5px; }
+
+  footer.site { border-top: 1px solid var(--line); padding: 22px 0 40px; color: var(--muted); font-size: 13.5px; }
+  footer.site a { color: var(--muted); text-decoration: underline; }
+  .msg { padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <div class="brandbar">
+      <img class="mp" src="assets/makerplane-logo.png" alt="MakerPlane — Open Source Aviation">
+      <div class="sep"></div>
+      <div class="ac">
+        <img src="assets/aerocommons-logo.svg" alt="">
+        <span class="name">AeroCommons</span>
+      </div>
+    </div>
+    <div class="lede">
+      <h1>Navigation Data</h1>
+      <p>Open-source aeronautical data for pyEfis and the MakerPlane avionics stack &mdash; airports, terrain, water and roads, free to download and verify.</p>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section>
+    <h2>Download data packs</h2>
+    <p class="sub">Pick what you fly with. Every pack is content-hashed and the catalog is signed &mdash; your EFIS verifies it before installing.</p>
+
+    <div class="actions">
+      <button class="btn" id="dlbtn" disabled>Download selected</button>
+      <span class="note" id="selnote">Select one or more packs above.</span>
+    </div>
+
+    <div id="catalog"><div class="msg">Loading the catalog&hellip;</div></div>
+
+    <div class="howto">
+      <h3>How to use these on the Pi</h3>
+      <ol>
+        <li><b>Over the air (simplest):</b> on the device run <code>pyefis-data update</code> &mdash; it pulls and verifies everything you&rsquo;ve opted into. No download here needed.</li>
+        <li><b>USB / offline (hangar with no Wi-Fi):</b> select packs above, click <b>Download selected</b> &mdash; it grabs the packs plus the signed <span class="mono">manifest.json</span> and <span class="mono">manifest.json.minisig</span>. Put them all in a folder named <span class="mono">makerplane-data/</span> on a USB stick, plug it into the Pi, and it imports and verifies automatically (or run <code>pyefis-data import /path/to/makerplane-data</code>).</li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="about">
+    <h2>Where this data comes from</h2>
+    <p class="sub">No secret sauce. Here is every source and exactly what we do to it.</p>
+
+    <table class="src">
+      <thead><tr><th>Data</th><th>Source</th><th>What we do</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Airports &amp; runways</b></td>
+          <td>FAA NASR <span class="lic">(US Gov, public domain)</span></td>
+          <td>Fetch the 28-day NASR CSV subscription; join the APT base/runway/runway-end tables into an indexed SQLite database.</td>
+        </tr>
+        <tr>
+          <td><b>Obstacles</b></td>
+          <td>FAA Digital Obstacle File <span class="lic">(US Gov, public domain)</span></td>
+          <td>Parse the DOF (towers, antennas, stacks&hellip;) into a spatially-indexed SQLite database, on the 56-day cycle.</td>
+        </tr>
+        <tr>
+          <td><b>Terrain</b></td>
+          <td>Copernicus GLO-30 <span class="lic">(ESA/Copernicus, redistribution permitted)</span></td>
+          <td>30&nbsp;m (1 arc-second) global elevation &mdash; including high latitudes SRTM cannot provide. Converted from the Copernicus GeoTIFFs to standard HGT tiles, grouped by region, and zipped.</td>
+        </tr>
+        <tr>
+          <td><b>Water</b></td>
+          <td>OpenStreetMap <span class="lic">(ODbL)</span> + Natural Earth <span class="lic">(public domain)</span></td>
+          <td>Coastline and inland-water polygons, stored in an R-tree SQLite database for fast lookup.</td>
+        </tr>
+        <tr>
+          <td><b>Roads</b></td>
+          <td>OpenStreetMap <span class="lic">(ODbL)</span></td>
+          <td>Major highways (motorway/trunk), line-simplified (Douglas&ndash;Peucker) and stored in an R-tree SQLite database.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="margin-top:18px"><b>How packs are made trustworthy.</b> Every pack is hashed with SHA-256. The catalog (<a href="manifest.json">manifest.json</a>) lists those hashes and is signed with an ed25519 key (minisign format); the device verifies the signature and each hash before it installs anything &mdash; a bad or tampered download can never replace good data. The whole pipeline is open source:
+      <a href="https://github.com/makerplane/makerplane-data">makerplane-data</a> and
+      <a href="https://github.com/makerplane/pyEfis">pyEfis</a>.</p>
+
+    <p class="disclaimer">For Experimental / Amateur-Built use. This data is provided as-is with no warranty and <b>must not be used as a primary navigation source</b>. You are responsible for keeping current data &mdash; the EFIS annunciates when a pack has expired, but verify against official publications.</p>
+
+    <p style="margin-top:14px">Map data &copy; OpenStreetMap contributors, available under the
+      <a href="https://opendatacommons.org/licenses/odbl/">Open Database License</a>.
+      Contains modified Copernicus data. FAA data courtesy of the U.S. Government.</p>
+  </section>
+
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    AeroCommons is the open-source avionics initiative of the MAOS program, built on the MakerPlane stack.
+    &nbsp;&middot;&nbsp; <a href="manifest.json">catalog</a>
+    &nbsp;&middot;&nbsp; <a href="https://github.com/makerplane/makerplane-data">source</a>
+    <span id="gen"></span>
+  </div>
+</footer>
+
+<script>
+const MANIFEST = "manifest.json";
+const GROUPS = [
+  { kinds: ["navdata", "obstacles", "cifp"], title: "Navigation data",
+    blurb: "FAA airports, runways, obstacles & procedures — updated on the FAA cycle." },
+  { kinds: ["terrain"], title: "Terrain (Copernicus GLO-30)",
+    blurb: "30 m elevation, by region. Big — pick the areas you fly." },
+  { kinds: ["water"], title: "Water",
+    blurb: "Coastlines & lakes (OpenStreetMap / Natural Earth)." },
+  { kinds: ["highways"], title: "Roads",
+    blurb: "Major highways (OpenStreetMap)." },
+];
+
+const fmtBytes = b => b >= 1e9 ? (b/1e9).toFixed(1)+" GB" : b >= 1e6 ? Math.round(b/1e6)+" MB" : Math.round(b/1e3)+" KB";
+const daysUntil = iso => Math.round((new Date(iso) - new Date()) / 86400000);
+
+function currency(p) {
+  if (!p.expires) return { cls: "b-edition", text: "edition " + p.cycle };
+  const d = daysUntil(p.expires);
+  if (d < 0)  return { cls: "b-amber", text: "expired" };
+  if (d <= 7) return { cls: "b-amber", text: "expires in " + d + "d" };
+  return { cls: "b-current", text: "current" };
+}
+function packLabel(p) {
+  if (p.kind === "terrain" && p.regions && p.regions.length) return "Terrain — " + p.regions[0];
+  return ({ navdata: "Airports & runways", obstacles: "Obstacles", cifp: "Procedures & waypoints",
+            water: "Water", highways: "Roads & highways" })[p.kind] || p.id;
+}
+
+let MANIFEST_URLS = { manifest: MANIFEST, sig: MANIFEST + ".minisig" };
+
+function render(m) {
+  const cat = document.getElementById("catalog");
+  cat.innerHTML = "";
+  const byId = {};
+  (m.packs || []).forEach(p => { if (!byId[p.id] || p.cycle > byId[p.id].cycle) byId[p.id] = p; });
+  const packs = Object.values(byId);
+
+  let shown = 0;
+  for (const g of GROUPS) {
+    const items = packs.filter(p => g.kinds.includes(p.kind))
+                       .sort((a, b) => a.id.localeCompare(b.id));
+    if (!items.length) continue;
+    shown += items.length;
+    const box = document.createElement("div"); box.className = "group";
+    box.innerHTML = `<h3>${g.title} <small>${g.blurb}</small></h3>`;
+    for (const p of items) {
+      const c = currency(p);
+      const row = document.createElement("div"); row.className = "pack";
+      row.innerHTML =
+        `<input type="checkbox" data-url="${p.url}" data-name="${p.id}-${p.cycle}.pack">
+         <div class="meta"><div class="name">${packLabel(p)}</div>
+           <div class="det">${p.attribution || ""}</div></div>
+         <span class="badge ${c.cls}">${c.text}</span>
+         <span class="size">${fmtBytes(p.bytes)}</span>
+         <a class="dl" href="${p.url}" download>Download</a>`;
+      box.appendChild(row);
+    }
+    cat.appendChild(box);
+  }
+  if (!shown) cat.innerHTML = `<div class="msg">No packs are published yet — check back soon.</div>`;
+  cat.addEventListener("change", updateSel);
+  updateSel();
+  if (m.generated) document.getElementById("gen").textContent = " · catalog " + m.generated.slice(0, 10);
+}
+
+function selected() { return [...document.querySelectorAll(".pack input:checked")]; }
+function updateSel() {
+  const n = selected().length;
+  document.getElementById("dlbtn").disabled = n === 0;
+  document.getElementById("selnote").textContent = n
+    ? `${n} selected — includes the signed manifest for verification.`
+    : "Select one or more packs above.";
+}
+function triggerDownload(url, name) {
+  const a = document.createElement("a"); a.href = url; if (name) a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+document.getElementById("dlbtn").addEventListener("click", () => {
+  const sel = selected();
+  // the signed manifest + signature are always needed to verify/import
+  triggerDownload(MANIFEST_URLS.manifest, "manifest.json");
+  triggerDownload(MANIFEST_URLS.sig, "manifest.json.minisig");
+  sel.forEach((cb, i) => setTimeout(() => triggerDownload(cb.dataset.url, cb.dataset.name), 350 * (i + 1)));
+});
+
+fetch(MANIFEST, { cache: "no-store" })
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(render)
+  .catch(() => {
+    document.getElementById("catalog").innerHTML =
+      `<div class="msg">Couldn’t load the catalog right now. The data is at <a href="manifest.json">manifest.json</a>.</div>`;
+  });
+</script>
+</body>
+</html>
