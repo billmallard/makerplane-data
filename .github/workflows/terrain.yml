@@ -1,0 +1,20 @@
+name: terrain-packs
+
+# Terrain (Copernicus GLO-30) is bulk-static and far too large for routine
+# CI. Built once per edition on a workstation and uploaded; this workflow
+# exists only for re-runs/dispatch. The make_terrain_packs tool lands in
+# Phase D.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Terrain pack build is intentionally manual (Phase D)."
+          echo "Pragmatic path (per docs/data_manager_implementation.md):"
+          echo "  run fetch_glo30.py + convert_glo30.py on a workstation,"
+          echo "  then packtools.make_terrain_packs --src <hgt-root> --regions regions.yaml"
+          echo "  zips region groups, writes pack_meta.json, uploads to R2."
+          exit 1

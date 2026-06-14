@@ -1,0 +1,18 @@
+name: water-packs
+
+# OSM/Natural-Earth water packs change slowly (quarterly is plenty).
+# Manual dispatch for now; the water source + builder land in Phase B.2
+# (pyEfis tools/build_water_db.py + fetch_geofabrik_water.py).
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Water pack build is not yet wired (Phase B.2)."
+          echo "Plan: register a 'water-<region>' source in packtools/sources.py,"
+          echo "add a 'water' builder shim around pyEfis build_water_db.py, then"
+          echo "reuse the same run_cyclical orchestration on a quarterly cron."
+          exit 1

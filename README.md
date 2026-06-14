@@ -9,7 +9,10 @@ This repo covers **reference-data currency only** — terrain, airports,
 obstacles, instrument procedures, water, charts. It is *not* the runtime
 flight-data bus; that contract lives in `canfix.json` / FIX-Gateway.
 
-> Status: **Phase A** (the data contract) — in progress. See
+> Status: **Phase A** (the data contract) ✅ and **Phase B** (the build
+> pipeline) ✅ — code complete and proven end-to-end against live FAA data.
+> The only thing not yet live is the R2 upload target (awaiting the
+> Cloudflare account/bucket). See
 > [docs/data_manager_implementation.md](docs/data_manager_implementation.md)
 > for the full phase plan (A–G).
 
@@ -46,7 +49,8 @@ needs the offline secret key. The Pi treats **any** verification failure as
 
 | Path | Leg | Phase | What |
 |---|---|---|---|
-| `packtools/` | 1 | A/B | pack builder: cycles, signing, pack_meta, manifest, regions, CLI |
+| `packtools/` | 1 | A/B | pack builder: cycles, signing, pack_meta, manifest, regions, sources, fetch, build, upload, orchestrator, CLI |
+| `.github/workflows/` | 1/2 | B | `ci.yml` (tests + dry-run), `cyclical.yml` (daily build+sign+upload), water/terrain dispatch stubs |
 | `pyefis_data/` | 3 | C | on-Pi updater CLI (status / update / import) |
 | `site/` | 2 | E | static Cloudflare Pages dashboard + region picker |
 | `regions.yaml` | — | A | region bboxes for terrain grouping & Pi region-of-interest |
@@ -94,18 +98,55 @@ packtool verify work/manifest.json --pub keys/minisign.pub
 ```
 
 ```bash
-PYTHONPATH=. python -m pytest        # 39 tests, ~0.4s
+PYTHONPATH=. python -m pytest        # 60 tests, ~2s
 ```
 
-## What's deliberately *not* done in Phase A
+## Phase B — the daily build pipeline (Leg 1)
 
-- **Leg 1 fetchers** (`fetch_nasr/cifp/dof/water`) and the daily CI workflow → **Phase B**.
-- **Tool sharing.** The FAA→sqlite build tools live in pyEfis today
-  (`tools/build_airport_db.py`, `build_obstacle_db.py`, …). Interim plan is
-  to `pip install` them from git; the standalone `pyefis-tools` package is a
-  later, focused refactor. Phase A's `build-pack` takes an *already-built*
-  sqlite so the contract can be proven without that dependency.
-- **The Pi updater and the website** → Phases C and E.
+`packtools` now fetches, builds, signs, and uploads packs unattended:
+
+- **`sources.py`** — every upstream FAA URL in one place, built from the
+  cycle (current + next). All patterns verified live 2026-06-14:
+  NASR APT CSV `…/28DaySub/extra/<DD_Mon_YYYY>_APT_CSV.zip`,
+  CIFP `…/cifp/CIFP_<YYMMDD>.zip`, DOF `…/Obst_Data/DAILY_DOF_CSV.ZIP`.
+- **`fetch.py`** — resumable download + zip extract.
+- **`build/`** — the interim tool-sharing shim: invokes pyEfis's
+  `build_airport_db.py` / `build_obstacle_db.py` by path (`PYEFIS_TOOLS_DIR`).
+- **`upload.py`** — `ObjectStore` interface with an R2 backend (S3 API,
+  lazy boto3, `HEAD`-to-skip) and a `LocalStore` for dry-run/tests.
+- **`run_cyclical.py`** — the orchestrator: per source → compute cycle →
+  skip-if-present → fetch → build → embed → sha256 → upload → upsert
+  manifest → prune → sign → upload. Idempotent; a not-yet-published *next*
+  cycle is logged, not fatal. `--dry-run`, `--no-upload`, `--date`, `--only`.
+
+Proven end-to-end against **live FAA data**: both the current (AIRAC 2606)
+and next (2607) airports packs built — 19,407 airports / 23,178 runways —
+manifest signed and verified, no upload target required.
+
+```bash
+# dry-run (no network, no secrets) — what the daily cron would build today
+python -m packtools.run_cyclical --dry-run
+
+# real build into a local R2 mirror (needs PYEFIS_TOOLS_DIR + a key)
+PYEFIS_TOOLS_DIR=/path/to/pyEfis/tools \
+python -m packtools.run_cyclical --no-upload --only airports-conus \
+    --sec keys/minisign.sec --work work/live
+```
+
+## What's deliberately *not* done yet
+
+- **R2 go-live.** All upload code is ready; it needs the bucket +
+  `R2_ENDPOINT`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY` secrets and the
+  `data.makerplane.org` custom domain. (Strategy doc open question: which
+  Cloudflare account / who else holds the key.)
+- **CIFP packs.** Registered as a source but build deferred — its indexer is
+  GPL (pyAvTools) and this repo is MIT. Build via faa-cifp-data's tooling or
+  reimplement the index. Airports + obstacles ship now.
+- **Tool sharing.** Still the interim `pip install pyEfis from git` shim
+  (`PYEFIS_TOOLS_DIR`); the standalone `pyefis-tools` package is a later
+  refactor.
+- **Water/terrain pipelines** (`water.yml`/`terrain.yml` are dispatch stubs)
+  → Phases B.2 / D. **The Pi updater and website** → Phases C and E.
 
 ## Data licensing
 

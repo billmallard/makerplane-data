@@ -1,0 +1,47 @@
+name: cyclical-packs
+
+# Build current+next NASR/DOF packs and regenerate the signed manifest.
+# Idempotent (skip-if-present), so a daily run does nothing until the FAA
+# publishes a new cycle.
+on:
+  schedule:
+    # 09:20 UTC daily — after the FAA's typical posting window.
+    - cron: "20 9 * * *"
+  workflow_dispatch:
+
+# Interim tool sharing: the FAA->sqlite build scripts live in pyEfis. We
+# check it out and point PYEFIS_TOOLS_DIR at its tools/ dir. Override these
+# repo variables once a standalone pyefis-tools package exists.
+env:
+  PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
+  PYEFIS_REF:  ${{ vars.PYEFIS_REF  || 'svs-renderer' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    concurrency: cyclical-packs        # never two builds racing the manifest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check out pyEfis (for the build tools)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PYEFIS_REPO }}
+          ref: ${{ env.PYEFIS_REF }}
+          path: pyefis-src
+
+      - run: pip install -e .[build]
+
+      - name: Build cycles + sign + upload
+        env:
+          PYEFIS_TOOLS_DIR: ${{ github.workspace }}/pyefis-src/tools
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET:            ${{ vars.R2_BUCKET || 'makerplane-data' }}
+          MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: python -m packtools.run_cyclical
