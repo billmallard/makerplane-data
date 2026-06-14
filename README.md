@@ -135,10 +135,12 @@ python -m packtools.run_cyclical --no-upload --only airports-conus \
 
 ## What's deliberately *not* done yet
 
-- **R2 go-live.** All upload code is ready; it needs the bucket +
-  `R2_ENDPOINT`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY` secrets and the
-  `data.makerplane.org` custom domain. (Strategy doc open question: which
-  Cloudflare account / who else holds the key.)
+- **R2 is LIVE.** The daily pipeline builds + signs + uploads to the
+  Cloudflare R2 bucket `makerplane-data` unattended. Full reproduce-from-
+  nothing runbook: [docs/cloudflare_setup.md](docs/cloudflare_setup.md).
+  Still pending: **public serving** (`r2.dev` toggle or the
+  `data.makerplane.org` custom domain) so devices can *download* — uploads
+  don't need it.
 - **CIFP packs.** Registered as a source but build deferred — its indexer is
   GPL (pyAvTools) and this repo is MIT. Build via faa-cifp-data's tooling or
   reimplement the index. Airports + obstacles ship now.
