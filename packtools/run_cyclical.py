@@ -35,7 +35,7 @@ from .upload import LocalStore, ObjectStore, R2Store
 
 MANIFEST_KEY = "manifest.json"
 SIG_KEY = "manifest.json.minisig"
-_DEFAULT_URL_BASE = "https://data.makerplane.org/packs"
+_DEFAULT_URL_BASE = "https://navdata.aerocommons.org/packs"
 
 
 class CyclicalRunner:
@@ -93,6 +93,12 @@ class CyclicalRunner:
         sources = sources if sources is not None else cyclical_sources()
         m = self._load_manifest()
         m.regions = manifest_regions_block(load_regions())
+        # url_base is the single source of truth for the serving origin:
+        # re-root every existing entry's URL onto it so a base change (e.g.
+        # r2.dev -> custom domain) is corrected on the next run, even for
+        # packs that are skipped (already present) and never rebuilt.
+        for p in m.packs:
+            p.url = f"{self.url_base}/{p.id}-{p.cycle}.pack"
         built = 0
 
         for source in sources:

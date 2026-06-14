@@ -29,7 +29,7 @@ from .regions import load_regions, manifest_regions_block
 # Which cycle cadence each AIRAC-or-DOF pack kind follows.
 _KIND_CADENCE = {"navdata": "airac", "cifp": "airac", "obstacles": "dof"}
 
-_DEFAULT_URL_BASE = "https://data.makerplane.org/packs"
+_DEFAULT_URL_BASE = "https://navdata.aerocommons.org/packs"
 
 
 def _utc_stamp(date: _dt.date) -> str:

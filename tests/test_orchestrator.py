@@ -104,6 +104,29 @@ def test_dry_run_touches_nothing(tmp_path):
     assert store.get_bytes("manifest.json") is None     # nothing written
 
 
+def test_url_base_is_authoritative_and_rerooted_on_change(tmp_path):
+    sk, pub = signing.generate_keypair()
+    store = LocalStore(tmp_path / "r2")
+    common = dict(store=store, secret=sk, fetcher=fake_fetch,
+                  builders={"airports": fake_build, "obstacles": fake_build},
+                  today=TODAY)
+
+    # First build under one origin.
+    CyclicalRunner(work_dir=tmp_path / "w1",
+                   url_base="https://old.example.com/packs", **common).run([AIRPORTS])
+    m1 = Manifest.from_bytes(store.get_bytes("manifest.json"))
+    assert all(p.url.startswith("https://old.example.com/packs/") for p in m1.packs)
+
+    # Re-run under a new origin: packs are skipped (present) but every URL is
+    # corrected to the new base.
+    CyclicalRunner(work_dir=tmp_path / "w2",
+                   url_base="https://navdata.aerocommons.org/packs", **common).run([AIRPORTS])
+    m2 = Manifest.from_bytes(store.get_bytes("manifest.json"))
+    assert m2.packs and all(
+        p.url == f"https://navdata.aerocommons.org/packs/{p.id}-{p.cycle}.pack"
+        for p in m2.packs)
+
+
 def test_fetch_failure_on_next_is_non_fatal(tmp_path):
     runner, store, pub = make_runner(tmp_path)
 

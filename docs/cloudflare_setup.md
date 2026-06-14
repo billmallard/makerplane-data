@@ -41,14 +41,20 @@ So a reader knows what is already done vs. what a from-nothing rebuild redoes:
       `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
 - [x] `cyclical.yml` ran live: airports (current+next) + obstacles + signed
       manifest uploaded; idempotent on re-run. Daily cron (09:20 UTC) active.
-- [ ] **Public serving** (so the Pi can download): not yet enabled — see Step 7.
-- [ ] **Custom domain** `data.makerplane.org`: not yet attached — see Step 7.
+- [x] **Public serving** via custom domain **`navdata.aerocommons.org`**
+      (zone `aerocommons.org`, already on this account). Trust chain verified
+      end-to-end over HTTPS. The `r2.dev` dev URL also remains enabled.
+- [x] **Production URL base** wired into the pipeline default
+      (`https://navdata.aerocommons.org/packs`); the orchestrator re-roots all
+      manifest pack URLs onto it.
 - [ ] **Pages site** (Phase E): not built yet.
 
 > Ownership note: the account today is Bill Mallard's personal Cloudflare
-> account. The intent (per `data_manager_strategy.md`) is for this to live on
-> a **MakerPlane** account/org eventually. See *Transfer / ownership* below —
-> the runbook is written so the destination account does not matter.
+> account; the data domain is `navdata.aerocommons.org` (AeroCommons, the
+> initiative this serves). The intent (per `data_manager_strategy.md`) is for
+> this to live on a **MakerPlane**/AeroCommons org account eventually. See
+> *Transfer / ownership* below — the runbook is written so the destination
+> account does not matter.
 
 ---
 
@@ -233,14 +239,25 @@ packs, the bucket needs a public read URL. Two options:
 - Set the pipeline's `--url-base` / the Pi's manifest base to that origin.
 - Good for testing; rate-limited and not custom-branded.
 
-**Option B — custom domain `data.makerplane.org` (production).**
-- Requires the domain's DNS to be on this Cloudflare account (or a CNAME you
-  control). Dashboard: R2 → `makerplane-data` → **Settings** → **Custom Domains**
-  → **Connect Domain** → `data.makerplane.org`. Cloudflare provisions the
-  certificate and proxies the bucket; objects become
-  `https://data.makerplane.org/<key>` (e.g. `…/manifest.json`,
-  `…/packs/airports-conus-2606.pack`), edge-cached, zero egress.
-- This is the URL the strategy doc and `--url-base` default assume.
+**Option B — custom domain `navdata.aerocommons.org` (production, in use).**
+- Requires the domain's zone to be on this Cloudflare account (it is —
+  `aerocommons.org`). Objects become `https://navdata.aerocommons.org/<key>`
+  (e.g. `…/manifest.json`, `…/packs/airports-conus-2606.pack`), edge-cached,
+  zero egress. This is the `--url-base` default the pipeline now uses.
+- **Dashboard:** R2 → `makerplane-data` → **Settings** → **Custom Domains** →
+  **Add** → `navdata.aerocommons.org` → **Connect Domain**. Cloudflare adds the
+  proxied CNAME and provisions the cert (Initializing → Active in minutes).
+- **REST API** (how it was actually done — needs a token with *Workers R2
+  Storage:Edit* + *DNS:Edit* + *Zone:Read* on the zone):
+  ```bash
+  curl -X POST -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+    "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/r2/buckets/makerplane-data/domains/custom" \
+    -d '{"domain":"navdata.aerocommons.org","zoneId":"'"$ZONE_ID"'","enabled":true,"minTLS":"1.2"}'
+  ```
+  (`$ZONE_ID` from `GET /zones?name=aerocommons.org`.) Note: a resource-scoped
+  token returns `1000 Invalid API Token` from `/user/tokens/verify` yet still
+  authorizes the scoped calls — verify by the call succeeding, not by that
+  endpoint. Revoke the token afterward.
 
 **CORS (only if the Pages site fetches the manifest cross-origin).** If the
 site is on a different hostname than the data (recommended: `manager.…` for the
@@ -255,8 +272,8 @@ site, `data.…` for objects), allow GET from the site origin:
 
 After enabling public serving, confirm:
 ```bash
-curl -fsSI https://data.makerplane.org/manifest.json | head -5
-curl -fsS  https://data.makerplane.org/manifest.json.minisig
+curl -fsSI https://navdata.aerocommons.org/manifest.json | head -5
+curl -fsS  https://navdata.aerocommons.org/manifest.json.minisig
 ```
 
 ---
@@ -307,7 +324,7 @@ the packs or manifest is account-specific.
 | Bucket | `makerplane-data` (region ENAM) |
 | S3 endpoint | `https://<account-id>.r2.cloudflarestorage.com` |
 | Object keys | `manifest.json`, `manifest.json.minisig`, `packs/<id>-<cycle>.pack` |
-| Public base (target) | `https://data.makerplane.org/` |
+| Public base | `https://navdata.aerocommons.org/` (custom domain; `r2.dev` dev URL also live) |
 | GH secrets | `MINISIGN_SECRET_KEY`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` |
 | GH variables (optional) | `R2_BUCKET`, `PYEFIS_REPO`, `PYEFIS_REF` |
 | Pipeline trigger | `cyclical.yml` — daily 09:20 UTC + `workflow_dispatch` |
