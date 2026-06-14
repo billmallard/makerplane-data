@@ -1,0 +1,36 @@
+MIT License
+
+Copyright (c) 2026 MakerPlane / AeroCommons contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+NOTE ON DATA LICENSING. This MIT license covers the build/distribution
+TOOLING in this repository only. The aeronautical data packaged and
+distributed by this tooling carries its own terms:
+
+  - FAA NASR / CIFP / DOF .............. U.S. Government public domain
+  - Copernicus GLO-30 terrain ......... redistribution permitted (Copernicus)
+  - OpenStreetMap-derived water ....... ODbL (attribution required; baked
+                                        into each pack's pack_meta)
+  - NavCanada VNC charts .............. NOT redistributable; user-supplied only
+
+Each pack embeds its own `attribution` string in pack_meta. Distributors are
+responsible for honouring the upstream terms of any data they serve.

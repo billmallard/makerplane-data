@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets — the minisign SECRET key must never be committed.
+# Only keys/minisign.pub belongs in the repo.
+*.key
+minisign.sec
+*.sec
+
+# Built data artifacts — packs are large and live in R2, not git.
+/packs/
+*.pack
+*.hgt
+*.sqlite
+*.zip
+# ...but allow tiny sqlite fixtures used by the test suite.
+!tests/fixtures/*.sqlite
+
+# Local working data
+/work/
+/staging/
+*.part
+
+# OS noise
+.DS_Store
+Thumbs.db

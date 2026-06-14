@@ -1,0 +1,6 @@
+# Normalise to LF in the repo; the build runs on Linux CI and the Pi.
+* text=auto eol=lf
+
+# Signature/key files are ASCII but order-sensitive — keep them verbatim LF.
+*.pub text eol=lf
+*.minisig text eol=lf

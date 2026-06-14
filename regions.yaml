@@ -1,0 +1,45 @@
+# Region definitions for makerplane-data.
+#
+# Regions serve two purposes:
+#   1. Terrain/chart packs are grouped by region so SD-card users can hold
+#      just their flying area while NVMe users take a whole continent.
+#      Tiles are assigned to a region by their SW corner (see regions.py).
+#   2. The Pi's data.yaml lists "regions of interest"; the updater pulls the
+#      packs whose `regions` overlap.
+#
+# bbox order is [lat_min, lon_min, lat_max, lon_max] (matches the manifest).
+# Longitudes are negative in the western hemisphere. Overlap between regions
+# is harmless: a tile present in two installed region packs is identical
+# content, unioned into one tile tree on the Pi.
+
+regions:
+  # Navdata coverage region (FAA NASR/CIFP/DOF are CONUS-wide single packs).
+  conus:
+    name: Continental US
+    bbox: [24, -125, 50, -66]
+
+  # Terrain region groups (~8-15 GB each at GLO-30).
+  us-west:
+    name: US West
+    bbox: [31, -125, 49, -102]
+  us-central:
+    name: US Central
+    bbox: [25, -104, 49, -90]
+  us-east:
+    name: US East
+    bbox: [24, -90, 49, -66]
+  us-south:
+    name: US South
+    bbox: [24, -107, 37, -75]
+  alaska:
+    name: Alaska
+    bbox: [51, -170, 72, -129]
+  canada-west:
+    name: Canada West
+    bbox: [48, -140, 72, -100]
+  canada-east:
+    name: Canada East
+    bbox: [42, -100, 72, -52]
+  mexico-central-america:
+    name: Mexico & Central America
+    bbox: [7, -118, 33, -77]

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "makerplane-data"
+version = "0.1.0"
+description = "Garmin-style navigation-data currency system for pyEfis / MakerPlane avionics"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "MakerPlane / AeroCommons contributors" }]
+dependencies = [
+    "PyNaCl>=1.5",   # ed25519 signing/verification (minisign-compatible)
+    "PyYAML>=6.0",   # regions.yaml, config
+]
+
+[project.optional-dependencies]
+# Cloud build pipeline (Leg 1) — only needed in CI / on the build host.
+build = [
+    "requests>=2.28",
+    "boto3>=1.28",   # R2 upload via the S3 API
+]
+# Tool-sharing shim (Phase A interim, per data_manager_implementation.md):
+# the FAA-data build tools live in pyEfis today. Until they are factored
+# into a standalone `pyefis-tools` package, install them straight from git:
+#   pip install "makerplane-data[buildtools] @ ."
+# and the workflows pip-install pyEfis@<branch>. Do NOT vendor the tool
+# source into this repo — one implementation.
+tools = [
+    # "pyefis-tools @ git+https://github.com/makerplane/pyEfis@<branch>",
+]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+# Leg 3 — the on-Pi updater CLI (implemented in Phase C).
+pyefis-data = "pyefis_data.cli:main"
+# Leg 1 — pipeline entry points (implemented in Phase B).
+packtool = "packtools.cli:main"
+
+[tool.setuptools]
+packages = ["packtools", "pyefis_data"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
