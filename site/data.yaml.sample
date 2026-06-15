@@ -1,45 +1,94 @@
-# MakerPlane navigation-data updater config
+# MakerPlane navigation-data updater config  --  PULL-EVERYTHING TEMPLATE
 # Install at:  ~/.makerplane/pyefis/data.yaml   (on the Pi running pyEfis)
 #
-# This file controls what the over-the-air updater downloads. It is OPTIONAL:
-# with no file present, a fresh Pi automatically tracks the core navigation
-# data (airports, obstacles, procedures) and downloads nothing bulky. Edit
-# this file to opt into terrain / water / road regions.
+# This template is pre-filled to download EVERY data pack we currently publish.
+# It's meant as a menu: delete the lines you don't want, keep the rest.
+#
+# >>> STORAGE WARNING <<<
+# As written this pulls ~90 GB -- almost all of it terrain (~8-15 GB per
+# region). Most installs want only their flying area: trim the `terrain-*`
+# lines below. An SD card cannot hold all of North America's terrain; point
+# `root` at an NVMe/M.2 or USB SSD, or keep just a region or two.
 #
 # Apply changes with:   pyefis-data update
 # See what's installed:  pyefis-data status
-# A typo here never breaks anything -- unreadable config falls back to the
-# defaults shown below.
+# A typo here never breaks anything -- an unreadable config falls back to the
+# safe defaults (core navigation data only, no bulk downloads).
 
 # Where the catalog and packs are fetched from. Leave as-is for the public
 # AeroCommons mirror.
 base_url: https://navdata.aerocommons.org
 
-# Where packs are installed on the device. Point this at a disk with room --
-# terrain regions are several GB each. (The bench units use the M.2 at /data.)
+# Where packs are installed on the device. Needs ~100 GB for everything below;
+# the bench units use the M.2 mounted at /data.
 root: /data/makerplane-data
 
-# === What to download =======================================================
-#
-# 1) track_kinds -- kinds pulled AUTOMATICALLY (small, nationwide core data).
-#    Omit this line to accept the default: [navdata, obstacles, cifp]
-track_kinds: [navdata, obstacles, cifp]
 
-# 2) regions -- the opt-in list for the BULK kinds (terrain, water, charts,
-#    highways). A bulk pack is downloaded ONLY if one of its regions appears
-#    here. Empty (or omitted) = no bulk downloads at all.
-#    Example: pull west-coast terrain plus the nationwide roads pack
-#    (highways-conus is tagged region "conus"):
-#
-# regions: [us-west, conus]
+# ===========================================================================
+# OPTION 1 (active): pick exact packages
+# ===========================================================================
+# Every package we publish today is listed here. Delete any line you don't
+# want. (Listing a package that isn't published yet is harmless -- it just
+# shows "not in catalog" until it goes live.)
+packs:
+  # --- Core navigation data (small, nationwide -- you almost certainly want these)
+  - airports-conus               # navdata    FAA airports & runways
+  - obstacles-conus              # obstacles  FAA obstacles (Digital Obstacle File)
+
+  # --- Roads & water (moderate)
+  - highways-conus               # highways   major roads, all CONUS (~110 MB)
+  - water-na                     # water      coastline + inland water, US + Canada (~1.4 GB)
+
+  # --- Terrain (Copernicus GLO-30 elevation) -- LARGE, ~8-15 GB EACH.
+  #     Keep only the regions you fly; delete the rest.
+  - terrain-us-west              # CA, OR, WA, NV, ID, UT, AZ, MT, WY, CO ...
+  - terrain-us-central           # ND/SD/NE/KS/OK/TX north, MN/IA/MO ...
+  - terrain-us-south             # TX, LA, MS, AL, GA, FL ...
+  - terrain-us-east              # Great Lakes & eastern seaboard
+  - terrain-alaska               # Alaska
+  - terrain-canada-west          # Western Canada
+  - terrain-canada-east          # Eastern Canada
+  - terrain-mexico-central-america   # Mexico & Central America
+
+# Because OPTION 1 pins an exact package list, these two are left empty so
+# nothing extra is added on top. (To switch to the type/region style, clear
+# the `packs:` list above and use OPTION 2 instead.)
+track_kinds: []
 regions: []
 
-# 3) packs -- explicit pack ids to ALWAYS install, by id, regardless of the
-#    rules above. Use this to pin exactly the packs you want.
-#
-# packs: [airports-conus, obstacles-conus]
 
-# === Behaviour ==============================================================
+# ===========================================================================
+# OPTION 2 (alternative): select by data TYPE and REGION
+# ===========================================================================
+# Instead of naming packages, you can track whole data types -- and, for the
+# region-split data, whole regions. To use this style: empty `packs:` above
+# (set it to []), then uncomment the two lists here.
+#
+# Every data type (kind) we support:
+#   navdata    FAA airports & runways        (small, nationwide)
+#   obstacles  FAA obstacles / DOF           (small, nationwide)
+#   cifp       FAA procedures & waypoints    (planned -- not yet published)
+#   terrain    Copernicus GLO-30 elevation   (LARGE -- ~8-15 GB per region)
+#   water      coastline + inland water      (~1.4 GB, US + Canada)
+#   highways   major roads                   (~110 MB)
+#
+# A kind listed in track_kinds pulls ALL of its packs (every region), so put
+# the big region-split kinds here only if you really want the whole continent:
+# track_kinds: [navdata, obstacles, cifp, terrain, water, highways]
+#
+# Every region we define (only affects terrain / water / highways). A bulk
+# pack is pulled if any of its regions appears here:
+#   conus                    Continental US (used by navdata/water/highways)
+#   us-west  us-central  us-south  us-east
+#   alaska
+#   canada-west  canada-east
+#   mexico-central-america
+# regions: [conus, us-west, us-central, us-south, us-east, alaska, canada-west, canada-east, mexico-central-america]
+
+
+# ===========================================================================
+# Behaviour
+# ===========================================================================
 auto_update: true     # let the systemd timer refresh on the FAA cycle
 stage_next: true      # pre-download the next AIRAC cycle before it takes effect
 # storage_budget_gb: 64   # optional cap; updater skips bulk packs over budget
