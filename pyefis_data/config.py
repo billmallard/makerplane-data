@@ -94,3 +94,38 @@ class Config:
         if isinstance(data.get("storage_budget_gb"), (int, float)):
             kw["storage_budget_gb"] = float(data["storage_budget_gb"])
         return replace(cfg, **kw)
+
+
+def write_config(path: str | Path | None, updates: dict) -> Path:
+    """Merge ``updates`` into the data.yaml at ``path`` and write it back
+    atomically. The on-device pack picker calls this to persist the user's
+    selection (``packs``) and storage ``root`` so the next auto-update tracks
+    exactly what they chose -- the picker replaces hand-editing the file.
+
+    Existing keys are preserved; inline comments are not (best-effort, by
+    design -- once the picker owns the file a clean canonical form is fine).
+    The write is atomic (temp + os.replace) so the updater never reads a
+    half-written config."""
+    import yaml
+    p = Path(os.path.expanduser(str(path))) if path else _default_config_path()
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except Exception:                       # missing/unreadable/malformed: start fresh
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data.update(updates)
+    if isinstance(data.get("root"), Path):
+        data["root"] = str(data["root"])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    header = (
+        "# MakerPlane navigation-data updater config.\n"
+        "# Managed by `pyefis-data` -- the on-device pack picker writes here.\n"
+        "# You can still hand-edit it; see the sample at\n"
+        "# https://navdata.aerocommons.org/data.yaml.sample\n\n"
+    )
+    body = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
+    tmp = p.with_suffix(".yaml.tmp")
+    tmp.write_text(header + body, encoding="utf-8")
+    os.replace(tmp, p)
+    return p

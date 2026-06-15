@@ -287,6 +287,46 @@ class Updater:
             return EXPIRES, f"{installed} expires {inst_entry.expires} ({days}d)"
         return CURRENT, installed
 
+    # --- catalog (full picker listing) ---
+    def _all_ids(self, m: Manifest) -> list[str]:
+        """Every unique pack id in the manifest, ordered by (kind, id) so the
+        on-device picker groups consistently."""
+        kind_of: dict[str, str] = {}
+        for e in m.packs:
+            kind_of.setdefault(e.id, e.kind)
+        return sorted(kind_of, key=lambda pid: (kind_of[pid], pid))
+
+    def catalog(self, *, remote=None) -> list[dict]:
+        """Full catalog for the on-device picker: EVERY pack in the verified
+        manifest (not just the tracked subset that ``status`` reports), each
+        with its label, kind, download size, currency, regions, and
+        ``installed`` / ``tracked`` flags.
+
+        Reuses ``_status_for`` so the picker and the boot status screen can
+        never disagree about a pack's currency. ``tracked`` reflects the
+        current data.yaml selection so the picker can pre-check it."""
+        remote = remote or self.remote
+        m = self.fetch_manifest(remote)
+        tracked = set(self._tracked_ids(m))
+        rows: list[dict] = []
+        for pid in self._all_ids(m):
+            st = self._status_for(m, pid)
+            entries = m.for_id(pid)
+            # The entry the user would install now: the one whose window covers
+            # today, else the sole non-cyclical edition.
+            sel = m.select(pid, self.today) or (entries[0] if entries else None)
+            row = st.as_dict()
+            row.update({
+                "bytes": sel.bytes if sel else 0,
+                "regions": list(sel.regions) if sel and sel.regions else [],
+                "attribution": sel.attribution if sel else "",
+                "available_cycle": sel.cycle if sel else None,
+                "tracked": pid in tracked,
+                "installed": bool(st.cycle),
+            })
+            rows.append(row)
+        return rows
+
     # --- install (verify-then-atomic-swap) ---
     def install_pack(self, entry: PackEntry, *, make_current: bool, remote=None) -> Path:
         if entry.kind in TILE_KINDS:

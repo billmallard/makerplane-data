@@ -240,6 +240,43 @@ def test_cli_verify_file(tmp_path, monkeypatch):
     assert cli.main(["verify", str(root / "manifest.json")]) == 2
 
 
+def test_catalog_cli_via_source(tmp_path, monkeypatch, capsys):
+    """`catalog --json --source <dir>` lists the whole catalog from a USB/local
+    dir, with the picker fields and the tracked/installed flags."""
+    import json
+    root, pub = build_store(tmp_path)
+    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    capsys.readouterr()                 # discard build_store's progress output
+    rc = cli.main(["--base-url", ORIGIN, "--root", str(tmp_path / "pi"),
+                   "catalog", "--json", "--source", str(root)])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"]
+    assert {p["id"] for p in out["packs"]} == {"airports-conus", "obstacles-conus"}
+    a = next(p for p in out["packs"] if p["id"] == "airports-conus")
+    assert a["bytes"] > 0 and a["tracked"] is True and a["installed"] is False
+
+
+def test_update_only_persists_and_installs(tmp_path, monkeypatch):
+    """`update --only <id> --source <dir>` installs exactly the selection and
+    writes it to data.yaml (core kinds emptied so the resolved set == the
+    selection), so the next auto-update tracks the same set."""
+    root, pub = build_store(tmp_path)
+    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    piroot = tmp_path / "pi"
+    cfgpath = tmp_path / "data.yaml"
+    rc = cli.main(["--config", str(cfgpath), "--base-url", ORIGIN, "--root", str(piroot),
+                   "update", "--only", "airports-conus", "--source", str(root)])
+    assert rc == 0
+    # exactly the selection installed; obstacles (a default-tracked kind) skipped
+    assert (piroot / "navdata" / "2606" / "airports.sqlite").exists()
+    assert not (piroot / "obstacles").exists()
+    # selection persisted as an explicit packs list
+    saved = Config.load(cfgpath)
+    assert saved.packs == ("airports-conus",)
+    assert saved.track_kinds == () and saved.regions == ()
+
+
 def test_prune_removes_old_cycles(tmp_path):
     root, pub = build_store(tmp_path)
     up = make_updater(tmp_path, pub, remote_root=root)

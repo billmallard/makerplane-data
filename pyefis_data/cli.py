@@ -1,7 +1,9 @@
 """pyefis-data — the on-Pi navigation-data updater CLI.
 
     pyefis-data status [--json]      installed vs catalog; currency per pack
+    pyefis-data catalog [--json]     every available pack (on-device picker view)
     pyefis-data update [--dry-run]   pull stale packs, verify, atomic-swap
+        [--only id,id] [--source dir]    install exactly this set / from USB
     pyefis-data import <dir>         install from a USB stick (same verify path)
     pyefis-data verify [path]        check a manifest's signature
 
@@ -35,13 +37,34 @@ PUBLIC_KEY = (
 _ATTENTION = {EXPIRED, EXPIRES, UPDATE, MISSING}
 
 
-def _updater(args) -> Updater:
+def _updater(args, *, override: dict | None = None) -> Updater:
     cfg = Config.load(args.config)
     if getattr(args, "base_url", None):
         cfg = _replace(cfg, base_url=args.base_url)
     if getattr(args, "root", None):
         cfg = _replace(cfg, root=Path(args.root))
-    return Updater(cfg, PUBLIC_KEY)
+    if override:
+        cfg = _replace(cfg, **override)
+    # --source <dir>: read the catalog + packs from a USB stick / local dir
+    # instead of the network (same verified manifest contract).
+    remote = None
+    src = getattr(args, "source", None)
+    if src:
+        from .core import LocalDirRemote
+        remote = LocalDirRemote(Path(src))
+    return Updater(cfg, PUBLIC_KEY, remote=remote)
+
+
+def _fmt_bytes(n: int) -> str:
+    if not n:
+        return "-"
+    if n >= 1 << 30:
+        return f"{n / (1 << 30):.1f}G"
+    if n >= 1 << 20:
+        return f"{n / (1 << 20):.0f}M"
+    if n >= 1 << 10:
+        return f"{n / (1 << 10):.0f}K"
+    return f"{n}B"
 
 
 def _replace(cfg: Config, **kw) -> Config:
@@ -97,8 +120,48 @@ def cmd_status(args) -> int:
     return 0
 
 
-def cmd_update(args) -> int:
+def cmd_catalog(args) -> int:
+    """List every available pack (the full catalog the on-device picker shows),
+    from the network or a USB dir (--source). ``tracked`` marks the current
+    data.yaml selection so the picker can pre-check it."""
     up = _updater(args)
+    try:
+        rows = up.catalog()
+    except Exception as e:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(e), "packs": []}))
+        else:
+            print(f"ERROR: could not read catalog: {e}", file=sys.stderr)
+        return 2
+    doc = {"ok": True, "generated": up.manifest_generated, "packs": rows}
+    if args.json:
+        print(json.dumps(doc, indent=2))
+    else:
+        for p in rows:
+            mark = "x" if p["tracked"] else ("+" if p["installed"] else " ")
+            label = p["name"]
+            if p.get("regions"):                  # disambiguate per-region packs (terrain)
+                label += " " + ",".join(p["regions"])
+            print(f" [{mark}] {label:<32} {p['kind']:<10} "
+                  f"{_fmt_bytes(p['bytes']):>7}  {p['status']}")
+    return 0
+
+
+def cmd_update(args) -> int:
+    # --only id,id,...: install exactly this selection and persist it to
+    # data.yaml so the next auto-update tracks the same set (the on-device
+    # picker uses this; it turns the picker into the yaml editor).
+    override = None
+    only = getattr(args, "only", None)
+    if only is not None:
+        ids = tuple(s.strip() for s in only.split(",") if s.strip())
+        override = {"packs": ids, "track_kinds": (), "regions": ()}
+        if not args.dry_run:
+            from .config import write_config
+            saved = write_config(args.config,
+                                 {"packs": list(ids), "track_kinds": [], "regions": []})
+            print(f"saved selection ({len(ids)} pack(s)) to {saved}")
+    up = _updater(args, override=override)
     rows = up.update(dry_run=args.dry_run)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
@@ -165,8 +228,16 @@ def build_parser() -> argparse.ArgumentParser:
                    help="with --json, write to PATH (default ~/.makerplane/pyefis/status.json)")
     s.set_defaults(func=cmd_status)
 
+    c = sub.add_parser("catalog", help="list every available pack (picker view)")
+    c.add_argument("--json", action="store_true")
+    c.add_argument("--source", help="read the catalog from a USB/local dir instead of the network")
+    c.set_defaults(func=cmd_catalog)
+
     u = sub.add_parser("update", help="download + verify + install stale packs")
     u.add_argument("--dry-run", action="store_true")
+    u.add_argument("--only", help="install exactly these comma-separated pack ids and "
+                                  "persist the selection to data.yaml")
+    u.add_argument("--source", help="install from a USB/local dir instead of the network")
     u.set_defaults(func=cmd_update)
 
     i = sub.add_parser("import", help="install from a USB/local directory")
