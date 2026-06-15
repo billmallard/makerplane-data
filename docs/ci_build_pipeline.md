@@ -1,11 +1,49 @@
 # CI build pipeline — move heavy pack builds off the workstation
 
 **Status: planned.** The heavy data-pack builds (terrain, water, roads) run on
-Bill's workstation today — hours of compute, tens of GB of disk. Goal: run them
-in **GitHub Actions** so a rebuild is click-to-run, reproducible, and doesn't
-tie up a machine. Expect this to need **live iteration** on the first runs
-(disk limits, Geofabrik behavior under CI, runner sizing) — author the
-workflows, then shake them out against real Actions logs.
+Bill's workstation today — hours of compute, tens of GB of disk.
+
+**The goal is an autonomous, self-updating pipeline** — one that refreshes the
+published data on a schedule with **no human in the loop**, keeping R2 current
+with upstream (FAA cycles, OSM/Geofabrik, Copernicus). Getting the builds off
+the workstation is a *consequence* of that, not the point. Expect **live
+iteration** on the first runs (disk limits, Geofabrik behavior under CI, runner
+sizing) — author the workflows, then shake them out against real Actions logs.
+
+## You already have the template: `cyclical.yml`
+
+The navdata pipeline is **already autonomous**. `cyclical.yml` runs on a daily
+cron, fetches the current FAA NASR/DOF (and next AIRAC), **skips anything
+already published** (change-detection), builds, signs, and uploads to R2 — fully
+hands-off, keyed to the 28-/56-day FAA cycles. The whole job here is to extend
+that *same pattern* to terrain/water/roads, each with the right cadence and a
+source-changed check.
+
+## What "autonomous" requires beyond "build in CI"
+
+1. **Schedules** — a cron per data type at its natural cadence (below).
+2. **Change-detection / idempotency** — only rebuild + publish when the source
+   actually changed, so editions don't churn for no reason. (navdata's
+   skip-if-present is the model; for OSM use Geofabrik's extract date, for
+   terrain the GLO-30 edition tag.)
+3. **Automatic edition bump + manifest swap on publish** — a refresh must bump
+   the non-cyclical edition and drop the superseded entry so the Pi auto-pulls
+   and prunes the old (done manually today in `work/upload_water_r2.py`; must
+   become a workflow step). The updater compares cycle, not hash.
+4. **Failure alerting** — "no intervention" only works if a human gets pinged
+   *when it breaks*. Wire GitHub Actions failure notifications (and optionally
+   Slack/email) so a silent stall doesn't leave stale data.
+5. **Quality baked into the build** — the DP simplification, min-area, and
+   `--keep-fclass water reservoir` filters live in `build_water_db.py`, so an
+   automated rebuild can't regress to fake-lake artifacts. (This is *why* these
+   fixes belong in code, not one-off cleanups.)
+
+### Cadence per type
+- **navdata** — daily (done). FAA 28-/56-day cycles.
+- **water / roads** — monthly or quarterly; OSM/Geofabrik refresh continuously,
+  Geofabrik republishes extracts ~weekly. Change-detect on Geofabrik's date.
+- **terrain** — near-static (terrain doesn't move); check for a *new GLO-30
+  edition* (rare, ~yearly) and rebuild only then.
 
 ## Why GitHub Actions, not Cloudflare
 
@@ -107,9 +145,14 @@ jobs rather than one long one.
 2. **Water** — reuse the roads' cached bundles, larger runner, DP build, edition
    bump + old-entry drop.
 3. **Terrain** — per-region matrix + Copernicus fetch + serial publish.
-4. **Cadence + docs** — decide refresh schedule; update `docs/{water,roads,
-   terrain}.md` runbooks to say "trigger the workflow" instead of "run on the
-   workstation."
+4. **Make it autonomous** — add the `schedule:` crons, source-changed detection
+   (so it only rebuilds/publishes on real upstream changes), automatic
+   edition-bump + manifest-swap in the publish step, and **failure alerting**.
+   Update `docs/{water,roads,terrain}.md` runbooks to say "the workflow keeps
+   this current" instead of "run on the workstation."
+
+Phases 1–3 are still `workflow_dispatch` (manual trigger) so each build can be
+shaken out by hand first; phase 4 flips them to scheduled + self-publishing.
 
 ## Related
 
