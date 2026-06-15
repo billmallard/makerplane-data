@@ -11,7 +11,7 @@ from pathlib import Path
 
 from packtools.manifest import Manifest, PackEntry
 from pyefis_data.config import Config, write_config
-from pyefis_data.core import Updater
+from pyefis_data.core import Updater, detect_sources, disk_info
 
 TODAY = dt.date(2026, 6, 15)
 
@@ -103,3 +103,32 @@ def test_write_config_creates_missing_file(tmp_path):
     write_config(p, {"packs": ["obstacles-conus"]})
     assert p.exists()
     assert Config.load(p).packs == ("obstacles-conus",)
+
+
+def test_detect_sources_finds_usb_layouts(tmp_path):
+    # makerplane-data/ subdir layout (web-GUI sneakernet)
+    a = tmp_path / "stickA" / "makerplane-data"
+    a.mkdir(parents=True)
+    (a / "manifest.json").write_text("{}")
+    # bare-root layout
+    b = tmp_path / "stickB"
+    b.mkdir()
+    (b / "manifest.json").write_text("{}")
+    cfg = Config(base_url="https://x", root=tmp_path / "pi")
+    info = detect_sources(cfg, mount_globs=[str(tmp_path / "*")],
+                          network_check=lambda c: False)
+    assert info["network"] is False
+    assert str(a) in info["usb"] and str(b) in info["usb"]
+
+
+def test_detect_sources_network_only(tmp_path):
+    cfg = Config(base_url="https://x", root=tmp_path / "pi")
+    info = detect_sources(cfg, mount_globs=[], network_check=lambda c: True)
+    assert info["network"] is True and info["usb"] == []
+
+
+def test_disk_info_walks_to_existing_parent(tmp_path):
+    info = disk_info(tmp_path / "not-created-yet" / "deep")
+    assert info["root"].endswith("deep")
+    assert isinstance(info["free_bytes"], int) and info["free_bytes"] > 0
+    assert info["total_bytes"] >= info["free_bytes"]

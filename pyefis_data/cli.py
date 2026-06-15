@@ -23,7 +23,8 @@ from pathlib import Path
 from packtools import signing
 
 from .config import Config
-from .core import Updater, EXPIRED, EXPIRES, UPDATE, MISSING, UNKNOWN
+from .core import (Updater, detect_sources, disk_info,
+                   EXPIRED, EXPIRES, UPDATE, MISSING, UNKNOWN)
 
 # makerplane-data production signing key (key id 178caefeabc5afb1).
 # Mirrors keys/minisign.pub in the repo; embedded for runtime independence.
@@ -133,10 +134,15 @@ def cmd_catalog(args) -> int:
         else:
             print(f"ERROR: could not read catalog: {e}", file=sys.stderr)
         return 2
-    doc = {"ok": True, "generated": up.manifest_generated, "packs": rows}
+    doc = {"ok": True, "generated": up.manifest_generated, "packs": rows,
+           "storage": disk_info(up.config.root)}
     if args.json:
         print(json.dumps(doc, indent=2))
     else:
+        st = doc["storage"]
+        if st.get("free_bytes") is not None:
+            print(f" storage: {st['root']}  ({_fmt_bytes(st['free_bytes'])} free "
+                  f"of {_fmt_bytes(st['total_bytes'])})")
         for p in rows:
             mark = "x" if p["tracked"] else ("+" if p["installed"] else " ")
             label = p["name"]
@@ -144,6 +150,21 @@ def cmd_catalog(args) -> int:
                 label += " " + ",".join(p["regions"])
             print(f" [{mark}] {label:<32} {p['kind']:<10} "
                   f"{_fmt_bytes(p['bytes']):>7}  {p['status']}")
+    return 0
+
+
+def cmd_sources(args) -> int:
+    """Report available update sources (network reachable? USB drives with data
+    present?) so the on-device Update flow can offer a choice or fail cleanly."""
+    cfg = Config.load(args.config)
+    if getattr(args, "base_url", None):
+        cfg = _replace(cfg, base_url=args.base_url)
+    info = detect_sources(cfg)
+    if args.json:
+        print(json.dumps(info, indent=2))
+    else:
+        print(f" network: {'yes' if info['network'] else 'no'}")
+        print(f" usb:     {', '.join(info['usb']) if info['usb'] else 'none'}")
     return 0
 
 
@@ -232,6 +253,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--json", action="store_true")
     c.add_argument("--source", help="read the catalog from a USB/local dir instead of the network")
     c.set_defaults(func=cmd_catalog)
+
+    so = sub.add_parser("sources", help="report available update sources (network/USB)")
+    so.add_argument("--json", action="store_true")
+    so.set_defaults(func=cmd_sources)
 
     u = sub.add_parser("update", help="download + verify + install stale packs")
     u.add_argument("--dry-run", action="store_true")

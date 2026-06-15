@@ -100,6 +100,52 @@ class HttpRemote:
         return fetch.download(url, dest)
 
 
+def disk_info(root) -> dict:
+    """Free/total bytes of the filesystem that holds ``root`` (walking up to the
+    nearest existing parent, since the data root may not exist yet). Used by the
+    on-device picker to show 'installing to <root> - N GB free'."""
+    import shutil
+    p = Path(root)
+    while not p.exists() and p != p.parent:
+        p = p.parent
+    try:
+        du = shutil.disk_usage(p)
+        return {"root": str(root), "free_bytes": du.free, "total_bytes": du.total}
+    except Exception:
+        return {"root": str(root), "free_bytes": None, "total_bytes": None}
+
+
+def network_available(config, timeout: int = 5) -> bool:
+    """Cheap reachability probe for the data origin (HEAD the manifest)."""
+    try:
+        import requests  # lazy
+        r = requests.head(config.manifest_url, timeout=timeout, allow_redirects=True)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def detect_sources(config, *, mount_globs=None, network_check=None) -> dict:
+    """What update sources are available right now, for the Update flow:
+    ``{"network": bool, "usb": [dir, ...]}``. A USB dir is any mounted location
+    holding a ``manifest.json`` (either at its root or under a ``makerplane-data``
+    subdir, matching the web-GUI sneakernet layout). ``mount_globs`` and
+    ``network_check`` are injectable for tests."""
+    import glob as _glob
+    net = bool(network_check(config) if network_check else network_available(config))
+    globs = mount_globs or ["/media/*/*", "/media/*", "/run/media/*/*", "/mnt/*"]
+    usb: list[str] = []
+    seen: set[str] = set()
+    for pat in globs:
+        for d in _glob.glob(pat):
+            for cand in (Path(d) / "makerplane-data", Path(d)):
+                key = str(cand)
+                if key not in seen and (cand / "manifest.json").is_file():
+                    seen.add(key)
+                    usb.append(key)
+    return {"network": net, "usb": usb}
+
+
 class LocalDirRemote:
     """Filesystem transport: maps a URL's *path* under a local root.
 

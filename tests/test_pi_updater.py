@@ -255,6 +255,9 @@ def test_catalog_cli_via_source(tmp_path, monkeypatch, capsys):
     assert {p["id"] for p in out["packs"]} == {"airports-conus", "obstacles-conus"}
     a = next(p for p in out["packs"] if p["id"] == "airports-conus")
     assert a["bytes"] > 0 and a["tracked"] is True and a["installed"] is False
+    # catalog doc also carries storage info for the picker's free-space readout
+    assert out["storage"]["root"].endswith("pi")
+    assert isinstance(out["storage"]["free_bytes"], int)
 
 
 def test_update_only_persists_and_installs(tmp_path, monkeypatch):
