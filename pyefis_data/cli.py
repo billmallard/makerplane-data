@@ -2,8 +2,11 @@
 
     pyefis-data status [--json]      installed vs catalog; currency per pack
     pyefis-data catalog [--json]     every available pack (on-device picker view)
+    pyefis-data sources [--json]     which sources are available (network/USB)
+    pyefis-data drives  [--json]     candidate storage drives for the data root
     pyefis-data update [--dry-run]   pull stale packs, verify, atomic-swap
         [--only id,id] [--source dir]    install exactly this set / from USB
+        [--root path]                    install to + persist this data root
     pyefis-data import <dir>         install from a USB stick (same verify path)
     pyefis-data verify [path]        check a manifest's signature
 
@@ -23,7 +26,7 @@ from pathlib import Path
 from packtools import signing
 
 from .config import Config
-from .core import (Updater, detect_sources, disk_info,
+from .core import (Updater, detect_sources, disk_info, list_drives,
                    EXPIRED, EXPIRES, UPDATE, MISSING, UNKNOWN)
 
 # makerplane-data production signing key (key id 178caefeabc5afb1).
@@ -168,10 +171,25 @@ def cmd_sources(args) -> int:
     return 0
 
 
+def cmd_drives(args) -> int:
+    """List candidate storage drives (where the data root can live) for the
+    picker's storage chooser."""
+    drives = list_drives()
+    if args.json:
+        print(json.dumps({"drives": drives}, indent=2))
+    else:
+        for d in drives:
+            tag = "USB" if d["removable"] else "fixed"
+            print(f" {d['mount']:<28} {tag:<5} "
+                  f"{_fmt_bytes(d['free_bytes'])} free of {_fmt_bytes(d['total_bytes'])}")
+    return 0
+
+
 def cmd_update(args) -> int:
     # --only id,id,...: install exactly this selection and persist it to
     # data.yaml so the next auto-update tracks the same set (the on-device
-    # picker uses this; it turns the picker into the yaml editor).
+    # picker uses this; it turns the picker into the yaml editor). A --root
+    # given alongside --only is also persisted (the picker's storage chooser).
     override = None
     only = getattr(args, "only", None)
     if only is not None:
@@ -179,8 +197,10 @@ def cmd_update(args) -> int:
         override = {"packs": ids, "track_kinds": (), "regions": ()}
         if not args.dry_run:
             from .config import write_config
-            saved = write_config(args.config,
-                                 {"packs": list(ids), "track_kinds": [], "regions": []})
+            updates = {"packs": list(ids), "track_kinds": [], "regions": []}
+            if getattr(args, "root", None):
+                updates["root"] = args.root
+            saved = write_config(args.config, updates)
             print(f"saved selection ({len(ids)} pack(s)) to {saved}")
     up = _updater(args, override=override)
     rows = up.update(dry_run=args.dry_run)
@@ -257,6 +277,10 @@ def build_parser() -> argparse.ArgumentParser:
     so = sub.add_parser("sources", help="report available update sources (network/USB)")
     so.add_argument("--json", action="store_true")
     so.set_defaults(func=cmd_sources)
+
+    dr = sub.add_parser("drives", help="list candidate storage drives for the data root")
+    dr.add_argument("--json", action="store_true")
+    dr.set_defaults(func=cmd_drives)
 
     u = sub.add_parser("update", help="download + verify + install stale packs")
     u.add_argument("--dry-run", action="store_true")

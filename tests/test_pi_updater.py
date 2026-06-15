@@ -280,6 +280,22 @@ def test_update_only_persists_and_installs(tmp_path, monkeypatch):
     assert saved.track_kinds == () and saved.regions == ()
 
 
+def test_update_only_persists_root_when_given(tmp_path, monkeypatch):
+    """A --root passed with --only (picker storage chooser) installs there AND
+    persists the new data root to data.yaml."""
+    root, pub = build_store(tmp_path)
+    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    cfgpath = tmp_path / "data.yaml"
+    newroot = tmp_path / "usbssd"
+    rc = cli.main(["--config", str(cfgpath), "--base-url", ORIGIN,
+                   "--root", str(newroot), "update", "--only", "airports-conus",
+                   "--source", str(root)])
+    assert rc == 0
+    saved = Config.load(cfgpath)
+    assert saved.packs == ("airports-conus",) and saved.root == newroot
+    assert (newroot / "navdata" / "2606" / "airports.sqlite").exists()
+
+
 def test_prune_removes_old_cycles(tmp_path):
     root, pub = build_store(tmp_path)
     up = make_updater(tmp_path, pub, remote_root=root)

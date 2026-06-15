@@ -115,6 +115,76 @@ def disk_info(root) -> dict:
         return {"root": str(root), "free_bytes": None, "total_bytes": None}
 
 
+# Filesystems that can actually hold a data root (skip tmpfs/overlay/proc/...).
+_REAL_FS = {"ext4", "ext3", "ext2", "vfat", "exfat", "ntfs", "ntfs3",
+            "btrfs", "xfs", "f2fs"}
+
+
+def _read_proc_mounts():
+    out = []
+    try:
+        with open("/proc/mounts", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 3:
+                    out.append((parts[0], parts[1].replace("\\040", " "), parts[2]))
+    except Exception:
+        pass
+    return out
+
+
+def _sys_removable(device):
+    """True if ``device`` (e.g. /dev/sda1, /dev/mmcblk0p1) is on removable media,
+    per /sys/block/<base>/removable."""
+    import re
+    base = None
+    m = re.match(r"/dev/(sd[a-z]+|hd[a-z]+)\d*$", device)
+    if m:
+        base = re.sub(r"\d+$", "", m.group(1))
+    else:
+        m = re.match(r"/dev/(nvme\d+n\d+|mmcblk\d+)p?\d*$", device)
+        if m:
+            base = m.group(1)
+    if not base:
+        return False
+    try:
+        with open(f"/sys/block/{base}/removable", encoding="ascii") as f:
+            return f.read().strip() == "1"
+    except Exception:
+        return False
+
+
+def list_drives(*, mounts=None, usage=None, removable=None, min_free=0):
+    """Candidate storage drives for the data root: writable, real-filesystem
+    mounts with their free/total space and a removable flag. Fixed drives sort
+    first, then by most-free. ``mounts``/``usage``/``removable`` are injectable
+    for tests; by default reads /proc/mounts + shutil.disk_usage + /sys."""
+    import shutil
+    mounts = mounts if mounts is not None else _read_proc_mounts()
+    usage = usage or (lambda mp: (lambda d: (d.total, d.free))(shutil.disk_usage(mp)))
+    removable = removable or _sys_removable
+    seen, drives = set(), []
+    for dev, mp, fs in mounts:
+        if fs not in _REAL_FS or mp in seen:
+            continue
+        if mp.startswith(("/boot", "/proc", "/sys", "/dev")):
+            continue
+        if not os.path.isdir(mp) or not os.access(mp, os.W_OK):
+            continue
+        try:
+            total, free = usage(mp)
+        except Exception:
+            continue
+        if total <= 0 or free < min_free:
+            continue
+        seen.add(mp)
+        drives.append({"mount": mp, "device": dev, "fstype": fs,
+                       "free_bytes": free, "total_bytes": total,
+                       "removable": bool(removable(dev))})
+    drives.sort(key=lambda d: (d["removable"], -d["free_bytes"]))
+    return drives
+
+
 def network_available(config, timeout: int = 5) -> bool:
     """Cheap reachability probe for the data origin (HEAD the manifest)."""
     try:

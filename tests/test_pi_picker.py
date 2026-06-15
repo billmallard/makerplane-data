@@ -132,3 +132,32 @@ def test_disk_info_walks_to_existing_parent(tmp_path):
     assert info["root"].endswith("deep")
     assert isinstance(info["free_bytes"], int) and info["free_bytes"] > 0
     assert info["total_bytes"] >= info["free_bytes"]
+
+
+def test_list_drives_filters_sorts_and_flags(tmp_path):
+    from pyefis_data.core import list_drives
+    fixed = tmp_path / "data"
+    fixed.mkdir()
+    stick = tmp_path / "media" / "stick"
+    stick.mkdir(parents=True)
+    mounts = [
+        ("proc", "/proc", "proc"),                        # non-real fs -> skip
+        ("tmpfs", "/run", "tmpfs"),                       # non-real fs -> skip
+        ("/dev/mmcblk0p1", str(fixed), "ext4"),           # fixed
+        ("/dev/sda1", str(stick), "vfat"),                # removable
+        ("/dev/sdb1", str(tmp_path / "ghost"), "ext4"),   # not a dir -> skip
+    ]
+    sizes = {str(fixed): (460_000_000_000, 360_000_000_000),
+             str(stick): (64_000_000_000, 60_000_000_000)}
+    drives = list_drives(mounts=mounts, usage=lambda mp: sizes[mp],
+                         removable=lambda dev: dev == "/dev/sda1")
+    assert [d["mount"] for d in drives] == [str(fixed), str(stick)]   # fixed first
+    assert drives[0]["removable"] is False
+    assert drives[1]["removable"] is True and drives[1]["fstype"] == "vfat"
+
+
+def test_drives_cli_runs(capsys):
+    import json as _j
+    from pyefis_data import cli
+    assert cli.main(["drives", "--json"]) == 0
+    assert "drives" in _j.loads(capsys.readouterr().out)
