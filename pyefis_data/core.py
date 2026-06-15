@@ -274,6 +274,12 @@ class Inventory:
         e["staged"] = cycle
         e["staged_sha256"] = sha256
 
+    def ids(self) -> list[str]:
+        return list(self.data["packs"].keys())
+
+    def remove(self, pack_id: str) -> None:
+        self.data["packs"].pop(pack_id, None)
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".json.tmp")
@@ -498,25 +504,126 @@ class Updater:
         tiles_dir = root / "terrain" / "tiles"
         tiles_dir.mkdir(parents=True, exist_ok=True)
         import zipfile
+        tiles = []
         with zipfile.ZipFile(part) as z:
             for member in z.namelist():
                 if member.endswith("/") or member == "pack_meta.json":
                     continue
                 z.extract(member, tiles_dir)   # zipfile sanitizes path traversal
+                tiles.append(member)
         part.unlink(missing_ok=True)
-        self._record_terrain_region(entry)
+        self._record_terrain_region(entry, tiles)
         return tiles_dir
 
-    def _record_terrain_region(self, entry: PackEntry) -> None:
-        """Track which terrain regions/edition are merged into the tile tree."""
-        f = self.config.root / "terrain" / "tiles" / ".regions.json"
+    def _record_terrain_region(self, entry: PackEntry, tiles=None) -> None:
+        """Track which terrain regions/edition are merged into the tile tree
+        (``.regions.json``: region -> edition) and, separately, which tile files
+        each region contributed (``.region_tiles.json``: region -> [paths]) so a
+        deselected region's exclusive tiles can be removed later. The two files
+        are kept separate so ``.regions.json`` stays the simple region->edition
+        contract other code reads."""
+        base = self.config.root / "terrain" / "tiles"
+        regf = base / ".regions.json"
+        tilef = base / ".region_tiles.json"
         try:
-            data = json.loads(f.read_text())
+            regs = json.loads(regf.read_text())
         except Exception:
-            data = {}
+            regs = {}
+        try:
+            tmap = json.loads(tilef.read_text())
+        except Exception:
+            tmap = {}
         for region in (entry.regions or [entry.id]):
-            data[region] = entry.cycle
-        f.write_text(json.dumps(data, indent=2, sort_keys=True))
+            regs[region] = entry.cycle
+            tmap[region] = sorted(tiles or [])
+        regf.write_text(json.dumps(regs, indent=2, sort_keys=True))
+        tilef.write_text(json.dumps(tmap, indent=2, sort_keys=True))
+
+    # --- removal (reconcile installed -> tracked selection) ---
+    def remove_pack(self, pid: str, kind: str, m: Manifest | None = None) -> None:
+        """Delete an installed pack's data from disk. SQLite kinds drop their
+        whole kind subdir; terrain removes the region's exclusive tiles from the
+        shared tree. Re-downloadable, so it's safe to be thorough."""
+        import shutil
+        root = self.config.root
+        if kind in SQLITE_KINDS:
+            subdir = SQLITE_KINDS[kind][0]
+            shutil.rmtree(root / subdir, ignore_errors=True)
+        elif kind in TILE_KINDS:
+            entries = m.for_id(pid) if m else []
+            regions = entries[0].regions if entries else [pid]
+            self._remove_terrain_regions(regions)
+
+    def _remove_terrain_regions(self, regions) -> None:
+        """Remove ``regions`` from the merged terrain tree: delete the tiles they
+        contributed that no *remaining* region also provides. If no terrain
+        regions remain, drop the whole tile tree. Tiles whose provenance is
+        unknown (legacy install with no .region_tiles.json) are left in place
+        unless the tree is being fully removed."""
+        import shutil
+        base = self.config.root / "terrain" / "tiles"
+        if not base.is_dir():
+            return
+        regf, tilef = base / ".regions.json", base / ".region_tiles.json"
+        try:
+            regs = json.loads(regf.read_text())
+        except Exception:
+            regs = {}
+        try:
+            tmap = json.loads(tilef.read_text())
+        except Exception:
+            tmap = {}
+        removing = set(regions)
+        remaining = [r for r in regs if r not in removing]
+        if not remaining:                       # nothing left -> reclaim everything
+            shutil.rmtree(base, ignore_errors=True)
+            return
+        keep = set()
+        for r in remaining:
+            keep.update(tmap.get(r, []))
+        drop = set()
+        for r in removing:
+            drop.update(tmap.get(r, []))
+        for rel in drop - keep:
+            (base / rel).unlink(missing_ok=True)
+        for r in removing:
+            regs.pop(r, None)
+            tmap.pop(r, None)
+        regf.write_text(json.dumps(regs, indent=2, sort_keys=True))
+        tilef.write_text(json.dumps(tmap, indent=2, sort_keys=True))
+        self._prune_empty_dirs(base)
+
+    @staticmethod
+    def _prune_empty_dirs(base: Path) -> None:
+        for d in sorted([p for p in base.iterdir() if p.is_dir()], reverse=True):
+            try:
+                next(d.iterdir())
+            except StopIteration:
+                d.rmdir()
+            except Exception:
+                pass
+
+    def _reconcile_removals(self, tracked: set, m: Manifest) -> list:
+        """Remove installed packs that are no longer in the tracked selection so
+        the drive matches what the user chose (the picker is the desired state).
+        Returns the ids removed."""
+        removed = []
+        for pid in self.inventory.ids():
+            if pid in tracked:
+                continue
+            kind = (self.inventory.get(pid) or {}).get("kind", "")
+            if not kind:
+                ents = m.for_id(pid)
+                kind = ents[0].kind if ents else ""
+            try:
+                self.remove_pack(pid, kind, m)
+            except Exception as e:
+                self.log(f"  could not remove {pid}: {e}")
+                continue
+            self.inventory.remove(pid)
+            removed.append(pid)
+            self.log(f"  removed {pid} ({kind})")
+        return removed
 
     def _flip_current(self, kind_dir: Path, cycle: str) -> None:
         """Atomically point ``<kind_dir>/current`` at the ``cycle`` subdir.
@@ -558,7 +665,14 @@ class Updater:
         m = self.fetch_manifest(remote)
         self.errors = []
         results: list[PackStatus] = []
-        for pid in self._tracked_ids(m):
+        tracked = self._tracked_ids(m)
+        # Reconcile: drop installed packs no longer selected, so the drive
+        # matches the desired set (the picker is the source of truth). Never
+        # during a dry run.
+        if not dry_run:
+            for pid in self._reconcile_removals(set(tracked), m):
+                results.append(PackStatus(pid, MISSING, "removed (deselected)"))
+        for pid in tracked:
             entries = m.for_id(pid)
             if not entries:
                 results.append(PackStatus(pid, UNKNOWN, "not in catalog"))

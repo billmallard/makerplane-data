@@ -296,6 +296,25 @@ def test_update_only_persists_root_when_given(tmp_path, monkeypatch):
     assert (newroot / "navdata" / "2606" / "airports.sqlite").exists()
 
 
+def test_update_removes_deselected_pack(tmp_path):
+    """Deselecting a pack (tracked set shrinks) removes it from the drive on the
+    next update -- the picker is the desired state."""
+    root, pub = build_store(tmp_path)
+    up = make_updater(tmp_path, pub, remote_root=root)        # airports + obstacles
+    up.update()
+    piroot = tmp_path / "pi"
+    assert (piroot / "obstacles" / "260611" / "obstacles.sqlite").exists()
+    # reconfigure to airports only (explicit packs, no kind defaults) -> obstacles drops
+    cfg = Config(base_url=ORIGIN, root=piroot, packs=("airports-conus",),
+                 track_kinds=(), regions=())
+    up2 = Updater(cfg, pub, remote=LocalDirRemote(root), today=TODAY)
+    rows = up2.update()
+    assert not (piroot / "obstacles").exists()               # removed from disk
+    assert (piroot / "navdata" / "2606" / "airports.sqlite").exists()   # kept
+    assert up2.inventory.get("obstacles-conus") is None
+    assert any(r.pack_id == "obstacles-conus" and "removed" in r.detail for r in rows)
+
+
 def test_prune_removes_old_cycles(tmp_path):
     root, pub = build_store(tmp_path)
     up = make_updater(tmp_path, pub, remote_root=root)

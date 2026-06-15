@@ -114,6 +114,40 @@ def test_two_regions_union_into_one_tree(tmp_path):
     assert set(regs) == {"us-west", "us-central"}
 
 
+def test_deselecting_terrain_region_removes_its_tiles(tmp_path):
+    """Unchecking a terrain region removes its exclusive tiles (keeping any a
+    remaining region still provides); deselecting all reclaims the whole tree."""
+    names = US_WEST_TILES + ["N35W095"]                 # N35W095 -> us-central
+    src = make_hgt_tree(tmp_path / "hgt", names)
+    store = LocalStore(tmp_path / "r2")
+    packs = make_terrain.make_terrain_packs(
+        src_root=src, out_dir=tmp_path / "build", edition="2024ed",
+        url_base=f"{ORIGIN}/packs", only_regions=["us-west", "us-central"],
+        log=lambda *a: None)
+    sk, pub = signing.generate_keypair()
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+                                 sign=signing.sign, log=lambda *a: None)
+    piroot = tmp_path / "pi"
+    tiles = piroot / "terrain" / "tiles"
+
+    def updater(regions):
+        return Updater(Config(base_url=ORIGIN, root=piroot, regions=regions),
+                       pub, remote=LocalDirRemote(store.root), today=TODAY)
+
+    updater(("us-west", "us-central")).update()         # install both
+    assert (tiles / "N32" / "N32W120.hgt").exists() and (tiles / "N35" / "N35W095.hgt").exists()
+
+    up2 = updater(("us-west",))                          # deselect us-central
+    up2.update()
+    assert (tiles / "N32" / "N32W120.hgt").exists()      # us-west kept
+    assert not (tiles / "N35" / "N35W095.hgt").exists()  # us-central tile gone
+    assert up2.inventory.get("terrain-us-central") is None
+    assert set(json.loads((tiles / ".regions.json").read_text())) == {"us-west"}
+
+    updater(()).update()                                 # deselect all terrain
+    assert not tiles.exists()                            # whole tree reclaimed
+
+
 def test_corrupt_terrain_pack_leaves_tree_untouched(tmp_path):
     store, pub, packs = build_store_with_terrain(tmp_path)
     # tamper the pack bytes in the store
