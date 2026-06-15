@@ -203,6 +203,10 @@ def cmd_update(args) -> int:
             saved = write_config(args.config, updates)
             print(f"saved selection ({len(ids)} pack(s)) to {saved}")
     up = _updater(args, override=override)
+    if getattr(args, "progress", False):
+        # Emit one JSON object per line; the on-device picker parses these to
+        # drive its progress bar. Human runs omit --progress and stay quiet.
+        up.progress = lambda ev: print(json.dumps(ev), flush=True)
     rows = up.update(dry_run=args.dry_run)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
@@ -287,6 +291,8 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--only", help="install exactly these comma-separated pack ids and "
                                   "persist the selection to data.yaml")
     u.add_argument("--source", help="install from a USB/local dir instead of the network")
+    u.add_argument("--progress", action="store_true",
+                   help="emit JSON progress events on stdout (for the on-device picker)")
     u.set_defaults(func=cmd_update)
 
     i = sub.add_parser("import", help="install from a USB/local directory")

@@ -14,11 +14,14 @@ _CHUNK = 1 << 20  # 1 MiB
 
 
 def download(url: str, dest: str | Path, *, resume: bool = True,
-             timeout: int = 60) -> Path:
+             timeout: int = 60, progress=None) -> Path:
     """Download ``url`` to ``dest`` with resume support.
 
     Downloads to ``dest.part`` then renames on completion, so a partial or
     interrupted transfer never looks like a finished file.
+
+    ``progress``, if given, is called as ``progress(done_bytes, total_bytes)``
+    on each chunk (``total_bytes`` is None if the server sent no Content-Length).
     """
     import requests  # lazy: only the real fetch path needs it (not tests)
 
@@ -41,11 +44,26 @@ def download(url: str, dest: str | Path, *, resume: bool = True,
         elif have and r.status_code == 416:
             # Already have the whole thing.
             part.replace(dest)
+            if progress:
+                progress(have, have)
             return dest
         r.raise_for_status()
+        total = None
+        cl = r.headers.get("Content-Length")
+        if cl is not None:
+            try:
+                total = int(cl) + (have if mode == "ab" else 0)
+            except ValueError:
+                total = None
+        done = have
+        if progress:
+            progress(done, total)
         with open(part, mode) as f:
             for block in r.iter_content(_CHUNK):
                 f.write(block)
+                done += len(block)
+                if progress:
+                    progress(done, total)
     part.replace(dest)
     return dest
 

@@ -315,6 +315,34 @@ def test_update_removes_deselected_pack(tmp_path):
     assert any(r.pack_id == "obstacles-conus" and "removed" in r.detail for r in rows)
 
 
+def test_update_emits_progress_events(tmp_path):
+    root, pub = build_store(tmp_path)
+    up = make_updater(tmp_path, pub, remote_root=root)
+    events = []
+    up.progress = events.append
+    up.update()
+    kinds = [e["event"] for e in events]
+    assert "begin" in kinds and "pack" in kinds and "progress" in kinds
+    begin = next(e for e in events if e["event"] == "begin")
+    assert begin["total"] == 2                       # airports + obstacles need install
+    pcts = [e["pct"] for e in events
+            if e["event"] == "progress" and e.get("id") == "airports-conus"]
+    assert 100 in pcts                               # reaches complete
+
+
+def test_update_progress_flag_prints_json(tmp_path, monkeypatch, capsys):
+    import json
+    root, pub = build_store(tmp_path)
+    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    capsys.readouterr()
+    cli.main(["--base-url", ORIGIN, "--root", str(tmp_path / "pi"),
+              "update", "--source", str(root), "--progress"])
+    events = [json.loads(l) for l in capsys.readouterr().out.splitlines()
+              if l.startswith("{")]
+    assert any(e["event"] == "begin" for e in events)
+    assert any(e["event"] == "pack" for e in events)
+
+
 def test_prune_removes_old_cycles(tmp_path):
     root, pub = build_store(tmp_path)
     up = make_updater(tmp_path, pub, remote_root=root)

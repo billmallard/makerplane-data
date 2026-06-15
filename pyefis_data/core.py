@@ -95,9 +95,9 @@ class HttpRemote:
         r.raise_for_status()
         return r.content
 
-    def download(self, url: str, dest: Path) -> Path:
+    def download(self, url: str, dest: Path, progress=None) -> Path:
         from packtools import fetch  # resumable download
-        return fetch.download(url, dest)
+        return fetch.download(url, dest, progress=progress)
 
 
 def disk_info(root) -> dict:
@@ -233,10 +233,13 @@ class LocalDirRemote:
     def get_bytes(self, url: str, timeout: int = 30) -> bytes:
         return self._path(url).read_bytes()
 
-    def download(self, url: str, dest: Path) -> Path:
+    def download(self, url: str, dest: Path, progress=None) -> Path:
         dest = Path(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(self._path(url).read_bytes())
+        data = self._path(url).read_bytes()
+        dest.write_bytes(data)
+        if progress:                       # local copy is instant: report complete
+            progress(len(data), len(data))
         return dest
 
 
@@ -326,6 +329,35 @@ class Updater:
         self.inventory = Inventory.load(config.root / "installed.json")
         self.errors: list[str] = []   # verification failures during the last update
         self.manifest_generated: str | None = None   # set on each fetch
+        self.progress = None          # optional sink: callable(event_dict)
+
+    def _emit(self, ev: dict) -> None:
+        if self.progress:
+            try:
+                self.progress(ev)
+            except Exception:
+                pass
+
+    def _dl_progress(self, entry):
+        """A throttled download callback for one pack: emit a 'progress' event
+        only when the whole-percent advances (or ~8 MB for unknown-size), so a
+        multi-GB pack produces ~100 events, not tens of thousands."""
+        if not self.progress:
+            return None
+        state = {"pct": -1, "last": 0}
+
+        def cb(done, total):
+            if total:
+                pct = int(done * 100 / total) if total else 0
+                if pct != state["pct"]:
+                    state["pct"] = pct
+                    self._emit({"event": "progress", "id": entry.id,
+                                "done": done, "total": total, "pct": pct})
+            elif done - state["last"] >= (8 << 20):
+                state["last"] = done
+                self._emit({"event": "progress", "id": entry.id,
+                            "done": done, "total": None, "pct": None})
+        return cb
 
     # --- manifest fetch + verify ---
     def _verify(self, raw: bytes, sig: str) -> str:
@@ -464,7 +496,7 @@ class Updater:
         part = staging / f"{entry.id}-{entry.cycle}.pack"
 
         self.log(f"  download {entry.id} {entry.cycle} ({entry.bytes:,} B)")
-        remote.download(entry.url, part)
+        remote.download(entry.url, part, progress=self._dl_progress(entry))
 
         got = signing.sha256_file(part)
         if got != entry.sha256:
@@ -493,7 +525,7 @@ class Updater:
         part = staging / f"{entry.id}-{entry.cycle}.pack"
 
         self.log(f"  download {entry.id} {entry.cycle} ({entry.bytes:,} B)")
-        remote.download(entry.url, part)
+        remote.download(entry.url, part, progress=self._dl_progress(entry))
         got = signing.sha256_file(part)
         if got != entry.sha256:
             part.unlink(missing_ok=True)
@@ -672,6 +704,13 @@ class Updater:
         if not dry_run:
             for pid in self._reconcile_removals(set(tracked), m):
                 results.append(PackStatus(pid, MISSING, "removed (deselected)"))
+        # Count the packs that actually need downloading, for the progress UI.
+        need = [pid for pid in tracked
+                if (lambda c, iv: bool(c) and iv.get("current") != c.cycle)(
+                    m.select(pid, self.today), self.inventory.get(pid) or {})]
+        if not dry_run:
+            self._emit({"event": "begin", "total": len(need)})
+        installed_idx = 0
         for pid in tracked:
             entries = m.for_id(pid)
             if not entries:
@@ -684,6 +723,10 @@ class Updater:
                 if dry_run:
                     results.append(PackStatus(pid, UPDATE, f"would install {cur.cycle}"))
                 else:
+                    installed_idx += 1
+                    self._emit({"event": "pack", "index": installed_idx,
+                                "total": len(need), "id": pid,
+                                "name": KIND_LABELS.get(entries[0].kind, pid)})
                     try:
                         self.install_pack(cur, make_current=True, remote=remote)
                     except VerificationError as e:
