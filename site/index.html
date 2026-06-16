@@ -139,8 +139,8 @@
       <tbody>
         <tr>
           <td><b>Airports &amp; runways</b></td>
-          <td>FAA NASR <span class="lic">(US Gov, public domain)</span></td>
-          <td>Fetch the 28-day NASR CSV subscription; join the APT base/runway/runway-end tables into an indexed SQLite database.</td>
+          <td>FAA NASR <span class="lic">(US Gov, public domain)</span> + OurAirports <span class="lic">(public domain)</span></td>
+          <td>US airports from the 28-day FAA NASR CSV (the APT base/runway/runway-end tables joined into an indexed SQLite database). Airports outside the US &mdash; e.g. Canada, where the official data isn&rsquo;t freely available &mdash; come from the community-maintained OurAirports dataset as separate region packs that merge with the FAA data on the device.</td>
         </tr>
         <tr>
           <td><b>Obstacles</b></td>
@@ -173,7 +173,8 @@
 
     <p style="margin-top:14px">Map data &copy; OpenStreetMap contributors, available under the
       <a href="https://opendatacommons.org/licenses/odbl/">Open Database License</a>.
-      Contains modified Copernicus data. FAA data courtesy of the U.S. Government.</p>
+      Contains modified Copernicus data. FAA data courtesy of the U.S. Government.
+      Non-US airport data from <a href="https://ourairports.com">OurAirports</a> (public domain).</p>
   </section>
 
 </main>
@@ -190,8 +191,8 @@
 <script>
 const MANIFEST = "manifest.json";
 const GROUPS = [
-  { kinds: ["navdata", "obstacles", "cifp"], title: "Navigation data",
-    blurb: "FAA airports, runways, obstacles & procedures — updated on the FAA cycle." },
+  { kinds: ["navdata", "obstacles", "cifp", "airports"], title: "Navigation data",
+    blurb: "US airports, runways, obstacles & procedures (FAA cycle), plus regional airport packs for outside the US (OurAirports — e.g. Canada)." },
   { kinds: ["terrain"], title: "Terrain (Copernicus GLO-30)",
     blurb: "30 m elevation, by region. Big — pick the areas you fly." },
   { kinds: ["water"], title: "Water",
@@ -212,8 +213,9 @@ function currency(p) {
 }
 function packLabel(p) {
   if (p.kind === "terrain" && p.regions && p.regions.length) return "Terrain — " + p.regions[0];
+  if (p.kind === "airports" && p.regions && p.regions.length) return "Airports — " + p.regions[0];
   return ({ navdata: "Airports & runways", obstacles: "Obstacles", cifp: "Procedures & waypoints",
-            water: "Water", highways: "Roads & highways" })[p.kind] || p.id;
+            water: "Water", highways: "Roads & highways", airports: "Airports (regional)" })[p.kind] || p.id;
 }
 
 let MANIFEST_URLS = { manifest: MANIFEST, sig: MANIFEST + ".minisig" };
