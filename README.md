@@ -9,11 +9,12 @@ This repo covers **reference-data currency only** — terrain, airports,
 obstacles, instrument procedures, water, charts. It is *not* the runtime
 flight-data bus; that contract lives in `canfix.json` / FIX-Gateway.
 
-> Status: **Phases A, B, C complete** ✅ — the data contract, the daily build
-> pipeline (live on Cloudflare R2 at `navdata.aerocommons.org`), and the on-Pi
-> updater, all proven end-to-end against live FAA data and the production
-> origin. Remaining: terrain/CIFP/water packs (B.2/D), the website (E), the
-> in-EFIS DATA flag (F). See
+> Status: **Phases A–F complete and live** ✅ — the data contract, the daily
+> build pipeline, the on-Pi updater, terrain + water + road packs, the public
+> website with an on-device pack picker, and the in-EFIS DATA flag, all proven
+> end-to-end against live FAA/OSM data and the production origin
+> (**`navdata.aerocommons.org`**, Cloudflare R2, zero egress). Current release:
+> **0.1.7**. CIFP packs remain deferred (GPL indexer). See
 > [docs/data_manager_implementation.md](docs/data_manager_implementation.md)
 > for the full phase plan (A–G).
 
@@ -28,7 +29,7 @@ Freeze its schema and each leg can be built and swapped on its own:
         │  packs + manifest.json + manifest.json.minisig
         ▼
   LEG 2  DISTRIBUTION       Cloudflare R2 (zero egress) at
-                            data.makerplane.org; static Pages site
+                            navdata.aerocommons.org; static site + picker
         │  HTTPS  /  USB sneakernet
         ▼
   LEG 3  ON-PI UPDATER      pyefis-data: verify signature -> verify sha256
@@ -50,12 +51,16 @@ needs the offline secret key. The Pi treats **any** verification failure as
 
 | Path | Leg | Phase | What |
 |---|---|---|---|
-| `packtools/` | 1 | A/B | pack builder: cycles, signing, pack_meta, manifest, regions, sources, fetch, build, upload, orchestrator, CLI |
-| `.github/workflows/` | 1/2 | B | `ci.yml` (tests + dry-run), `cyclical.yml` (daily build+sign+upload), water/terrain dispatch stubs |
-| `pyefis_data/` | 3 | C | on-Pi updater: config, core (Remote/Inventory/Updater), CLI, systemd units |
-| `site/` | 2 | E | static Cloudflare Pages dashboard + region picker |
+| `packtools/` | 1 | A/B/D | pack builder: cycles, signing, pack_meta, manifest, regions, sources, fetch, build, upload, orchestrator, terrain (`make-terrain`), CLI |
+| `.github/workflows/` | 1/2 | B | `ci.yml` (tests + dry-run), `cyclical.yml` (daily build+sign+upload), water/terrain dispatch |
+| `pyefis_data/` | 3 | C/F | on-Pi updater: config, core (Remote/Inventory/Updater), CLI (status/catalog/sources/drives/update/import/verify), systemd units |
+| `site/` | 2 | E | static Cloudflare site + on-device pack picker (`data.yaml` sample) |
 | `regions.yaml` | — | A | region bboxes for terrain grouping & Pi region-of-interest |
 | `keys/minisign.pub` | — | A | signing public key (committed; secret never is) |
+
+Pack kinds shipping today: **navdata** (airports/runways), **obstacles** (FAA
+DOF), **terrain** (Copernicus GLO-30 region tiles), **water** (OSM coastlines/
+lakes/reservoirs, ODbL), **highways** (OSM motorway/trunk, ODbL). CIFP deferred.
 
 ## Phase A — what's here now
 
@@ -99,7 +104,7 @@ packtool verify work/manifest.json --pub keys/minisign.pub
 ```
 
 ```bash
-PYTHONPATH=. python -m pytest        # 60 tests, ~2s
+PYTHONPATH=. python -m pytest        # 108 tests, ~3s
 ```
 
 ## Phase B — the daily build pipeline (Leg 1)
@@ -149,48 +154,66 @@ python -m packtools.run_cyclical --no-upload --only airports-conus \
   download/signature can never disturb the live data. Offline falls back to the
   last good (still-verified) cached manifest. Pre-stages the next AIRAC cycle so
   rollover is seamless.
-- **`cli.py`** — `pyefis-data status [--json] | update | import <dir> | verify`,
-  with the production public key embedded.
+- **`cli.py`** — `pyefis-data status | catalog | sources | drives | update |
+  import <dir> | verify` (all with `--json`), production public key embedded.
+  `update --only id,id --progress` installs exactly a selection, persists it to
+  `data.yaml`, and streams JSON progress events — this is what the on-device
+  pack picker drives. A user **cancel** (SIGTERM, from the picker's Cancel
+  button) is handled gracefully: the in-flight download unwinds, the partial
+  staging file is dropped, and the install exits cleanly leaving live data
+  untouched.
 - **`systemd/`** — user service + daily timer, and a udev rule + templated
   service for the USB-stick import path (hangars without WiFi).
 
 ```bash
 pyefis-data verify                 # check the live manifest signature
 pyefis-data status                 # installed vs catalog, per-pack currency
+pyefis-data catalog                # every available pack (the picker view)
 pyefis-data update                 # pull stale packs, verify, atomic-swap
 pyefis-data import /media/usb/makerplane-data   # same verify path, offline
 ```
 
-Proven against the **live production origin**: `verify` validates the signed
-manifest with the embedded key; `update` pulls airports current+next from R2,
-verifies sha256, installs the real 19,407-airport sqlite, and pre-stages the
-next cycle. Verify-then-swap, bad-sha-leaves-current-untouched, bad-signature-
-refused, offline-cache, idempotent re-run, and USB import are all unit-tested
-(75 tests total).
+On the EFIS this is wrapped by a touch **pack picker** (the Update screen):
+pick packs from the catalog, choose the storage drive, watch byte-level
+progress, and Cancel a long transfer to return to the picker. Deselecting an
+installed pack removes it on the next update.
 
-## What's deliberately *not* done yet
+Proven against the **live production origin**: `update` pulls navdata + terrain
++ water + highways from R2, verifies each sha256 against the signed manifest,
+and atomic-swaps them in; an interrupted or bad download never disturbs the
+live data. Verify-then-swap, bad-sha-leaves-current-untouched, bad-signature-
+refused, offline-cache, idempotent re-run, deselect-removes, graceful-cancel,
+and USB import are all unit-tested (108 tests total).
 
-- **R2 is LIVE and publicly served.** The daily pipeline builds + signs +
-  uploads to the Cloudflare R2 bucket `makerplane-data` unattended, served at
-  **`https://navdata.aerocommons.org`** (custom domain, edge-cached, zero
-  egress). Manifest: <https://navdata.aerocommons.org/manifest.json>. Full
-  reproduce-from-nothing runbook:
-  [docs/cloudflare_setup.md](docs/cloudflare_setup.md).
+## What's live now (Phases D–F)
+
+- **Distribution (Leg 2) is LIVE and publicly served.** The daily pipeline
+  builds + signs + uploads to the Cloudflare R2 bucket `makerplane-data`
+  unattended, served at **`https://navdata.aerocommons.org`** (custom domain,
+  edge-cached, zero egress). Manifest:
+  <https://navdata.aerocommons.org/manifest.json>. Reproduce-from-nothing
+  runbook: [docs/cloudflare_setup.md](docs/cloudflare_setup.md).
+- **Terrain (Phase D).** Copernicus GLO-30 region packs built on a workstation
+  (`packtool make-terrain`), served from R2, pulled + verified on the Pi, read
+  by the pyEfis SVS. See [docs/terrain.md](docs/terrain.md).
+- **Water & highways.** Single sqlite packs (`kind: water` / `kind: highways`)
+  from OpenStreetMap (ODbL attribution), built with `build-pack --upload`,
+  served + consumed like navdata. The water build decimates polygons with
+  Douglas–Peucker and a min-area declutter so reservoirs render as branches,
+  not blobs. See [docs/water.md](docs/water.md).
+- **Website + on-device pack picker (Phase E).** A static site at the origin
+  lists every pack; on the EFIS the touch picker turns `data.yaml` into a
+  point-and-tap selection with a graceful Cancel.
+- **In-EFIS DATA flag (Phase F).** A boot Data Status screen + a subtle PFD
+  annunciator report currency (green/amber); the EFIS *informs*, never restricts.
+
+## Deferred / interim
+
 - **CIFP packs.** Registered as a source but build deferred — its indexer is
   GPL (pyAvTools) and this repo is MIT. Build via faa-cifp-data's tooling or
-  reimplement the index. Airports + obstacles ship now.
+  reimplement the index.
 - **Tool sharing.** Still the interim `pip install pyEfis from git` shim
-  (`PYEFIS_TOOLS_DIR`); the standalone `pyefis-tools` package is a later
-  refactor.
-- **Terrain (Phase D) is LIVE** — GLO-30 region packs built on a workstation
-  (`packtool make-terrain`), served from R2, pulled + verified on the Pi, read
-  by the SVS. See [docs/terrain.md](docs/terrain.md). **Phase F** (boot Data
-  Status screen + PFD DATA flag) is also done and on the Pi.
-- **Water (coastlines/lakes)** — a single sqlite pack (`kind: water`); build
-  with `build-pack --upload`, served + consumed like navdata. ODbL
-  attribution required. See [docs/water.md](docs/water.md) and `water.yml`
-  (CI-buildable for modest scopes). **The website / pack-picker** → Phase E.
-  **CIFP** packs → deferred (GPL indexer in pyAvTools).
+  (`PYEFIS_TOOLS_DIR`); the standalone `pyefis-tools` package is a later refactor.
 
 ## Data licensing
 
