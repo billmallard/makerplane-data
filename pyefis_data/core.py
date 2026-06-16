@@ -778,12 +778,14 @@ class Updater:
 
     def _prune(self, pid: str, kind: str) -> None:
         """Remove version dirs for this pack other than current + staged, to
-        bound SD-card use. Assumes one pack per kind/subdir (our mapping)."""
+        bound SD-card use. Operates on the pack's own subdir — per-provider
+        kinds nest the pack id, so prune must not run on the shared base dir
+        (that would delete sibling providers)."""
         if kind not in SQLITE_KINDS:
             return
         inv = self.inventory.get(pid) or {}
         keep = {inv.get("current"), inv.get("staged")} - {None}
-        base = self.config.root / SQLITE_KINDS[kind][0]
+        base = self.config.root / _sqlite_subdir(kind, pid)[0]
         if not base.is_dir():
             return
         cur_target = self._current_target(base)

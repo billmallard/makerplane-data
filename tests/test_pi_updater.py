@@ -374,6 +374,23 @@ def test_update_cancel_cleans_staging_and_exits_130(tmp_path, monkeypatch, capsy
     assert any(e.get("event") == "canceled" for e in events)  # UI told it stopped
 
 
+def test_prune_keeps_per_provider_airport_packs(tmp_path):
+    """Per-provider 'airports' packs install under airports/<pack_id>/<cycle>/.
+    _prune must operate on that subdir, not the shared 'airports' base — else it
+    deletes the just-installed pack and any sibling provider."""
+    up = make_updater(tmp_path, "x")
+    root = up.config.root
+    for pid in ("airports-canada", "airports-mexico"):
+        vdir = root / "airports" / pid / "2026.06"
+        vdir.mkdir(parents=True)
+        (vdir / "airports.sqlite").write_text("db")
+        up._flip_current(root / "airports" / pid, "2026.06")
+        up.inventory.set_current(pid, "2026.06", "sha", kind="airports")
+    up._prune("airports-canada", "airports")
+    assert (root / "airports" / "airports-canada" / "2026.06" / "airports.sqlite").exists()
+    assert (root / "airports" / "airports-mexico" / "2026.06" / "airports.sqlite").exists()
+
+
 def test_prune_removes_old_cycles(tmp_path):
     root, pub = build_store(tmp_path)
     up = make_updater(tmp_path, pub, remote_root=root)
