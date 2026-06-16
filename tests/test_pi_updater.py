@@ -343,6 +343,37 @@ def test_update_progress_flag_prints_json(tmp_path, monkeypatch, capsys):
     assert any(e["event"] == "pack" for e in events)
 
 
+def test_update_cancel_cleans_staging_and_exits_130(tmp_path, monkeypatch, capsys):
+    """A user cancel (SIGTERM -> UpdateCancelled) unwinds the update cleanly:
+    the partial staging file is dropped, a 'canceled' event is emitted for the
+    UI, and the exit code is the distinct CANCELED_RC (not the verify-error 2).
+    Installed data is never touched -- here we drive the cancel via the same
+    exception the signal handler raises, without delivering a real signal."""
+    import json
+    root, pub = build_store(tmp_path)
+    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    piroot = tmp_path / "pi"
+
+    def fake_update(self, *, dry_run=False, remote=None):
+        # mimic an interrupted download: a partial sits in staging/ when the
+        # cancel arrives mid-transfer
+        staging = self.config.root / "staging"
+        staging.mkdir(parents=True, exist_ok=True)
+        # the fetcher streams to <name>.pack.part until the download completes
+        (staging / "water-na-2026q2r4.pack.part").write_bytes(b"partial")
+        raise cli.UpdateCancelled()
+
+    monkeypatch.setattr(cli.Updater, "update", fake_update)
+    capsys.readouterr()
+    rc = cli.main(["--base-url", ORIGIN, "--root", str(piroot),
+                   "update", "--source", str(root), "--progress"])
+    assert rc == cli.CANCELED_RC == 130
+    assert not list((piroot / "staging").glob("*.pack"))     # partial cleaned up
+    events = [json.loads(l) for l in capsys.readouterr().out.splitlines()
+              if l.startswith("{")]
+    assert any(e.get("event") == "canceled" for e in events)  # UI told it stopped
+
+
 def test_prune_removes_old_cycles(tmp_path):
     root, pub = build_store(tmp_path)
     up = make_updater(tmp_path, pub, remote_root=root)

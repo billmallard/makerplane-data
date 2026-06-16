@@ -40,6 +40,31 @@ PUBLIC_KEY = (
 # statuses that mean "the EFIS should annunciate" — also used for exit codes.
 _ATTENTION = {EXPIRED, EXPIRES, UPDATE, MISSING}
 
+# Exit code for a user-cancelled update (the on-device picker sends SIGTERM
+# when the user taps Cancel on the progress screen). Distinct from the
+# verification-error code (2) so the caller can tell "interrupted" from "broke".
+CANCELED_RC = 130
+
+
+class UpdateCancelled(Exception):
+    """Raised from the SIGTERM handler to unwind a running update. Module-level
+    so the cancel path is testable without delivering a real signal."""
+
+
+def _cleanup_staging(up: Updater) -> None:
+    """Drop any partial download left in staging/ by an interrupted update —
+    both the final ``*.pack`` name and the in-flight ``*.pack.part`` the fetcher
+    streams to (packtools.fetch downloads to ``dest.suffix + '.part'``).
+    Best-effort: installed data lives elsewhere and is never touched here, so a
+    failure to clean is harmless (the next update overwrites the partial)."""
+    try:
+        staging = up.config.root / "staging"
+        for f in staging.glob("*.pack*"):
+            if f.is_file():
+                f.unlink(missing_ok=True)
+    except Exception:
+        pass
+
 
 def _updater(args, *, override: dict | None = None) -> Updater:
     cfg = Config.load(args.config)
@@ -203,11 +228,37 @@ def cmd_update(args) -> int:
             saved = write_config(args.config, updates)
             print(f"saved selection ({len(ids)} pack(s)) to {saved}")
     up = _updater(args, override=override)
-    if getattr(args, "progress", False):
+    progress = getattr(args, "progress", False)
+    if progress:
         # Emit one JSON object per line; the on-device picker parses these to
         # drive its progress bar. Human runs omit --progress and stay quiet.
         up.progress = lambda ev: print(json.dumps(ev), flush=True)
-    rows = up.update(dry_run=args.dry_run)
+
+    # Graceful cancel: the on-device picker sends SIGTERM when the user taps
+    # Cancel on the progress screen. Turn it into a clean unwind -- abort the
+    # (possibly mid-download) update, drop the partial staging file, and exit
+    # without a traceback. Installed data is never at risk: downloads land in
+    # staging/ and only an atomic rename + symlink flip make them current, so an
+    # interrupted download leaves the previous data fully intact. The handler is
+    # only meaningful in the main thread; install it just for this call.
+    import signal
+    def _on_term(_signum, _frame):
+        raise UpdateCancelled()
+    try:
+        prev_term = signal.signal(signal.SIGTERM, _on_term)
+    except (ValueError, OSError):
+        prev_term = None                  # not main thread / unsupported platform
+    try:
+        rows = up.update(dry_run=args.dry_run)
+    except UpdateCancelled:
+        _cleanup_staging(up)
+        if progress:
+            print(json.dumps({"event": "canceled"}), flush=True)
+        print("update canceled; current data left untouched", file=sys.stderr)
+        return CANCELED_RC
+    finally:
+        if prev_term is not None:
+            signal.signal(signal.SIGTERM, prev_term)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
     # Refresh the status JSON the EFIS reads, so the boot screen / DATA flag
