@@ -53,6 +53,9 @@ def _run_tool(script: str, args: list[str]) -> None:
 
 
 def build_airports(input_dir: Path, out_path: Path) -> Path:
+    # US-only FAA NASR. Foreign airports come from separate provider packs
+    # (e.g. airports-canada from OurAirports), built independently and merged
+    # at runtime by the SVS — not folded in here. See packtools/ourairports.py.
     out_path.parent.mkdir(parents=True, exist_ok=True)
     _run_tool("build_airport_db.py",
               ["--nasr-dir", str(input_dir), "--output", str(out_path)])

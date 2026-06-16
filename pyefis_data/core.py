@@ -46,7 +46,24 @@ SQLITE_KINDS: dict[str, tuple[str, str]] = {
     "obstacles": ("obstacles", "obstacles.sqlite"),
     "water": ("water", "water.sqlite"),
     "highways": ("highways", "highways.sqlite"),
+    # Supplemental airport providers (Canada/OurAirports, future sources). Many
+    # packs share this kind, so each installs under its own pack-id subdir
+    # (airports/<pack_id>/current/airports.sqlite) and the SVS merges them.
+    "airports": ("airports", "airports.sqlite"),
 }
+
+# Kinds where multiple packs coexist, so the install path is keyed by pack id
+# (vs one current symlink per kind).
+PER_PROVIDER_KINDS = frozenset({"airports"})
+
+
+def _sqlite_subdir(kind: str, pack_id: str) -> tuple[str, str]:
+    """(subdir, filename) for a sqlite pack. Per-provider kinds nest the pack id
+    so several providers of the same kind don't collide."""
+    base, filename = SQLITE_KINDS[kind]
+    if kind in PER_PROVIDER_KINDS:
+        return f"{base}/{pack_id}", filename
+    return base, filename
 
 # Selection policy (what a Pi tracks):
 #   core navdata kinds  -> tracked by default (small, CONUS-wide)
@@ -489,7 +506,7 @@ class Updater:
             raise NotImplementedError(
                 f"installing kind {entry.kind!r} is not supported yet")
         remote = remote or self.remote
-        subdir, filename = SQLITE_KINDS[entry.kind]
+        subdir, filename = _sqlite_subdir(entry.kind, entry.id)
         root = self.config.root
         staging = root / "staging"
         staging.mkdir(parents=True, exist_ok=True)
@@ -579,7 +596,7 @@ class Updater:
         import shutil
         root = self.config.root
         if kind in SQLITE_KINDS:
-            subdir = SQLITE_KINDS[kind][0]
+            subdir = _sqlite_subdir(kind, pid)[0]
             shutil.rmtree(root / subdir, ignore_errors=True)
         elif kind in TILE_KINDS:
             entries = m.for_id(pid) if m else []
