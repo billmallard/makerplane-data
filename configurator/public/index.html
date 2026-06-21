@@ -47,6 +47,12 @@
   .hidden { display: none; }
   .note { font-size: 13px; color: #8b949e; margin-top: 10px; }
   .sep { margin: 16px 0; border: none; border-top: 1px solid #21262d; }
+  #canvas-wrap { margin-top: 12px; overflow: hidden; }
+  #preview-canvas { position: relative; background: #000; border: 1px solid #21262d; }
+  #preview-canvas .inst { position: absolute; outline: 1px solid rgba(120,140,160,.25); }
+  #preview-canvas .inst img { width: 100%; height: 100%; display: block; }
+  #preview-canvas .inst.placeholder { outline-color: rgba(210,170,90,.5); }
+  #preview-canvas .inst.fallback { outline-color: rgba(210,90,90,.6); }
 </style>
 </head>
 <body>
@@ -87,6 +93,12 @@
     <ul id="projects" class="projects"></ul>
     <p id="projects-empty" class="note hidden">No projects yet - create your first one above.</p>
   </section>
+
+  <section id="preview-card" class="card hidden">
+    <h2 style="margin-top:0;font-size:17px">Layout preview <span class="muted">(sample: PFD_AI_ONLY)</span></h2>
+    <p class="muted" style="margin-top:0">The pyEfis Phase 1 viewer, rendered in-page from the published schema/thumbnail bundle. Amber outline = placeholder (GL / config-driven). Per-project rendering arrives with the resolve pipeline.</p>
+    <div id="canvas-wrap"><div id="preview-canvas"></div></div>
+  </section>
 </main>
 
 <script>
@@ -106,6 +118,7 @@
   function showSignedOut() {
     $("signed-out").classList.remove("hidden");
     $("signed-in").classList.add("hidden");
+    $("preview-card").classList.add("hidden");
     $("logout").classList.add("hidden");
     $("who").textContent = "";
   }
@@ -115,7 +128,9 @@
     $("signed-out").classList.add("hidden");
     $("logout").classList.remove("hidden");
     $("who").textContent = "Signed in as " + (user.name || user.email);
+    $("preview-card").classList.remove("hidden");
     await loadProjects();
+    renderPreview();
   }
 
   async function loadProjects() {
@@ -162,6 +177,47 @@
     $("email-msg").textContent = res.ok
       ? "Check your email for a sign-in link."
       : "Something went wrong - please try again.";
+  });
+
+  async function renderPreview() {
+    const base = "/assets/preview/pfd_ai_only";
+    const res = await fetch(base + "/preview.json");
+    if (!res.ok) return;
+    const m = await res.json();
+    const canvas = $("preview-canvas");
+    canvas.style.width = m.canvas.w + "px";
+    canvas.style.height = m.canvas.h + "px";
+    canvas.innerHTML = "";
+    for (const inst of m.instruments) {
+      const d = document.createElement("div");
+      d.className = "inst " + inst.kind;
+      d.style.left = inst.rect.x + "px";
+      d.style.top = inst.rect.y + "px";
+      d.style.width = inst.rect.w + "px";
+      d.style.height = inst.rect.h + "px";
+      d.title = inst.type + "  @ row " + inst.row + ", col " + inst.column + "  (" + inst.kind + ")";
+      const img = document.createElement("img");
+      img.src = base + "/thumbs/" + inst.thumb;
+      img.alt = inst.type;
+      d.appendChild(img);
+      canvas.appendChild(d);
+    }
+    fitCanvas(canvas, m.canvas.w, m.canvas.h);
+  }
+
+  function fitCanvas(canvas, w, h) {
+    const wrap = canvas.parentElement;
+    const scale = Math.min(1, wrap.clientWidth / w);
+    canvas.style.transform = "scale(" + scale + ")";
+    canvas.style.transformOrigin = "top left";
+    wrap.style.height = (h * scale) + "px";
+  }
+
+  window.addEventListener("resize", () => {
+    const canvas = $("preview-canvas");
+    if (canvas && canvas.children.length) {
+      fitCanvas(canvas, parseFloat(canvas.style.width), parseFloat(canvas.style.height));
+    }
   });
 
   load();

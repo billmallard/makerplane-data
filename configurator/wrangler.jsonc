@@ -36,6 +36,13 @@
     }
   ],
 
+  // R2: per-user design (config) blobs under configs/ (private, via authed
+  // /api), and shared editor assets (schema + thumbnails) under assets/
+  // (public, via /assets/*).
+  "r2_buckets": [
+    { "binding": "CONFIGS", "bucket_name": "makerplane-configs" }
+  ],
+
   // Serve the minimal frontend (public/) from this same origin so the session
   // cookie just works (no CORS). run_worker_first runs the Worker for every
   // request; it handles /api + /auth and its catch-all delegates the rest to

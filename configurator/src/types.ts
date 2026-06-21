@@ -3,6 +3,7 @@
 export interface Bindings {
   DB: D1Database;
   KV: KVNamespace;
+  CONFIGS: R2Bucket;
   ASSETS: Fetcher;
   SESSION_SECRET: string;
   GOOGLE_CLIENT_ID: string;

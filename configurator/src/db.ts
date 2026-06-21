@@ -71,3 +71,142 @@ export async function createProject(
     .bind(userId, name)
     .first();
 }
+
+// --- projects (ownership-scoped) -------------------------------------------
+
+export async function getProject(
+  db: D1Database,
+  userId: number,
+  projectId: number,
+): Promise<Record<string, unknown> | null> {
+  return db
+    .prepare(
+      `SELECT id, name, created_at, updated_at
+         FROM projects WHERE id = ?1 AND user_id = ?2`,
+    )
+    .bind(projectId, userId)
+    .first();
+}
+
+export async function deleteProject(
+  db: D1Database,
+  userId: number,
+  projectId: number,
+): Promise<void> {
+  await db
+    .prepare(`DELETE FROM projects WHERE id = ?1 AND user_id = ?2`)
+    .bind(projectId, userId)
+    .run();
+}
+
+// --- devices (ownership via the parent project) ----------------------------
+
+export async function listDevices(
+  db: D1Database,
+  userId: number,
+  projectId: number,
+): Promise<unknown[]> {
+  const res = await db
+    .prepare(
+      `SELECT d.id, d.kind, d.name, d.width, d.height,
+              d.claimed_at, d.last_pull_at, d.created_at
+         FROM devices d JOIN projects p ON p.id = d.project_id
+        WHERE d.project_id = ?1 AND p.user_id = ?2
+        ORDER BY d.created_at`,
+    )
+    .bind(projectId, userId)
+    .all();
+  return res.results;
+}
+
+export async function createDevice(
+  db: D1Database,
+  userId: number,
+  projectId: number,
+  opts: { name: string; kind?: string; width?: number; height?: number },
+): Promise<Record<string, unknown> | null> {
+  const project = await getProject(db, userId, projectId);
+  if (!project) return null; // not owned / not found
+  return db
+    .prepare(
+      `INSERT INTO devices (project_id, kind, name, width, height)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+       RETURNING id, kind, name, width, height, created_at`,
+    )
+    .bind(projectId, opts.kind ?? "pyefis", opts.name,
+          opts.width ?? null, opts.height ?? null)
+    .first();
+}
+
+export async function getDevice(
+  db: D1Database,
+  userId: number,
+  deviceId: number,
+): Promise<Record<string, unknown> | null> {
+  return db
+    .prepare(
+      `SELECT d.id, d.project_id, d.kind, d.name, d.width, d.height
+         FROM devices d JOIN projects p ON p.id = d.project_id
+        WHERE d.id = ?1 AND p.user_id = ?2`,
+    )
+    .bind(deviceId, userId)
+    .first();
+}
+
+export async function deleteDevice(
+  db: D1Database,
+  userId: number,
+  deviceId: number,
+): Promise<void> {
+  await db
+    .prepare(
+      `DELETE FROM devices
+        WHERE id = ?1
+          AND project_id IN (SELECT id FROM projects WHERE user_id = ?2)`,
+    )
+    .bind(deviceId, userId)
+    .run();
+}
+
+// --- configs (versioned; YAML blob lives in R2) ----------------------------
+
+export async function nextConfigVersion(
+  db: D1Database,
+  deviceId: number,
+): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COALESCE(MAX(version), 0) + 1 AS v FROM configs WHERE device_id = ?1`)
+    .bind(deviceId)
+    .first<{ v: number }>();
+  return row?.v ?? 1;
+}
+
+export async function insertConfig(
+  db: D1Database,
+  deviceId: number,
+  version: number,
+  key: string,
+): Promise<void> {
+  await db
+    .prepare(`INSERT INTO configs (device_id, version, yaml_r2_key) VALUES (?1, ?2, ?3)`)
+    .bind(deviceId, version, key)
+    .run();
+}
+
+export async function latestConfig(
+  db: D1Database,
+  userId: number,
+  deviceId: number,
+): Promise<Record<string, unknown> | null> {
+  return db
+    .prepare(
+      `SELECT c.version, c.yaml_r2_key, c.created_at
+         FROM configs c
+         JOIN devices d ON d.id = c.device_id
+         JOIN projects p ON p.id = d.project_id
+        WHERE c.device_id = ?1 AND p.user_id = ?2
+        ORDER BY c.version DESC LIMIT 1`,
+    )
+    .bind(deviceId, userId)
+    .first();
+}

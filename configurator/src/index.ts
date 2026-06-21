@@ -3,7 +3,20 @@
 
 import { Hono } from "hono";
 
-import { createProject, getUser, listProjects } from "./db";
+import {
+  createDevice,
+  createProject,
+  deleteDevice,
+  deleteProject,
+  getDevice,
+  getProject,
+  getUser,
+  insertConfig,
+  latestConfig,
+  listDevices,
+  listProjects,
+  nextConfigVersion,
+} from "./db";
 import { emailRequest, emailVerify } from "./email";
 import { googleCallback, googleStart } from "./google";
 import { endSession, requireUser } from "./session";
@@ -45,6 +58,79 @@ app.post("/api/projects", async (c) => {
   const name = body.name?.trim();
   if (!name) return c.json({ error: "name required" }, 400);
   return c.json({ project: await createProject(c.env.DB, c.get("userId"), name) }, 201);
+});
+
+app.get("/api/projects/:id", async (c) => {
+  const userId = c.get("userId");
+  const projectId = Number(c.req.param("id"));
+  const project = await getProject(c.env.DB, userId, projectId);
+  if (!project) return c.json({ error: "not found" }, 404);
+  const devices = await listDevices(c.env.DB, userId, projectId);
+  return c.json({ project, devices });
+});
+
+app.delete("/api/projects/:id", async (c) => {
+  await deleteProject(c.env.DB, c.get("userId"), Number(c.req.param("id")));
+  return c.json({ ok: true });
+});
+
+app.post("/api/projects/:id/devices", async (c) => {
+  const body = await c.req
+    .json<{ name?: string; kind?: string; width?: number; height?: number }>()
+    .catch(() => ({}) as { name?: string; kind?: string; width?: number; height?: number });
+  if (!body.name?.trim()) return c.json({ error: "name required" }, 400);
+  const device = await createDevice(c.env.DB, c.get("userId"), Number(c.req.param("id")), {
+    name: body.name.trim(),
+    kind: body.kind,
+    width: body.width,
+    height: body.height,
+  });
+  if (!device) return c.json({ error: "project not found" }, 404);
+  return c.json({ device }, 201);
+});
+
+app.delete("/api/devices/:id", async (c) => {
+  await deleteDevice(c.env.DB, c.get("userId"), Number(c.req.param("id")));
+  return c.json({ ok: true });
+});
+
+// Save a new version of a device's screen config: YAML blob -> R2, row -> D1.
+app.put("/api/devices/:id/config", async (c) => {
+  const userId = c.get("userId");
+  const deviceId = Number(c.req.param("id"));
+  const device = await getDevice(c.env.DB, userId, deviceId);
+  if (!device) return c.json({ error: "device not found" }, 404);
+  const body = await c.req.json<{ yaml?: string }>().catch(() => ({ yaml: undefined }));
+  if (typeof body.yaml !== "string" || body.yaml.length === 0) {
+    return c.json({ error: "yaml required" }, 400);
+  }
+  const version = await nextConfigVersion(c.env.DB, deviceId);
+  const key = `configs/${userId}/${deviceId}/v${version}.yaml`;
+  await c.env.CONFIGS.put(key, body.yaml);
+  await insertConfig(c.env.DB, deviceId, version, key);
+  return c.json({ ok: true, version });
+});
+
+app.get("/api/devices/:id/config", async (c) => {
+  const userId = c.get("userId");
+  const latest = await latestConfig(c.env.DB, userId, Number(c.req.param("id")));
+  if (!latest) return c.json({ error: "no config" }, 404);
+  const obj = await c.env.CONFIGS.get(String(latest["yaml_r2_key"]));
+  if (!obj) return c.json({ error: "blob missing" }, 404);
+  return c.body(await obj.text(), 200, { "content-type": "application/x-yaml" });
+});
+
+// Public editor assets (schema + thumbnails) from R2 under assets/. No auth;
+// these are shared, not user data. (User configs live under configs/ and are
+// only reachable through the authed /api routes above.)
+app.get("/assets/*", async (c) => {
+  const key = c.req.path.replace(/^\/assets\//, "assets/");
+  const obj = await c.env.CONFIGS.get(key);
+  if (!obj) return c.json({ error: "not found" }, 404);
+  const headers: Record<string, string> = { "cache-control": "public, max-age=300" };
+  const ct = obj.httpMetadata?.contentType;
+  if (ct) headers["content-type"] = ct;
+  return c.body(obj.body, 200, headers);
 });
 
 // Everything else (/, /index.html, static files) is served from public/ via
