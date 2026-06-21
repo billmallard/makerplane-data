@@ -92,6 +92,12 @@
   .tape { position: relative; box-sizing: border-box; background: rgba(18,22,28,.72); color: #e6edf3; }
   .tape .tk { position: absolute; right: 3px; transform: translateY(-50%); white-space: nowrap; line-height: 1; opacity: .85; }
   .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: #000; border: 1px solid #9aa4af; text-align: center; font-weight: 600; line-height: 1.2; }
+  .htape { position: relative; box-sizing: border-box; overflow: hidden; background: rgba(18,22,28,.72); color: #e6edf3; }
+  .htape .htk { position: absolute; top: 6%; transform: translateX(-50%); text-align: center; line-height: 1; white-space: nowrap; }
+  .htape .htk .bar { display: block; width: 1px; height: 6px; margin: 0 auto 1px; background: currentColor; opacity: .55; }
+  .htape .htk.maj .bar { height: 9px; opacity: .9; }
+  .htape .lubber { position: absolute; left: 50%; top: 0; transform: translateX(-50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid #ffd400; }
+  .htape .hreadout { position: absolute; left: 50%; bottom: 5%; transform: translateX(-50%); background: #000; border: 1px solid #9aa4af; padding: 0 3px; font-weight: 600; line-height: 1.2; }
   .inst.sel { outline: 2px solid #2ea043; z-index: 50; }
   .inst .handle {
     position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px;
@@ -332,6 +338,87 @@ function buildTape(inst) {
   const ro = document.createElement("div"); ro.className = "readout"; ro.textContent = value;
   wrap.appendChild(ro);
   return wrap;
+}
+
+function headingLabel(d) {
+  d = ((d % 360) + 360) % 360;
+  return ({ 0: "N", 90: "E", 180: "S", 270: "W" })[d] || String(d / 10);
+}
+
+// Heading tape: a horizontal compass strip scrolling around a sample heading,
+// with a lubber index + readout box. HTML so the labels stay crisp.
+function buildHeadingTape(inst) {
+  const o = inst.options || {};
+  const heading = 87, span = 90;
+  const r = rect(inst);
+  const wrap = document.createElement("div");
+  wrap.className = "gauge htape";
+  wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
+  wrap.style.fontSize = Math.max(7, Math.min(14, r.h * 0.3)) + "px";
+  if (o.fg_color) wrap.style.color = o.fg_color;
+  const base = Math.round(heading / 10) * 10;
+  for (let hd = base - 50; hd <= base + 50; hd += 10) {
+    const left = 50 + (hd - heading) / span * 100;
+    if (left < 2 || left > 98) continue;
+    const norm = ((hd % 360) + 360) % 360, maj = norm % 30 === 0;
+    const tk = document.createElement("div");
+    tk.className = "htk" + (maj ? " maj" : "");
+    tk.style.left = left + "%";
+    const bar = document.createElement("span"); bar.className = "bar"; tk.appendChild(bar);
+    if (maj) { const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = headingLabel(norm); tk.appendChild(lbl); }
+    wrap.appendChild(tk);
+  }
+  wrap.appendChild(Object.assign(document.createElement("div"), { className: "lubber" }));
+  const ro = document.createElement("div"); ro.className = "hreadout";
+  ro.textContent = String(Math.round(heading)).padStart(3, "0"); wrap.appendChild(ro);
+  return wrap;
+}
+
+// Horizontal situation indicator: rotating compass card + course pointer / CDI
+// + glideslope, from a sample heading/course. Reflects fg_color + cdi/gsi toggles.
+function buildHSI(inst) {
+  const o = inst.options || {};
+  const fg = o.fg_color || "#ffffff", cy = "#34d3ff";
+  const heading = 87, course = 110, dev = 0.4, id = _svgUid++;
+  const ca = course - heading;
+  let ticks = "";
+  for (let d = 0; d < 360; d += 10) {
+    const maj = d % 30 === 0;
+    const p1 = _polar(50, 50, 47, d), p2 = _polar(50, 50, maj ? 40 : 43.5, d);
+    ticks += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${fg}" stroke-width="${maj ? 1 : 0.5}"/>`;
+    if (maj) { const lp = _polar(50, 50, 34, d); ticks += `<text x="${lp.x}" y="${lp.y + 1.8}" fill="${fg}" font-size="5.5" text-anchor="middle">${headingLabel(d)}</text>`; }
+  }
+  const h2 = _polar(50, 50, 41, ca), h1 = _polar(50, 50, 13, ca);
+  const t1 = _polar(50, 50, 13, ca + 180), t2 = _polar(50, 50, 41, ca + 180);
+  const bl = _polar(h2.x, h2.y, 4, ca + 150), br = _polar(h2.x, h2.y, 4, ca - 150);
+  let nav = `<line x1="${h1.x}" y1="${h1.y}" x2="${h2.x}" y2="${h2.y}" stroke="${cy}" stroke-width="1.6"/>`
+    + `<line x1="${t1.x}" y1="${t1.y}" x2="${t2.x}" y2="${t2.y}" stroke="${cy}" stroke-width="1.6"/>`
+    + `<path d="M${h2.x} ${h2.y} L${bl.x} ${bl.y} L${br.x} ${br.y} Z" fill="${cy}"/>`;
+  if (o.cdi_enabled !== false) {
+    const c0 = _polar(50, 50, Math.abs(dev) * 8, dev >= 0 ? ca + 90 : ca - 90);
+    const e1 = _polar(c0.x, c0.y, 13, ca), e2 = _polar(c0.x, c0.y, 13, ca + 180);
+    nav += `<line x1="${e1.x}" y1="${e1.y}" x2="${e2.x}" y2="${e2.y}" stroke="${cy}" stroke-width="1.6"/>`;
+    for (const m of [-2, -1, 1, 2]) { const dp = _polar(50, 50, Math.abs(m) * 8, m > 0 ? ca + 90 : ca - 90); nav += `<circle cx="${dp.x}" cy="${dp.y}" r="1" fill="none" stroke="${fg}" stroke-width="0.5"/>`; }
+  }
+  let gs = "";
+  if (o.gsi_enabled !== false) {
+    gs = `<line x1="88" y1="34" x2="88" y2="66" stroke="${fg}" stroke-width="0.5"/>`;
+    for (const y of [34, 42, 58, 66]) gs += `<circle cx="88" cy="${y}" r="1" fill="none" stroke="${fg}" stroke-width="0.5"/>`;
+    gs += `<path d="M88 44 L91 47 L88 50 L85 47 Z" fill="${cy}"/>`;
+  }
+  const bug = _polar(50, 50, 46, 20), bgl = _polar(50, 50, 49, 17), bgr = _polar(50, 50, 49, 23);
+  return svgFromString(`
+<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
+  <circle cx="50" cy="50" r="47.5" fill="${o.bg_color || "#000"}" stroke="${fg}" stroke-width="0.6"/>
+  <g transform="rotate(${-heading} 50 50)">${ticks}</g>
+  <path d="M${bug.x} ${bug.y} L${bgl.x} ${bgl.y} L${bgr.x} ${bgr.y} Z" fill="#ff8c1a"/>
+  <path d="M50 2.5 L47 8 L53 8 Z" fill="${fg}"/>
+  <g stroke="${fg}" stroke-width="1.4" fill="none" stroke-linecap="round">
+    <line x1="50" y1="42" x2="50" y2="62"/><line x1="43" y1="52" x2="57" y2="52"/><line x1="46" y1="60" x2="54" y2="60"/>
+  </g>
+  ${nav}
+  ${gs}
+</svg>`);
 }
 
 // Standard "basic-T" arrangement (grid units): attitude centre, airspeed left,
@@ -576,6 +663,10 @@ function renderCanvas() {
       el.appendChild(buildAttitude(inst));
     } else if (inst.type === "airspeed_tape" || inst.type === "altimeter_tape") {
       el.appendChild(buildTape(inst));
+    } else if (inst.type === "heading_tape") {
+      el.appendChild(buildHeadingTape(inst));
+    } else if (inst.type === "horizontal_situation_indicator") {
+      el.appendChild(buildHSI(inst));
     } else if (LIVE_GAUGE.has(inst.type)) {
       el.appendChild(inst.type === "arc_gauge"
         ? buildArcGauge(inst)
