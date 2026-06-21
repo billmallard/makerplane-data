@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AeroCommons - Panel Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=Inter:wght@400;700&family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&display=swap" rel="stylesheet">
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -59,6 +62,10 @@
   .inst { position: absolute; outline: 1px solid rgba(120,140,160,.4); }
   .inst img { width: 100%; height: 100%; display: block; pointer-events: none; object-fit: fill; }
   .inst.lock img { object-fit: contain; }
+  .inst-text {
+    width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+    overflow: hidden; line-height: 1; white-space: nowrap; pointer-events: none; color: #fff;
+  }
   .inst.sel { outline: 2px solid #2ea043; z-index: 50; }
   .inst .handle {
     position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px;
@@ -147,6 +154,21 @@ const state = {
 
 const SNAP = 10;  // grid cells; "Snap" rounds to this (aligned with the grid majors)
 function snapTo(v) { return state.snap ? Math.round(v / SNAP) * SNAP : Math.round(v); }
+
+// Text-bearing instruments are drawn live in the browser (HTML text in the
+// chosen web font + colour), so font/colour/text changes preview accurately.
+// Everything else uses the pre-rendered SVG.
+const LIVE_TEXT = new Set(["static_text", "value_text", "numeric_display", "heading_display"]);
+function sampleText(inst) {
+  const o = inst.options || {};
+  switch (inst.type) {
+    case "static_text": return o.text || "Text";
+    case "heading_display": return "360";
+    case "numeric_display": return "123";
+    case "value_text": return o.dbkey || "ABC";
+    default: return inst.type;
+  }
+}
 
 // Standard "basic-T" arrangement (grid units): attitude centre, airspeed left,
 // altimeter right, HSI below, heading top. A starting template + a guide.
@@ -358,9 +380,21 @@ function renderCanvas() {
     if (i === state.selected) el.classList.add("sel");
     el.dataset.i = i;
     positionEl(el, inst);
-    const img = document.createElement("img");
-    img.src = `${ASSETS}/palette/${inst.type}.svg`; img.alt = inst.type;
-    el.appendChild(img);
+    let content;
+    if (LIVE_TEXT.has(inst.type)) {
+      const o = inst.options;
+      content = document.createElement("div");
+      content.className = "inst-text";
+      content.textContent = sampleText(inst);
+      content.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
+      if (o.fg_color) content.style.color = o.fg_color;
+      if (o.bg_color) content.style.background = o.bg_color;
+      content.style.fontSize = Math.max(8, (o.font_percent || 0.5) * rect(inst).h) + "px";
+    } else {
+      content = document.createElement("img");
+      content.src = `${ASSETS}/palette/${inst.type}.svg`; content.alt = inst.type;
+    }
+    el.appendChild(content);
     const handle = document.createElement("div"); handle.className = "handle";
     el.appendChild(handle);
     el.addEventListener("mousedown", (e) => startMove(e, i, el));
@@ -567,6 +601,7 @@ function optionField(inst, name, spec) {
 function setOpt(inst, name, value) {
   if (value === undefined) delete inst.options[name];
   else inst.options[name] = value;
+  if (LIVE_TEXT.has(inst.type)) renderCanvas();   // live font / colour / text
 }
 
 function syncPosFields(inst) {
