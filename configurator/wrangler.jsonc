@@ -34,5 +34,15 @@
       "binding": "KV",
       "id": "032b20865c304e078ff0ff8b0fb1bd82"
     }
-  ]
+  ],
+
+  // Serve the minimal frontend (public/) from this same origin so the session
+  // cookie just works (no CORS). run_worker_first runs the Worker for every
+  // request; it handles /api + /auth and its catch-all delegates the rest to
+  // the ASSETS binding (static files).
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  }
 }

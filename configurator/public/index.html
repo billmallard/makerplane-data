@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AeroCommons - pyEfis Configurator</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: #0d1117; color: #c9d1d9;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  header {
+    width: 100%; border-bottom: 1px solid #21262d; padding: 14px 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  header .brand { font-weight: 600; color: #e6edf3; }
+  header .spacer { flex: 1; }
+  main { width: 100%; max-width: 760px; padding: 28px 20px; }
+  h1 { font-size: 22px; margin: 0 0 4px; color: #e6edf3; }
+  .muted { color: #8b949e; font-size: 14px; }
+  .card {
+    background: #161b22; border: 1px solid #21262d; border-radius: 10px;
+    padding: 20px; margin-top: 18px;
+  }
+  button, .btn {
+    font: inherit; border: 1px solid #30363d; background: #21262d; color: #e6edf3;
+    border-radius: 7px; padding: 9px 14px; cursor: pointer; text-decoration: none;
+    display: inline-block;
+  }
+  button:hover, .btn:hover { border-color: #8b949e; }
+  .btn.primary { background: #238636; border-color: #2ea043; }
+  .btn.google { background: #fff; color: #1f1f1f; border-color: #fff; font-weight: 600; }
+  input[type=text], input[type=email] {
+    font: inherit; background: #0d1117; border: 1px solid #30363d; color: #e6edf3;
+    border-radius: 7px; padding: 9px 11px; width: 100%; max-width: 320px;
+  }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  ul.projects { list-style: none; padding: 0; margin: 12px 0 0; }
+  ul.projects li {
+    padding: 10px 12px; border: 1px solid #21262d; border-radius: 7px;
+    margin-bottom: 8px; display: flex; gap: 10px; align-items: center;
+  }
+  ul.projects li .name { font-weight: 600; color: #e6edf3; }
+  .hidden { display: none; }
+  .note { font-size: 13px; color: #8b949e; margin-top: 10px; }
+  .sep { margin: 16px 0; border: none; border-top: 1px solid #21262d; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">AeroCommons</span>
+  <span class="muted">pyEfis Configurator</span>
+  <span class="spacer"></span>
+  <span id="who" class="muted"></span>
+  <button id="logout" class="hidden">Sign out</button>
+</header>
+
+<main>
+  <h1>Configurator</h1>
+  <p class="muted">Design your pyEfis panel, save it to your account, and pull it to the aircraft.</p>
+
+  <!-- Signed-out view -->
+  <section id="signed-out" class="card hidden">
+    <h2 style="margin-top:0;font-size:17px">Sign in</h2>
+    <p class="row">
+      <a class="btn google" href="/auth/google/start">Sign in with Google</a>
+    </p>
+    <hr class="sep">
+    <p class="muted" style="margin-bottom:8px">Or get a magic link by email:</p>
+    <form id="email-form" class="row">
+      <input type="email" id="email" placeholder="you@example.com" required>
+      <button class="btn" type="submit">Email me a link</button>
+    </form>
+    <p id="email-msg" class="note"></p>
+  </section>
+
+  <!-- Signed-in view -->
+  <section id="signed-in" class="card hidden">
+    <h2 style="margin-top:0;font-size:17px">Your aircraft / designs</h2>
+    <form id="new-project" class="row">
+      <input type="text" id="project-name" placeholder="New project name (e.g. RV-7 panel)" required>
+      <button class="btn primary" type="submit">Create</button>
+    </form>
+    <ul id="projects" class="projects"></ul>
+    <p id="projects-empty" class="note hidden">No projects yet - create your first one above.</p>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const opts = { credentials: "same-origin", headers: { "content-type": "application/json" } };
+
+  async function load() {
+    const res = await fetch("/api/me", { credentials: "same-origin" });
+    if (res.ok) {
+      const { user } = await res.json();
+      showSignedIn(user);
+    } else {
+      showSignedOut();
+    }
+  }
+
+  function showSignedOut() {
+    $("signed-out").classList.remove("hidden");
+    $("signed-in").classList.add("hidden");
+    $("logout").classList.add("hidden");
+    $("who").textContent = "";
+  }
+
+  async function showSignedIn(user) {
+    $("signed-in").classList.remove("hidden");
+    $("signed-out").classList.add("hidden");
+    $("logout").classList.remove("hidden");
+    $("who").textContent = "Signed in as " + (user.name || user.email);
+    await loadProjects();
+  }
+
+  async function loadProjects() {
+    const res = await fetch("/api/projects", { credentials: "same-origin" });
+    if (!res.ok) return;
+    const { projects } = await res.json();
+    const ul = $("projects");
+    ul.innerHTML = "";
+    $("projects-empty").classList.toggle("hidden", projects.length > 0);
+    for (const p of projects) {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = p.name;
+      const when = document.createElement("span");
+      when.className = "muted";
+      when.textContent = "updated " + (p.updated_at || "");
+      li.append(name, when);
+      ul.appendChild(li);
+    }
+  }
+
+  $("logout").addEventListener("click", async () => {
+    await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+    showSignedOut();
+  });
+
+  $("new-project").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("project-name").value.trim();
+    if (!name) return;
+    const res = await fetch("/api/projects", {
+      ...opts, method: "POST", body: JSON.stringify({ name }),
+    });
+    if (res.ok) { $("project-name").value = ""; await loadProjects(); }
+  });
+
+  $("email-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = $("email").value.trim();
+    const res = await fetch("/auth/email/request", {
+      ...opts, method: "POST", body: JSON.stringify({ email }),
+    });
+    $("email-msg").textContent = res.ok
+      ? "Check your email for a sign-in link."
+      : "Something went wrong - please try again.";
+  });
+
+  load();
+</script>
+</body>
+</html>

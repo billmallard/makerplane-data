@@ -11,7 +11,7 @@ import type { Env } from "./types";
 
 const app = new Hono<Env>();
 
-app.get("/", (c) => c.json({ service: "makerplane-configurator", ok: true }));
+app.get("/healthz", (c) => c.json({ service: "makerplane-configurator", ok: true }));
 
 // ----------------------------------------------------------------------------
 // Auth
@@ -46,5 +46,9 @@ app.post("/api/projects", async (c) => {
   if (!name) return c.json({ error: "name required" }, 400);
   return c.json({ project: await createProject(c.env.DB, c.get("userId"), name) }, 201);
 });
+
+// Everything else (/, /index.html, static files) is served from public/ via
+// the ASSETS binding -- same origin as the API so the session cookie applies.
+app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
 export default app;
