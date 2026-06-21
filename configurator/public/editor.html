@@ -80,6 +80,15 @@
     width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
     overflow: hidden; line-height: 1; white-space: nowrap; pointer-events: none; color: #fff;
   }
+  .gauge { width: 100%; height: 100%; box-sizing: border-box; pointer-events: none; overflow: hidden; }
+  .gauge-svg { width: 100%; height: 100%; display: block; }
+  .bargauge { display: flex; flex-direction: column; align-items: center; padding: 2px; gap: 1px; }
+  .bargauge .g-name, .bargauge .g-val { line-height: 1; white-space: nowrap; }
+  .bargauge .g-track { position: relative; border: 1px solid #30363d; border-radius: 2px; }
+  .bargauge.vert .g-track { flex: 1; width: 48%; background: linear-gradient(to top, rgba(46,160,67,.22) 0 75%, rgba(210,153,34,.30) 75% 90%, rgba(218,54,51,.35) 90% 100%); }
+  .bargauge.vert .g-fill { position: absolute; left: 0; right: 0; bottom: 0; background: #2ea043; }
+  .bargauge.horiz .g-track { width: 92%; height: 42%; background: linear-gradient(to right, rgba(46,160,67,.22) 0 75%, rgba(210,153,34,.30) 75% 90%, rgba(218,54,51,.35) 90% 100%); }
+  .bargauge.horiz .g-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #2ea043; }
   .inst.sel { outline: 2px solid #2ea043; z-index: 50; }
   .inst .handle {
     position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px;
@@ -190,6 +199,74 @@ function sampleText(inst) {
     case "value_text": return o.dbkey || "ABC";
     default: return inst.type;
   }
+}
+
+// Live parametric gauges (arc + bar): drawn in the browser from the
+// instrument's options, with a sample value + warn/alarm zones. The real value
+// and bands are aircraft / FIX data (see #64), so the fill is representative.
+const LIVE_GAUGE = new Set(["arc_gauge", "vertical_bar_gauge", "horizontal_bar_gauge"]);
+const SVG_NS = "http://www.w3.org/2000/svg";
+const GAUGE_FILL = 0.62;  // sample fill fraction (in the green zone)
+
+function sampleGaugeValue(o) {
+  const dec = o.decimal_places ?? 0;
+  const num = dec > 0 ? (26.8).toFixed(dec) : "268";
+  return num + (o.show_units ? "°" : "");
+}
+
+function buildBarGauge(inst, vertical) {
+  const o = inst.options || {};
+  const r = rect(inst);
+  const wrap = document.createElement("div");
+  wrap.className = "gauge bargauge " + (vertical ? "vert" : "horiz");
+  wrap.style.color = o.fg_color || "#e6edf3";
+  wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
+  wrap.style.fontSize = Math.max(7, Math.min(15, (vertical ? r.w : r.h) * 0.24)) + "px";
+  const name = document.createElement("div"); name.className = "g-name"; name.textContent = o.name || ""; wrap.appendChild(name);
+  const track = document.createElement("div"); track.className = "g-track";
+  const fillEl = document.createElement("div"); fillEl.className = "g-fill";
+  if (vertical) fillEl.style.height = (GAUGE_FILL * 100) + "%"; else fillEl.style.width = (GAUGE_FILL * 100) + "%";
+  track.appendChild(fillEl); wrap.appendChild(track);
+  const val = document.createElement("div"); val.className = "g-val"; val.textContent = sampleGaugeValue(o); wrap.appendChild(val);
+  return wrap;
+}
+
+function _polar(cx, cy, r, deg) { const a = (deg - 90) * Math.PI / 180; return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }; }
+function _arc(cx, cy, r, a0, a1) {
+  const p0 = _polar(cx, cy, r, a1), p1 = _polar(cx, cy, r, a0);
+  const large = (a1 - a0) <= 180 ? "0" : "1";
+  return `M ${p0.x} ${p0.y} A ${r} ${r} 0 ${large} 0 ${p1.x} ${p1.y}`;
+}
+function buildArcGauge(inst) {
+  const o = inst.options || {};
+  const fg = o.fg_color || "#e6edf3";
+  const font = o.font_family || "DejaVu Sans Condensed";
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 100 100");
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  svg.classList.add("gauge-svg");
+  const cx = 50, cy = 52, r = 38, A0 = -135, SPAN = 270;
+  const seg = (fa, fb, color) => {
+    const p = document.createElementNS(SVG_NS, "path");
+    p.setAttribute("d", _arc(cx, cy, r, A0 + fa * SPAN, A0 + fb * SPAN));
+    p.setAttribute("stroke", color); p.setAttribute("stroke-width", "9"); p.setAttribute("fill", "none");
+    svg.appendChild(p);
+  };
+  seg(0, 0.75, "rgba(46,160,67,.35)");
+  seg(0.75, 0.9, "rgba(210,153,34,.5)");
+  seg(0.9, 1, "rgba(218,54,51,.55)");
+  seg(0, GAUGE_FILL, "#2ea043");
+  const txt = (y, size, weight, s) => {
+    const t = document.createElementNS(SVG_NS, "text");
+    t.setAttribute("x", "50"); t.setAttribute("y", String(y)); t.setAttribute("text-anchor", "middle");
+    t.setAttribute("dominant-baseline", "middle"); t.setAttribute("fill", fg);
+    t.setAttribute("font-size", String(size)); t.setAttribute("font-family", font);
+    if (weight) t.setAttribute("font-weight", String(weight));
+    t.textContent = s; svg.appendChild(t);
+  };
+  if (o.name) txt(42, 11, null, o.name);
+  txt(60, 17, 600, sampleGaugeValue(o));
+  return svg;
 }
 
 // Standard "basic-T" arrangement (grid units): attitude centre, airspeed left,
@@ -430,6 +507,10 @@ function renderCanvas() {
         ci.style.width = (ch.span.columns / def.grid.columns * 100) + "%"; ci.style.height = (ch.span.rows / def.grid.rows * 100) + "%";
         el.appendChild(ci);
       }
+    } else if (LIVE_GAUGE.has(inst.type)) {
+      el.appendChild(inst.type === "arc_gauge"
+        ? buildArcGauge(inst)
+        : buildBarGauge(inst, inst.type === "vertical_bar_gauge"));
     } else if (LIVE_TEXT.has(inst.type)) {
       const o = inst.options;
       const content = document.createElement("div");
@@ -698,7 +779,7 @@ function optionField(inst, name, spec) {
 function setOpt(inst, name, value) {
   if (value === undefined) delete inst.options[name];
   else inst.options[name] = value;
-  if (LIVE_TEXT.has(inst.type)) renderCanvas(); else syncCode();   // live font / colour / text
+  renderCanvas();   // redraw live instruments (text + gauges) and sync the code
 }
 
 function syncPosFields(inst) {
