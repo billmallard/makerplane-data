@@ -38,12 +38,13 @@
     border-radius: 6px; margin-bottom: 6px; cursor: grab; background: #161b22;
   }
   .pal-item:hover { border-color: #8b949e; }
-  .pal-item img { width: 44px; height: 30px; object-fit: cover; background: #000; border-radius: 3px; }
+  .pal-item img { width: 44px; height: 30px; object-fit: contain; background: #000; border-radius: 3px; }
   .pal-item .lbl { font-size: 12px; color: #e6edf3; }
   #canvas { position: relative; background: #000; border: 1px solid #30363d; }
   #canvas.dragover { outline: 2px dashed #2ea043; outline-offset: -2px; }
   .inst { position: absolute; outline: 1px solid rgba(120,140,160,.4); }
-  .inst img { width: 100%; height: 100%; display: block; pointer-events: none; }
+  .inst img { width: 100%; height: 100%; display: block; pointer-events: none; object-fit: fill; }
+  .inst.lock img { object-fit: contain; }
   .inst.sel { outline: 2px solid #2ea043; z-index: 50; }
   .inst .handle {
     position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px;
@@ -62,6 +63,16 @@
   .muted { color: #8b949e; font-size: 13px; }
   .empty { color: #6e7681; font-size: 13px; padding: 20px 4px; }
   #status { font-size: 12px; color: #8b949e; }
+  .layer-tools { gap: 4px; margin-bottom: 8px; }
+  .layer-tools button { padding: 3px 7px; font-size: 12px; }
+  ul.layers { list-style: none; padding: 0; margin: 0 0 6px; }
+  ul.layers .layer {
+    padding: 5px 8px; border: 1px solid #21262d; border-radius: 5px; margin-bottom: 4px;
+    font-size: 12px; cursor: pointer; color: #8b949e;
+  }
+  ul.layers .layer:hover { border-color: #8b949e; }
+  ul.layers .layer.sel { border-color: #2ea043; color: #e6edf3; }
+  hr.sep { border: none; border-top: 1px solid #21262d; margin: 14px 0; }
 </style>
 </head>
 <body>
@@ -121,7 +132,7 @@ function renderPalette() {
       item.draggable = true;
       item.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", type));
       const img = document.createElement("img");
-      img.src = `${ASSETS}/palette/${type}.png`; img.alt = type;
+      img.src = `${ASSETS}/palette/${type}.svg`; img.alt = type;
       const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = meta.label;
       item.append(img, lbl);
       pal.appendChild(item);
@@ -143,13 +154,14 @@ function renderCanvas() {
   const c = $("canvas");
   c.querySelectorAll(".inst").forEach((e) => e.remove());
   state.instruments.forEach((inst, i) => {
+    const meta = state.schema.instruments[inst.type] || {};
     const el = document.createElement("div");
-    el.className = "inst " + (state.schema.instruments[inst.type]?.offscreen_renderable ? "" : "placeholder");
+    el.className = "inst" + (meta.offscreen_renderable ? "" : " placeholder") + (meta.keep_aspect ? " lock" : "");
     if (i === state.selected) el.classList.add("sel");
     el.dataset.i = i;
     positionEl(el, inst);
     const img = document.createElement("img");
-    img.src = `${ASSETS}/palette/${inst.type}.png`; img.alt = inst.type;
+    img.src = `${ASSETS}/palette/${inst.type}.svg`; img.alt = inst.type;
     el.appendChild(img);
     const handle = document.createElement("div"); handle.className = "handle";
     el.appendChild(handle);
@@ -223,16 +235,46 @@ function select(i) {
 // --- properties panel -------------------------------------------------------
 function renderProps() {
   const p = $("props");
+  p.innerHTML = "";
+
+  // Layers (z-order). pyEfis has no z-index: paint order IS list order, so
+  // these reorder the instruments array, which serialises straight to YAML.
+  if (state.instruments.length) {
+    const lh = document.createElement("h3"); lh.textContent = "Layers (top = front)"; p.appendChild(lh);
+    const tools = document.createElement("div"); tools.className = "row layer-tools";
+    for (const [lbl, where, tip] of [["⤒", "front", "Bring to front"], ["↑", "up", "Forward"], ["↓", "down", "Backward"], ["⤓", "back", "Send to back"]]) {
+      const b = document.createElement("button");
+      b.textContent = lbl; b.title = tip; b.disabled = state.selected < 0;
+      b.addEventListener("click", () => moveSelected(where));
+      tools.appendChild(b);
+    }
+    p.appendChild(tools);
+    const list = document.createElement("ul"); list.className = "layers";
+    for (let i = state.instruments.length - 1; i >= 0; i--) {   // top = last = front
+      const inst = state.instruments[i];
+      const li = document.createElement("li");
+      li.className = "layer" + (i === state.selected ? " sel" : "");
+      li.textContent = state.schema.instruments[inst.type]?.label || inst.type;
+      li.addEventListener("click", () => select(i));
+      list.appendChild(li);
+    }
+    p.appendChild(list);
+  }
+
+  // Per-selection properties
   if (state.selected < 0 || !state.instruments[state.selected]) {
-    p.innerHTML = '<p class="empty">Select an instrument to edit its properties, or drag one from the left onto the canvas.</p>';
+    const hint = document.createElement("p"); hint.className = "empty";
+    hint.textContent = state.instruments.length
+      ? "Select an instrument to edit its properties."
+      : "Drag an instrument from the left onto the canvas.";
+    p.appendChild(hint);
     return;
   }
   const inst = state.instruments[state.selected];
   const meta = state.schema.instruments[inst.type];
-  p.innerHTML = "";
-  const title = document.createElement("h3"); title.textContent = meta.label; p.appendChild(title);
+  p.appendChild(Object.assign(document.createElement("hr"), { className: "sep" }));
+  const title = document.createElement("h3"); title.textContent = meta.label + " — properties"; p.appendChild(title);
 
-  // position / span
   p.appendChild(numGrid([
     ["row", inst.row, (v) => inst.row = v],
     ["column", inst.column, (v) => inst.column = v],
@@ -240,12 +282,27 @@ function renderProps() {
     ["span cols", inst.span.columns, (v) => inst.span.columns = v],
   ]));
 
-  // options: common + per-type
   const opts = { ...state.schema.common_options, ...meta.options };
   if (Object.keys(opts).length) {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
     for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
   }
+}
+
+// Reorder the selected instrument in the array (= change paint order).
+function moveSelected(where) {
+  const i = state.selected;
+  if (i < 0) return;
+  const arr = state.instruments;
+  const item = arr.splice(i, 1)[0];
+  let j;
+  if (where === "front") j = arr.length;          // last = painted on top
+  else if (where === "back") j = 0;
+  else if (where === "up") j = Math.min(arr.length, i + 1);
+  else j = Math.max(0, i - 1);
+  arr.splice(j, 0, item);
+  state.selected = j;
+  renderCanvas(); renderProps();
 }
 
 function numGrid(rows) {
@@ -319,9 +376,10 @@ $("del").addEventListener("click", () => {
   renderCanvas(); renderProps();
 });
 document.addEventListener("keydown", (e) => {
-  if ((e.key === "Delete" || e.key === "Backspace") && state.selected >= 0 && e.target.tagName !== "INPUT" && e.target.tagName !== "SELECT") {
-    $("del").click();
-  }
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if ((e.key === "Delete" || e.key === "Backspace") && state.selected >= 0) $("del").click();
+  else if (e.key === "]" && state.selected >= 0) moveSelected("up");      // forward
+  else if (e.key === "[" && state.selected >= 0) moveSelected("down");    // backward
 });
 
 $("save").addEventListener("click", save);
