@@ -42,6 +42,13 @@
   .pal-item .lbl { font-size: 12px; color: #e6edf3; }
   #canvas { position: relative; background: #000; border: 1px solid #30363d; }
   #canvas.dragover { outline: 2px dashed #2ea043; outline-offset: -2px; }
+  #canvas.grid {
+    background-image:
+      repeating-linear-gradient(to right, rgba(255,255,255,.045) 0 1px, transparent 1px var(--cw)),
+      repeating-linear-gradient(to bottom, rgba(255,255,255,.045) 0 1px, transparent 1px var(--ch)),
+      repeating-linear-gradient(to right, rgba(255,255,255,.10) 0 1px, transparent 1px var(--cw10)),
+      repeating-linear-gradient(to bottom, rgba(255,255,255,.10) 0 1px, transparent 1px var(--ch10));
+  }
   .inst { position: absolute; outline: 1px solid rgba(120,140,160,.4); }
   .inst img { width: 100%; height: 100%; display: block; pointer-events: none; object-fit: fill; }
   .inst.lock img { object-fit: contain; }
@@ -89,6 +96,8 @@
   <span id="custom" class="hidden"><input id="cw" type="number" class="num"> × <input id="ch" type="number" class="num"></span>
   <label class="tsel">Size <select id="inches"></select></label>
   <span class="muted" id="readout"></span>
+  <label class="tsel"><input type="checkbox" id="gridToggle" checked> Grid</label>
+  <label class="tsel"><input type="checkbox" id="snapToggle"> Snap</label>
   <span class="spacer"></span>
   <span id="status"></span>
   <button id="del">Delete</button>
@@ -115,7 +124,11 @@ const state = {
   instruments: [],     // {type, row, column, span:{rows,columns}, options:{}}
   selected: -1,
   canvasW: 0, canvasH: 0,
+  snap: false,
 };
+
+const SNAP = 10;  // grid cells; "Snap" rounds to this (aligned with the grid majors)
+function snapTo(v) { return state.snap ? Math.round(v / SNAP) * SNAP : Math.round(v); }
 
 // Common Pi-panel resolutions + sizes (the canvas adopts the chosen aspect;
 // pyEfis maps the 200x110 grid onto the real screen, so aspect is what drives
@@ -224,6 +237,11 @@ function sizeCanvas() {
   state.canvasH = Math.round(h);
   c.style.width = state.canvasW + "px";
   c.style.height = state.canvasH + "px";
+  const cw = state.canvasW / state.layout.columns, ch = state.canvasH / state.layout.rows;
+  c.style.setProperty("--cw", cw + "px");
+  c.style.setProperty("--ch", ch + "px");
+  c.style.setProperty("--cw10", cw * 10 + "px");
+  c.style.setProperty("--ch10", ch * 10 + "px");
 }
 
 function renderCanvas() {
@@ -263,8 +281,8 @@ canvas.addEventListener("drop", (e) => {
   if (!type || !state.schema.instruments[type]) return;
   const cr = canvas.getBoundingClientRect();
   const { gw, gh } = cell();
-  const col = clamp(Math.round((e.clientX - cr.left) / gw), 0, state.layout.columns - 1);
-  const row = clamp(Math.round((e.clientY - cr.top) / gh), 0, state.layout.rows - 1);
+  const col = clamp(snapTo((e.clientX - cr.left) / gw), 0, state.layout.columns - 1);
+  const row = clamp(snapTo((e.clientY - cr.top) / gh), 0, state.layout.rows - 1);
   state.instruments.push({ type, row, column: col, span: { rows: 20, columns: 20 }, options: {} });
   state.selected = state.instruments.length - 1;
   renderCanvas(); renderProps();
@@ -279,8 +297,8 @@ function startMove(e, i, el) {
   const inst = state.instruments[i];
   const sx = e.clientX, sy = e.clientY, srow = inst.row, scol = inst.column;
   const move = (ev) => {
-    inst.column = clamp(Math.round(scol + (ev.clientX - sx) / gw), 0, state.layout.columns - 1);
-    inst.row = clamp(Math.round(srow + (ev.clientY - sy) / gh), 0, state.layout.rows - 1);
+    inst.column = clamp(snapTo(scol + (ev.clientX - sx) / gw), 0, state.layout.columns - 1);
+    inst.row = clamp(snapTo(srow + (ev.clientY - sy) / gh), 0, state.layout.rows - 1);
     positionEl(el, inst); syncPosFields(inst);
   };
   const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
@@ -294,8 +312,8 @@ function startResize(e, i, el) {
   const inst = state.instruments[i];
   const sx = e.clientX, sy = e.clientY, sc = inst.span.columns, sr = inst.span.rows;
   const move = (ev) => {
-    inst.span.columns = clamp(Math.round(sc + (ev.clientX - sx) / gw), 1, state.layout.columns);
-    inst.span.rows = clamp(Math.round(sr + (ev.clientY - sy) / gh), 1, state.layout.rows);
+    inst.span.columns = clamp(snapTo(sc + (ev.clientX - sx) / gw), 1, state.layout.columns);
+    inst.span.rows = clamp(snapTo(sr + (ev.clientY - sy) / gh), 1, state.layout.rows);
     positionEl(el, inst); syncPosFields(inst);
   };
   const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
@@ -510,6 +528,9 @@ async function boot() {
   state.schema = await (await fetch(ASSETS + "/schema.json")).json();
   await load();
   buildScreenControls();
+  $("gridToggle").addEventListener("change", (e) => $("canvas").classList.toggle("grid", e.target.checked));
+  $("snapToggle").addEventListener("change", (e) => { state.snap = e.target.checked; });
+  $("canvas").classList.toggle("grid", $("gridToggle").checked);
   sizeCanvas();
   renderPalette(); renderCanvas(); renderProps(); updateReadout();
 }
