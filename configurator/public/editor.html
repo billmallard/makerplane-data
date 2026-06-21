@@ -49,6 +49,12 @@
       repeating-linear-gradient(to right, rgba(255,255,255,.10) 0 1px, transparent 1px var(--cw10)),
       repeating-linear-gradient(to bottom, rgba(255,255,255,.10) 0 1px, transparent 1px var(--ch10));
   }
+  #guides, #align { position: absolute; inset: 0; pointer-events: none; }
+  .guide-v { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(96,165,196,.35); }
+  .guide-h { position: absolute; left: 0; right: 0; height: 1px; background: rgba(96,165,196,.35); }
+  .guide-box { position: absolute; border: 1px dashed rgba(96,165,196,.45); border-radius: 2px; }
+  .align-v { position: absolute; top: 0; bottom: 0; width: 1px; background: #e24bd0; }
+  .align-h { position: absolute; left: 0; right: 0; height: 1px; background: #e24bd0; }
   .inst { position: absolute; outline: 1px solid rgba(120,140,160,.4); }
   .inst img { width: 100%; height: 100%; display: block; pointer-events: none; object-fit: fill; }
   .inst.lock img { object-fit: contain; }
@@ -98,6 +104,16 @@
   <span class="muted" id="readout"></span>
   <label class="tsel"><input type="checkbox" id="gridToggle" checked> Grid</label>
   <label class="tsel"><input type="checkbox" id="snapToggle"> Snap</label>
+  <label class="tsel">Guides
+    <select id="guides-sel">
+      <option value="none">none</option>
+      <option value="center">center</option>
+      <option value="thirds">thirds</option>
+      <option value="golden">golden φ</option>
+      <option value="basic-t">basic-T</option>
+    </select>
+  </label>
+  <button id="tmpl-t" title="Replace with the standard basic-T arrangement">Basic-T</button>
   <span class="spacer"></span>
   <span id="status"></span>
   <button id="del">Delete</button>
@@ -107,7 +123,7 @@
 
 <div class="layout">
   <aside class="palette" id="palette"></aside>
-  <div class="stage"><div id="canvas"></div></div>
+  <div class="stage"><div id="canvas"><div id="guides"></div><div id="align"></div></div></div>
   <aside class="props" id="props"><p class="empty">Select an instrument to edit its properties, or drag one from the left onto the canvas.</p></aside>
 </div>
 
@@ -125,10 +141,87 @@ const state = {
   selected: -1,
   canvasW: 0, canvasH: 0,
   snap: false,
+  guides: "none",
 };
 
 const SNAP = 10;  // grid cells; "Snap" rounds to this (aligned with the grid majors)
 function snapTo(v) { return state.snap ? Math.round(v / SNAP) * SNAP : Math.round(v); }
+
+// Standard "basic-T" arrangement (grid units): attitude centre, airspeed left,
+// altimeter right, HSI below, heading top. A starting template + a guide.
+const BASIC_T = [
+  { type: "atitude_indicator", row: 6, column: 68, span: { rows: 64, columns: 64 } },
+  { type: "airspeed_tape", row: 10, column: 6, span: { rows: 56, columns: 16 } },
+  { type: "altimeter_tape", row: 10, column: 178, span: { rows: 56, columns: 16 } },
+  { type: "horizontal_situation_indicator", row: 72, column: 74, span: { rows: 34, columns: 52 } },
+  { type: "heading_display", row: 0, column: 92, span: { rows: 6, columns: 16 } },
+];
+
+// --- composition guides (static overlay) ------------------------------------
+function renderGuides() {
+  const g = $("guides"); g.innerHTML = "";
+  const m = state.guides, V = [], H = [];
+  if (m === "center") { V.push(0.5); H.push(0.5); }
+  else if (m === "thirds") { V.push(1 / 3, 2 / 3); H.push(1 / 3, 2 / 3); }
+  else if (m === "golden") { V.push(0.382, 0.618); H.push(0.382, 0.618); }
+  else if (m === "basic-t") {
+    for (const t of BASIC_T) {
+      const b = document.createElement("div"); b.className = "guide-box";
+      b.style.left = (t.column / state.layout.columns * 100) + "%";
+      b.style.top = (t.row / state.layout.rows * 100) + "%";
+      b.style.width = (t.span.columns / state.layout.columns * 100) + "%";
+      b.style.height = (t.span.rows / state.layout.rows * 100) + "%";
+      g.appendChild(b);
+    }
+  }
+  for (const f of V) { const d = document.createElement("div"); d.className = "guide-v"; d.style.left = (f * 100) + "%"; g.appendChild(d); }
+  for (const f of H) { const d = document.createElement("div"); d.className = "guide-h"; d.style.top = (f * 100) + "%"; g.appendChild(d); }
+}
+
+// --- smart alignment (snap-to-object/guide while dragging) -------------------
+function alignTargets() {
+  const cols = state.layout.columns, rows = state.layout.rows;
+  const V = [0, cols / 2, cols], H = [0, rows / 2, rows];   // canvas edges + centre
+  const m = state.guides;
+  if (m === "thirds") { V.push(cols / 3, 2 * cols / 3); H.push(rows / 3, 2 * rows / 3); }
+  else if (m === "golden") { V.push(cols * 0.382, cols * 0.618); H.push(rows * 0.382, rows * 0.618); }
+  else if (m === "basic-t") {
+    for (const t of BASIC_T) {
+      V.push(t.column, t.column + t.span.columns / 2, t.column + t.span.columns);
+      H.push(t.row, t.row + t.span.rows / 2, t.row + t.span.rows);
+    }
+  }
+  state.instruments.forEach((o, idx) => {
+    if (idx === state.selected) return;
+    V.push(o.column, o.column + o.span.columns / 2, o.column + o.span.columns);
+    H.push(o.row, o.row + o.span.rows / 2, o.row + o.span.rows);
+  });
+  return { V, H };
+}
+
+function snapAlign(inst, col, row, gw, gh) {
+  const tolC = 6 / gw, tolR = 6 / gh;
+  const { V, H } = alignTargets();
+  let outCol = col, outRow = row, vg = null, hg = null, bestC = tolC, bestR = tolR;
+  const anchorsC = [[col, 0], [col + inst.span.columns / 2, inst.span.columns / 2], [col + inst.span.columns, inst.span.columns]];
+  for (const line of V) for (const [a, off] of anchorsC) {
+    const d = Math.abs(a - line);
+    if (d <= bestC) { bestC = d; outCol = line - off; vg = line; }
+  }
+  const anchorsR = [[row, 0], [row + inst.span.rows / 2, inst.span.rows / 2], [row + inst.span.rows, inst.span.rows]];
+  for (const line of H) for (const [a, off] of anchorsR) {
+    const d = Math.abs(a - line);
+    if (d <= bestR) { bestR = d; outRow = line - off; hg = line; }
+  }
+  return { col: outCol, row: outRow, vg, hg };
+}
+
+function drawAlign(vg, hg) {
+  const a = $("align"); a.innerHTML = "";
+  if (vg != null) { const d = document.createElement("div"); d.className = "align-v"; d.style.left = (vg / state.layout.columns * 100) + "%"; a.appendChild(d); }
+  if (hg != null) { const d = document.createElement("div"); d.className = "align-h"; d.style.top = (hg / state.layout.rows * 100) + "%"; a.appendChild(d); }
+}
+function clearAlign() { $("align").innerHTML = ""; }
 
 // Common Pi-panel resolutions + sizes (the canvas adopts the chosen aspect;
 // pyEfis maps the 200x110 grid onto the real screen, so aspect is what drives
@@ -297,11 +390,15 @@ function startMove(e, i, el) {
   const inst = state.instruments[i];
   const sx = e.clientX, sy = e.clientY, srow = inst.row, scol = inst.column;
   const move = (ev) => {
-    inst.column = clamp(snapTo(scol + (ev.clientX - sx) / gw), 0, state.layout.columns - 1);
-    inst.row = clamp(snapTo(srow + (ev.clientY - sy) / gh), 0, state.layout.rows - 1);
+    const col = clamp(snapTo(scol + (ev.clientX - sx) / gw), 0, state.layout.columns - inst.span.columns);
+    const row = clamp(snapTo(srow + (ev.clientY - sy) / gh), 0, state.layout.rows - inst.span.rows);
+    const a = snapAlign(inst, col, row, gw, gh);   // snap to objects / guides when close
+    inst.column = clamp(a.col, 0, state.layout.columns - inst.span.columns);
+    inst.row = clamp(a.row, 0, state.layout.rows - inst.span.rows);
     positionEl(el, inst); syncPosFields(inst);
+    drawAlign(a.vg, a.hg);
   };
-  const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+  const up = () => { clearAlign(); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
   document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
 }
 
@@ -486,6 +583,17 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "[" && state.selected >= 0) moveSelected("down");    // backward
 });
 
+$("guides-sel").addEventListener("change", (e) => { state.guides = e.target.value; renderGuides(); });
+$("tmpl-t").addEventListener("click", () => {
+  if (state.instruments.length && !confirm("Replace the current layout with the basic-T arrangement?")) return;
+  state.instruments = BASIC_T.map((t) => ({
+    type: t.type, row: t.row, column: t.column,
+    span: { rows: t.span.rows, columns: t.span.columns }, options: {},
+  }));
+  state.selected = -1;
+  renderCanvas(); renderProps();
+});
+
 $("save").addEventListener("click", save);
 async function save() {
   if (!deviceId) { setStatus("No device - open the editor from a project."); return; }
@@ -532,7 +640,7 @@ async function boot() {
   $("snapToggle").addEventListener("change", (e) => { state.snap = e.target.checked; });
   $("canvas").classList.toggle("grid", $("gridToggle").checked);
   sizeCanvas();
-  renderPalette(); renderCanvas(); renderProps(); updateReadout();
+  renderPalette(); renderCanvas(); renderProps(); updateReadout(); renderGuides();
 }
 window.addEventListener("resize", () => { sizeCanvas(); renderCanvas(); });
 boot();
