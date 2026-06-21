@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "makerplane-configurator",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-01",
+  "observability": { "enabled": true },
+
+  // Non-secret config. Override APP_URL per environment (prod:
+  // https://config.aerocommons.org). Secrets (SESSION_SECRET, GOOGLE_*,
+  // MAIL_*) come from .dev.vars in dev and `wrangler secret put` in prod.
+  "vars": {
+    "APP_URL": "http://localhost:8787"
+  },
+
+  // Replace the ids after `wrangler d1 create` / `wrangler kv namespace create`.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "makerplane_configurator",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "0000000000000000000000000000abcd"
+    }
+  ]
+}

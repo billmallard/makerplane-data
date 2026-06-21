@@ -1,0 +1,17 @@
+# Copy to .dev.vars (gitignored) and fill in. `wrangler dev` loads .dev.vars;
+# for production set these with `wrangler secret put <NAME>`.
+
+# HMAC key for signing session cookies. Generate a long random string, e.g.
+#   node -e "console.log(crypto.randomBytes(48).toString('base64url'))"
+SESSION_SECRET=""
+
+# Google OAuth 2.0 / OIDC web client (console.cloud.google.com -> Credentials).
+# Authorized redirect URI must be  <APP_URL>/auth/google/callback
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+
+# Optional transactional email for magic links (Resend shown in src/mail.ts).
+# If MAIL_API_KEY is empty, the magic link is logged to the worker console
+# instead of emailed (fine for local dev).
+MAIL_API_KEY=""
+MAIL_FROM="login@aerocommons.org"
