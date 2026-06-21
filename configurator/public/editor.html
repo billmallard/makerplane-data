@@ -89,6 +89,9 @@
   .bargauge.vert .g-fill { position: absolute; left: 0; right: 0; bottom: 0; background: #2ea043; }
   .bargauge.horiz .g-track { width: 92%; height: 42%; background: linear-gradient(to right, rgba(46,160,67,.22) 0 75%, rgba(210,153,34,.30) 75% 90%, rgba(218,54,51,.35) 90% 100%); }
   .bargauge.horiz .g-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #2ea043; }
+  .tape { position: relative; box-sizing: border-box; background: rgba(18,22,28,.72); color: #e6edf3; }
+  .tape .tk { position: absolute; right: 3px; transform: translateY(-50%); white-space: nowrap; line-height: 1; opacity: .85; }
+  .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: #000; border: 1px solid #9aa4af; text-align: center; font-weight: 600; line-height: 1.2; }
   .inst.sel { outline: 2px solid #2ea043; z-index: 50; }
   .inst .handle {
     position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px;
@@ -267,6 +270,68 @@ function buildArcGauge(inst) {
   if (o.name) txt(42, 11, null, o.name);
   txt(60, 17, 600, sampleGaugeValue(o));
   return svg;
+}
+
+// Attitude indicator: sky/ground + roll + pitch ladder + aircraft symbol, drawn
+// from a sample pitch/roll. Reflects symbol_color live.
+let _svgUid = 0;
+function svgFromString(s) { const t = document.createElement("template"); t.innerHTML = s.trim(); return t.content.firstChild; }
+function buildAttitude(inst) {
+  const o = inst.options || {};
+  const sym = o.symbol_color || "#ffd400";
+  const pitch = 4, roll = -9, ppd = 1.6, id = _svgUid++;
+  const ladder = [10, 20, -10, -20].map((d) => {
+    const y = 50 - d * ppd, w = (d % 20 === 0) ? 16 : 10;
+    return `<line x1="${50 - w}" y1="${y}" x2="${50 + w}" y2="${y}" stroke="#fff" stroke-width="0.7"/>`
+      + `<text x="${50 - w - 2}" y="${y + 1.4}" fill="#fff" font-size="4" text-anchor="end">${Math.abs(d)}</text>`
+      + `<text x="${50 + w + 2}" y="${y + 1.4}" fill="#fff" font-size="4">${Math.abs(d)}</text>`;
+  }).join("");
+  return svgFromString(`
+<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" class="gauge-svg">
+  <defs>
+    <clipPath id="aic${id}"><rect x="0" y="0" width="100" height="100"/></clipPath>
+    <linearGradient id="ais${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f6fd0"/><stop offset="1" stop-color="#57a0e8"/></linearGradient>
+    <linearGradient id="aig${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7d5328"/><stop offset="1" stop-color="#553619"/></linearGradient>
+  </defs>
+  <g clip-path="url(#aic${id})">
+    <g transform="rotate(${roll} 50 50)"><g transform="translate(0 ${pitch * ppd})">
+      <rect x="-90" y="-170" width="280" height="220" fill="url(#ais${id})"/>
+      <rect x="-90" y="50" width="280" height="220" fill="url(#aig${id})"/>
+      <line x1="-90" y1="50" x2="190" y2="50" stroke="#fff" stroke-width="1.1"/>
+      ${ladder}
+    </g></g>
+    <path d="M50 6 L46.5 12 L53.5 12 Z" fill="#fff"/>
+    <g stroke="${sym}" stroke-width="2.4" fill="none" stroke-linecap="round">
+      <line x1="20" y1="50" x2="40" y2="50"/><line x1="60" y1="50" x2="80" y2="50"/>
+      <path d="M44 50 L50 56 L56 50"/>
+    </g>
+    <circle cx="50" cy="50" r="1.5" fill="${sym}"/>
+  </g>
+</svg>`);
+}
+
+// Vertical tape (airspeed / altimeter): scrolling numbers around a sample value
+// with a centred readout box. HTML (not SVG) so the digits never distort.
+function buildTape(inst) {
+  const o = inst.options || {};
+  const isAlt = inst.type === "altimeter_tape";
+  const value = isAlt ? 3500 : 110, step = isAlt ? 200 : 20, span = 6 * step;
+  const r = rect(inst);
+  const wrap = document.createElement("div");
+  wrap.className = "gauge tape";
+  wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
+  wrap.style.fontSize = Math.max(7, Math.min(15, r.w * 0.26)) + "px";
+  if (o.fg_color) wrap.style.color = o.fg_color;
+  const base = Math.round(value / step) * step;
+  for (let k = -4; k <= 4; k++) {
+    const n = base + k * step, top = 50 - (n - value) / span * 100;
+    if (top < 3 || top > 97) continue;
+    const tk = document.createElement("div"); tk.className = "tk";
+    tk.style.top = top + "%"; tk.textContent = n; wrap.appendChild(tk);
+  }
+  const ro = document.createElement("div"); ro.className = "readout"; ro.textContent = value;
+  wrap.appendChild(ro);
+  return wrap;
 }
 
 // Standard "basic-T" arrangement (grid units): attitude centre, airspeed left,
@@ -507,6 +572,10 @@ function renderCanvas() {
         ci.style.width = (ch.span.columns / def.grid.columns * 100) + "%"; ci.style.height = (ch.span.rows / def.grid.rows * 100) + "%";
         el.appendChild(ci);
       }
+    } else if (inst.type === "atitude_indicator") {
+      el.appendChild(buildAttitude(inst));
+    } else if (inst.type === "airspeed_tape" || inst.type === "altimeter_tape") {
+      el.appendChild(buildTape(inst));
     } else if (LIVE_GAUGE.has(inst.type)) {
       el.appendChild(inst.type === "arc_gauge"
         ? buildArcGauge(inst)
