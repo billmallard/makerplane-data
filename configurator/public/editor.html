@@ -101,6 +101,12 @@
   .htape .htk.maj .bar { height: 9px; opacity: .9; }
   .htape .htk .lbl.card { color: #34d3ff; }
   .htape .hlubber { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); background: #fff; opacity: .8; }
+  .trendtape { position: relative; box-sizing: border-box; overflow: hidden; background: rgba(18,22,28,.72); color: #e6edf3; }
+  .trendtape .tt-hdr { position: absolute; left: 2px; top: 1px; font-size: .85em; line-height: 1.1; z-index: 1; }
+  .trendtape .tt-row { position: absolute; left: 0; right: 0; transform: translateY(-50%); display: flex; align-items: center; gap: 3px; }
+  .trendtape .tt-num { width: 2.4em; text-align: right; opacity: .85; }
+  .trendtape .tt-tick { flex: 1; height: 1px; background: currentColor; opacity: .5; }
+  .trendtape .tt-trend { position: absolute; right: 14%; width: 4px; background: #d000d0; }
   .inst.sel { outline: 2px solid #2ea043; z-index: 50; }
   .inst .handle {
     position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px;
@@ -414,6 +420,91 @@ function buildHSI(inst) {
 </svg>`);
 }
 
+// Round dials + trend tape -- faithful to pyEfis steam-gauge faces (rendered
+// real first in work/refs/ and matched). Sample values; live data is FIX (#64).
+function _dialText(cx, cy, r, deg, s, size, fg) {
+  const p = _polar(cx, cy, r, deg);
+  return `<text x="${p.x}" y="${p.y + size * 0.34}" fill="${fg}" font-size="${size}" text-anchor="middle">${s}</text>`;
+}
+function _needle(cx, cy, len, deg, halfw, fill) {
+  const tip = _polar(cx, cy, len, deg), b1 = _polar(cx, cy, halfw, deg + 90), b2 = _polar(cx, cy, halfw, deg - 90), tail = _polar(cx, cy, halfw * 1.6, deg + 180);
+  return `<path d="M${tip.x} ${tip.y} L${b1.x} ${b1.y} L${tail.x} ${tail.y} L${b2.x} ${b2.y} Z" fill="${fill}"/>`;
+}
+function _dialSvg(o, font, inner) {
+  return svgFromString(`<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}"><circle cx="50" cy="50" r="48.5" fill="${o.bg_color || "#000"}" stroke="#888" stroke-width="0.5"/>${inner}</svg>`);
+}
+function buildAirspeedDial(inst) {
+  const o = inst.options || {}, fg = o.fg_color || "#fff", font = o.font_family || "DejaVu Sans Condensed";
+  const Vmax = 160, SPAN = 320, sample = 118, d = (v) => (v / Vmax) * SPAN;
+  let s = `<path d="${_arcCW(50, 50, 45, d(40), d(120))}" stroke="#22b03a" stroke-width="3" fill="none"/>`
+    + `<path d="${_arcCW(50, 50, 45, d(120), d(145))}" stroke="#e8c21a" stroke-width="3" fill="none"/>`
+    + `<path d="${_arcCW(50, 50, 45, d(145), d(160))}" stroke="#e0231f" stroke-width="3" fill="none"/>`;
+  for (let v = 0; v <= Vmax; v += 10) {
+    const maj = v % 20 === 0, p1 = _polar(50, 50, 43, d(v)), p2 = _polar(50, 50, maj ? 38 : 41, d(v));
+    s += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${fg}" stroke-width="${maj ? 0.9 : 0.5}"/>`;
+    if (maj) s += _dialText(50, 50, 33, d(v), v, 6, fg);
+  }
+  s += _needle(50, 50, 40, d(sample), 2.6, fg) + `<circle cx="50" cy="50" r="3" fill="${fg}"/>`;
+  return _dialSvg(o, font, s);
+}
+function buildAltimeterDial(inst) {
+  const o = inst.options || {}, fg = o.fg_color || "#fff", font = o.font_family || "DejaVu Sans Condensed";
+  const sample = 3500;
+  let s = "";
+  for (let n = 0; n < 10; n++) {
+    const deg = n * 36, p1 = _polar(50, 50, 46, deg), p2 = _polar(50, 50, 40, deg);
+    s += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${fg}" stroke-width="1"/>` + _dialText(50, 50, 33, deg, n, 7, fg);
+    for (let m = 1; m < 5; m++) { const dm = deg + m * 7.2, q1 = _polar(50, 50, 46, dm), q2 = _polar(50, 50, 43, dm); s += `<line x1="${q1.x}" y1="${q1.y}" x2="${q2.x}" y2="${q2.y}" stroke="${fg}" stroke-width="0.5"/>`; }
+  }
+  s += _needle(50, 50, 26, (sample / 1000 % 10) * 36, 3, fg) + _needle(50, 50, 42, (sample / 100 % 10) * 36, 1.6, fg) + `<circle cx="50" cy="50" r="3" fill="${fg}"/>`;
+  return _dialSvg(o, font, s);
+}
+function buildVsiDial(inst) {
+  const o = inst.options || {}, fg = o.fg_color || "#fff", font = o.font_family || "DejaVu Sans Condensed";
+  const sample = 3, d = (v) => -90 + (v / 20) * 180;
+  let s = "";
+  for (let v = -20; v <= 20; v += 1) {
+    const maj = v % 5 === 0, p1 = _polar(50, 50, 46, d(v)), p2 = _polar(50, 50, maj ? 40 : 43, d(v));
+    s += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${fg}" stroke-width="${maj ? 0.9 : 0.5}"/>`;
+    if (maj) s += _dialText(50, 50, 34, d(v), Math.abs(v) === 20 ? "2.0" : Math.abs(v), 6, fg);
+  }
+  s += _needle(50, 50, 40, d(sample), 2.4, fg) + `<circle cx="50" cy="50" r="2.6" fill="${fg}"/>`;
+  return _dialSvg(o, font, s);
+}
+function buildTurnCoordinator(inst) {
+  const o = inst.options || {}, fg = o.fg_color || "#fff", font = o.font_family || "DejaVu Sans Condensed";
+  const bank = 8, ball = 2;
+  let s = `<rect x="3" y="48.4" width="7" height="3.2" fill="${fg}"/><rect x="90" y="48.4" width="7" height="3.2" fill="${fg}"/>`;
+  for (const dd of [216, 144]) { const a = _polar(50, 50, 47, dd), b = _polar(50, 50, 40, dd); s += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${fg}" stroke-width="2.4"/>`; }
+  s += `<g transform="rotate(${bank} 50 50)" stroke="${fg}" stroke-width="2" fill="none" stroke-linecap="round"><line x1="22" y1="48" x2="78" y2="48"/><line x1="50" y1="41" x2="50" y2="55"/><line x1="45" y1="42.5" x2="55" y2="42.5"/></g>`
+    + `<circle cx="50" cy="48" r="2.4" fill="${fg}"/>`
+    + `<rect x="37" y="78" width="26" height="7" rx="3.5" fill="${fg}"/><circle cx="${50 + ball}" cy="81.5" r="2.8" fill="#000"/>`;
+  return _dialSvg(o, font, s);
+}
+// Altimeter / VSI trend tape: a vertical VSI scale with tick lines + a magenta
+// trend bar from 0. HTML so the digits stay crisp.
+function buildTrendTape(inst) {
+  const o = inst.options || {}, max = 24, trend = 4;
+  const r = rect(inst);
+  const wrap = document.createElement("div");
+  wrap.className = "gauge trendtape";
+  wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
+  wrap.style.fontSize = Math.max(6, Math.min(11, r.w * 0.12)) + "px";
+  if (o.fg_color) wrap.style.color = o.fg_color;
+  const hdr = document.createElement("div"); hdr.className = "tt-hdr"; hdr.innerHTML = "VSI<br><b>0</b>"; wrap.appendChild(hdr);
+  for (let v = max; v >= -max; v -= 2) {
+    const row = document.createElement("div"); row.className = "tt-row"; row.style.top = (50 - v / (2 * max) * 100) + "%";
+    const num = document.createElement("span"); num.className = "tt-num"; num.textContent = v;
+    const tick = document.createElement("span"); tick.className = "tt-tick";
+    row.appendChild(num); row.appendChild(tick); wrap.appendChild(row);
+  }
+  const tb = document.createElement("div"); tb.className = "tt-trend";
+  tb.style.top = Math.min(50, 50 - trend / (2 * max) * 100) + "%";
+  tb.style.height = Math.abs(trend / (2 * max) * 100) + "%";
+  wrap.appendChild(tb);
+  return wrap;
+}
+
 // Standard "basic-T" arrangement (grid units): attitude centre, airspeed left,
 // altimeter right, HSI below, heading top. A starting template + a guide.
 const BASIC_T = [
@@ -660,6 +751,16 @@ function renderCanvas() {
       el.appendChild(buildHeadingTape(inst));
     } else if (inst.type === "horizontal_situation_indicator") {
       el.appendChild(buildHSI(inst));
+    } else if (inst.type === "airspeed_dial") {
+      el.appendChild(buildAirspeedDial(inst));
+    } else if (inst.type === "altimeter_dial") {
+      el.appendChild(buildAltimeterDial(inst));
+    } else if (inst.type === "vsi_dial") {
+      el.appendChild(buildVsiDial(inst));
+    } else if (inst.type === "turn_coordinator") {
+      el.appendChild(buildTurnCoordinator(inst));
+    } else if (inst.type === "altimeter_trend_tape") {
+      el.appendChild(buildTrendTape(inst));
     } else if (LIVE_GAUGE.has(inst.type)) {
       el.appendChild(inst.type === "arc_gauge"
         ? buildArcGauge(inst)
