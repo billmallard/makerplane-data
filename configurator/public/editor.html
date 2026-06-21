@@ -107,6 +107,15 @@
   .trendtape .tt-num { width: 2.4em; text-align: right; opacity: .85; }
   .trendtape .tt-tick { flex: 1; height: 1px; background: currentColor; opacity: .5; }
   .trendtape .tt-trend { position: absolute; right: 14%; width: 4px; background: #d000d0; }
+  .vsipfd { position: relative; box-sizing: border-box; overflow: hidden; background: rgba(18,22,28,.72); color: #e6edf3; }
+  .vsipfd .vp-row { position: absolute; left: 0; right: 0; transform: translateY(-50%); display: flex; align-items: center; gap: 2px; }
+  .vsipfd .vp-line { flex: 1; height: 2px; background: #fff; }
+  .vsipfd .vp-num { width: 3em; text-align: right; }
+  .vsipfd .vp-ind { position: absolute; left: 4%; transform: translateY(-50%); width: 34%; height: 16%; border-radius: 50%; background: #f0f; }
+  .wind { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; padding: 0 6%; line-height: 1.25; white-space: pre; }
+  .trendstrip { position: relative; box-sizing: border-box; overflow: hidden; background: rgba(18,22,28,.5); }
+  .trendstrip .ts-ref { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #fff; opacity: .6; }
+  .trendstrip .ts-bar { position: absolute; left: 32%; right: 32%; background: #f0f; }
   .inst.sel { outline: 2px solid #2ea043; z-index: 50; }
   .inst .handle {
     position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px;
@@ -505,6 +514,50 @@ function buildTrendTape(inst) {
   return wrap;
 }
 
+// VSI (PFD): a vertical magnitude scale with a magenta indicator at the rate.
+function buildVsiPfd(inst) {
+  const o = inst.options || {}, max = 2000, sample = 300, r = rect(inst);
+  const wrap = document.createElement("div");
+  wrap.className = "gauge vsipfd";
+  wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
+  wrap.style.fontSize = Math.max(6, Math.min(11, r.w * 0.16)) + "px";
+  if (o.fg_color) wrap.style.color = o.fg_color;
+  for (const v of [2000, 1500, 1000, 500, 0, -500, -1000, -1500, -2000]) {
+    const row = document.createElement("div"); row.className = "vp-row"; row.style.top = (50 - v / (2 * max) * 100) + "%";
+    const line = document.createElement("span"); line.className = "vp-line";
+    const num = document.createElement("span"); num.className = "vp-num"; num.textContent = Math.abs(v);
+    row.appendChild(line); row.appendChild(num); wrap.appendChild(row);
+  }
+  const ind = document.createElement("div"); ind.className = "vp-ind"; ind.style.top = (50 - sample / (2 * max) * 100) + "%"; wrap.appendChild(ind);
+  return wrap;
+}
+// Wind display: headwind/tailwind + crosswind components (text), as pyEfis draws.
+function buildWind(inst) {
+  const o = inst.options || {}, r = rect(inst);
+  const wrap = document.createElement("div");
+  wrap.className = "gauge wind";
+  wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
+  wrap.style.fontSize = Math.max(8, Math.min(22, r.h * 0.26)) + "px";
+  wrap.style.color = o.fg_color || "#fff";
+  const l1 = document.createElement("div"); l1.textContent = "HW   9";
+  const l2 = document.createElement("div"); l2.textContent = "RX   0";
+  wrap.append(l1, l2);
+  return wrap;
+}
+// Airspeed trend tape: a thin trend vector from the centre -- mostly empty
+// without live acceleration data, like the device.
+function buildAirspeedTrend(inst) {
+  const range = 40, trend = 8;
+  const wrap = document.createElement("div");
+  wrap.className = "gauge trendstrip";
+  wrap.appendChild(Object.assign(document.createElement("div"), { className: "ts-ref" }));
+  const bar = document.createElement("div"); bar.className = "ts-bar";
+  bar.style.top = Math.min(50, 50 - trend / range * 100) + "%";
+  bar.style.height = Math.abs(trend / range * 100) + "%";
+  wrap.appendChild(bar);
+  return wrap;
+}
+
 // Standard "basic-T" arrangement (grid units): attitude centre, airspeed left,
 // altimeter right, HSI below, heading top. A starting template + a guide.
 const BASIC_T = [
@@ -761,6 +814,12 @@ function renderCanvas() {
       el.appendChild(buildTurnCoordinator(inst));
     } else if (inst.type === "altimeter_trend_tape") {
       el.appendChild(buildTrendTape(inst));
+    } else if (inst.type === "vsi_pfd") {
+      el.appendChild(buildVsiPfd(inst));
+    } else if (inst.type === "wind_display") {
+      el.appendChild(buildWind(inst));
+    } else if (inst.type === "airspeed_trend_tape") {
+      el.appendChild(buildAirspeedTrend(inst));
     } else if (LIVE_GAUGE.has(inst.type)) {
       el.appendChild(inst.type === "arc_gauge"
         ? buildArcGauge(inst)
