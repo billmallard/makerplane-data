@@ -14,7 +14,7 @@
   }
   header {
     display: flex; align-items: center; gap: 12px; padding: 10px 16px;
-    border-bottom: 1px solid #21262d;
+    border-bottom: 1px solid #21262d; flex-wrap: wrap;
   }
   header .brand { font-weight: 600; color: #e6edf3; }
   header .spacer { flex: 1; }
@@ -73,12 +73,22 @@
   ul.layers .layer:hover { border-color: #8b949e; }
   ul.layers .layer.sel { border-color: #2ea043; color: #e6edf3; }
   hr.sep { border: none; border-top: 1px solid #21262d; margin: 14px 0; }
+  .tsel { font-size: 12px; color: #8b949e; display: flex; align-items: center; gap: 5px; }
+  .tsel select, .num {
+    font: inherit; font-size: 12px; background: #0d1117; color: #e6edf3;
+    border: 1px solid #30363d; border-radius: 5px; padding: 4px 6px;
+  }
+  .num { width: 62px; }
 </style>
 </head>
 <body>
 <header>
   <span class="brand">AeroCommons</span><span class="muted">Panel Editor</span>
   <span class="muted" id="ctx"></span>
+  <label class="tsel">Screen <select id="res"></select></label>
+  <span id="custom" class="hidden"><input id="cw" type="number" class="num"> × <input id="ch" type="number" class="num"></span>
+  <label class="tsel">Size <select id="inches"></select></label>
+  <span class="muted" id="readout"></span>
   <span class="spacer"></span>
   <span id="status"></span>
   <button id="del">Delete</button>
@@ -100,11 +110,70 @@ const deviceId = params.get("device");
 
 const state = {
   schema: null,
-  layout: { rows: 110, columns: 200 },
+  layout: { rows: 110, columns: 200 },          // pyEfis normalised grid (portable)
+  screen: { width: 1280, height: 800, inches: 10.1 },  // target device
   instruments: [],     // {type, row, column, span:{rows,columns}, options:{}}
   selected: -1,
   canvasW: 0, canvasH: 0,
 };
+
+// Common Pi-panel resolutions + sizes (the canvas adopts the chosen aspect;
+// pyEfis maps the 200x110 grid onto the real screen, so aspect is what drives
+// the visual layout -- absolute pixels are normalised away).
+const RESOLUTIONS = [
+  { w: 1024, h: 600 }, { w: 1280, h: 800 }, { w: 1280, h: 1024 },
+  { w: 1920, h: 1080 }, { w: 1920, h: 1200 },
+];
+const INCHES = [5, 7, 8, 10.1, 11.6, 15.6];
+
+function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+function aspect(w, h) { const g = gcd(w, h), aw = w / g, ah = h / g; return ah <= 20 ? `${aw}:${ah}` : `${(w / h).toFixed(2)}:1`; }
+function dpi() { return state.screen.inches ? Math.round(Math.hypot(state.screen.width, state.screen.height) / state.screen.inches) : null; }
+
+function buildScreenControls() {
+  const res = $("res");
+  res.innerHTML = "";
+  for (const r of RESOLUTIONS) {
+    const o = document.createElement("option");
+    o.value = r.w + "x" + r.h; o.textContent = r.w + " × " + r.h;
+    res.appendChild(o);
+  }
+  const custom = document.createElement("option"); custom.value = "custom"; custom.textContent = "Custom…"; res.appendChild(custom);
+  const inch = $("inches");
+  inch.innerHTML = "";
+  const none = document.createElement("option"); none.value = ""; none.textContent = "— in"; inch.appendChild(none);
+  for (const i of INCHES) { const o = document.createElement("option"); o.value = i; o.textContent = i + "″"; inch.appendChild(o); }
+  res.addEventListener("change", onResChange);
+  inch.addEventListener("change", () => { state.screen.inches = parseFloat($("inches").value) || null; applyScreen(); });
+  $("cw").addEventListener("input", onCustom);
+  $("ch").addEventListener("input", onCustom);
+  syncScreenControls();
+}
+
+function onResChange() {
+  const v = $("res").value;
+  if (v === "custom") { $("custom").classList.remove("hidden"); $("cw").value = state.screen.width; $("ch").value = state.screen.height; return; }
+  $("custom").classList.add("hidden");
+  const [w, h] = v.split("x").map(Number);
+  state.screen.width = w; state.screen.height = h; applyScreen();
+}
+function onCustom() {
+  const w = parseInt($("cw").value, 10), h = parseInt($("ch").value, 10);
+  if (w > 0 && h > 0) { state.screen.width = w; state.screen.height = h; applyScreen(); }
+}
+function syncScreenControls() {
+  const key = state.screen.width + "x" + state.screen.height;
+  if ([...$("res").options].some((o) => o.value === key)) { $("res").value = key; $("custom").classList.add("hidden"); }
+  else { $("res").value = "custom"; $("custom").classList.remove("hidden"); $("cw").value = state.screen.width; $("ch").value = state.screen.height; }
+  $("inches").value = state.screen.inches || "";
+}
+function applyScreen() { sizeCanvas(); renderCanvas(); renderProps(); updateReadout(); }
+function updateReadout() {
+  const d = dpi();
+  $("readout").textContent =
+    `${state.screen.width}×${state.screen.height} · ${aspect(state.screen.width, state.screen.height)}`
+    + (d ? ` · ${state.screen.inches}″ · ${d} DPI` : "");
+}
 
 // --- grid <-> pixel math (port of screenbuilder_layout, ratio=false) --------
 function cell() { return { gw: state.canvasW / state.layout.columns, gh: state.canvasH / state.layout.rows }; }
@@ -142,10 +211,17 @@ function renderPalette() {
 
 // --- canvas -----------------------------------------------------------------
 function sizeCanvas() {
+  // Canvas adopts the TARGET screen's aspect ratio (the 200x110 grid maps onto
+  // it), scaled to fit the available editor area.
   const c = $("canvas");
-  const avail = c.parentElement.clientWidth - 36;
-  state.canvasW = Math.min(1100, avail);
-  state.canvasH = Math.round(state.canvasW * state.layout.rows / state.layout.columns);
+  const stage = c.parentElement;
+  const availW = stage.clientWidth - 36;
+  const availH = stage.clientHeight - 36;
+  const ar = state.screen.width / state.screen.height;
+  let w = Math.min(availW, 1400), h = w / ar;
+  if (h > availH) { h = availH; w = h * ar; }
+  state.canvasW = Math.round(w);
+  state.canvasH = Math.round(h);
   c.style.width = state.canvasW + "px";
   c.style.height = state.canvasH + "px";
 }
@@ -275,6 +351,16 @@ function renderProps() {
   p.appendChild(Object.assign(document.createElement("hr"), { className: "sep" }));
   const title = document.createElement("h3"); title.textContent = meta.label + " — properties"; p.appendChild(title);
 
+  const d = dpi();
+  if (d) {
+    const pw = (inst.span.columns / state.layout.columns) * state.screen.width / d * 25.4;
+    const ph = (inst.span.rows / state.layout.rows) * state.screen.height / d * 25.4;
+    const note = document.createElement("p");
+    note.className = "muted"; note.style.margin = "0 0 8px";
+    note.textContent = `≈ ${pw.toFixed(0)} × ${ph.toFixed(0)} mm on the ${state.screen.inches}″ screen`;
+    p.appendChild(note);
+  }
+
   p.appendChild(numGrid([
     ["row", inst.row, (v) => inst.row = v],
     ["column", inst.column, (v) => inst.column = v],
@@ -385,7 +471,7 @@ document.addEventListener("keydown", (e) => {
 $("save").addEventListener("click", save);
 async function save() {
   if (!deviceId) { setStatus("No device - open the editor from a project."); return; }
-  const design = { kind: "pyefis-screen", version: 1, layout: state.layout, instruments: state.instruments };
+  const design = { kind: "pyefis-screen", version: 1, screen: state.screen, layout: state.layout, instruments: state.instruments };
   setStatus("Saving...");
   const res = await fetch(`/api/devices/${deviceId}/config`, {
     method: "PUT", credentials: "same-origin",
@@ -404,6 +490,11 @@ async function load() {
   try {
     const design = JSON.parse(await res.text());
     if (design.layout) state.layout = design.layout;
+    if (design.screen) state.screen = {
+      width: design.screen.width || 1280,
+      height: design.screen.height || 800,
+      inches: design.screen.inches ?? null,
+    };
     if (Array.isArray(design.instruments)) state.instruments = design.instruments;
   } catch (_) { /* not our JSON design; ignore */ }
 }
@@ -418,8 +509,9 @@ async function boot() {
   $("ctx").textContent = deviceId ? "device #" + deviceId : "(scratch - no device)";
   state.schema = await (await fetch(ASSETS + "/schema.json")).json();
   await load();
+  buildScreenControls();
   sizeCanvas();
-  renderPalette(); renderCanvas(); renderProps();
+  renderPalette(); renderCanvas(); renderProps(); updateReadout();
 }
 window.addEventListener("resize", () => { sizeCanvas(); renderCanvas(); });
 boot();
