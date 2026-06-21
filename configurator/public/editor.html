@@ -43,6 +43,10 @@
   .pal-item:hover { border-color: #8b949e; }
   .pal-item img { width: 44px; height: 30px; object-fit: contain; background: #000; border-radius: 3px; }
   .pal-item .lbl { font-size: 12px; color: #e6edf3; }
+  .pal-group { position: relative; width: 44px; height: 30px; background: #000; border-radius: 3px; flex: 0 0 auto; }
+  .pal-group img { position: absolute; object-fit: fill; }
+  .inst.group { outline-color: rgba(150,180,205,.6); }
+  .gchild { position: absolute; object-fit: fill; pointer-events: none; }
   #canvas { position: relative; background: #000; border: 1px solid #30363d; }
   #canvas.dragover { outline: 2px dashed #2ea043; outline-offset: -2px; }
   #canvas.grid {
@@ -150,6 +154,7 @@ const state = {
   canvasW: 0, canvasH: 0,
   snap: false,
   guides: "none",
+  groups: [], groupsById: {},
 };
 
 const SNAP = 10;  // grid cells; "Snap" rounds to this (aligned with the grid majors)
@@ -328,6 +333,24 @@ function rect(inst) {
 function renderPalette() {
   const pal = $("palette");
   pal.innerHTML = "";
+
+  if (state.groups.length) {
+    const h = document.createElement("h3"); h.textContent = "groups"; pal.appendChild(h);
+    for (const g of state.groups) {
+      const item = document.createElement("div"); item.className = "pal-item"; item.draggable = true;
+      item.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", "group:" + g.id));
+      const box = document.createElement("div"); box.className = "pal-group";
+      for (const ch of g.instruments) {
+        const ci = document.createElement("img"); ci.src = `${ASSETS}/palette/${ch.type}.svg`;
+        ci.style.left = (ch.column / g.grid.columns * 100) + "%"; ci.style.top = (ch.row / g.grid.rows * 100) + "%";
+        ci.style.width = (ch.span.columns / g.grid.columns * 100) + "%"; ci.style.height = (ch.span.rows / g.grid.rows * 100) + "%";
+        box.appendChild(ci);
+      }
+      const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = g.label;
+      item.append(box, lbl); pal.appendChild(item);
+    }
+  }
+
   const byCat = {};
   for (const [type, meta] of Object.entries(state.schema.instruments)) {
     (byCat[meta.category] ||= []).push([type, meta]);
@@ -380,21 +403,31 @@ function renderCanvas() {
     if (i === state.selected) el.classList.add("sel");
     el.dataset.i = i;
     positionEl(el, inst);
-    let content;
-    if (LIVE_TEXT.has(inst.type)) {
+    if (inst.type === "group") {
+      el.classList.add("group");
+      const def = state.groupsById[inst.id];
+      if (def) for (const ch of def.instruments) {
+        const ci = document.createElement("img"); ci.className = "gchild";
+        ci.src = `${ASSETS}/palette/${ch.type}.svg`;
+        ci.style.left = (ch.column / def.grid.columns * 100) + "%"; ci.style.top = (ch.row / def.grid.rows * 100) + "%";
+        ci.style.width = (ch.span.columns / def.grid.columns * 100) + "%"; ci.style.height = (ch.span.rows / def.grid.rows * 100) + "%";
+        el.appendChild(ci);
+      }
+    } else if (LIVE_TEXT.has(inst.type)) {
       const o = inst.options;
-      content = document.createElement("div");
+      const content = document.createElement("div");
       content.className = "inst-text";
       content.textContent = sampleText(inst);
       content.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
       if (o.fg_color) content.style.color = o.fg_color;
       if (o.bg_color) content.style.background = o.bg_color;
       content.style.fontSize = Math.max(8, (o.font_percent || 0.5) * rect(inst).h) + "px";
+      el.appendChild(content);
     } else {
-      content = document.createElement("img");
+      const content = document.createElement("img");
       content.src = `${ASSETS}/palette/${inst.type}.svg`; content.alt = inst.type;
+      el.appendChild(content);
     }
-    el.appendChild(content);
     const handle = document.createElement("div"); handle.className = "handle";
     el.appendChild(handle);
     el.addEventListener("mousedown", (e) => startMove(e, i, el));
@@ -415,13 +448,19 @@ canvas.addEventListener("dragover", (e) => { e.preventDefault(); canvas.classLis
 canvas.addEventListener("dragleave", () => canvas.classList.remove("dragover"));
 canvas.addEventListener("drop", (e) => {
   e.preventDefault(); canvas.classList.remove("dragover");
-  const type = e.dataTransfer.getData("text/plain");
-  if (!type || !state.schema.instruments[type]) return;
+  const data = e.dataTransfer.getData("text/plain");
   const cr = canvas.getBoundingClientRect();
   const { gw, gh } = cell();
   const col = clamp(snapTo((e.clientX - cr.left) / gw), 0, state.layout.columns - 1);
   const row = clamp(snapTo((e.clientY - cr.top) / gh), 0, state.layout.rows - 1);
-  state.instruments.push({ type, row, column: col, span: { rows: 20, columns: 20 }, options: {} });
+  if (data.startsWith("group:")) {
+    const def = state.groupsById[data.slice(6)];
+    if (!def) return;
+    const sp = def.defaultSpan || { rows: 40, columns: 50 };
+    state.instruments.push({ type: "group", id: def.id, row, column: col, span: { rows: sp.rows, columns: sp.columns } });
+  } else if (state.schema.instruments[data]) {
+    state.instruments.push({ type: data, row, column: col, span: { rows: 20, columns: 20 }, options: {} });
+  } else { return; }
   state.selected = state.instruments.length - 1;
   renderCanvas(); renderProps();
 });
@@ -490,7 +529,8 @@ function renderProps() {
       const inst = state.instruments[i];
       const li = document.createElement("li");
       li.className = "layer" + (i === state.selected ? " sel" : "");
-      li.textContent = state.schema.instruments[inst.type]?.label || inst.type;
+      li.textContent = state.schema.instruments[inst.type]?.label
+        || (inst.type === "group" ? (state.groupsById[inst.id]?.label || "Group") : inst.type);
       li.addEventListener("click", () => select(i));
       list.appendChild(li);
     }
@@ -507,8 +547,25 @@ function renderProps() {
     return;
   }
   const inst = state.instruments[state.selected];
-  const meta = state.schema.instruments[inst.type];
   p.appendChild(Object.assign(document.createElement("hr"), { className: "sep" }));
+
+  if (inst.type === "group") {
+    const def = state.groupsById[inst.id];
+    const gt = document.createElement("h3"); gt.textContent = (def ? def.label : "Group") + " — group"; p.appendChild(gt);
+    p.appendChild(numGrid([
+      ["row", inst.row, (v) => inst.row = v],
+      ["column", inst.column, (v) => inst.column = v],
+      ["span rows", inst.span.rows, (v) => inst.span.rows = v],
+      ["span cols", inst.span.columns, (v) => inst.span.columns = v],
+    ]));
+    const ung = document.createElement("button");
+    ung.textContent = "Ungroup"; ung.style.marginTop = "8px";
+    ung.addEventListener("click", ungroup);
+    p.appendChild(ung);
+    return;
+  }
+
+  const meta = state.schema.instruments[inst.type];
   const title = document.createElement("h3"); title.textContent = meta.label + " — properties"; p.appendChild(title);
 
   const d = dpi();
@@ -548,6 +605,28 @@ function moveSelected(where) {
   else j = Math.max(0, i - 1);
   arr.splice(j, 0, item);
   state.selected = j;
+  renderCanvas(); renderProps();
+}
+
+// Ungroup: replace the selected group with its children as independent
+// top-level instruments (child local positions -> absolute grid).
+function ungroup() {
+  const g = state.instruments[state.selected];
+  if (!g || g.type !== "group") return;
+  const def = state.groupsById[g.id];
+  if (!def) return;
+  const children = def.instruments.map((ch) => ({
+    type: ch.type,
+    row: g.row + (ch.row / def.grid.rows) * g.span.rows,
+    column: g.column + (ch.column / def.grid.columns) * g.span.columns,
+    span: {
+      rows: (ch.span.rows / def.grid.rows) * g.span.rows,
+      columns: (ch.span.columns / def.grid.columns) * g.span.columns,
+    },
+    options: { ...(ch.options || {}) },
+  }));
+  state.instruments.splice(state.selected, 1, ...children);
+  state.selected = -1;
   renderCanvas(); renderProps();
 }
 
@@ -671,6 +750,11 @@ async function boot() {
   if (!me.ok) { location.href = "/"; return; }
   $("ctx").textContent = deviceId ? "device #" + deviceId : "(scratch - no device)";
   state.schema = await (await fetch(ASSETS + "/schema.json")).json();
+  try {
+    const gj = await (await fetch(ASSETS + "/groups.json")).json();
+    state.groups = gj.groups || [];
+    state.groups.forEach((g) => { state.groupsById[g.id] = g; });
+  } catch (_) { /* no groups catalog */ }
   await load();
   buildScreenControls();
   $("gridToggle").addEventListener("change", (e) => $("canvas").classList.toggle("grid", e.target.checked));
