@@ -39,7 +39,8 @@
   .tabs { display: flex; gap: 4px; padding: 8px 12px 0; }
   .tab { font: inherit; background: none; border: 1px solid transparent; border-bottom: none; padding: 6px 14px; color: #8b949e; border-radius: 6px 6px 0 0; cursor: pointer; }
   .tab.active { color: #e6edf3; background: #161b22; border-color: #21262d; }
-  #code-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 12px; }
+  #code-pane { flex: 0 0 32%; min-height: 120px; display: flex; flex-direction: column; padding: 10px 12px; border-top: 1px solid #21262d; }
+  #code-pane.hidden { display: none; }
   .code-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
   #code-text { flex: 1; width: 100%; resize: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 7px; padding: 10px; line-height: 1.4; }
   h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #8b949e; margin: 14px 0 6px; }
@@ -134,6 +135,7 @@
       <option value="pfd-ems">PFD + EMS (⅔)</option>
     </select>
   </label>
+  <label class="tsel"><input type="checkbox" id="codeToggle" checked> Code</label>
   <span class="spacer"></span>
   <span id="status"></span>
   <button id="del">Delete</button>
@@ -144,16 +146,9 @@
 <div class="layout">
   <aside class="palette" id="palette"></aside>
   <div class="center">
-    <div class="tabs">
-      <button id="tab-design" class="tab active">Design</button>
-      <button id="tab-code" class="tab">Code</button>
-    </div>
     <div class="stage" id="stage"><div id="canvas"><div id="guides"></div><div id="align"></div></div></div>
-    <div id="code-pane" class="hidden">
-      <div class="code-bar">
-        <button id="code-apply" class="btn primary">Apply to canvas</button>
-        <span id="code-msg" class="muted"></span>
-      </div>
+    <div id="code-pane">
+      <div class="code-bar"><span class="muted">YAML — edits apply live</span><span id="code-msg" class="muted"></span></div>
       <textarea id="code-text" spellcheck="false"></textarea>
     </div>
   </div>
@@ -455,6 +450,7 @@ function renderCanvas() {
     handle.addEventListener("mousedown", (e) => startResize(e, i, el));
     c.appendChild(el);
   });
+  syncCode();
 }
 
 function positionEl(el, inst) {
@@ -503,7 +499,7 @@ function startMove(e, i, el) {
     positionEl(el, inst); syncPosFields(inst);
     drawAlign(a.vg, a.hg);
   };
-  const up = () => { clearAlign(); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+  const up = () => { clearAlign(); syncCode(); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
   document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
 }
 
@@ -518,7 +514,7 @@ function startResize(e, i, el) {
     inst.span.rows = clamp(snapTo(sr + (ev.clientY - sy) / gh), 1, state.layout.rows);
     positionEl(el, inst); syncPosFields(inst);
   };
-  const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+  const up = () => { syncCode(); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
   document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
 }
 
@@ -658,7 +654,7 @@ function numGrid(rows) {
     const l = document.createElement("label"); l.textContent = label;
     const inp = document.createElement("input"); inp.type = "number"; inp.value = value;
     inp.addEventListener("input", () => {
-      const v = parseFloat(inp.value); if (!isNaN(v)) { set(v); repositionSelected(); }
+      const v = parseFloat(inp.value); if (!isNaN(v)) { set(v); repositionSelected(); syncCode(); }
     });
     f.append(l, inp); wrap.appendChild(f);
   }
@@ -701,7 +697,7 @@ function optionField(inst, name, spec) {
 function setOpt(inst, name, value) {
   if (value === undefined) delete inst.options[name];
   else inst.options[name] = value;
-  if (LIVE_TEXT.has(inst.type)) renderCanvas();   // live font / colour / text
+  if (LIVE_TEXT.has(inst.type)) renderCanvas(); else syncCode();   // live font / colour / text
 }
 
 function syncPosFields(inst) {
@@ -786,20 +782,26 @@ function applyCode() {
   state.selected = -1;
   codeMsg(""); return true;
 }
-function showCode() {
+// canvas -> code: refresh the textarea (unless the user is typing in it, so we
+// never clobber an in-progress edit). Setting .value doesn't fire 'input', so
+// there's no loop back to the canvas.
+let _codeTimer = null;
+function syncCode() {
+  if (document.activeElement === $("code-text")) return;
   $("code-text").value = serializeDesign(); codeMsg("");
-  $("stage").classList.add("hidden"); $("code-pane").classList.remove("hidden");
-  $("tab-design").classList.remove("active"); $("tab-code").classList.add("active");
 }
-function showDesign() {
-  if (!$("code-pane").classList.contains("hidden") && !applyCode()) return;  // invalid -> stay
-  $("code-pane").classList.add("hidden"); $("stage").classList.remove("hidden");
-  $("tab-design").classList.add("active"); $("tab-code").classList.remove("active");
-  buildScreenControls(); sizeCanvas(); renderCanvas(); renderProps(); renderGuides(); updateReadout();
-}
-$("tab-code").addEventListener("click", showCode);
-$("tab-design").addEventListener("click", showDesign);
-$("code-apply").addEventListener("click", () => { if (applyCode()) showDesign(); });
+// code -> canvas: parse on edit (debounced); apply only when valid, so a
+// half-typed document doesn't blow away the canvas.
+$("code-text").addEventListener("input", () => {
+  clearTimeout(_codeTimer);
+  _codeTimer = setTimeout(() => {
+    if (applyCode()) { renderCanvas(); renderProps(); buildScreenControls(); updateReadout(); renderGuides(); }
+  }, 350);
+});
+$("codeToggle").addEventListener("change", (e) => {
+  $("code-pane").classList.toggle("hidden", !e.target.checked);
+  sizeCanvas(); renderCanvas();
+});
 
 // --- boot -------------------------------------------------------------------
 async function boot() {
