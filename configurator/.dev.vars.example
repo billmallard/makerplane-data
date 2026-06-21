@@ -1,6 +1,10 @@
 # Copy to .dev.vars (gitignored) and fill in. `wrangler dev` loads .dev.vars;
 # for production set these with `wrangler secret put <NAME>`.
 
+# Local dev origin (overrides the prod APP_URL in wrangler.jsonc so OAuth
+# redirects + magic links point at the dev server).
+APP_URL="http://localhost:8787"
+
 # HMAC key for signing session cookies. Generate a long random string, e.g.
 #   node -e "console.log(crypto.randomBytes(48).toString('base64url'))"
 SESSION_SECRET=""

@@ -5,11 +5,19 @@
   "compatibility_date": "2024-12-01",
   "observability": { "enabled": true },
 
-  // Non-secret config. Override APP_URL per environment (prod:
-  // https://config.aerocommons.org). Secrets (SESSION_SECRET, GOOGLE_*,
+  // Public hostname for the configurator, a sibling of navdata.aerocommons.org
+  // on the same Cloudflare zone. `wrangler deploy` provisions the custom domain
+  // (DNS record + cert) since the aerocommons.org zone is on this account.
+  "routes": [
+    { "pattern": "pyefis.aerocommons.org", "custom_domain": true }
+  ],
+
+  // Non-secret config. APP_URL is the deployed origin (used for OAuth redirect
+  // + magic-link URLs). For local `wrangler dev`, override it to
+  // http://localhost:8787 in .dev.vars. Secrets (SESSION_SECRET, GOOGLE_*,
   // MAIL_*) come from .dev.vars in dev and `wrangler secret put` in prod.
   "vars": {
-    "APP_URL": "http://localhost:8787"
+    "APP_URL": "https://pyefis.aerocommons.org"
   },
 
   // Replace the ids after `wrangler d1 create` / `wrangler kv namespace create`.
@@ -17,14 +25,14 @@
     {
       "binding": "DB",
       "database_name": "makerplane_configurator",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "878d1c74-aad8-4ff2-bafd-89fbdc80a5c4",
       "migrations_dir": "migrations"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "KV",
-      "id": "0000000000000000000000000000abcd"
+      "id": "032b20865c304e078ff0ff8b0fb1bd82"
     }
   ]
 }
