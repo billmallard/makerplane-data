@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AeroCommons - Panel Editor</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #0d1117; color: #c9d1d9; display: flex; flex-direction: column;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid #21262d;
+  }
+  header .brand { font-weight: 600; color: #e6edf3; }
+  header .spacer { flex: 1; }
+  header .muted { color: #8b949e; font-size: 13px; }
+  button, .btn {
+    font: inherit; border: 1px solid #30363d; background: #21262d; color: #e6edf3;
+    border-radius: 7px; padding: 7px 12px; cursor: pointer; text-decoration: none;
+  }
+  button:hover { border-color: #8b949e; }
+  .btn.primary { background: #238636; border-color: #2ea043; }
+  .layout { flex: 1; display: flex; min-height: 0; }
+  .palette, .props {
+    width: 240px; overflow-y: auto; padding: 12px; border-right: 1px solid #21262d;
+  }
+  .props { border-right: none; border-left: 1px solid #21262d; width: 280px; }
+  .stage { flex: 1; overflow: auto; padding: 18px; display: flex; justify-content: center; }
+  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #8b949e; margin: 14px 0 6px; }
+  h3:first-child { margin-top: 0; }
+  .pal-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid #21262d;
+    border-radius: 6px; margin-bottom: 6px; cursor: grab; background: #161b22;
+  }
+  .pal-item:hover { border-color: #8b949e; }
+  .pal-item img { width: 44px; height: 30px; object-fit: cover; background: #000; border-radius: 3px; }
+  .pal-item .lbl { font-size: 12px; color: #e6edf3; }
+  #canvas { position: relative; background: #000; border: 1px solid #30363d; }
+  #canvas.dragover { outline: 2px dashed #2ea043; outline-offset: -2px; }
+  .inst { position: absolute; outline: 1px solid rgba(120,140,160,.4); }
+  .inst img { width: 100%; height: 100%; display: block; pointer-events: none; }
+  .inst.sel { outline: 2px solid #2ea043; z-index: 50; }
+  .inst .handle {
+    position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px;
+    background: #2ea043; border: 1px solid #0d1117; border-radius: 2px; cursor: se-resize;
+  }
+  .inst.placeholder { outline-color: rgba(210,170,90,.6); }
+  .field { margin-bottom: 9px; }
+  .field label { display: block; font-size: 11px; color: #8b949e; margin-bottom: 2px; }
+  .field input, .field select {
+    width: 100%; font: inherit; font-size: 13px; background: #0d1117; color: #e6edf3;
+    border: 1px solid #30363d; border-radius: 5px; padding: 5px 7px;
+  }
+  .field input[type=checkbox] { width: auto; }
+  .field input[type=color] { height: 30px; padding: 2px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .muted { color: #8b949e; font-size: 13px; }
+  .empty { color: #6e7681; font-size: 13px; padding: 20px 4px; }
+  #status { font-size: 12px; color: #8b949e; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">AeroCommons</span><span class="muted">Panel Editor</span>
+  <span class="muted" id="ctx"></span>
+  <span class="spacer"></span>
+  <span id="status"></span>
+  <button id="del">Delete</button>
+  <button id="save" class="btn primary">Save</button>
+  <a class="btn" href="/">Done</a>
+</header>
+
+<div class="layout">
+  <aside class="palette" id="palette"></aside>
+  <div class="stage"><div id="canvas"></div></div>
+  <aside class="props" id="props"><p class="empty">Select an instrument to edit its properties, or drag one from the left onto the canvas.</p></aside>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const ASSETS = "/assets/editor";
+const params = new URLSearchParams(location.search);
+const deviceId = params.get("device");
+
+const state = {
+  schema: null,
+  layout: { rows: 110, columns: 200 },
+  instruments: [],     // {type, row, column, span:{rows,columns}, options:{}}
+  selected: -1,
+  canvasW: 0, canvasH: 0,
+};
+
+// --- grid <-> pixel math (port of screenbuilder_layout, ratio=false) --------
+function cell() { return { gw: state.canvasW / state.layout.columns, gh: state.canvasH / state.layout.rows }; }
+function rect(inst) {
+  const { gw, gh } = cell();
+  return {
+    x: gw * inst.column, y: gh * inst.row,
+    w: gw * (inst.span?.columns ?? 1), h: gh * (inst.span?.rows ?? 1),
+  };
+}
+
+// --- palette ----------------------------------------------------------------
+function renderPalette() {
+  const pal = $("palette");
+  pal.innerHTML = "";
+  const byCat = {};
+  for (const [type, meta] of Object.entries(state.schema.instruments)) {
+    (byCat[meta.category] ||= []).push([type, meta]);
+  }
+  for (const cat of Object.keys(byCat).sort()) {
+    const h = document.createElement("h3"); h.textContent = cat; pal.appendChild(h);
+    for (const [type, meta] of byCat[cat].sort((a, b) => a[1].label.localeCompare(b[1].label))) {
+      const item = document.createElement("div");
+      item.className = "pal-item";
+      item.draggable = true;
+      item.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", type));
+      const img = document.createElement("img");
+      img.src = `${ASSETS}/palette/${type}.png`; img.alt = type;
+      const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = meta.label;
+      item.append(img, lbl);
+      pal.appendChild(item);
+    }
+  }
+}
+
+// --- canvas -----------------------------------------------------------------
+function sizeCanvas() {
+  const c = $("canvas");
+  const avail = c.parentElement.clientWidth - 36;
+  state.canvasW = Math.min(1100, avail);
+  state.canvasH = Math.round(state.canvasW * state.layout.rows / state.layout.columns);
+  c.style.width = state.canvasW + "px";
+  c.style.height = state.canvasH + "px";
+}
+
+function renderCanvas() {
+  const c = $("canvas");
+  c.querySelectorAll(".inst").forEach((e) => e.remove());
+  state.instruments.forEach((inst, i) => {
+    const el = document.createElement("div");
+    el.className = "inst " + (state.schema.instruments[inst.type]?.offscreen_renderable ? "" : "placeholder");
+    if (i === state.selected) el.classList.add("sel");
+    el.dataset.i = i;
+    positionEl(el, inst);
+    const img = document.createElement("img");
+    img.src = `${ASSETS}/palette/${inst.type}.png`; img.alt = inst.type;
+    el.appendChild(img);
+    const handle = document.createElement("div"); handle.className = "handle";
+    el.appendChild(handle);
+    el.addEventListener("mousedown", (e) => startMove(e, i, el));
+    handle.addEventListener("mousedown", (e) => startResize(e, i, el));
+    c.appendChild(el);
+  });
+}
+
+function positionEl(el, inst) {
+  const r = rect(inst);
+  el.style.left = r.x + "px"; el.style.top = r.y + "px";
+  el.style.width = r.w + "px"; el.style.height = r.h + "px";
+}
+
+// --- drag from palette ------------------------------------------------------
+const canvas = $("canvas");
+canvas.addEventListener("dragover", (e) => { e.preventDefault(); canvas.classList.add("dragover"); });
+canvas.addEventListener("dragleave", () => canvas.classList.remove("dragover"));
+canvas.addEventListener("drop", (e) => {
+  e.preventDefault(); canvas.classList.remove("dragover");
+  const type = e.dataTransfer.getData("text/plain");
+  if (!type || !state.schema.instruments[type]) return;
+  const cr = canvas.getBoundingClientRect();
+  const { gw, gh } = cell();
+  const col = clamp(Math.round((e.clientX - cr.left) / gw), 0, state.layout.columns - 1);
+  const row = clamp(Math.round((e.clientY - cr.top) / gh), 0, state.layout.rows - 1);
+  state.instruments.push({ type, row, column: col, span: { rows: 20, columns: 20 }, options: {} });
+  state.selected = state.instruments.length - 1;
+  renderCanvas(); renderProps();
+});
+
+// --- move / resize ----------------------------------------------------------
+function startMove(e, i, el) {
+  if (e.target.classList.contains("handle")) return;
+  e.preventDefault();
+  select(i);
+  const { gw, gh } = cell();
+  const inst = state.instruments[i];
+  const sx = e.clientX, sy = e.clientY, srow = inst.row, scol = inst.column;
+  const move = (ev) => {
+    inst.column = clamp(Math.round(scol + (ev.clientX - sx) / gw), 0, state.layout.columns - 1);
+    inst.row = clamp(Math.round(srow + (ev.clientY - sy) / gh), 0, state.layout.rows - 1);
+    positionEl(el, inst); syncPosFields(inst);
+  };
+  const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
+}
+
+function startResize(e, i, el) {
+  e.preventDefault(); e.stopPropagation();
+  select(i);
+  const { gw, gh } = cell();
+  const inst = state.instruments[i];
+  const sx = e.clientX, sy = e.clientY, sc = inst.span.columns, sr = inst.span.rows;
+  const move = (ev) => {
+    inst.span.columns = clamp(Math.round(sc + (ev.clientX - sx) / gw), 1, state.layout.columns);
+    inst.span.rows = clamp(Math.round(sr + (ev.clientY - sy) / gh), 1, state.layout.rows);
+    positionEl(el, inst); syncPosFields(inst);
+  };
+  const up = () => { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
+}
+
+function select(i) {
+  state.selected = i;
+  document.querySelectorAll(".inst").forEach((el) => el.classList.toggle("sel", Number(el.dataset.i) === i));
+  renderProps();
+}
+
+// --- properties panel -------------------------------------------------------
+function renderProps() {
+  const p = $("props");
+  if (state.selected < 0 || !state.instruments[state.selected]) {
+    p.innerHTML = '<p class="empty">Select an instrument to edit its properties, or drag one from the left onto the canvas.</p>';
+    return;
+  }
+  const inst = state.instruments[state.selected];
+  const meta = state.schema.instruments[inst.type];
+  p.innerHTML = "";
+  const title = document.createElement("h3"); title.textContent = meta.label; p.appendChild(title);
+
+  // position / span
+  p.appendChild(numGrid([
+    ["row", inst.row, (v) => inst.row = v],
+    ["column", inst.column, (v) => inst.column = v],
+    ["span rows", inst.span.rows, (v) => inst.span.rows = v],
+    ["span cols", inst.span.columns, (v) => inst.span.columns = v],
+  ]));
+
+  // options: common + per-type
+  const opts = { ...state.schema.common_options, ...meta.options };
+  if (Object.keys(opts).length) {
+    const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
+    for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
+  }
+}
+
+function numGrid(rows) {
+  const wrap = document.createElement("div"); wrap.className = "grid2";
+  for (const [label, value, set] of rows) {
+    const f = document.createElement("div"); f.className = "field";
+    const l = document.createElement("label"); l.textContent = label;
+    const inp = document.createElement("input"); inp.type = "number"; inp.value = value;
+    inp.addEventListener("input", () => {
+      const v = parseFloat(inp.value); if (!isNaN(v)) { set(v); repositionSelected(); }
+    });
+    f.append(l, inp); wrap.appendChild(f);
+  }
+  return wrap;
+}
+
+function optionField(inst, name, spec) {
+  const f = document.createElement("div"); f.className = "field";
+  const l = document.createElement("label"); l.textContent = spec.label || name; f.appendChild(l);
+  const cur = inst.options[name];
+  let inp;
+  if (spec.type === "boolean") {
+    inp = document.createElement("input"); inp.type = "checkbox";
+    inp.checked = cur !== undefined ? !!cur : !!spec.default;
+    inp.addEventListener("change", () => setOpt(inst, name, inp.checked));
+  } else if (spec.type === "enum") {
+    inp = document.createElement("select");
+    for (const o of spec.enum) { const op = document.createElement("option"); op.value = o; op.textContent = o; inp.appendChild(op); }
+    inp.value = cur ?? spec.default ?? spec.enum[0];
+    inp.addEventListener("change", () => setOpt(inst, name, inp.value));
+  } else if (spec.type === "color") {
+    inp = document.createElement("input"); inp.type = "color";
+    inp.value = (cur ?? spec.default ?? "#000000").slice(0, 7);
+    inp.addEventListener("input", () => setOpt(inst, name, inp.value));
+  } else if (spec.type === "number") {
+    inp = document.createElement("input"); inp.type = "number"; if (spec.step) inp.step = spec.step;
+    inp.placeholder = spec.default ?? "";
+    if (cur !== undefined) inp.value = cur;
+    inp.addEventListener("input", () => setOpt(inst, name, inp.value === "" ? undefined : parseFloat(inp.value)));
+  } else {
+    inp = document.createElement("input"); inp.type = "text";
+    inp.placeholder = spec.default ?? "";
+    if (cur !== undefined) inp.value = cur;
+    inp.addEventListener("input", () => setOpt(inst, name, inp.value === "" ? undefined : inp.value));
+  }
+  f.appendChild(inp);
+  return f;
+}
+
+function setOpt(inst, name, value) {
+  if (value === undefined) delete inst.options[name];
+  else inst.options[name] = value;
+}
+
+function syncPosFields(inst) {
+  const inputs = $("props").querySelectorAll(".grid2 input");
+  if (inputs.length === 4) {
+    inputs[0].value = inst.row; inputs[1].value = inst.column;
+    inputs[2].value = inst.span.rows; inputs[3].value = inst.span.columns;
+  }
+}
+function repositionSelected() {
+  const el = document.querySelector(`.inst[data-i="${state.selected}"]`);
+  if (el) positionEl(el, state.instruments[state.selected]);
+}
+
+// --- delete / save / load ---------------------------------------------------
+$("del").addEventListener("click", () => {
+  if (state.selected < 0) return;
+  state.instruments.splice(state.selected, 1); state.selected = -1;
+  renderCanvas(); renderProps();
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.key === "Delete" || e.key === "Backspace") && state.selected >= 0 && e.target.tagName !== "INPUT" && e.target.tagName !== "SELECT") {
+    $("del").click();
+  }
+});
+
+$("save").addEventListener("click", save);
+async function save() {
+  if (!deviceId) { setStatus("No device - open the editor from a project."); return; }
+  const design = { kind: "pyefis-screen", version: 1, layout: state.layout, instruments: state.instruments };
+  setStatus("Saving...");
+  const res = await fetch(`/api/devices/${deviceId}/config`, {
+    method: "PUT", credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ yaml: JSON.stringify(design, null, 2) }),
+  });
+  if (res.ok) { const { version } = await res.json(); setStatus("Saved (v" + version + ")"); }
+  else if (res.status === 401) { setStatus("Signed out - reload."); }
+  else { setStatus("Save failed (" + res.status + ")"); }
+}
+
+async function load() {
+  if (!deviceId) return;
+  const res = await fetch(`/api/devices/${deviceId}/config`, { credentials: "same-origin" });
+  if (!res.ok) return; // 404 = new device, start empty
+  try {
+    const design = JSON.parse(await res.text());
+    if (design.layout) state.layout = design.layout;
+    if (Array.isArray(design.instruments)) state.instruments = design.instruments;
+  } catch (_) { /* not our JSON design; ignore */ }
+}
+
+function setStatus(s) { $("status").textContent = s; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// --- boot -------------------------------------------------------------------
+async function boot() {
+  const me = await fetch("/api/me", { credentials: "same-origin" });
+  if (!me.ok) { location.href = "/"; return; }
+  $("ctx").textContent = deviceId ? "device #" + deviceId : "(scratch - no device)";
+  state.schema = await (await fetch(ASSETS + "/schema.json")).json();
+  await load();
+  sizeCanvas();
+  renderPalette(); renderCanvas(); renderProps();
+}
+window.addEventListener("resize", () => { sizeCanvas(); renderCanvas(); });
+boot();
+</script>
+</body>
+</html>

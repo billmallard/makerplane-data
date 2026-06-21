@@ -92,6 +92,16 @@
     </form>
     <ul id="projects" class="projects"></ul>
     <p id="projects-empty" class="note hidden">No projects yet - create your first one above.</p>
+
+    <div id="project-detail" class="hidden" style="margin-top:16px;border-top:1px solid #21262d;padding-top:14px">
+      <h3 id="pd-name" style="margin:0 0 8px;color:#e6edf3;font-size:15px"></h3>
+      <form id="new-device" class="row">
+        <input type="text" id="device-name" placeholder="New device (e.g. PFD)" required>
+        <button class="btn" type="submit">Add device</button>
+      </form>
+      <ul id="devices" class="projects" style="margin-top:10px"></ul>
+      <p id="devices-empty" class="note hidden">No devices yet - add one to start designing.</p>
+    </div>
   </section>
 
   <section id="preview-card" class="card hidden">
@@ -148,7 +158,11 @@
       const when = document.createElement("span");
       when.className = "muted";
       when.textContent = "updated " + (p.updated_at || "");
-      li.append(name, when);
+      const open = document.createElement("button");
+      open.textContent = "Open";
+      open.style.marginLeft = "auto";
+      open.addEventListener("click", () => openProject(p.id, p.name));
+      li.append(name, when, open);
       ul.appendChild(li);
     }
   }
@@ -177,6 +191,52 @@
     $("email-msg").textContent = res.ok
       ? "Check your email for a sign-in link."
       : "Something went wrong - please try again.";
+  });
+
+  let currentProject = null;
+  let currentProjectName = "";
+
+  async function openProject(id, name) {
+    currentProject = id;
+    currentProjectName = name;
+    const res = await fetch("/api/projects/" + id, { credentials: "same-origin" });
+    if (!res.ok) return;
+    const { devices } = await res.json();
+    $("pd-name").textContent = name + " — devices";
+    $("project-detail").classList.remove("hidden");
+    renderDevices(devices);
+  }
+
+  function renderDevices(devices) {
+    const ul = $("devices");
+    ul.innerHTML = "";
+    $("devices-empty").classList.toggle("hidden", devices.length > 0);
+    for (const d of devices) {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = d.name;
+      const kind = document.createElement("span");
+      kind.className = "muted";
+      kind.textContent = d.kind;
+      const edit = document.createElement("a");
+      edit.className = "btn";
+      edit.textContent = "Edit panel";
+      edit.style.marginLeft = "auto";
+      edit.href = "/editor?device=" + d.id + "&project=" + currentProject;
+      li.append(name, kind, edit);
+      ul.appendChild(li);
+    }
+  }
+
+  $("new-device").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("device-name").value.trim();
+    if (!name || !currentProject) return;
+    const res = await fetch("/api/projects/" + currentProject + "/devices", {
+      ...opts, method: "POST", body: JSON.stringify({ name, kind: "pyefis" }),
+    });
+    if (res.ok) { $("device-name").value = ""; openProject(currentProject, currentProjectName); }
   });
 
   async function renderPreview() {
