@@ -213,20 +213,49 @@
     $("devices-empty").classList.toggle("hidden", devices.length > 0);
     for (const d of devices) {
       const li = document.createElement("li");
+      li.style.flexWrap = "wrap";
       const name = document.createElement("span");
       name.className = "name";
       name.textContent = d.name;
       const kind = document.createElement("span");
       kind.className = "muted";
       kind.textContent = d.kind;
+      const status = document.createElement("span");
+      status.className = "muted";
+      status.style.marginLeft = "auto";
+      status.textContent = d.claimed_at ? "paired" : "unpaired";
+      const pair = document.createElement("button");
+      pair.className = "btn";
+      pair.textContent = d.claimed_at ? "Re-pair" : "Pair";
+      pair.addEventListener("click", () => pairDevice(d.id, li));
       const edit = document.createElement("a");
       edit.className = "btn";
       edit.textContent = "Edit panel";
-      edit.style.marginLeft = "auto";
       edit.href = "/editor?device=" + d.id + "&project=" + currentProject;
-      li.append(name, kind, edit);
+      li.append(name, kind, status, pair, edit);
       ul.appendChild(li);
     }
+  }
+
+  async function pairDevice(id, li) {
+    const res = await fetch("/api/devices/" + id + "/pair", {
+      method: "POST", credentials: "same-origin",
+      headers: { "content-type": "application/json" }, body: "{}",
+    });
+    if (!res.ok) { alert("Could not start pairing."); return; }
+    const { claim_code, expires_in } = await res.json();
+    let info = li.querySelector(".pair-code");
+    if (!info) {
+      info = document.createElement("div");
+      info.className = "pair-code";
+      info.style.cssText = "flex-basis:100%;width:100%;margin-top:8px;padding:8px 10px;" +
+        "background:#0d1117;border:1px solid #30363d;border-radius:6px;" +
+        "font-family:ui-monospace,monospace;font-size:13px;line-height:1.5";
+      li.appendChild(info);
+    }
+    info.innerHTML = "On the Pi, run:<br>" +
+      "<b style='font-size:16px;letter-spacing:1px'>pyefis-data pair " + claim_code + "</b><br>" +
+      "<span style='color:#8b949e'>Code valid for " + Math.round(expires_in / 60) + " min.</span>";
   }
 
   $("new-device").addEventListener("submit", async (e) => {

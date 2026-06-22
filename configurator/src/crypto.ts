@@ -32,6 +32,17 @@ export function randomToken(nbytes = 32): string {
   return b64urlFromBytes(buf);
 }
 
+// Short, human-typeable device-pairing code. Alphabet excludes ambiguous
+// characters (I, L, O, 0, 1) so it's easy to read off a screen and type on a Pi.
+export function claimCode(len = 8): string {
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const buf = new Uint8Array(len);
+  crypto.getRandomValues(buf);
+  let out = "";
+  for (let i = 0; i < len; i++) out += alphabet[buf[i] % alphabet.length];
+  return out;
+}
+
 export async function sha256B64url(input: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(input));
   return b64urlFromBytes(new Uint8Array(digest));

@@ -168,6 +168,46 @@ export async function deleteDevice(
     .run();
 }
 
+// --- pairing ---------------------------------------------------------------
+
+// Record the outstanding claim code on an owned device (for display/status; the
+// authoritative code + its TTL live in KV). Returns false if not owned/found.
+export async function setClaimCode(
+  db: D1Database,
+  userId: number,
+  deviceId: number,
+  code: string | null,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE devices SET claim_code = ?3
+        WHERE id = ?1
+          AND project_id IN (SELECT id FROM projects WHERE user_id = ?2)`,
+    )
+    .bind(deviceId, userId, code)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+// Redeem a claim code (already validated via KV by the caller): bind the device
+// token hash, stamp claimed_at, clear the claim code. Returns the device's
+// id/name/kind for confirmation, or null if the device no longer exists.
+export async function claimDevice(
+  db: D1Database,
+  deviceId: number,
+  tokenHash: string,
+): Promise<Record<string, unknown> | null> {
+  return db
+    .prepare(
+      `UPDATE devices
+          SET device_token_hash = ?2, claimed_at = datetime('now'), claim_code = NULL
+        WHERE id = ?1
+      RETURNING id, name, kind`,
+    )
+    .bind(deviceId, tokenHash)
+    .first();
+}
+
 // --- configs (versioned; YAML blob lives in R2) ----------------------------
 
 export async function nextConfigVersion(

@@ -4,6 +4,7 @@
 import { Hono } from "hono";
 
 import {
+  claimDevice,
   createDevice,
   createProject,
   deleteDevice,
@@ -16,11 +17,15 @@ import {
   listDevices,
   listProjects,
   nextConfigVersion,
+  setClaimCode,
 } from "./db";
+import { claimCode, randomToken, sha256B64url } from "./crypto";
 import { emailRequest, emailVerify } from "./email";
 import { googleCallback, googleStart } from "./google";
 import { endSession, requireUser } from "./session";
 import type { Env } from "./types";
+
+const PAIR_TTL_SECONDS = 15 * 60;
 
 const app = new Hono<Env>();
 
@@ -118,6 +123,39 @@ app.get("/api/devices/:id/config", async (c) => {
   const obj = await c.env.CONFIGS.get(String(latest["yaml_r2_key"]));
   if (!obj) return c.json({ error: "blob missing" }, 404);
   return c.body(await obj.text(), 200, { "content-type": "application/x-yaml" });
+});
+
+// Pairing: the owner mints a short claim code (KV holds it with a TTL); the
+// device redeems it for a long-lived token (see /device/pair below). #65 P1.
+app.post("/api/devices/:id/pair", async (c) => {
+  const userId = c.get("userId");
+  const deviceId = Number(c.req.param("id"));
+  const code = claimCode();
+  if (!(await setClaimCode(c.env.DB, userId, deviceId, code))) {
+    return c.json({ error: "device not found" }, 404);
+  }
+  await c.env.KV.put(`pair:${code}`, JSON.stringify({ deviceId }), {
+    expirationTtl: PAIR_TTL_SECONDS,
+  });
+  return c.json({ claim_code: code, expires_in: PAIR_TTL_SECONDS });
+});
+
+// ----------------------------------------------------------------------------
+// Device-facing endpoints (NOT session-authed — outside /api/*). Pairing is
+// authorised by the claim code; later config pulls by the device token.
+// ----------------------------------------------------------------------------
+app.post("/device/pair", async (c) => {
+  const body = await c.req.json<{ claim_code?: string }>().catch(() => ({}) as { claim_code?: string });
+  const code = (body.claim_code || "").trim().toUpperCase();
+  if (!code) return c.json({ error: "claim_code required" }, 400);
+  const raw = await c.env.KV.get(`pair:${code}`);
+  if (!raw) return c.json({ error: "invalid or expired code" }, 400);
+  const { deviceId } = JSON.parse(raw) as { deviceId: number };
+  const token = randomToken(32);
+  const device = await claimDevice(c.env.DB, deviceId, await sha256B64url(token));
+  if (!device) return c.json({ error: "device gone" }, 404);
+  await c.env.KV.delete(`pair:${code}`); // single-use
+  return c.json({ device_token: token, device_id: device["id"], name: device["name"] });
 });
 
 // Public editor assets (schema + thumbnails) from R2 under assets/. No auth;
