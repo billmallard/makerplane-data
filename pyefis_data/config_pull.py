@@ -32,6 +32,24 @@ from pathlib import Path
 _UA = "pyefis-data/0.1 (+https://github.com/makerplane/makerplane-data)"
 _DEFAULT_PYEFIS_CONFIG = "~/makerplane/pyefis/config"
 
+# Standard on-device SVS data layout (the makerplane-data updater installs here).
+# Injected into a virtual_vfr instrument so it renders terrain, mirroring the
+# stock includes/ahrs/svs.yaml block. A device with a usable GPU + this data
+# shows synthetic vision; without, SVS self-disables to sky/ground + an
+# "SVS UNAVAIL" flag (never fatal). Needs pyEfis #71's AI redraw guard, and the
+# boot-screen-override install below (a short screen list segfaults the GL).
+_SVS_OPTS = {
+    "enabled": True,
+    "range_nm": 30,
+    "tile_path": "/data/makerplane-data/terrain/tiles",
+    "nasr_db_path": "/data/makerplane-data/navdata/current/airports.sqlite",
+    "airport_provider_dir": "/data/makerplane-data/airports",
+    "dof_db_path": "/data/makerplane-data/obstacles/current/obstacles.sqlite",
+    "water_db_path": "/data/makerplane-data/water/current/water.sqlite",
+    "highway_db_path": "/data/makerplane-data/highways/current/highways.sqlite",
+    "water_max_vertices": 1024,
+}
+
 
 def config_dir() -> Path:
     return Path(os.path.expanduser(
@@ -105,33 +123,40 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
     screen_def = dict(screen_def)
     boot = _device_default_screen(cd)
 
-    # virtual_vfr needs a screen-level dbpath the editor can't know; pull in the
-    # device's stock virtualvfr_db include so it initialises (else it crashes on a
-    # None dbpath). SVS *terrain* (the `svs` options block) is NOT injected yet:
-    # the AI redraw-before-resize crash is fixed (pyEfis #71), but a FULL-screen
-    # virtual_vfr with other instruments overlapping it still segfaults the
-    # direct-to-viewport SVS GL. The widget runs as sky/ground until #71's
-    # GL-compositing piece is resolved (or the editor keeps SVS panels
-    # non-overlapping). See docs/device_deployment.md.
-    if any(isinstance(i, dict) and i.get("type") == "virtual_vfr"
-           for i in screen_def.get("instruments", [])):
+    # virtual_vfr needs device-side config the editor can't know: a screen-level
+    # dbpath (via the stock virtualvfr_db include, else it crashes on a None) and
+    # an `svs` options block pointing at the on-device terrain/airport/water data
+    # (else it only shows sky/ground). Both use the standard makerplane-data
+    # layout. (Needs pyEfis #71's AI redraw guard, on gpu-required.)
+    has_vfr = False
+    insts = []
+    for inst in screen_def.get("instruments", []):
+        if isinstance(inst, dict) and inst.get("type") == "virtual_vfr":
+            has_vfr = True
+            inst = dict(inst)
+            opts = dict(inst.get("options") or {})
+            opts.setdefault("svs", dict(_SVS_OPTS))   # enable terrain; keep an explicit svs if present
+            inst["options"] = opts
+        insts.append(inst)
+    screen_def["instruments"] = insts
+    if has_vfr:
         inc = list(screen_def.get("include") or [])
         if "screens/virtualvfr_db.yaml" not in inc:
             inc.append("screens/virtualvfr_db.yaml")
         screen_def["include"] = inc
 
-    # 1) the managed screen (named after the device's default screen) + a
-    #    one-entry screen list (the panel + the nav-data currency flag screen).
+    # 1) the managed screen, named after the device's existing default screen.
     #    Keep the previous panel as .bak so a crash can roll back to it.
     managed = cd / "screens" / "managed.yaml"
     if managed.exists():
         _atomic_write(cd / "screens" / "managed.yaml.bak", managed.read_text("utf-8"))
     _atomic_write(managed, yaml.safe_dump({boot: screen_def}, sort_keys=False))
-    _atomic_write(cd / "screens" / "managed_list.yaml",
-                  yaml.safe_dump({"include": ["SCREEN_MANAGED", "SCREEN_DATA_STATUS"]},
-                                 sort_keys=False))
 
-    # 2) activate by merging two include overrides into preferences.yaml.custom.
+    # 2) activate by overriding ONLY the boot screen's include to point at the
+    #    managed screen -- KEEP the device's stock screen list (SCREENS_CONFIG).
+    #    Replacing the whole list with a short managed list segfaults the eglfs
+    #    SVS-GL compositor (#71); keeping the full set avoids it. Merge into
+    #    preferences.yaml.custom (don't clobber existing custom).
     custom_path = cd / "preferences.yaml.custom"
     try:
         custom = yaml.safe_load(custom_path.read_text("utf-8")) or {}
@@ -144,8 +169,11 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
     if custom_path.exists() and not backup.exists():
         _atomic_write(backup, custom_path.read_text("utf-8"))
     inc = custom.setdefault("includes", {})
-    inc["SCREENS_CONFIG"] = "screens/managed_list.yaml"
-    inc["SCREEN_MANAGED"] = "screens/managed.yaml"
+    # Undo any older-style managed_list override so the stock screen set loads.
+    if inc.get("SCREENS_CONFIG") == "screens/managed_list.yaml":
+        del inc["SCREENS_CONFIG"]
+    inc.pop("SCREEN_MANAGED", None)
+    inc[f"SCREEN_{boot}"] = "screens/managed.yaml"
     _atomic_write(custom_path, yaml.safe_dump(custom, sort_keys=False))
     return {"boot_screen": boot, "config_dir": str(cd)}
 
