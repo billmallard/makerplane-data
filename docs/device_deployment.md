@@ -142,10 +142,24 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
   `virtual_vfr` instrument gets the device's `screens/virtualvfr_db.yaml` include
   injected (it needs a screen-level `dbpath`, or it crashes on a `None`).
   Validated on the Pi 5: paired device pulled its panel and pyEfis held on it.
-- **P4 — Polish (remaining):** a **proper `pyefis-data` release** to replace the
-  Pi hot-patch (the venv has v0.1.9 + copied modules; a `pip install --upgrade`
-  would clobber it); an **auto-pull** (systemd timer alongside the navdata
-  update); **auto-rollback** if pyEfis fails to come up after a config swap (the
-  `.prepanel` backup is already there); SVS **terrain** for `virtual_vfr` (the
-  `svs` block, not just `dbpath`); a dashboard **"last pulled / out-of-date"**
-  indicator (from `last_pull_at` + version). No signing (decision 1).
+- **P4 — Polish (mostly DONE):**
+  - **Proper release (DONE):** `makerplane-data` **v0.2.2** wheel built + installed
+    on the Pi, replacing the hot-patch (`pyefis-data pair` + `config-pull` ship in it).
+  - **Auto-rollback (DONE):** `config-pull` runs `restart_and_verify()` after a
+    swap (PID-stability check; pyEfis is Type=simple/Restart=always so a crash
+    shows as a changed Main PID) and rolls back to the last working panel
+    (`managed.yaml.bak`, else the pristine `.prepanel` override). **Battle-tested
+    in production** — it caught the SVS-block crash below and kept the device up.
+  - **Auto-pull (DONE):** `pyefis-config-pull.service` (user, oneshot) pulls on
+    **boot** after pyEfis is up — deliberately **not** a periodic timer (no
+    in-flight EFIS restarts). On-demand updates use `pyefis-data config-pull`.
+  - **Dashboard indicator (DONE):** per device "paired · pulled <rel> · update
+    pending" from `last_pull_at` + the latest config's `created_at`.
+  - **SVS terrain (DEFERRED — follow-up):** injecting the stock `svs` options
+    block into a *bare* `virtual_vfr` **crashes pyEfis** on the Pi 5 (the stock
+    screen wraps `virtual_vfr` in the full AHRS-bundle include; a lone instrument
+    + `svs` isn't equivalent). The installer injects only `screens/virtualvfr_db.yaml`
+    (`dbpath`), so the widget runs as **sky/ground attitude**. Turning on real
+    SVS terrain for an editor-built screen needs replicating the AHRS-bundle setup
+    (or a pyEfis-side "managed screen" path) — a focused task, made safe by auto-rollback.
+  - No per-device signing (decision 1).
