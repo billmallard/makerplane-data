@@ -561,24 +561,28 @@ function buildAirspeedTrend(inst) {
 // Virtual VFR / synthetic vision: a stylised SVS backdrop (EDITOR PREVIEW only
 // -- the device renders real terrain) with the attitude symbology over it.
 function _svsScene(scene, id) {
+  // pyEfis SVS look: hypsometric tint (green below you -> yellow/red near your
+  // altitude -> magenta/purple above you), wireframe mesh, airport flag.
   const sky = `<rect x="-100" y="-180" width="300" height="230" fill="url(#svsk${id})"/>`;
   const ground = `<rect x="-100" y="50" width="300" height="220" fill="url(#svgr${id})"/>`;
-  let feat = "";
+  let mesh = "";
+  for (const y of [51, 53, 56, 60, 66, 75, 90, 110]) mesh += `<line x1="-100" y1="${y}" x2="200" y2="${y}" stroke="#16500f" stroke-width="0.3" opacity="0.45"/>`;
+  for (let i = -7; i <= 7; i++) mesh += `<line x1="${50 + i * 3.5}" y1="50" x2="${50 + i * 24}" y2="120" stroke="#16500f" stroke-width="0.3" opacity="0.45"/>`;
+  let peaks, feat = "";
   if (scene === "approach") {
-    feat = `<path d="M-100 50 L10 48 L80 49 L200 50 Z" fill="#557f48" opacity="0.55"/>`
-      + `<polygon points="43,92 57,92 51.4,52.5 48.6,52.5" fill="#33373b" stroke="#d2d2d2" stroke-width="0.3"/>`
-      + `<line x1="50" y1="90" x2="50" y2="53.5" stroke="#fff" stroke-width="0.5" stroke-dasharray="2.4 1.8"/>`
-      + `<rect x="48.4" y="51.8" width="3.2" height="0.9" fill="#fff"/>`;
+    peaks = `<path d="M-100 50 L-40 47.5 L10 48.5 L70 47 L130 48.5 L200 49 L200 50 Z" fill="#7a3fb8" opacity="0.85"/>`;
+    feat = `<polygon points="47.5,70 52.5,70 51,53 49,53" fill="#34373b" stroke="#cfcfcf" stroke-width="0.25"/>`
+      + `<line x1="50" y1="69" x2="50" y2="54" stroke="#fff" stroke-width="0.4" stroke-dasharray="2 1.5"/>`
+      + `<line x1="50" y1="63" x2="50" y2="50.5" stroke="#ffe000" stroke-width="0.7"/>`
+      + `<rect x="50" y="48.3" width="9" height="4" fill="#ffe000"/><text x="54.5" y="51.6" font-size="3" text-anchor="middle" fill="#000" font-weight="bold">RW</text>`;
   } else if (scene === "coastal") {
-    feat = `<path d="M-100 50 L-100 72 L5 67 L38 59 L72 63 L130 57 L200 61 L200 50 Z" fill="url(#svwa${id})"/>`
-      + `<path d="M-100 72 L5 67 L38 59 L72 63 L130 57 L200 61 L200 230 L-100 230 Z" fill="url(#svgr${id})"/>`
-      + `<path d="M-100 50 L-30 47 L40 49 L110 46 L200 50 Z" fill="#6a96b0" opacity="0.4"/>`;
+    peaks = `<path d="M-100 50 L-50 48 L0 49 L60 48 L120 48.5 L200 49 L200 50 Z" fill="#7a3fb8" opacity="0.55"/>`;
+    feat = `<path d="M-100 84 L-30 78 L25 72 L85 76 L200 70 L200 120 L-100 120 Z" fill="#2766a8" opacity="0.7"/>`;
   } else {
-    feat = `<path d="M-100 50 L-45 40 L-12 47 L22 37 L58 47 L95 41 L200 49 Z" fill="#3f6b3a" opacity="0.9"/>`
-      + `<path d="M-100 50 L-25 45 L30 49 L72 43 L125 49 L200 50 Z" fill="#52814a" opacity="0.7"/>`
-      + `<path d="M-100 50 L5 48 L65 50 L140 47 L200 50 Z" fill="#7fa6b2" opacity="0.45"/>`;
+    peaks = `<path d="M-100 50 L-70 43 L-50 47 L-28 39 L-8 46 L14 37 L40 47 L66 40 L92 46 L120 41 L150 47 L200 44 L200 50 Z" fill="#8a3fc8"/>`
+      + `<path d="M-100 50 L-55 46 L-20 48 L20 44 L60 48 L110 45 L160 48 L200 47 L200 50 Z" fill="#6f3bb0" opacity="0.7"/>`;
   }
-  return sky + ground + feat;
+  return sky + ground + mesh + peaks + feat;
 }
 function buildVirtualVfr(inst) {
   const o = inst.options || {};
@@ -599,14 +603,12 @@ function buildVirtualVfr(inst) {
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" class="gauge-svg">
   <defs>
     <clipPath id="svc${id}"><rect x="0" y="0" width="100" height="100"/></clipPath>
-    <linearGradient id="svsk${id}" x1="0" y1="-20" x2="0" y2="50" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1f6fd0"/><stop offset="1" stop-color="#9ec8ee"/></linearGradient>
-    <linearGradient id="svgr${id}" x1="0" y1="50" x2="0" y2="112" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#6f9a52"/><stop offset="1" stop-color="#33502a"/></linearGradient>
-    <linearGradient id="svwa${id}" x1="0" y1="50" x2="0" y2="84" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3f8fd0"/><stop offset="1" stop-color="#235f9e"/></linearGradient>
+    <linearGradient id="svsk${id}" x1="0" y1="-30" x2="0" y2="50" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#15639f"/><stop offset="1" stop-color="#5fa8e6"/></linearGradient>
+    <linearGradient id="svgr${id}" x1="0" y1="50" x2="0" y2="120" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#cf3b2a"/><stop offset="0.05" stop-color="#db7a1d"/><stop offset="0.14" stop-color="#d6c521"/><stop offset="0.30" stop-color="#7dbf2a"/><stop offset="0.60" stop-color="#43b228"/><stop offset="1" stop-color="#2c8f1d"/></linearGradient>
   </defs>
   <g clip-path="url(#svc${id})">
     <g transform="rotate(${roll} 50 50)"><g transform="translate(0 ${pitch * ppd})">
       ${_svsScene(scene, id)}
-      <line x1="-100" y1="50" x2="200" y2="50" stroke="#fff" stroke-width="0.8" opacity="0.85"/>
       ${ladder}
     </g></g>
     <g transform="rotate(${roll} 50 50)">${rollarc}</g>
