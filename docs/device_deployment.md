@@ -167,36 +167,57 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
 - **P5 — Multi-screen panels + switching (DONE, #72):** the editor lets a builder
   draw **several screens** (e.g. `PANEL` + `ROUND_DIALS`); `config-pull` now
   deploys **all** of them, not just the default, and gives a touchscreen-only
-  panel a way to move between them. `makerplane-data` **v0.2.7**.
-  - **Two install shapes, chosen by screen count** (`pyefis_data/config_pull.py`):
-    - *Single screen* keeps the **proven P3 path** untouched — one
-      `screens/managed.yaml` named after the device's `defaultScreen`, overriding
-      only that one include and **keeping the device's stock `SCREENS_CONFIG`**.
-    - *Multiple screens* writes one `screens/managed_<name>.yaml` per editor
-      screen + a **clean `screens/managed_list.yaml`** listing exactly those, and
-      overrides `SCREENS_CONFIG` to it. The editor is the whole panel. The
-      **default editor screen takes the device's existing `defaultScreen` name**
-      so boot still needs **no `main/` edit**; the rest keep their editor names.
-  - **Why a clean short list is safe now:** P3 deliberately avoided a short
-    `SCREENS_CONFIG` because a 2-entry list + the SVS GL widget segfaulted the
-    eglfs `QOpenGLCompositor`. That was the **AI redraw-before-resize bug**
-    (pyEfis #274) — now fixed and on the Pi — *not* list length. Re-verified on the
-    Pi 5: a clean 2-screen list with SVS restarts and stays up. So multi-screen
-    uses the tidy editor-only list; single-screen still keeps the full stock set
-    (no reason to disturb the battle-tested path).
+  panel a way to move between them. `makerplane-data` **v0.2.10**.
+  - **The SVS-GL short-list segfault is REAL** (the hard constraint). A short
+    `SCREENS_CONFIG` + the SVS GL widget segfaults the eglfs `QOpenGLCompositor`
+    — an eglfs GL bug that **correlates with screen count, independent of pyEfis
+    #274**. (An early attempt to use a tidy editor-only list looked stable only
+    because the verifier's PID check was fooled — see below; with valid buttons it
+    segfaulted past SVS GL init.) So multi-screen **keeps the device's full stock
+    screen list loaded** as GL-safe ballast and weaves the editor screens into it.
+  - **Install shape** (`pyefis_data/config_pull.py`), chosen by screen count:
+    - *Single screen* — the proven P3 path: one `screens/managed.yaml` named after
+      the device's `defaultScreen`, overriding only that include, stock list kept.
+    - *Multiple screens* — keep the full stock list and:
+      - **repurpose the default slot:** override `SCREEN_<defaultScreen>` to the
+        default editor screen (that slot is the device's boot choice, not a
+        nav-button target, so nothing breaks; boot needs no `main/` edit);
+      - **append the rest:** each additional editor screen becomes a new
+        `SCREEN_M_<name>` token added onto a copy of the stock list
+        (`screens/managed_list.yaml`), leaving every stock screen intact. The list
+        only ever **grows** (≥ stock length), so it stays GL-safe.
+    - Screens are keyed by their file's **top-level name** (`gui.initialize`), so
+      the editor's own names survive for `show screen` navigation even though they
+      ride on stock include tokens.
   - **Switching:** the encoder/key screen-change bindings aren't assumed on a
     managed panel, so the installer **injects a small "SCREEN >" button**
-    (bottom-centre, clear of the edge tapes) onto each screen. It references a
-    written `buttons/managed-next.yaml` whose click fires the HMI **`show next
-    screen`** action (`pyefis/hmi/actionclass.py`), cycling the managed list. Same
-    button mechanism the stock nav uses, so no new pyEfis code.
+    (bottom-centre, clear of the edge tapes) onto each editor screen. It fires an
+    **explicit `show screen: <next editor screen>`** (not `show next screen`), so
+    it cycles only the editor's screens and never lands on the stock ballast. Each
+    button is a per-screen `buttons/managed-next-<name>.yaml` with a **distinct,
+    registered `TSBTN{id}<s>` slot** (`s` 1‑40 per fixgw `database/variables.yaml`;
+    we take the top of the range, clear of the stock buttons at ≤28). A dbkey
+    naming an *unregistered* TSBTN slot is a fatal `KeyError` at screen-build time
+    — the button does `fix.db.get_item()` without `create=True`.
+  - **Verifier hardened (this is what caught the bugs):** `restart_and_verify`
+    used to check only Main-PID stability. But a **screen-build exception doesn't
+    exit pyEfis** — a non-daemon FIX thread keeps the process (and PID) alive while
+    the GUI never shows, so PID-stability was a **false positive**. It now also
+    rejects a `Traceback` / `Fatal Python error` / `Segmentation fault` /
+    `Unable to load module` logged by the current PID (read via `systemctl
+    status`, scoped to the PID). A segfault additionally changes the PID (the
+    process dies + respawns), which the stability check catches.
   - **Rollback hardened:** before every install the panel state (the override +
-    all `managed*.yaml` + the switch button) is snapshotted to **`.panel_backup/`**;
-    a config that crashes pyEfis restores the whole snapshot (the *previous working*
-    panel), falling back to the pristine `.prepanel` override. Also bumped
+    all `managed*.yaml` + the switch buttons) is snapshotted to **`.panel_backup/`**;
+    a config that fails verification restores the whole snapshot (the *previous
+    working* panel), falling back to the pristine `.prepanel` override. Also bumped
     `restart_pyefis`'s timeout **40 → 120 s**: an SVS/GL pyEfis can hang on SIGTERM
     up to its 90 s stop-timeout before systemd SIGKILLs it, and the old 40 s window
     could misread that as a failed restart and trigger a spurious rollback.
-  - Unit-tested (`tests/test_config_pull.py`, no Qt needed) and validated
-    end-to-end on the Pi 5: `config-pull` installed a 2-screen panel
-    (`PFD_AI_ONLY` + `ROUND_DIALS`, SVS on the first), restarted, and stayed up.
+    **Battle-tested in this build** — it caught both the unregistered-dbkey
+    `KeyError` and the short-list segfault and kept the device on its working panel.
+  - Unit-tested (`tests/test_config_pull.py`, no Qt) and validated end-to-end on
+    the Pi 5: `config-pull` installed a 2-screen panel (`PFD_AI_ONLY` + `ROUND_DIALS`,
+    SVS on the first) onto the full stock list (8 screens), restarted, came up
+    clean (SVS GL initialised, no crash signatures), with cross-linked `SCREEN >`
+    switch buttons (`TSBTN{id}40`/`39`).

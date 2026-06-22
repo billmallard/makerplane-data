@@ -72,28 +72,40 @@ _SVS_OPTS = {
     "water_max_vertices": 1024,
 }
 
-# The screen-switch button definition, written to buttons/managed-next.yaml for
-# multi-screen panels. A plain touchscreen button whose click fires the HMI
-# "show next screen" action (registered in pyefis/hmi/actionclass.py), cycling
-# the managed screen list. {id} is replaced per-instrument so each screen's
-# button gets a unique touchscreen-button fixid.
-_SWITCH_BUTTON_CFG = (
-    "# Managed-panel screen-switch button (written by pyefis-data config-pull).\n"
-    "# Tapping it cycles to the next screen in the managed screen list, so a\n"
-    "# touchscreen-only panel can move between the screens designed in the editor.\n"
-    "type: simple\n"
-    'text: "SCREEN >"\n'
-    "dbkey: TSBTN{id}97\n"
-    "conditions:\n"
-    '  - when: "True"\n'
-    "    actions:\n"
-    '      - set bg color: "#222b3ad0"\n'
-    '      - set fg color: "#f0f0f0"\n'
-    "    continue: true\n"
-    '  - when: "CLICKED eq true"\n'
-    "    actions:\n"
-    "      - show next screen: next\n"
-)
+# Touchscreen-button fixids are TSBTN<node><suffix>, PRE-REGISTERED in the FIX
+# database from the template key `TSBTNns` over n=1..NODES, s=1..TS_BUTTONS (the
+# fixgw database/variables.yaml ranges -- default n:5, s:40). A button's dbkey
+# must name one that EXISTS: the button does get_item() WITHOUT create=True, so
+# an out-of-range suffix is a fatal KeyError at screen-build time. The stock
+# buttons use suffixes up to ~28, so the switch buttons take the TOP of the range
+# (40, 39, ...) -- in range and clear of the stock set.
+_TS_BUTTON_MAX = 40                 # fixgw variables.yaml `s:` (touchscreen buttons)
+
+
+def _switch_button_cfg(suffix: int, target: str) -> str:
+    """The screen-switch button definition (one per managed screen). A plain
+    touchscreen button whose click fires the HMI "show screen" action to jump to
+    ``target`` -- an EXPLICIT jump (not "show next screen") so it cycles only the
+    editor's screens, skipping the stock screens we keep loaded as GL ballast.
+    {id} -> node id at build time; ``suffix`` selects a distinct registered TSBTN
+    slot so two screens' buttons don't share a key."""
+    return (
+        "# Managed-panel screen-switch button (written by pyefis-data config-pull).\n"
+        "# Tapping it jumps to the next screen you designed in the editor, so a\n"
+        "# touchscreen-only panel can move between them.\n"
+        "type: simple\n"
+        'text: "SCREEN >"\n'
+        f"dbkey: TSBTN{{id}}{suffix}\n"
+        "conditions:\n"
+        '  - when: "True"\n'
+        "    actions:\n"
+        '      - set bg color: "#222b3ad0"\n'
+        '      - set fg color: "#f0f0f0"\n'
+        "    continue: true\n"
+        '  - when: "CLICKED eq true"\n'
+        "    actions:\n"
+        f"      - show screen: {target}\n"
+    )
 
 
 def config_dir() -> Path:
@@ -189,16 +201,17 @@ def _prep_screen(screen_def: dict) -> dict:
     return screen_def
 
 
-def _switch_button() -> dict:
-    """A small bottom-centre "next screen" button instrument. Bottom-centre
-    (cols 88-112 of 200) clears the airspeed/altitude tapes that hug the screen
-    edges on a PFD; a user can reposition it in the editor."""
+def _switch_button(button_cfg: str) -> dict:
+    """A small bottom-centre "next screen" button instrument referencing the
+    given per-screen button config file. Bottom-centre (cols 88-112 of 200)
+    clears the airspeed/altitude tapes that hug the screen edges on a PFD; a
+    user can reposition it in the editor."""
     return {
         "type": "button",
         "row": 102,
         "column": 88,
         "span": {"rows": 6, "columns": 24},
-        "options": {"config": "buttons/managed-next.yaml"},
+        "options": {"config": button_cfg},
     }
 
 
@@ -209,8 +222,9 @@ def _managed_rel_paths(cd: Path) -> list[str]:
     sd = cd / "screens"
     if sd.is_dir():
         rels += [f"screens/{p.name}" for p in sorted(sd.glob("managed*.yaml"))]
-    if (cd / "buttons" / "managed-next.yaml").exists():
-        rels.append("buttons/managed-next.yaml")
+    bd = cd / "buttons"
+    if bd.is_dir():
+        rels += [f"buttons/{p.name}" for p in sorted(bd.glob("managed-next*.yaml"))]
     return rels
 
 
@@ -310,46 +324,105 @@ def _install_single(cd: Path, screen_def: dict, boot: str) -> dict:
             "screen_names": [boot]}
 
 
-def _install_multi(cd: Path, screens: dict, default_name: str, boot: str) -> dict:
-    """Multi-screen path (#72): write every editor screen + a clean managed
-    screen list + a per-screen switch button, and override SCREENS_CONFIG to the
-    managed list. The default editor screen takes the device's defaultScreen
-    name so boot needs no main/ edit; the rest keep (sanitized) editor names."""
-    import yaml
-    _atomic_write(cd / "buttons" / "managed-next.yaml", _SWITCH_BUTTON_CFG)
+_STOCK_SCREEN_LIST = "screens/default_list.yaml"
+# Fallback stock screen list if the device's can't be read (the shipped default).
+_STOCK_FALLBACK_TOKENS = [
+    "SCREEN_DATA_STATUS", "SCREEN_SIXPACK", "SCREEN_PFD", "SCREEN_PFD_AI_ONLY",
+    "SCREEN_RADIO", "SCREEN_EMS", "SCREEN_EMS2",
+]
 
+
+def _stock_screen_tokens(cd: Path) -> list[str]:
+    """The device's STOCK screen-list tokens (from the BASE ``preferences.yaml``
+    ``SCREENS_CONFIG``, not any custom override). Multi-screen keeps this full
+    list loaded so the eglfs SVS-GL compositor doesn't segfault on a short list,
+    and so every stock screen stays intact (no broken nav references)."""
+    import yaml
+    rel = _STOCK_SCREEN_LIST
+    try:
+        prefs = yaml.safe_load((cd / "preferences.yaml").read_text("utf-8")) or {}
+        rel = (prefs.get("includes") or {}).get("SCREENS_CONFIG", rel)
+    except Exception:
+        pass
+    try:
+        lst = yaml.safe_load((cd / rel).read_text("utf-8")) or {}
+        toks = [t for t in (lst.get("include") or []) if isinstance(t, str)]
+        if toks:
+            return toks
+    except Exception:
+        pass
+    return list(_STOCK_FALLBACK_TOKENS)
+
+
+def _install_multi(cd: Path, screens: dict, default_name: str, boot: str) -> dict:
+    """Multi-screen path (#72). The hard constraint: a SHORT screen list + the
+    SVS GL widget segfaults the eglfs ``QOpenGLCompositor`` (a real eglfs bug that
+    correlates with screen count, independent of pyEfis #274). So we KEEP the full
+    stock screen list loaded -- it's GL-safe and proven -- and weave the editor's
+    screens into it:
+
+      * the DEFAULT editor screen takes the device's ``defaultScreen`` *name* by
+        overriding ``SCREEN_<defaultScreen>`` (so boot needs no ``main/`` edit;
+        that slot is the device's boot choice, not a nav-button target, so
+        repurposing it breaks nothing);
+      * each ADDITIONAL editor screen is APPENDED as a new ``SCREEN_M_<name>``
+        token onto a copy of the stock list (``managed_list.yaml``), leaving every
+        stock screen intact. The list only ever GROWS, so it stays GL-safe.
+
+    Screens are keyed by their file's top-level name (gui.initialize), so the
+    editor's own names are preserved for ``show screen`` navigation. Switching is
+    an EXPLICIT ``show screen: <next editor screen>`` on each injected button, so
+    it cycles only the editor's screens and never lands on the stock ballast."""
+    import yaml
     ordered = [default_name] + [n for n in screens if n != default_name]
     used: set[str] = set()
-    tokens: list[str] = []
-    inc_managed: dict[str, str] = {}
-    names: list[str] = []
+    on_names: list[str] = []
     for n in ordered:
         on_name = boot if n == default_name else _sanitize(n)
-        while on_name in used:          # avoid colliding with the boot name
+        while on_name in used:          # keep on-device screen names unique
             on_name += "_2"
         used.add(on_name)
-        names.append(on_name)
-
-        sdef = _prep_screen(screens[n])
-        sdef["instruments"] = list(sdef.get("instruments") or []) + [_switch_button()]
-        fname = f"managed_{on_name}.yaml"
-        _atomic_write(cd / "screens" / fname,
-                      yaml.safe_dump({on_name: sdef}, sort_keys=False))
-        token = f"SCREEN_M_{on_name}"
-        tokens.append(token)
-        inc_managed[token] = f"screens/{fname}"
-
-    _atomic_write(cd / "screens" / "managed_list.yaml",
-                  yaml.safe_dump({"include": tokens}, sort_keys=False))
+        on_names.append(on_name)
 
     custom = _load_custom(cd)
     inc = custom.setdefault("includes", {})
     _clear_managed_includes(inc, boot)
-    inc["SCREENS_CONFIG"] = "screens/managed_list.yaml"
-    inc.update(inc_managed)
+
+    stock_tokens = _stock_screen_tokens(cd)
+    extra_tokens: list[str] = []
+    for i, n in enumerate(ordered):
+        on_name = on_names[i]
+        # switch button -> the NEXT editor screen (wraps); explicit jump.
+        nxt = on_names[(i + 1) % len(on_names)]
+        suffix = _TS_BUTTON_MAX - (i % _TS_BUTTON_MAX)
+        btn_cfg = f"buttons/managed-next-{on_name}.yaml"
+        _atomic_write(cd / btn_cfg, _switch_button_cfg(suffix, nxt))
+
+        sdef = _prep_screen(screens[n])
+        sdef["instruments"] = list(sdef.get("instruments") or []) + [_switch_button(btn_cfg)]
+        fname = f"managed_{on_name}.yaml"
+        _atomic_write(cd / "screens" / fname,
+                      yaml.safe_dump({on_name: sdef}, sort_keys=False))
+
+        if i == 0:
+            # repurpose the device's default screen slot (keeps the stock list)
+            inc[f"SCREEN_{boot}"] = f"screens/{fname}"
+        else:
+            token = f"SCREEN_M_{on_name}"
+            inc[token] = f"screens/{fname}"
+            extra_tokens.append(token)
+
+    if extra_tokens:
+        # extend (never shrink) the stock list with the additional editor screens
+        merged = list(stock_tokens) + [t for t in extra_tokens if t not in stock_tokens]
+        _atomic_write(cd / "screens" / "managed_list.yaml",
+                      yaml.safe_dump({"include": merged}, sort_keys=False))
+        inc["SCREENS_CONFIG"] = "screens/managed_list.yaml"
+    # (no additional screens -> keep the stock SCREENS_CONFIG untouched)
+
     _write_custom(cd, custom)
     return {"mode": "multi", "boot_screen": boot, "screens": len(screens),
-            "screen_names": names}
+            "screen_names": on_names}
 
 
 def restart_pyefis(timeout: int = 120) -> bool:
@@ -382,16 +455,49 @@ def _systemctl_show(prop: str) -> str:
         return ""
 
 
+def _status_log(pid: str = "") -> str:
+    """Recent service log lines (via ``systemctl status`` -- the user journal
+    isn't always reachable through ``journalctl`` here, but the manager surfaces
+    the tail). Scoped to ``pid`` when given (lines are ``python[PID]: ...``)."""
+    env = dict(os.environ)
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    try:
+        out = subprocess.run(
+            ["systemctl", "--user", "status", "pyefis", "-n", "300", "--no-pager"],
+            env=env, capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return ""
+    if pid:
+        return "\n".join(l for l in out.splitlines() if f"[{pid}]" in l)
+    return out
+
+
 def restart_and_verify(wait_s: int = 16) -> bool:
-    """Restart pyEfis and confirm it STAYS up. pyEfis is Type=simple +
-    Restart=always, so a config that crashes it on load shows up as a CHANGED
-    Main PID a few seconds later (systemd respawns it). Returns True if healthy."""
+    """Restart pyEfis and confirm it actually came up with a working GUI.
+
+    pyEfis is Type=simple + Restart=always, so a config that makes it *exit* on
+    load shows up as a CHANGED Main PID (systemd respawns it). But a screen-build
+    exception does NOT exit the process -- a non-daemon FIX thread keeps it alive
+    with a stable PID while the GUI never shows. So PID stability alone is a false
+    positive; we also reject a ``Traceback`` logged by the current PID. Returns
+    True only if the PID is stable, active, AND its log is traceback-free."""
     if not restart_pyefis():
         return False
     p0 = _systemctl_show("MainPID")
     time.sleep(wait_s)
     p1 = _systemctl_show("MainPID")
-    return bool(p0) and p0 != "0" and p0 == p1 and _systemctl_show("ActiveState") == "active"
+    if not (p0 and p0 != "0" and p0 == p1 and _systemctl_show("ActiveState") == "active"):
+        return False
+    # A *segfault* kills the process, so a stable PID already rules it out; a
+    # *screen-build exception* does not (a non-daemon FIX thread lingers), so also
+    # reject any of these crash signatures logged by the current PID.
+    log = _status_log(p1)
+    return not any(sig in log for sig in (
+        "Traceback (most recent call last)",
+        "Fatal Python error",
+        "Segmentation fault",
+        "Unable to load module",
+    ))
 
 
 def rollback(cd: Path | None = None) -> str:

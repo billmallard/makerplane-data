@@ -29,6 +29,13 @@ def _config_dir(tmp_path, default_screen="PFD_AI_ONLY", custom=None):
     }
     (cd / "preferences.yaml.custom").write_text(
         yaml.safe_dump(custom, sort_keys=False), encoding="utf-8")
+    # Stock base preferences + screen list, so _stock_screen_tokens reads real
+    # data (multi-screen keeps this full list loaded as GL-safe ballast).
+    (cd / "preferences.yaml").write_text(
+        "includes:\n  SCREENS_CONFIG: screens/default_list.yaml\n", encoding="utf-8")
+    (cd / "screens" / "default_list.yaml").write_text(yaml.safe_dump({"include": [
+        "SCREEN_DATA_STATUS", "SCREEN_SIXPACK", "SCREEN_PFD", "SCREEN_PFD_AI_ONLY",
+        "SCREEN_RADIO", "SCREEN_EMS", "SCREEN_EMS2"]}, sort_keys=False), encoding="utf-8")
     return cd
 
 
@@ -81,7 +88,7 @@ def test_single_screen_injects_svs_and_db(tmp_path):
 
 # --- multi screen: clean managed list + switch buttons (#72) ------------------
 
-def test_multi_screen_clean_list(tmp_path):
+def test_multi_screen_keeps_stock_list(tmp_path):
     cd = _config_dir(tmp_path)
     doc = _doc("PANEL", "ROUND_DIALS", vfr_on="PANEL")
     summary = config_pull.install_config(yaml.safe_dump(doc), cd=cd)
@@ -92,14 +99,18 @@ def test_multi_screen_clean_list(tmp_path):
     assert summary["screen_names"] == ["PFD_AI_ONLY", "ROUND_DIALS"]
 
     inc = _read(cd, "preferences.yaml.custom")["includes"]
-    assert inc["SCREENS_CONFIG"] == "screens/managed_list.yaml"
-    assert inc["SCREEN_M_PFD_AI_ONLY"] == "screens/managed_PFD_AI_ONLY.yaml"
+    # the default editor screen repurposes the device's default slot...
+    assert inc["SCREEN_PFD_AI_ONLY"] == "screens/managed_PFD_AI_ONLY.yaml"
+    # ...the additional screen is a NEW token appended to the stock list
     assert inc["SCREEN_M_ROUND_DIALS"] == "screens/managed_ROUND_DIALS.yaml"
-    # the stale single-screen override is gone
-    assert "SCREEN_PFD_AI_ONLY" not in inc
+    assert inc["SCREENS_CONFIG"] == "screens/managed_list.yaml"
 
     lst = _read(cd, "screens/managed_list.yaml")["include"]
-    assert lst == ["SCREEN_M_PFD_AI_ONLY", "SCREEN_M_ROUND_DIALS"]   # default boots first
+    # every stock screen is preserved (GL ballast + no broken nav), extra appended
+    assert lst[:7] == ["SCREEN_DATA_STATUS", "SCREEN_SIXPACK", "SCREEN_PFD",
+                       "SCREEN_PFD_AI_ONLY", "SCREEN_RADIO", "SCREEN_EMS", "SCREEN_EMS2"]
+    assert lst[-1] == "SCREEN_M_ROUND_DIALS"
+    assert len(lst) >= 7         # never shorter than stock (avoids the GL segfault)
 
 
 def test_multi_screen_injects_switch_button_on_each(tmp_path):
@@ -107,18 +118,30 @@ def test_multi_screen_injects_switch_button_on_each(tmp_path):
     config_pull.install_config(
         yaml.safe_dump(_doc("PANEL", "ROUND_DIALS", vfr_on="PANEL")), cd=cd)
 
-    assert (cd / "buttons" / "managed-next.yaml").exists()
-    btn_cfg = _read(cd, "buttons/managed-next.yaml")
-    actions = [a for c in btn_cfg["conditions"] for a in c.get("actions", [])]
-    assert any("show next screen" in a for a in actions)
-
-    for fname, key in [("managed_PFD_AI_ONLY.yaml", "PFD_AI_ONLY"),
-                       ("managed_ROUND_DIALS.yaml", "ROUND_DIALS")]:
+    dbkeys = []
+    # each screen's button does an explicit "show screen: <next editor screen>"
+    for fname, key, btn, target in [
+            ("managed_PFD_AI_ONLY.yaml", "PFD_AI_ONLY",
+             "buttons/managed-next-PFD_AI_ONLY.yaml", "ROUND_DIALS"),
+            ("managed_ROUND_DIALS.yaml", "ROUND_DIALS",
+             "buttons/managed-next-ROUND_DIALS.yaml", "PFD_AI_ONLY")]:
+        assert (cd / btn).exists()
         screen = _read(cd, f"screens/{fname}")[key]
         buttons = [i for i in screen["instruments"]
                    if i.get("type") == "button"
-                   and i.get("options", {}).get("config") == "buttons/managed-next.yaml"]
+                   and i.get("options", {}).get("config") == btn]
         assert len(buttons) == 1, f"{fname} should have exactly one switch button"
+
+        cfg = _read(cd, btn)
+        actions = [a for c in cfg["conditions"] for a in c.get("actions", [])]
+        assert {"show screen": target} in actions, f"{btn} should jump to {target}"
+        dbkeys.append(cfg["dbkey"])
+
+    # registered TSBTN range is 1..40; suffixes must be in range and DISTINCT so
+    # the two screens' buttons don't share a key
+    suffixes = [int(k.replace("TSBTN{id}", "")) for k in dbkeys]
+    assert all(1 <= s <= 40 for s in suffixes), suffixes
+    assert len(set(suffixes)) == len(suffixes), f"switch-button keys must differ: {dbkeys}"
 
 
 def test_multi_then_single_clears_managed_list(tmp_path):
