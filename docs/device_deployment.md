@@ -61,6 +61,18 @@ the stored design (`{screen{w,h,inches}, layout{rows:110,columns:200}, instrumen
 Gauge limits / V-speeds / bands are **not** here — they come from the FIX
 database / aircraft config (issue #64, fix-gateway side), kept separate.
 
+**Direction (per Bill): shrink/remove the compile step.** The gap between the
+stored design and a pyEfis screen is thin (the `instruments` list is nearly
+identical). The cleaner end state is for the **editor to emit native pyEfis
+screenbuilder YAML directly** — groups pre-expanded to concrete instruments,
+screen size carried as a small `main` snippet — so the device just drops the
+files in and there is **no separate compile**. The only "transform" then is
+trivial JS at editor save-time (or a tiny screenbuilder convention on the pyEfis
+side that reads the editor's output as-is). It also makes the editor's live code
+pane show real pyEfis config. For now the design YAML stays the stored source of
+truth and the Worker does the thin reshape; migrating the editor to emit native
+YAML is the path to deleting "compile" entirely (a pyEfis-side task).
+
 ### 3. Pack + serve
 - `GET /api/device/config` (Bearer device token) → a per-device manifest
   `{ version, sha256, url|inline, generated }`, or **304** if the device's
@@ -68,8 +80,8 @@ database / aircraft config (issue #64, fix-gateway side), kept separate.
 - The bundle = the compiled overlay (a few small YAML files) as a tar.gz.
   Compile + pack on demand in the Worker, cache by version in R2
   (`configs/<user>/<device>/compiled-v<n>.tgz`).
-- **Integrity:** sha256 in the manifest; transport is TLS; the token authorizes.
-  **(Decision below: add minisign/Ed25519 signing for parity, or not in v1.)**
+- **Integrity:** sha256 in the manifest for corruption + change detection only;
+  transport is TLS; the token authorises. **No signing** (see decisions).
 
 ### 4. On-Pi pull + install
 Extend `pyefis_data` with a config capability (one updater, reuse its plumbing):
@@ -93,26 +105,30 @@ files (includes, preferences) are left untouched by the overlay.
 | GET | `/api/device/config` | device token | per-device config manifest (or 304) |
 | GET | `/api/device/config/pack` | device token | the compiled tgz |
 
-## Decisions to confirm
-1. **Sign per-device packs, or authenticated-pull only for v1?**
-   *Recommend:* v1 = device token + TLS + sha256 (the channel is private and
-   authorized; signing matters most for the *public* navdata packs). Carry a
-   `sig` field in the manifest so Ed25519/minisign signing slots in later.
-2. **On-Pi puller: extend `pyefis_data` vs a sibling tool?**
-   *Recommend:* extend `pyefis_data` — it already owns the device + timer + atomic
-   install; add `device_token` + `configurator_url` to `data.yaml`.
-3. **Bundle granularity: overlay (generated screen + `main`) vs full config tree?**
-   *Recommend:* overlay — smallest, leaves stock includes/preferences alone.
-   Validate against `create_config_dir` seeding (must overwrite the generated files).
-4. **Compile lives in the Worker (TS), design YAML stays the stored source of
-   truth; recompile on pull.** *Recommend: yes* (recompile as the compiler improves;
-   never store only the compiled form).
+## Decisions (confirmed 2026-06-22)
+1. **No per-device signing.** Unlike the public navdata packs, a device config has
+   no authenticity chain worth protecting — it loads and works or it doesn't, and
+   the pull is already token-authorised over TLS. Keep a `sha256` for integrity /
+   corruption / change detection only; no `sig` field.
+2. **Extend `pyefis_data`** (don't add a sibling) — it already owns the device,
+   the timer, and atomic install; add `device_token` + `configurator_url` to
+   `data.yaml`.
+3. **Overlay bundle**, not full tree — ship just the files that represent the
+   design (generated screen + a `main` snippet) and drop them into the device's
+   existing config dir, leaving its other files alone. (Must *overwrite*, since
+   `create_config_dir` only seeds missing files.)
+4. **Compile in the Worker for now; design YAML stays the source of truth** —
+   reshaped on pull. But the **target is to eliminate compile** by having the
+   editor emit native pyEfis screenbuilder YAML (see Direction in §2); pyEfis
+   reading the editor's raw output is the goal, not an offline build step.
 
 ## Phased build plan
 - **P1 — Pairing:** `/api/devices/:id/pair` + `/api/pair`; dashboard "Pair device"
   UI; `pyefis-data pair` subcommand storing the token.
-- **P2 — Compile + serve:** TS compiler (design→overlay), `/api/device/config`
-  (+ pack), version/sha256, R2 cache.
+- **P2 — Emit + serve:** ideally migrate the editor to write native pyEfis
+  screenbuilder YAML (groups expanded, `main` snippet) so the stored file *is* the
+  device file; serve it via `/api/device/config` (+ pack), version/sha256, R2
+  cache. (Interim: a thin Worker reshape if the editor isn't migrated yet.)
 - **P3 — On-Pi install:** `pyefis_data` config pull + atomic-swap + service
   restart + `status.json`; end-to-end test on the Pi 5.
 - **P4 — Polish:** optional signing (decision 1), rollback on bad config, "last
