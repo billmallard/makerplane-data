@@ -105,12 +105,14 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
     screen_def = dict(screen_def)
     boot = _device_default_screen(cd)
 
-    # virtual_vfr needs a screen-level dbpath that the editor can't know; pull in
-    # the device's stock virtualvfr_db include so it initialises instead of
-    # crashing on a None. (SVS *terrain* — the `svs` options block — is a deeper
-    # follow-up: a bare virtual_vfr + svs crashes on this hardware; the stock
-    # screen wraps it in the full AHRS bundle. The widget shows sky/ground until
-    # that's worked out. See docs/device_deployment.md.)
+    # virtual_vfr needs a screen-level dbpath the editor can't know; pull in the
+    # device's stock virtualvfr_db include so it initialises (else it crashes on a
+    # None dbpath). SVS *terrain* (the `svs` options block) is NOT injected yet:
+    # the AI redraw-before-resize crash is fixed (pyEfis #71), but a FULL-screen
+    # virtual_vfr with other instruments overlapping it still segfaults the
+    # direct-to-viewport SVS GL. The widget runs as sky/ground until #71's
+    # GL-compositing piece is resolved (or the editor keeps SVS panels
+    # non-overlapping). See docs/device_deployment.md.
     if any(isinstance(i, dict) and i.get("type") == "virtual_vfr"
            for i in screen_def.get("instruments", [])):
         inc = list(screen_def.get("include") or [])
