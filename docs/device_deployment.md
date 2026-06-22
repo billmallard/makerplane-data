@@ -1,0 +1,119 @@
+# Device deployment (#65) — design pass
+
+How a panel designed at <https://pyefis.aerocommons.org> gets onto a specific
+aircraft's pyEfis. Closes the loop: **editor → paired device → live screen.**
+
+Status: **design** (nothing built yet). This doc proposes the model + a phased
+plan and flags the decisions to confirm before coding. See
+[system_designer.md](system_designer.md) for the broader vision and
+[configurator/README.md](../configurator/README.md) for the app it extends.
+
+## What already exists (reuse, don't reinvent)
+
+- **`devices` table** already has the pairing columns: `claim_code`,
+  `device_token_hash`, `claimed_at`, `last_pull_at` (`configurator/migrations/0001_init.sql`).
+- **Designs** are stored per device as YAML in R2 (`configs/<user>/<device>/v<n>.yaml`)
+  + a `configs` row, via authed `PUT|GET /api/devices/:id/config`.
+- **On-Pi updater** `pyefis_data` (systemd timer): reads `~/.makerplane/pyefis/data.yaml`,
+  fetches a signed manifest from `navdata.aerocommons.org`, verifies, atomic-swaps,
+  writes `~/.makerplane/pyefis/status.json`. Has the download / verify / atomic-install
+  primitives we want.
+- **Signing**: `packtools/signing.py` + minisign keys in `keys/` (the navdata trust chain).
+- **pyEfis config**: read from `~/makerplane/pyefis/config`; `create_config_dir()`
+  seeds only **missing** files (so an update must *overwrite*, not rely on seeding).
+
+The navdata channel is **public** (global manifest, region packs). A device config
+is **private + per-device**, so it gets its **own authenticated channel** that
+reuses the verify + atomic-swap code — it does **not** go in the public manifest.
+
+## The four pieces
+
+### 1. Pairing (claim code → device token)
+1. In the dashboard, "Pair device" → Worker sets a short, single-use,
+   TTL'd `claim_code` (e.g. 8 chars, 15 min) on the device row; shows it to the user.
+2. On the Pi: `pyefis-data pair <code>` (or the on-device pack-picker GUI) →
+   `POST /api/pair { claim_code }` (public, rate-limited). Worker validates
+   (exists, unclaimed, unexpired), mints a long random **device token**, stores
+   `sha256(token)` in `device_token_hash`, sets `claimed_at`, clears `claim_code`,
+   returns the token **once**.
+3. Pi stores the token (in `data.yaml` or a 0600 sidecar). Token is revocable
+   (null the hash) and re-pairable.
+
+Token auth thereafter: `Authorization: Bearer <token>` over TLS; Worker looks up
+by `sha256(token)`.
+
+### 2. Compile (design → pyEfis screen YAML)
+Pure YAML transform → **runs in the Worker (TypeScript), no Qt needed**. Input:
+the stored design (`{screen{w,h,inches}, layout{rows:110,columns:200}, instruments[]}`)
++ the device row. Output: a small pyEfis config overlay:
+
+- `screens/<gen>.yaml` — a `module: pyefis.screens.screenbuilder` screen with the
+  design's `layout` and a **concrete `instruments:` list** (each `{type,row,column,span,options}`).
+  - **Element groups** (`type:"group"`) → expanded to their child instruments at
+    absolute grid positions (same math as the editor's Ungroup).
+  - **`virtual_vfr`** → inject the device-side `svs:` block (enabled + data paths
+    under `/data/makerplane-data/...`); the editor's `preview_scene` is dropped
+    (editor-only).
+  - `preview_scene` and any other editor-only keys are stripped.
+- a `main` override — `screenWidth`/`screenHeight` from the device (or design
+  target) and `defaultScreen: <gen>`.
+
+Gauge limits / V-speeds / bands are **not** here — they come from the FIX
+database / aircraft config (issue #64, fix-gateway side), kept separate.
+
+### 3. Pack + serve
+- `GET /api/device/config` (Bearer device token) → a per-device manifest
+  `{ version, sha256, url|inline, generated }`, or **304** if the device's
+  `If-None-Match`/version is current. Updates `last_pull_at`.
+- The bundle = the compiled overlay (a few small YAML files) as a tar.gz.
+  Compile + pack on demand in the Worker, cache by version in R2
+  (`configs/<user>/<device>/compiled-v<n>.tgz`).
+- **Integrity:** sha256 in the manifest; transport is TLS; the token authorizes.
+  **(Decision below: add minisign/Ed25519 signing for parity, or not in v1.)**
+
+### 4. On-Pi pull + install
+Extend `pyefis_data` with a config capability (one updater, reuse its plumbing):
+1. If a `device_token` is configured, after the navdata pass call
+   `GET <configurator>/api/device/config` with the token.
+2. If `version` > installed, download the tgz, verify sha256 (+ sig if signed).
+3. **Atomic-swap** the overlay into `~/makerplane/pyefis/config` (write to a temp
+   tree, back up the previous, `os.replace`), then restart the `pyefis` user service.
+4. Record installed version + `last_pull_at`; surface in `status.json` for the
+   Update screen.
+
+A paired device's generated screen is **Worker-managed** — local edits to those
+files are overwritten on pull (the editor is the source of truth). Non-generated
+files (includes, preferences) are left untouched by the overlay.
+
+## Endpoints summary
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/devices/:id/pair` | session | create/refresh a claim code |
+| POST | `/api/pair` | none (code) | redeem claim code → device token |
+| GET | `/api/device/config` | device token | per-device config manifest (or 304) |
+| GET | `/api/device/config/pack` | device token | the compiled tgz |
+
+## Decisions to confirm
+1. **Sign per-device packs, or authenticated-pull only for v1?**
+   *Recommend:* v1 = device token + TLS + sha256 (the channel is private and
+   authorized; signing matters most for the *public* navdata packs). Carry a
+   `sig` field in the manifest so Ed25519/minisign signing slots in later.
+2. **On-Pi puller: extend `pyefis_data` vs a sibling tool?**
+   *Recommend:* extend `pyefis_data` — it already owns the device + timer + atomic
+   install; add `device_token` + `configurator_url` to `data.yaml`.
+3. **Bundle granularity: overlay (generated screen + `main`) vs full config tree?**
+   *Recommend:* overlay — smallest, leaves stock includes/preferences alone.
+   Validate against `create_config_dir` seeding (must overwrite the generated files).
+4. **Compile lives in the Worker (TS), design YAML stays the stored source of
+   truth; recompile on pull.** *Recommend: yes* (recompile as the compiler improves;
+   never store only the compiled form).
+
+## Phased build plan
+- **P1 — Pairing:** `/api/devices/:id/pair` + `/api/pair`; dashboard "Pair device"
+  UI; `pyefis-data pair` subcommand storing the token.
+- **P2 — Compile + serve:** TS compiler (design→overlay), `/api/device/config`
+  (+ pack), version/sha256, R2 cache.
+- **P3 — On-Pi install:** `pyefis_data` config pull + atomic-swap + service
+  restart + `status.json`; end-to-end test on the Pi 5.
+- **P4 — Polish:** optional signing (decision 1), rollback on bad config, "last
+  pulled / out-of-date" indicator in the dashboard and on-device.
