@@ -9,6 +9,7 @@ import {
   createProject,
   deleteDevice,
   deleteProject,
+  deviceByTokenHash,
   getDevice,
   getProject,
   getUser,
@@ -18,6 +19,7 @@ import {
   listProjects,
   nextConfigVersion,
   setClaimCode,
+  touchLastPull,
 } from "./db";
 import { claimCode, randomToken, sha256B64url } from "./crypto";
 import { emailRequest, emailVerify } from "./email";
@@ -156,6 +158,34 @@ app.post("/device/pair", async (c) => {
   if (!device) return c.json({ error: "device gone" }, 404);
   await c.env.KV.delete(`pair:${code}`); // single-use
   return c.json({ device_token: token, device_id: device["id"], name: device["name"] });
+});
+
+// The device pulls its latest panel config (native pyEfis YAML). Authed by the
+// device token (Bearer). ETag = config version, so the on-Pi updater can send
+// If-None-Match and get a cheap 304 when nothing changed. #65 P2.
+app.get("/device/config", async (c) => {
+  const auth = c.req.header("authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!token) return c.json({ error: "missing bearer token" }, 401);
+  const row = await deviceByTokenHash(c.env.DB, await sha256B64url(token));
+  if (!row) return c.json({ error: "unknown device" }, 401);
+  const deviceId = Number(row["id"]);
+  if (row["version"] == null || !row["yaml_r2_key"]) {
+    await touchLastPull(c.env.DB, deviceId);
+    return c.json({ error: "no config yet" }, 404);
+  }
+  const etag = `"v${row["version"]}"`;
+  await touchLastPull(c.env.DB, deviceId);
+  if (c.req.header("if-none-match") === etag) {
+    return c.body(null, 304, { etag });
+  }
+  const obj = await c.env.CONFIGS.get(String(row["yaml_r2_key"]));
+  if (!obj) return c.json({ error: "config blob missing" }, 404);
+  return c.body(await obj.text(), 200, {
+    "content-type": "application/x-yaml",
+    etag,
+    "x-config-version": String(row["version"]),
+  });
 });
 
 // Public editor assets (schema + thumbnails) from R2 under assets/. No auth;

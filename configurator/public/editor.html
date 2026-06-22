@@ -1146,12 +1146,12 @@ $("guides-sel").addEventListener("change", (e) => { state.guides = e.target.valu
 $("save").addEventListener("click", save);
 async function save() {
   if (!deviceId) { setStatus("No device - open the editor from a project."); return; }
-  const design = { kind: "pyefis-screen", version: 1, screen: state.screen, layout: state.layout, instruments: state.instruments };
   setStatus("Saving...");
+  // Store the native pyEfis YAML (what the device runs), not a separate design.
   const res = await fetch(`/api/devices/${deviceId}/config`, {
     method: "PUT", credentials: "same-origin",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ yaml: JSON.stringify(design, null, 2) }),
+    body: JSON.stringify({ yaml: serializeDesign() }),
   });
   if (res.ok) { const { version } = await res.json(); setStatus("Saved (v" + version + ")"); }
   else if (res.status === 401) { setStatus("Signed out - reload."); }
@@ -1163,38 +1163,123 @@ async function load() {
   const res = await fetch(`/api/devices/${deviceId}/config`, { credentials: "same-origin" });
   if (!res.ok) return; // 404 = new device, start empty
   try {
-    const design = JSON.parse(await res.text());
-    if (design.layout) state.layout = design.layout;
-    if (design.screen) state.screen = {
-      width: design.screen.width || 1280,
-      height: design.screen.height || 800,
-      inches: design.screen.inches ?? null,
-    };
-    if (Array.isArray(design.instruments)) state.instruments = design.instruments;
-  } catch (_) { /* not our JSON design; ignore */ }
+    const text = await res.text();
+    const doc = window.jsyaml ? jsyaml.load(text) : JSON.parse(text);
+    const parsed = fromStoredDoc(doc);
+    if (parsed) { state.layout = parsed.layout; state.screen = parsed.screen; state.instruments = parsed.instruments; }
+  } catch (_) { /* unreadable / not ours; start empty */ }
 }
 
 function setStatus(s) { $("status").textContent = s; }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-// --- code tab (design <-> editable YAML) ------------------------------------
-function designObject() {
-  return { kind: "pyefis-screen", version: 1, screen: state.screen, layout: state.layout, instruments: state.instruments };
+// --- panel config format ----------------------------------------------------
+// The editor stores and round-trips a NATIVE pyEfis config fragment: a `main`
+// block (screen size + default screen) and one screenbuilder `screen`. The
+// device runs this as-is -- there is no separate "compile" step. Element groups
+// are expanded to concrete instruments here (pyEfis has no group concept), and
+// editor-only options (preview_scene) are stripped. See docs/panel_config_format.md.
+const SCREEN_NAME = "PANEL";
+function round1(n) { return Math.round(n * 10) / 10; }
+
+// Expand element-group placeholders into their child instruments at absolute
+// grid coordinates (same math as Ungroup); pass concrete instruments through.
+function expandGroups(instruments) {
+  const out = [];
+  for (const inst of instruments) {
+    if (inst.type !== "group") { out.push(inst); continue; }
+    const def = state.groupsById[inst.id];
+    if (!def) continue;
+    for (const ch of def.instruments) {
+      out.push({
+        type: ch.type,
+        row: inst.row + (ch.row / def.grid.rows) * inst.span.rows,
+        column: inst.column + (ch.column / def.grid.columns) * inst.span.columns,
+        span: {
+          rows: (ch.span.rows / def.grid.rows) * inst.span.rows,
+          columns: (ch.span.columns / def.grid.columns) * inst.span.columns,
+        },
+        options: { ...(ch.options || {}) },
+      });
+    }
+  }
+  return out;
+}
+
+// One editor instrument -> one pyEfis screenbuilder instrument.
+function toScreenInstrument(inst) {
+  const out = {
+    type: inst.type,
+    row: round1(inst.row),
+    column: round1(inst.column),
+    span: { rows: round1(inst.span.rows), columns: round1(inst.span.columns) },
+  };
+  const opts = { ...(inst.options || {}) };
+  delete opts.preview_scene;          // editor-only: which SVS preview image to show
+  if (Object.keys(opts).length) out.options = opts;
+  return out;
+}
+
+// Build the native pyEfis fragment (main + one screen) from editor state.
+function toPyefisDoc() {
+  const main = {
+    screenWidth: state.screen.width,
+    screenHeight: state.screen.height,
+    defaultScreen: SCREEN_NAME,
+  };
+  if (state.screen.inches != null) main.screenDiagonalInches = state.screen.inches; // editor metadata; pyEfis ignores unknown main keys
+  return {
+    main,
+    screens: {
+      [SCREEN_NAME]: {
+        module: "pyefis.screens.screenbuilder",
+        title: "Panel",
+        layout: { rows: state.layout.rows, columns: state.layout.columns },
+        instruments: expandGroups(state.instruments).map(toScreenInstrument),
+      },
+    },
+  };
 }
 function serializeDesign() {
-  return window.jsyaml ? jsyaml.dump(designObject(), { lineWidth: 100, noRefs: true }) : JSON.stringify(designObject(), null, 2);
+  return window.jsyaml ? jsyaml.dump(toPyefisDoc(), { lineWidth: 100, noRefs: true })
+                       : JSON.stringify(toPyefisDoc(), null, 2);
 }
 function codeMsg(s, err) { const m = $("code-msg"); m.textContent = s; m.style.color = err ? "#ff7b9c" : "#8b949e"; }
-function applyCode() {
-  let design;
-  try { design = window.jsyaml ? jsyaml.load($("code-text").value) : JSON.parse($("code-text").value); }
-  catch (e) { codeMsg("Parse error: " + e.message, true); return false; }
-  if (!design || typeof design !== "object" || !Array.isArray(design.instruments)) {
-    codeMsg("Expected an object with an 'instruments' array.", true); return false;
+
+// Parse a stored config back into {layout, screen, instruments}. Accepts the
+// native form (main + screens) and the legacy "design" form (kind: pyefis-screen)
+// so older saves still open; the next save rewrites them native.
+function fromStoredDoc(doc) {
+  if (!doc || typeof doc !== "object") return null;
+  if (doc.screens && typeof doc.screens === "object") {
+    const screen = Object.values(doc.screens)[0];
+    if (!screen || !Array.isArray(screen.instruments)) return null;
+    const m = doc.main || {};
+    return {
+      layout: screen.layout || { rows: 110, columns: 200 },
+      screen: { width: m.screenWidth || 1280, height: m.screenHeight || 800, inches: m.screenDiagonalInches ?? null },
+      instruments: screen.instruments,
+    };
   }
-  if (design.layout) state.layout = design.layout;
-  if (design.screen) state.screen = design.screen;
-  state.instruments = design.instruments;
+  if (Array.isArray(doc.instruments)) {              // legacy design form
+    const s = doc.screen || {};
+    return {
+      layout: doc.layout || { rows: 110, columns: 200 },
+      screen: { width: s.width || 1280, height: s.height || 800, inches: s.inches ?? null },
+      instruments: doc.instruments,
+    };
+  }
+  return null;
+}
+function applyCode() {
+  let doc;
+  try { doc = window.jsyaml ? jsyaml.load($("code-text").value) : JSON.parse($("code-text").value); }
+  catch (e) { codeMsg("Parse error: " + e.message, true); return false; }
+  const parsed = fromStoredDoc(doc);
+  if (!parsed) { codeMsg("Expected a pyEfis config with a 'screens:' block.", true); return false; }
+  state.layout = parsed.layout;
+  state.screen = parsed.screen;
+  state.instruments = parsed.instruments;
   state.selected = -1;
   codeMsg(""); return true;
 }

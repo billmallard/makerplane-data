@@ -98,12 +98,15 @@ files are overwritten on pull (the editor is the source of truth). Non-generated
 files (includes, preferences) are left untouched by the overlay.
 
 ## Endpoints summary
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| POST | `/api/devices/:id/pair` | session | create/refresh a claim code |
-| POST | `/api/pair` | none (code) | redeem claim code → device token |
-| GET | `/api/device/config` | device token | per-device config manifest (or 304) |
-| GET | `/api/device/config/pack` | device token | the compiled tgz |
+| Method | Path | Auth | Purpose | Status |
+|---|---|---|---|---|
+| POST | `/api/devices/:id/pair` | session | mint a claim code (KV, 15-min TTL) | **built (P1)** |
+| POST | `/device/pair` | claim code | redeem code → device token | **built (P1)** |
+| GET | `/device/config` | device token | latest panel config YAML; ETag/304; stamps `last_pull_at` | **built (P2)** |
+
+The config is served **inline as YAML** (the artifact is a small native pyEfis
+fragment — [panel_config_format.md](panel_config_format.md)); there's no separate
+"pack" endpoint or compile step.
 
 ## Decisions (confirmed 2026-06-22)
 1. **No per-device signing.** Unlike the public navdata packs, a device config has
@@ -123,12 +126,13 @@ files (includes, preferences) are left untouched by the overlay.
    reading the editor's raw output is the goal, not an offline build step.
 
 ## Phased build plan
-- **P1 — Pairing:** `/api/devices/:id/pair` + `/api/pair`; dashboard "Pair device"
-  UI; `pyefis-data pair` subcommand storing the token.
-- **P2 — Emit + serve:** ideally migrate the editor to write native pyEfis
-  screenbuilder YAML (groups expanded, `main` snippet) so the stored file *is* the
-  device file; serve it via `/api/device/config` (+ pack), version/sha256, R2
-  cache. (Interim: a thin Worker reshape if the editor isn't migrated yet.)
+- **P1 — Pairing (DONE):** `/api/devices/:id/pair` + `/device/pair`; dashboard
+  "Pair device" UI; `pyefis-data pair` subcommand storing the token. Validated on
+  the Pi 5.
+- **P2 — Emit + serve (DONE):** the editor writes **native pyEfis screenbuilder
+  YAML** (groups expanded, `main` snippet) so the stored file *is* the device file
+  — [panel_config_format.md](panel_config_format.md). Served by `GET /device/config`
+  (device token, ETag/304). No compile step.
 - **P3 — On-Pi install:** `pyefis_data` config pull + atomic-swap + service
   restart + `status.json`; end-to-end test on the Pi 5.
 - **P4 — Polish:** optional signing (decision 1), rollback on bad config, "last

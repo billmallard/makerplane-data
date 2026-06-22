@@ -208,6 +208,34 @@ export async function claimDevice(
     .first();
 }
 
+// Look up a device by its token hash (for the device-token-authed config pull),
+// joined to its latest config version + R2 key (null if it has no config yet).
+export async function deviceByTokenHash(
+  db: D1Database,
+  tokenHash: string,
+): Promise<Record<string, unknown> | null> {
+  return db
+    .prepare(
+      `SELECT d.id,
+              c.version    AS version,
+              c.yaml_r2_key AS yaml_r2_key
+         FROM devices d
+         LEFT JOIN configs c
+                ON c.device_id = d.id
+               AND c.version = (SELECT MAX(version) FROM configs WHERE device_id = d.id)
+        WHERE d.device_token_hash = ?1`,
+    )
+    .bind(tokenHash)
+    .first();
+}
+
+export async function touchLastPull(db: D1Database, deviceId: number): Promise<void> {
+  await db
+    .prepare(`UPDATE devices SET last_pull_at = datetime('now') WHERE id = ?1`)
+    .bind(deviceId)
+    .run();
+}
+
 // --- configs (versioned; YAML blob lives in R2) ----------------------------
 
 export async function nextConfigVersion(
