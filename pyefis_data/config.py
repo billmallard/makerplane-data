@@ -15,6 +15,10 @@ from pathlib import Path
 # data.yaml so the same build runs against the r2.dev URL or a staging bucket.
 DEFAULT_BASE_URL = "https://navdata.aerocommons.org"
 
+# The configuration manager (panel designs) lives on a different origin than the
+# navdata base_url. A paired device pulls its screen config from here (#65).
+DEFAULT_CONFIGURATOR_URL = "https://pyefis.aerocommons.org"
+
 # Selection policy. A fresh Pi tracks all CORE NAVDATA kinds automatically
 # (small, CONUS-wide, everyone wants them) and no bulk packs — terrain/charts
 # are opt-in by region. `packs` adds explicit ids on top; nothing here ever
@@ -49,6 +53,10 @@ class Config:
     auto_update: bool = True
     stage_next: bool = True          # pre-download the next cycle before it's effective
     storage_budget_gb: float | None = None
+    # Device config (panel design) pull — set by `pyefis-data pair` (#65).
+    configurator_url: str = DEFAULT_CONFIGURATOR_URL
+    device_token: str | None = None
+    device_id: int | None = None
 
     @property
     def manifest_url(self) -> str:
@@ -93,6 +101,12 @@ class Config:
             kw["stage_next"] = data["stage_next"]
         if isinstance(data.get("storage_budget_gb"), (int, float)):
             kw["storage_budget_gb"] = float(data["storage_budget_gb"])
+        if isinstance(data.get("configurator_url"), str):
+            kw["configurator_url"] = data["configurator_url"]
+        if isinstance(data.get("device_token"), str):
+            kw["device_token"] = data["device_token"]
+        if isinstance(data.get("device_id"), int):
+            kw["device_id"] = data["device_id"]
         return replace(cfg, **kw)
 
 

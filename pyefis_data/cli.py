@@ -311,6 +311,53 @@ def cmd_verify(args) -> int:
     return 0
 
 
+def cmd_pair(args) -> int:
+    """Redeem a one-time claim code (shown in the configurator dashboard) for a
+    long-lived device token, and persist it to data.yaml so subsequent config
+    pulls authenticate as this device (#65)."""
+    import urllib.error
+    import urllib.request
+
+    cfg = Config.load(args.config)
+    base = (getattr(args, "configurator_url", None) or cfg.configurator_url).rstrip("/")
+    code = args.code.strip().upper()
+    body = json.dumps({"claim_code": code}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{base}/device/pair", data=body, method="POST",
+        headers={
+            "content-type": "application/json",
+            # A real UA: Cloudflare's edge 403s the default "Python-urllib/*".
+            "user-agent": "pyefis-data/0.1 (+https://github.com/makerplane/makerplane-data)",
+        })
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read().decode("utf-8")).get("error", str(e))
+        except Exception:
+            msg = str(e)
+        print(f"pairing failed: {msg}", file=sys.stderr)
+        return 2
+    except Exception as e:
+        print(f"pairing failed: {e}", file=sys.stderr)
+        return 2
+
+    token = data.get("device_token")
+    if not token:
+        print("pairing failed: no token returned", file=sys.stderr)
+        return 2
+    from .config import write_config
+    saved = write_config(args.config, {
+        "configurator_url": base,
+        "device_token": token,
+        "device_id": data.get("device_id"),
+    })
+    print(f"paired as '{data.get('name')}' (device {data.get('device_id')}); "
+          f"token saved to {saved}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="pyefis-data")
     ap.add_argument("--config", help="path to data.yaml (default ~/.makerplane/pyefis/data.yaml)")
@@ -354,6 +401,11 @@ def build_parser() -> argparse.ArgumentParser:
     v = sub.add_parser("verify", help="verify a manifest signature")
     v.add_argument("path", nargs="?", help="manifest file (default: fetch live)")
     v.set_defaults(func=cmd_verify)
+
+    pr = sub.add_parser("pair", help="redeem a claim code from the configurator dashboard")
+    pr.add_argument("code", help="the claim code shown in the dashboard")
+    pr.add_argument("--configurator-url", help="override the configurator origin")
+    pr.set_defaults(func=cmd_pair)
     return ap
 
 
