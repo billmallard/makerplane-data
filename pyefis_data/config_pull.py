@@ -119,8 +119,12 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
     if not isinstance(doc, dict) or not isinstance(doc.get("screens"), dict) or not doc["screens"]:
         raise ValueError("config is not native pyEfis form (no 'screens:' block) -- "
                          "re-save the panel in the editor")
-    _, screen_def = next(iter(doc["screens"].items()))
-    screen_def = dict(screen_def)
+    # Deploy the editor's chosen default screen (a panel may define several; full
+    # multi-screen deploy + switching is a follow-up, #72). Fall back to the first.
+    screens = doc["screens"]
+    default_name = (doc.get("main") or {}).get("defaultScreen")
+    screen_def = dict(screens[default_name] if default_name in screens
+                      else next(iter(screens.values())))
     boot = _device_default_screen(cd)
 
     # virtual_vfr needs device-side config the editor can't know: a screen-level

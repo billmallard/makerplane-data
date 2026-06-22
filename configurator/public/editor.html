@@ -36,6 +36,16 @@
   .props { border-right: none; border-left: 1px solid #21262d; width: 280px; }
   .stage { flex: 1; min-height: 0; overflow: auto; padding: 18px; display: flex; justify-content: center; }
   .center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .screens-bar { display: flex; align-items: center; gap: 4px; padding: 6px 10px 0; flex-wrap: wrap; }
+  .screen-tab { font: inherit; background: #161b22; border: 1px solid #21262d; border-bottom: none;
+    color: #8b949e; padding: 5px 12px; border-radius: 6px 6px 0 0; cursor: pointer; white-space: nowrap; }
+  .screen-tab.active { color: #e6edf3; background: #0d1117; border-color: #30363d; }
+  .screen-add { font: inherit; background: none; border: 1px dashed #30363d; color: #8b949e;
+    padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+  .screen-actions { margin-left: auto; display: flex; gap: 6px; }
+  .screen-act { font: inherit; font-size: 12px; background: none; border: 1px solid #30363d; color: #8b949e;
+    padding: 4px 9px; border-radius: 6px; cursor: pointer; }
+  .screen-act:hover { color: #e6edf3; border-color: #8b949e; }
   .tabs { display: flex; gap: 4px; padding: 8px 12px 0; }
   .tab { font: inherit; background: none; border: 1px solid transparent; border-bottom: none; padding: 6px 14px; color: #8b949e; border-radius: 6px 6px 0 0; cursor: pointer; }
   .tab.active { color: #e6edf3; background: #161b22; border-color: #21262d; }
@@ -185,6 +195,7 @@
 <div class="layout">
   <aside class="palette" id="palette"></aside>
   <div class="center">
+    <div class="screens-bar" id="screens-bar"></div>
     <div class="stage" id="stage"><div id="canvas"><div id="guides"></div><div id="align"></div></div></div>
     <div id="code-pane">
       <div class="code-bar"><span class="muted">YAML — edits apply live</span><span id="code-msg" class="muted"></span></div>
@@ -202,15 +213,33 @@ const deviceId = params.get("device");
 
 const state = {
   schema: null,
-  layout: { rows: 110, columns: 200 },          // pyEfis normalised grid (portable)
-  screen: { width: 1280, height: 800, inches: 10.1 },  // target device
-  instruments: [],     // {type, row, column, span:{rows,columns}, options:{}}
+  screen: { width: 1280, height: 800, inches: 10.1 },  // device physical display (shared by all screens)
+  // A device can hold several screens (PFD / EMS / RADIO ...) the pilot switches
+  // between. Each: { name, layout, instruments }. `layout` + `instruments` below
+  // are ALIASES to screens[active] so the canvas code edits the active screen.
+  screens: [{ name: "PANEL", layout: { rows: 110, columns: 200 }, instruments: [] }],
+  active: 0,
+  defaultScreen: "PANEL",        // which screen boots on the device
+  layout: null,                  // -> screens[active].layout  (pyEfis normalised 110x200 grid)
+  instruments: null,             // -> screens[active].instruments
   selected: -1,
   canvasW: 0, canvasH: 0,
   snap: false,
   guides: "none",
   groups: [], groupsById: {},
 };
+state.layout = state.screens[0].layout;
+state.instruments = state.screens[0].instruments;
+
+// Point the active-screen aliases at screens[i]. The aliases share the SAME
+// array/object references, so all the existing canvas code (push/splice/index on
+// state.instruments) keeps screens[active] in sync automatically.
+function setActive(i) {
+  state.active = i;
+  state.layout = state.screens[i].layout;
+  state.instruments = state.screens[i].instruments;
+  state.selected = -1;
+}
 
 const SNAP = 10;  // grid cells; "Snap" rounds to this (aligned with the grid majors)
 function snapTo(v) { return state.snap ? Math.round(v / SNAP) * SNAP : Math.round(v); }
@@ -1166,7 +1195,7 @@ async function load() {
     const text = await res.text();
     const doc = window.jsyaml ? jsyaml.load(text) : JSON.parse(text);
     const parsed = fromStoredDoc(doc);
-    if (parsed) { state.layout = parsed.layout; state.screen = parsed.screen; state.instruments = parsed.instruments; }
+    if (parsed) applyState(parsed);
   } catch (_) { /* unreadable / not ours; start empty */ }
 }
 
@@ -1175,11 +1204,10 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 // --- panel config format ----------------------------------------------------
 // The editor stores and round-trips a NATIVE pyEfis config fragment: a `main`
-// block (screen size + default screen) and one screenbuilder `screen`. The
-// device runs this as-is -- there is no separate "compile" step. Element groups
+// block (device screen size + default screen) and one screenbuilder `screen` per
+// editor screen. The device runs this as-is -- no "compile" step. Element groups
 // are expanded to concrete instruments here (pyEfis has no group concept), and
 // editor-only options (preview_scene) are stripped. See docs/panel_config_format.md.
-const SCREEN_NAME = "PANEL";
 function round1(n) { return Math.round(n * 10) / 10; }
 
 // Expand element-group placeholders into their child instruments at absolute
@@ -1220,25 +1248,24 @@ function toScreenInstrument(inst) {
   return out;
 }
 
-// Build the native pyEfis fragment (main + one screen) from editor state.
+// Build the native pyEfis fragment (main + every screen) from editor state.
 function toPyefisDoc() {
   const main = {
     screenWidth: state.screen.width,
     screenHeight: state.screen.height,
-    defaultScreen: SCREEN_NAME,
+    defaultScreen: state.defaultScreen,
   };
   if (state.screen.inches != null) main.screenDiagonalInches = state.screen.inches; // editor metadata; pyEfis ignores unknown main keys
-  return {
-    main,
-    screens: {
-      [SCREEN_NAME]: {
-        module: "pyefis.screens.screenbuilder",
-        title: "Panel",
-        layout: { rows: state.layout.rows, columns: state.layout.columns },
-        instruments: expandGroups(state.instruments).map(toScreenInstrument),
-      },
-    },
-  };
+  const screens = {};
+  for (const sc of state.screens) {
+    screens[sc.name] = {
+      module: "pyefis.screens.screenbuilder",
+      title: sc.name,
+      layout: { rows: sc.layout.rows, columns: sc.layout.columns },
+      instruments: expandGroups(sc.instruments).map(toScreenInstrument),
+    };
+  }
+  return { main, screens };
 }
 function serializeDesign() {
   return window.jsyaml ? jsyaml.dump(toPyefisDoc(), { lineWidth: 100, noRefs: true })
@@ -1252,24 +1279,38 @@ function codeMsg(s, err) { const m = $("code-msg"); m.textContent = s; m.style.c
 function fromStoredDoc(doc) {
   if (!doc || typeof doc !== "object") return null;
   if (doc.screens && typeof doc.screens === "object") {
-    const screen = Object.values(doc.screens)[0];
-    if (!screen || !Array.isArray(screen.instruments)) return null;
+    const names = Object.keys(doc.screens);
+    if (!names.length) return null;
+    const screens = names.map((name) => {
+      const sc = doc.screens[name] || {};
+      return {
+        name,
+        layout: sc.layout || { rows: 110, columns: 200 },
+        instruments: Array.isArray(sc.instruments) ? sc.instruments : [],
+      };
+    });
     const m = doc.main || {};
+    const def = (typeof m.defaultScreen === "string" && names.includes(m.defaultScreen)) ? m.defaultScreen : names[0];
     return {
-      layout: screen.layout || { rows: 110, columns: 200 },
+      screens, defaultScreen: def,
       screen: { width: m.screenWidth || 1280, height: m.screenHeight || 800, inches: m.screenDiagonalInches ?? null },
-      instruments: screen.instruments,
     };
   }
-  if (Array.isArray(doc.instruments)) {              // legacy design form
+  if (Array.isArray(doc.instruments)) {              // legacy design form -> one screen
     const s = doc.screen || {};
     return {
-      layout: doc.layout || { rows: 110, columns: 200 },
+      screens: [{ name: "PANEL", layout: doc.layout || { rows: 110, columns: 200 }, instruments: doc.instruments }],
+      defaultScreen: "PANEL",
       screen: { width: s.width || 1280, height: s.height || 800, inches: s.inches ?? null },
-      instruments: doc.instruments,
     };
   }
   return null;
+}
+function applyState(parsed) {
+  state.screens = parsed.screens;
+  state.defaultScreen = parsed.defaultScreen;
+  state.screen = parsed.screen;
+  setActive(0);
 }
 function applyCode() {
   let doc;
@@ -1277,11 +1318,72 @@ function applyCode() {
   catch (e) { codeMsg("Parse error: " + e.message, true); return false; }
   const parsed = fromStoredDoc(doc);
   if (!parsed) { codeMsg("Expected a pyEfis config with a 'screens:' block.", true); return false; }
-  state.layout = parsed.layout;
-  state.screen = parsed.screen;
-  state.instruments = parsed.instruments;
-  state.selected = -1;
+  applyState(parsed);
   codeMsg(""); return true;
+}
+
+// --- screens (multi-screen) -------------------------------------------------
+function uniqueScreenName(base, exclude) {
+  let n = String(base || "SCREEN").toUpperCase().replace(/[^A-Z0-9_]/g, "_").replace(/^_+|_+$/g, "") || "SCREEN";
+  let name = n, k = 2;
+  while (state.screens.some((s, i) => i !== exclude && s.name === name)) name = n + (k++);
+  return name;
+}
+function rerenderAll() {
+  sizeCanvas(); renderScreensBar(); renderCanvas(); renderProps();
+  buildScreenControls(); updateReadout(); renderGuides(); syncCode();
+}
+function switchScreen(i) {
+  if (i === state.active) return;
+  setActive(i); rerenderAll();
+}
+function addScreen() {
+  const raw = prompt("New screen name:", "SCREEN" + (state.screens.length + 1));
+  if (raw == null) return;
+  state.screens.push({ name: uniqueScreenName(raw), layout: { rows: 110, columns: 200 }, instruments: [] });
+  setActive(state.screens.length - 1); rerenderAll();
+}
+function renameScreen(i) {
+  const cur = state.screens[i];
+  const raw = prompt("Rename screen:", cur.name);
+  if (raw == null) return;
+  const name = uniqueScreenName(raw, i);
+  if (state.defaultScreen === cur.name) state.defaultScreen = name;
+  cur.name = name; renderScreensBar(); syncCode();
+}
+function setDefaultScreen(i) {
+  state.defaultScreen = state.screens[i].name; renderScreensBar(); syncCode();
+}
+function deleteScreen(i) {
+  if (state.screens.length <= 1) return;
+  if (!confirm("Delete screen '" + state.screens[i].name + "'?")) return;
+  const wasDefault = state.screens[i].name === state.defaultScreen;
+  state.screens.splice(i, 1);
+  if (wasDefault) state.defaultScreen = state.screens[0].name;
+  setActive(Math.min(i, state.screens.length - 1)); rerenderAll();
+}
+function renderScreensBar() {
+  const bar = $("screens-bar");
+  bar.innerHTML = "";
+  state.screens.forEach((sc, i) => {
+    const tab = document.createElement("button");
+    tab.className = "screen-tab" + (i === state.active ? " active" : "");
+    tab.textContent = (sc.name === state.defaultScreen ? "★ " : "") + sc.name;
+    tab.title = sc.name === state.defaultScreen ? "boot screen" : "click to edit";
+    tab.addEventListener("click", () => switchScreen(i));
+    bar.appendChild(tab);
+  });
+  const add = document.createElement("button");
+  add.className = "screen-add"; add.textContent = "+ Screen";
+  add.addEventListener("click", addScreen);
+  bar.appendChild(add);
+  const actions = document.createElement("span");
+  actions.className = "screen-actions";
+  const mk = (label, fn) => { const b = document.createElement("button"); b.className = "screen-act"; b.textContent = label; b.addEventListener("click", fn); return b; };
+  actions.appendChild(mk("Rename", () => renameScreen(state.active)));
+  if (state.screens[state.active].name !== state.defaultScreen) actions.appendChild(mk("Set default", () => setDefaultScreen(state.active)));
+  if (state.screens.length > 1) actions.appendChild(mk("Delete", () => deleteScreen(state.active)));
+  bar.appendChild(actions);
 }
 // canvas -> code: refresh the textarea (unless the user is typing in it, so we
 // never clobber an in-progress edit). Setting .value doesn't fire 'input', so
@@ -1296,7 +1398,7 @@ function syncCode() {
 $("code-text").addEventListener("input", () => {
   clearTimeout(_codeTimer);
   _codeTimer = setTimeout(() => {
-    if (applyCode()) { renderCanvas(); renderProps(); buildScreenControls(); updateReadout(); renderGuides(); }
+    if (applyCode()) { renderScreensBar(); renderCanvas(); renderProps(); buildScreenControls(); updateReadout(); renderGuides(); }
   }, 350);
 });
 $("codeToggle").addEventListener("change", (e) => {
@@ -1321,7 +1423,7 @@ async function boot() {
   $("snapToggle").addEventListener("change", (e) => { state.snap = e.target.checked; });
   $("canvas").classList.toggle("grid", $("gridToggle").checked);
   sizeCanvas();
-  renderPalette(); renderCanvas(); renderProps(); updateReadout(); renderGuides();
+  renderPalette(); renderScreensBar(); renderCanvas(); renderProps(); updateReadout(); renderGuides();
 }
 window.addEventListener("resize", () => {
   if (!$("stage").classList.contains("hidden")) { sizeCanvas(); renderCanvas(); }
