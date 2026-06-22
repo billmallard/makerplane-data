@@ -1,0 +1,25 @@
+# systemd USER unit -- installs to ~/.config/systemd/user/pyefis-config-pull.service
+#
+#   systemctl --user enable pyefis-config-pull.service
+#
+# At boot (once the network is up and pyEfis has started), pull this device's
+# panel config from the configurator and apply it if it changed. This is
+# pull-on-BOOT only -- deliberately NOT a periodic timer: a paired aircraft must
+# never restart its EFIS to apply a config change in flight. For an on-demand
+# update on the ground, run `pyefis-data config-pull` by hand.
+#
+# config-pull is safe: it verifies pyEfis comes back up after applying a new
+# config and auto-rolls-back to the last working panel if it doesn't, so a bad
+# config can never brick the boot.
+[Unit]
+Description=MakerPlane pyEfis panel-config pull (on boot)
+Wants=network-online.target
+After=network-online.target pyefis.service
+
+[Service]
+Type=oneshot
+# A failed / offline pull is never fatal -- the device keeps its current panel.
+ExecStart=%h/.local/bin/pyefis-data config-pull
+
+[Install]
+WantedBy=default.target
