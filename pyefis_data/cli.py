@@ -380,6 +380,7 @@ def cmd_config_pull(args) -> int:
         print(f"config pull failed: {status[len('error:'):]}", file=sys.stderr)
         return 2
 
+    old_version = cfg.config_version          # to revert to if the new config crashes
     try:
         summary = config_pull.install_config(text)
     except ValueError as e:
@@ -395,11 +396,16 @@ def cmd_config_pull(args) -> int:
     if args.no_restart:
         print("(skipped pyEfis restart; --no-restart)")
         return 0
-    if config_pull.restart_pyefis():
-        print("restarted pyEfis")
+    if config_pull.restart_and_verify():
+        print("restarted pyEfis -- panel is up")
         return 0
-    print("config installed but pyEfis restart failed; restart it manually "
-          "(systemctl --user restart pyefis)", file=sys.stderr)
+    # The new config crashed pyEfis -> roll back to the last working state so the
+    # device is never left on a screen it can't boot.
+    restored = config_pull.rollback()
+    write_config(args.config, {"config_version": old_version})
+    config_pull.restart_pyefis()
+    print(f"new config crashed pyEfis on load; rolled back to {restored} "
+          f"(config v{version} left available to retry)", file=sys.stderr)
     return 1
 
 

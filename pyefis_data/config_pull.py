@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -117,8 +118,11 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
 
     # 1) the managed screen (named after the device's default screen) + a
     #    one-entry screen list (the panel + the nav-data currency flag screen).
-    _atomic_write(cd / "screens" / "managed.yaml",
-                  yaml.safe_dump({boot: screen_def}, sort_keys=False))
+    #    Keep the previous panel as .bak so a crash can roll back to it.
+    managed = cd / "screens" / "managed.yaml"
+    if managed.exists():
+        _atomic_write(cd / "screens" / "managed.yaml.bak", managed.read_text("utf-8"))
+    _atomic_write(managed, yaml.safe_dump({boot: screen_def}, sort_keys=False))
     _atomic_write(cd / "screens" / "managed_list.yaml",
                   yaml.safe_dump({"include": ["SCREEN_MANAGED", "SCREEN_DATA_STATUS"]},
                                  sort_keys=False))
@@ -153,3 +157,42 @@ def restart_pyefis() -> bool:
         return True
     except Exception:
         return False
+
+
+def _systemctl_show(prop: str) -> str:
+    env = dict(os.environ)
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    try:
+        out = subprocess.run(["systemctl", "--user", "show", "pyefis", "-p", prop, "--value"],
+                             env=env, capture_output=True, text=True, timeout=10)
+        return out.stdout.strip()
+    except Exception:
+        return ""
+
+
+def restart_and_verify(wait_s: int = 14) -> bool:
+    """Restart pyEfis and confirm it STAYS up. pyEfis is Type=simple +
+    Restart=always, so a config that crashes it on load shows up as a CHANGED
+    Main PID a few seconds later (systemd respawns it). Returns True if healthy."""
+    if not restart_pyefis():
+        return False
+    p0 = _systemctl_show("MainPID")
+    time.sleep(wait_s)
+    p1 = _systemctl_show("MainPID")
+    return bool(p0) and p0 != "0" and p0 == p1 and _systemctl_show("ActiveState") == "active"
+
+
+def rollback(cd: Path | None = None) -> str:
+    """Revert to the last working config after a failed swap: restore the previous
+    managed panel if there is one, else the pristine (stock) override. The caller
+    restarts pyEfis afterwards."""
+    cd = cd or config_dir()
+    bak = cd / "screens" / "managed.yaml.bak"
+    if bak.exists():
+        _atomic_write(cd / "screens" / "managed.yaml", bak.read_text("utf-8"))
+        return "previous panel"
+    prepanel = cd / "preferences.yaml.custom.prepanel"
+    if prepanel.exists():
+        _atomic_write(cd / "preferences.yaml.custom", prepanel.read_text("utf-8"))
+        return "stock config"
+    return "nothing to restore"
