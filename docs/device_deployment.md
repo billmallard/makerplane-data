@@ -163,3 +163,40 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
     keeping the full screen set** (above) — a short screen list was segfaulting the
     eglfs GL compositor, not the overlapping instruments.
   - No per-device signing (decision 1).
+
+- **P5 — Multi-screen panels + switching (DONE, #72):** the editor lets a builder
+  draw **several screens** (e.g. `PANEL` + `ROUND_DIALS`); `config-pull` now
+  deploys **all** of them, not just the default, and gives a touchscreen-only
+  panel a way to move between them. `makerplane-data` **v0.2.7**.
+  - **Two install shapes, chosen by screen count** (`pyefis_data/config_pull.py`):
+    - *Single screen* keeps the **proven P3 path** untouched — one
+      `screens/managed.yaml` named after the device's `defaultScreen`, overriding
+      only that one include and **keeping the device's stock `SCREENS_CONFIG`**.
+    - *Multiple screens* writes one `screens/managed_<name>.yaml` per editor
+      screen + a **clean `screens/managed_list.yaml`** listing exactly those, and
+      overrides `SCREENS_CONFIG` to it. The editor is the whole panel. The
+      **default editor screen takes the device's existing `defaultScreen` name**
+      so boot still needs **no `main/` edit**; the rest keep their editor names.
+  - **Why a clean short list is safe now:** P3 deliberately avoided a short
+    `SCREENS_CONFIG` because a 2-entry list + the SVS GL widget segfaulted the
+    eglfs `QOpenGLCompositor`. That was the **AI redraw-before-resize bug**
+    (pyEfis #274) — now fixed and on the Pi — *not* list length. Re-verified on the
+    Pi 5: a clean 2-screen list with SVS restarts and stays up. So multi-screen
+    uses the tidy editor-only list; single-screen still keeps the full stock set
+    (no reason to disturb the battle-tested path).
+  - **Switching:** the encoder/key screen-change bindings aren't assumed on a
+    managed panel, so the installer **injects a small "SCREEN >" button**
+    (bottom-centre, clear of the edge tapes) onto each screen. It references a
+    written `buttons/managed-next.yaml` whose click fires the HMI **`show next
+    screen`** action (`pyefis/hmi/actionclass.py`), cycling the managed list. Same
+    button mechanism the stock nav uses, so no new pyEfis code.
+  - **Rollback hardened:** before every install the panel state (the override +
+    all `managed*.yaml` + the switch button) is snapshotted to **`.panel_backup/`**;
+    a config that crashes pyEfis restores the whole snapshot (the *previous working*
+    panel), falling back to the pristine `.prepanel` override. Also bumped
+    `restart_pyefis`'s timeout **40 → 120 s**: an SVS/GL pyEfis can hang on SIGTERM
+    up to its 90 s stop-timeout before systemd SIGKILLs it, and the old 40 s window
+    could misread that as a failed restart and trigger a spurious rollback.
+  - Unit-tested (`tests/test_config_pull.py`, no Qt needed) and validated
+    end-to-end on the Pi 5: `config-pull` installed a 2-screen panel
+    (`PFD_AI_ONLY` + `ROUND_DIALS`, SVS on the first), restarted, and stayed up.

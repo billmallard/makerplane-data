@@ -1,0 +1,174 @@
+"""pyefis_data.config_pull -- the on-Pi panel install (single + multi-screen #72).
+
+Exercises the pure-Python install/rollback logic against a fake pyEfis config
+dir (no Qt, no Pi). The restart/verify helpers are systemd-bound and tested on
+the device, not here.
+"""
+import textwrap
+
+import yaml
+
+from pyefis_data import config_pull
+
+
+def _config_dir(tmp_path, default_screen="PFD_AI_ONLY", custom=None):
+    """A minimal pyEfis config dir: a main/ with a defaultScreen and an existing
+    preferences.yaml.custom (so the pristine-backup + merge paths are real)."""
+    cd = tmp_path / "config"
+    (cd / "main").mkdir(parents=True)
+    (cd / "screens").mkdir()
+    (cd / "buttons").mkdir()
+    # Mirrors the real device file: a uniformly-indented mapping with no
+    # column-0 key, so yaml.safe_load yields defaultScreen at the top level
+    # (that's what _device_default_screen reads).
+    (cd / "main" / "default.yaml").write_text(
+        f"  nodeID: 1\n  defaultScreen: {default_screen}\n", encoding="utf-8")
+    custom = custom if custom is not None else {
+        "style": {"basic": True},
+        "includes": {"SCREEN_PFD_AI_ONLY": "screens/stock.yaml"},
+    }
+    (cd / "preferences.yaml.custom").write_text(
+        yaml.safe_dump(custom, sort_keys=False), encoding="utf-8")
+    return cd
+
+
+def _doc(*screen_names, vfr_on=None):
+    """A native editor config with the given screens; vfr_on names a screen that
+    carries a virtual_vfr instrument."""
+    screens = {}
+    for n in screen_names:
+        insts = [{"type": "altimeter_tape", "row": 0, "column": 184,
+                  "span": {"rows": 110, "columns": 16}}]
+        if n == vfr_on:
+            insts.insert(0, {"type": "virtual_vfr", "row": 0, "column": 0,
+                             "span": {"rows": 110, "columns": 200}})
+        screens[n] = {"module": "pyefis.screens.screenbuilder", "title": n,
+                      "layout": {"rows": 110, "columns": 200}, "instruments": insts}
+    return {"main": {"defaultScreen": screen_names[0]}, "screens": screens}
+
+
+def _read(cd, rel):
+    return yaml.safe_load((cd / rel).read_text("utf-8"))
+
+
+# --- single screen: proven full-stock-list path -------------------------------
+
+def test_single_screen_keeps_stock_list(tmp_path):
+    cd = _config_dir(tmp_path)
+    doc = _doc("PANEL", vfr_on="PANEL")
+    summary = config_pull.install_config(yaml.safe_dump(doc), cd=cd)
+
+    assert summary["mode"] == "single"
+    assert summary["boot_screen"] == "PFD_AI_ONLY"     # device default, not "PANEL"
+    assert summary["screens"] == 1
+
+    managed = _read(cd, "screens/managed.yaml")
+    assert "PFD_AI_ONLY" in managed                     # keyed by the device default
+    inc = _read(cd, "preferences.yaml.custom")["includes"]
+    assert inc["SCREEN_PFD_AI_ONLY"] == "screens/managed.yaml"
+    assert "SCREENS_CONFIG" not in inc                  # stock screen list kept
+    assert not (cd / "screens" / "managed_list.yaml").exists()
+
+
+def test_single_screen_injects_svs_and_db(tmp_path):
+    cd = _config_dir(tmp_path)
+    config_pull.install_config(yaml.safe_dump(_doc("PANEL", vfr_on="PANEL")), cd=cd)
+    screen = _read(cd, "screens/managed.yaml")["PFD_AI_ONLY"]
+    vfr = next(i for i in screen["instruments"] if i["type"] == "virtual_vfr")
+    assert vfr["options"]["svs"]["enabled"] is True
+    assert "screens/virtualvfr_db.yaml" in screen["include"]
+
+
+# --- multi screen: clean managed list + switch buttons (#72) ------------------
+
+def test_multi_screen_clean_list(tmp_path):
+    cd = _config_dir(tmp_path)
+    doc = _doc("PANEL", "ROUND_DIALS", vfr_on="PANEL")
+    summary = config_pull.install_config(yaml.safe_dump(doc), cd=cd)
+
+    assert summary["mode"] == "multi"
+    assert summary["screens"] == 2
+    # default screen takes the device's defaultScreen name; the other keeps its own
+    assert summary["screen_names"] == ["PFD_AI_ONLY", "ROUND_DIALS"]
+
+    inc = _read(cd, "preferences.yaml.custom")["includes"]
+    assert inc["SCREENS_CONFIG"] == "screens/managed_list.yaml"
+    assert inc["SCREEN_M_PFD_AI_ONLY"] == "screens/managed_PFD_AI_ONLY.yaml"
+    assert inc["SCREEN_M_ROUND_DIALS"] == "screens/managed_ROUND_DIALS.yaml"
+    # the stale single-screen override is gone
+    assert "SCREEN_PFD_AI_ONLY" not in inc
+
+    lst = _read(cd, "screens/managed_list.yaml")["include"]
+    assert lst == ["SCREEN_M_PFD_AI_ONLY", "SCREEN_M_ROUND_DIALS"]   # default boots first
+
+
+def test_multi_screen_injects_switch_button_on_each(tmp_path):
+    cd = _config_dir(tmp_path)
+    config_pull.install_config(
+        yaml.safe_dump(_doc("PANEL", "ROUND_DIALS", vfr_on="PANEL")), cd=cd)
+
+    assert (cd / "buttons" / "managed-next.yaml").exists()
+    btn_cfg = _read(cd, "buttons/managed-next.yaml")
+    actions = [a for c in btn_cfg["conditions"] for a in c.get("actions", [])]
+    assert any("show next screen" in a for a in actions)
+
+    for fname, key in [("managed_PFD_AI_ONLY.yaml", "PFD_AI_ONLY"),
+                       ("managed_ROUND_DIALS.yaml", "ROUND_DIALS")]:
+        screen = _read(cd, f"screens/{fname}")[key]
+        buttons = [i for i in screen["instruments"]
+                   if i.get("type") == "button"
+                   and i.get("options", {}).get("config") == "buttons/managed-next.yaml"]
+        assert len(buttons) == 1, f"{fname} should have exactly one switch button"
+
+
+def test_multi_then_single_clears_managed_list(tmp_path):
+    """Re-deploying a 1-screen panel after a multi must drop the managed-list
+    override so the stock screen set loads again."""
+    cd = _config_dir(tmp_path)
+    config_pull.install_config(
+        yaml.safe_dump(_doc("PANEL", "ROUND_DIALS", vfr_on="PANEL")), cd=cd)
+    config_pull.install_config(yaml.safe_dump(_doc("PANEL", vfr_on="PANEL")), cd=cd)
+
+    inc = _read(cd, "preferences.yaml.custom")["includes"]
+    assert "SCREENS_CONFIG" not in inc
+    assert not any(k.startswith("SCREEN_M_") for k in inc)
+    assert inc["SCREEN_PFD_AI_ONLY"] == "screens/managed.yaml"
+
+
+# --- rollback -----------------------------------------------------------------
+
+def test_rollback_restores_previous_panel(tmp_path):
+    cd = _config_dir(tmp_path)
+    # First install a single-screen panel (the "working" one), then a multi.
+    config_pull.install_config(yaml.safe_dump(_doc("PANEL", vfr_on="PANEL")), cd=cd)
+    good_custom = (cd / "preferences.yaml.custom").read_text("utf-8")
+    good_managed = (cd / "screens" / "managed.yaml").read_text("utf-8")
+
+    config_pull.install_config(
+        yaml.safe_dump(_doc("PANEL", "ROUND_DIALS", vfr_on="PANEL")), cd=cd)
+    # the multi install changed the override away from the single-screen one
+    assert (cd / "preferences.yaml.custom").read_text("utf-8") != good_custom
+
+    where = config_pull.rollback(cd=cd)
+    assert where == "previous panel"
+    assert (cd / "preferences.yaml.custom").read_text("utf-8") == good_custom
+    assert (cd / "screens" / "managed.yaml").read_text("utf-8") == good_managed
+
+
+def test_rollback_without_snapshot_uses_pristine(tmp_path):
+    cd = _config_dir(tmp_path)
+    pristine = (cd / "preferences.yaml.custom").read_text("utf-8")
+    # Simulate the very first install having stamped a pristine backup, then a
+    # bad override, with no usable snapshot manifest.
+    (cd / "preferences.yaml.custom.prepanel").write_text(pristine, encoding="utf-8")
+    (cd / "preferences.yaml.custom").write_text("includes: {bad: x}\n", encoding="utf-8")
+    where = config_pull.rollback(cd=cd)
+    assert where == "stock config"
+    assert (cd / "preferences.yaml.custom").read_text("utf-8") == pristine
+
+
+def test_rejects_non_native_config(tmp_path):
+    cd = _config_dir(tmp_path)
+    import pytest
+    with pytest.raises(ValueError):
+        config_pull.install_config(yaml.safe_dump({"design": {"instruments": []}}), cd=cd)

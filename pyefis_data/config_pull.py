@@ -1,27 +1,46 @@
-"""Device panel-config pull + install (#65 P3).
+"""Device panel-config pull + install (#65 P3, multi-screen #72).
 
 A paired device fetches its latest panel config (native pyEfis YAML) from the
 configuration manager (``pyefis.aerocommons.org``) and installs it into the
 pyEfis config dir, then restarts pyEfis. Uses the device token stored by
 ``pyefis-data pair``.
 
-Install strategy -- least-surgery and fully reversible. The pulled config is one
-screenbuilder ``screen`` (plus a ``main`` block). We:
+The pulled config is one or more screenbuilder ``screen`` blocks (plus a ``main``
+block). There are two install shapes, chosen by how many screens the panel has:
 
-  * write it as a *managed* screen file, named after the device's EXISTING
+**Single screen** (least surgery, the original P3 path):
+  * write the screen as a *managed* file named after the device's EXISTING
     ``main/default.yaml`` ``defaultScreen`` -- so the boot screen flips to the
     panel without editing ``main/`` at all;
-  * point ``SCREENS_CONFIG`` at a one-entry managed screen list, by MERGING two
-    keys into ``preferences.yaml.custom`` (pyEfis's supported override that
-    layers over ``preferences.yaml``).
+  * activate by overriding ONLY that screen's include
+    (``SCREEN_<defaultScreen>`` -> ``screens/managed.yaml``) and KEEPING the
+    device's stock ``SCREENS_CONFIG`` screen list.
 
-The shipped config files are never modified. Uninstalling = drop the two
-override keys (a ``preferences.yaml.custom.prepanel`` backup of the pristine
-override is kept). Every write is atomic (temp + ``os.replace``).
+**Multiple screens** (#72):
+  * write each editor screen as ``screens/managed_<name>.yaml``. The default
+    screen takes the device's existing ``defaultScreen`` name (so boot still
+    needs no ``main/`` edit); the rest keep their editor names;
+  * write a clean ``screens/managed_list.yaml`` listing exactly those screens
+    and override ``SCREENS_CONFIG`` to it -- the editor is the whole panel;
+  * inject a small "SCREEN >" button (``buttons/managed-next.yaml`` ->
+    ``show next screen``) onto each screen so a touchscreen-only panel can
+    cycle between them (the encoder/key screen-switch bindings aren't assumed).
+
+A short clean screen list used to segfault the eglfs ``QOpenGLCompositor`` with
+SVS; that was the AI redraw-before-resize bug (pyEfis #274), now fixed, so a
+clean editor-only list is safe (verified on the Pi 5). The single-screen path
+still keeps the full stock list -- it's the proven, untouched original.
+
+The shipped config files are never modified. Before each install the current
+panel state is snapshotted to ``.panel_backup/`` so a config that crashes pyEfis
+is rolled back to the last working panel. Every write is atomic (temp +
+``os.replace``).
 """
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import subprocess
 import time
 import urllib.error
@@ -32,12 +51,15 @@ from pathlib import Path
 _UA = "pyefis-data/0.1 (+https://github.com/makerplane/makerplane-data)"
 _DEFAULT_PYEFIS_CONFIG = "~/makerplane/pyefis/config"
 
+# Snapshot dir (under the config dir) holding the pre-install panel state, used
+# by rollback() to restore the last working panel after a failed swap.
+_BACKUP_DIR = ".panel_backup"
+
 # Standard on-device SVS data layout (the makerplane-data updater installs here).
 # Injected into a virtual_vfr instrument so it renders terrain, mirroring the
 # stock includes/ahrs/svs.yaml block. A device with a usable GPU + this data
 # shows synthetic vision; without, SVS self-disables to sky/ground + an
-# "SVS UNAVAIL" flag (never fatal). Needs pyEfis #71's AI redraw guard, and the
-# boot-screen-override install below (a short screen list segfaults the GL).
+# "SVS UNAVAIL" flag (never fatal). Needs pyEfis #71's AI redraw guard.
 _SVS_OPTS = {
     "enabled": True,
     "range_nm": 30,
@@ -49,6 +71,29 @@ _SVS_OPTS = {
     "highway_db_path": "/data/makerplane-data/highways/current/highways.sqlite",
     "water_max_vertices": 1024,
 }
+
+# The screen-switch button definition, written to buttons/managed-next.yaml for
+# multi-screen panels. A plain touchscreen button whose click fires the HMI
+# "show next screen" action (registered in pyefis/hmi/actionclass.py), cycling
+# the managed screen list. {id} is replaced per-instrument so each screen's
+# button gets a unique touchscreen-button fixid.
+_SWITCH_BUTTON_CFG = (
+    "# Managed-panel screen-switch button (written by pyefis-data config-pull).\n"
+    "# Tapping it cycles to the next screen in the managed screen list, so a\n"
+    "# touchscreen-only panel can move between the screens designed in the editor.\n"
+    "type: simple\n"
+    'text: "SCREEN >"\n'
+    "dbkey: TSBTN{id}97\n"
+    "conditions:\n"
+    '  - when: "True"\n'
+    "    actions:\n"
+    '      - set bg color: "#222b3ad0"\n'
+    '      - set fg color: "#f0f0f0"\n'
+    "    continue: true\n"
+    '  - when: "CLICKED eq true"\n'
+    "    actions:\n"
+    "      - show next screen: next\n"
+)
 
 
 def config_dir() -> Path:
@@ -93,9 +138,9 @@ def _atomic_write(path: Path, text: str) -> None:
 
 
 def _device_default_screen(cd: Path) -> str:
-    """The device's current ``defaultScreen`` (so the managed screen can take its
-    name and the boot screen flips without touching ``main/``). Defaults to
-    PANEL if unset/unreadable."""
+    """The device's current ``defaultScreen`` (so the managed boot screen can
+    take its name and the boot screen flips without touching ``main/``). Defaults
+    to PANEL if unset/unreadable."""
     import yaml
     try:
         main = yaml.safe_load((cd / "main" / "default.yaml").read_text("utf-8")) or {}
@@ -107,31 +152,24 @@ def _device_default_screen(cd: Path) -> str:
     return "PANEL"
 
 
-def install_config(yaml_text: str, cd: Path | None = None) -> dict:
-    """Install a pulled native config ({main, screens}) as the managed panel.
+def _sanitize(name: str) -> str:
+    """A screen name safe for a screenbuilder screen key / include token / file
+    name (letters, digits, underscore; never leading-digit)."""
+    s = re.sub(r"[^A-Za-z0-9_]", "_", (name or "").strip()) or "SCREEN"
+    if s[0].isdigit():
+        s = "S_" + s
+    return s
 
-    Returns a summary dict. Raises ValueError if the config isn't native form
-    (e.g. an old design blob), so the caller can tell the user to re-save.
-    """
-    import yaml
-    cd = cd or config_dir()
-    doc = yaml.safe_load(yaml_text)
-    if not isinstance(doc, dict) or not isinstance(doc.get("screens"), dict) or not doc["screens"]:
-        raise ValueError("config is not native pyEfis form (no 'screens:' block) -- "
-                         "re-save the panel in the editor")
-    # Deploy the editor's chosen default screen (a panel may define several; full
-    # multi-screen deploy + switching is a follow-up, #72). Fall back to the first.
-    screens = doc["screens"]
-    default_name = (doc.get("main") or {}).get("defaultScreen")
-    screen_def = dict(screens[default_name] if default_name in screens
-                      else next(iter(screens.values())))
-    boot = _device_default_screen(cd)
 
-    # virtual_vfr needs device-side config the editor can't know: a screen-level
-    # dbpath (via the stock virtualvfr_db include, else it crashes on a None) and
-    # an `svs` options block pointing at the on-device terrain/airport/water data
-    # (else it only shows sky/ground). Both use the standard makerplane-data
-    # layout. (Needs pyEfis #71's AI redraw guard, on gpu-required.)
+def _prep_screen(screen_def: dict) -> dict:
+    """Inject the device-side bits the editor can't know into one screen:
+
+    * a ``virtual_vfr`` gets an ``svs`` options block (terrain/airport/water data
+      paths) so it renders synthetic vision, and the stock
+      ``screens/virtualvfr_db.yaml`` include (a screen-level ``dbpath`` -- without
+      it the widget crashes on a ``None``).
+    Returns a new screen dict (the input is not mutated)."""
+    screen_def = dict(screen_def)
     has_vfr = False
     insts = []
     for inst in screen_def.get("instruments", []):
@@ -139,7 +177,7 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
             has_vfr = True
             inst = dict(inst)
             opts = dict(inst.get("options") or {})
-            opts.setdefault("svs", dict(_SVS_OPTS))   # enable terrain; keep an explicit svs if present
+            opts.setdefault("svs", dict(_SVS_OPTS))   # keep an explicit svs if present
             inst["options"] = opts
         insts.append(inst)
     screen_def["instruments"] = insts
@@ -148,47 +186,185 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
         if "screens/virtualvfr_db.yaml" not in inc:
             inc.append("screens/virtualvfr_db.yaml")
         screen_def["include"] = inc
+    return screen_def
 
-    # 1) the managed screen, named after the device's existing default screen.
-    #    Keep the previous panel as .bak so a crash can roll back to it.
-    managed = cd / "screens" / "managed.yaml"
-    if managed.exists():
-        _atomic_write(cd / "screens" / "managed.yaml.bak", managed.read_text("utf-8"))
-    _atomic_write(managed, yaml.safe_dump({boot: screen_def}, sort_keys=False))
 
-    # 2) activate by overriding ONLY the boot screen's include to point at the
-    #    managed screen -- KEEP the device's stock screen list (SCREENS_CONFIG).
-    #    Replacing the whole list with a short managed list segfaults the eglfs
-    #    SVS-GL compositor (#71); keeping the full set avoids it. Merge into
-    #    preferences.yaml.custom (don't clobber existing custom).
-    custom_path = cd / "preferences.yaml.custom"
+def _switch_button() -> dict:
+    """A small bottom-centre "next screen" button instrument. Bottom-centre
+    (cols 88-112 of 200) clears the airspeed/altitude tapes that hug the screen
+    edges on a PFD; a user can reposition it in the editor."""
+    return {
+        "type": "button",
+        "row": 102,
+        "column": 88,
+        "span": {"rows": 6, "columns": 24},
+        "options": {"config": "buttons/managed-next.yaml"},
+    }
+
+
+def _managed_rel_paths(cd: Path) -> list[str]:
+    """Config-relative paths of every file an install writes (the override + all
+    managed screen/button files), for snapshot/restore."""
+    rels = ["preferences.yaml.custom"]
+    sd = cd / "screens"
+    if sd.is_dir():
+        rels += [f"screens/{p.name}" for p in sorted(sd.glob("managed*.yaml"))]
+    if (cd / "buttons" / "managed-next.yaml").exists():
+        rels.append("buttons/managed-next.yaml")
+    return rels
+
+
+def _snapshot(cd: Path) -> None:
+    """Snapshot the current panel state to ``.panel_backup/`` so a failed swap
+    can be rolled back to the last working panel. Taken before any install write,
+    so it captures the PREVIOUS (working) config."""
+    bk = cd / _BACKUP_DIR
+    shutil.rmtree(bk, ignore_errors=True)
+    bk.mkdir(parents=True, exist_ok=True)
+    present = []
+    for rel in _managed_rel_paths(cd):
+        src = cd / rel
+        if src.exists():
+            dst = bk / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(src.read_text("utf-8"), encoding="utf-8")
+            present.append(rel)
+    (bk / "manifest.txt").write_text("\n".join(present), encoding="utf-8")
+    # Keep a one-time PRISTINE override (pre-ANY-panel) as the ultimate fallback.
+    custom = cd / "preferences.yaml.custom"
+    prepanel = cd / "preferences.yaml.custom.prepanel"
+    if custom.exists() and not prepanel.exists():
+        _atomic_write(prepanel, custom.read_text("utf-8"))
+
+
+def _load_custom(cd: Path) -> dict:
+    import yaml
+    p = cd / "preferences.yaml.custom"
     try:
-        custom = yaml.safe_load(custom_path.read_text("utf-8")) or {}
+        c = yaml.safe_load(p.read_text("utf-8")) or {}
     except Exception:
-        custom = {}
-    if not isinstance(custom, dict):
-        custom = {}
-    # Back up the PRISTINE override once, for a clean uninstall/rollback.
-    backup = cd / "preferences.yaml.custom.prepanel"
-    if custom_path.exists() and not backup.exists():
-        _atomic_write(backup, custom_path.read_text("utf-8"))
-    inc = custom.setdefault("includes", {})
-    # Undo any older-style managed_list override so the stock screen set loads.
+        c = {}
+    return c if isinstance(c, dict) else {}
+
+
+def _write_custom(cd: Path, custom: dict) -> None:
+    import yaml
+    _atomic_write(cd / "preferences.yaml.custom",
+                  yaml.safe_dump(custom, sort_keys=False))
+
+
+def _clear_managed_includes(inc: dict, boot: str) -> None:
+    """Drop any include keys a prior install (single OR multi) added, so the two
+    shapes can switch cleanly and a shrinking screen set leaves no stale entries.
+    Only removes OUR ``SCREENS_CONFIG`` (the managed list) -- never a user's."""
     if inc.get("SCREENS_CONFIG") == "screens/managed_list.yaml":
         del inc["SCREENS_CONFIG"]
     inc.pop("SCREEN_MANAGED", None)
+    inc.pop(f"SCREEN_{boot}", None)
+    for k in [k for k in inc if k.startswith("SCREEN_M_")]:
+        del inc[k]
+
+
+def install_config(yaml_text: str, cd: Path | None = None) -> dict:
+    """Install a pulled native config ({main, screens}) as the managed panel.
+
+    Returns a summary dict (always with ``boot_screen`` + ``screens``). Raises
+    ValueError if the config isn't native form (e.g. an old design blob), so the
+    caller can tell the user to re-save.
+    """
+    import yaml
+    cd = cd or config_dir()
+    doc = yaml.safe_load(yaml_text)
+    if not isinstance(doc, dict) or not isinstance(doc.get("screens"), dict) or not doc["screens"]:
+        raise ValueError("config is not native pyEfis form (no 'screens:' block) -- "
+                         "re-save the panel in the editor")
+    screens = doc["screens"]
+    default_name = (doc.get("main") or {}).get("defaultScreen")
+    if default_name not in screens:
+        default_name = next(iter(screens))
+    boot = _device_default_screen(cd)
+
+    _snapshot(cd)                       # capture the working state for rollback
+    if len(screens) == 1:
+        summary = _install_single(cd, screens[default_name], boot)
+    else:
+        summary = _install_multi(cd, screens, default_name, boot)
+    summary["config_dir"] = str(cd)
+    return summary
+
+
+def _install_single(cd: Path, screen_def: dict, boot: str) -> dict:
+    """Original proven path: one managed screen named after the device's
+    defaultScreen, activated by overriding only that screen's include while
+    KEEPING the device's stock screen list."""
+    import yaml
+    screen_def = _prep_screen(screen_def)
+    _atomic_write(cd / "screens" / "managed.yaml",
+                  yaml.safe_dump({boot: screen_def}, sort_keys=False))
+    custom = _load_custom(cd)
+    inc = custom.setdefault("includes", {})
+    _clear_managed_includes(inc, boot)
     inc[f"SCREEN_{boot}"] = "screens/managed.yaml"
-    _atomic_write(custom_path, yaml.safe_dump(custom, sort_keys=False))
-    return {"boot_screen": boot, "config_dir": str(cd)}
+    _write_custom(cd, custom)
+    return {"mode": "single", "boot_screen": boot, "screens": 1,
+            "screen_names": [boot]}
 
 
-def restart_pyefis() -> bool:
-    """Restart the pyEfis user service. Returns True on success."""
+def _install_multi(cd: Path, screens: dict, default_name: str, boot: str) -> dict:
+    """Multi-screen path (#72): write every editor screen + a clean managed
+    screen list + a per-screen switch button, and override SCREENS_CONFIG to the
+    managed list. The default editor screen takes the device's defaultScreen
+    name so boot needs no main/ edit; the rest keep (sanitized) editor names."""
+    import yaml
+    _atomic_write(cd / "buttons" / "managed-next.yaml", _SWITCH_BUTTON_CFG)
+
+    ordered = [default_name] + [n for n in screens if n != default_name]
+    used: set[str] = set()
+    tokens: list[str] = []
+    inc_managed: dict[str, str] = {}
+    names: list[str] = []
+    for n in ordered:
+        on_name = boot if n == default_name else _sanitize(n)
+        while on_name in used:          # avoid colliding with the boot name
+            on_name += "_2"
+        used.add(on_name)
+        names.append(on_name)
+
+        sdef = _prep_screen(screens[n])
+        sdef["instruments"] = list(sdef.get("instruments") or []) + [_switch_button()]
+        fname = f"managed_{on_name}.yaml"
+        _atomic_write(cd / "screens" / fname,
+                      yaml.safe_dump({on_name: sdef}, sort_keys=False))
+        token = f"SCREEN_M_{on_name}"
+        tokens.append(token)
+        inc_managed[token] = f"screens/{fname}"
+
+    _atomic_write(cd / "screens" / "managed_list.yaml",
+                  yaml.safe_dump({"include": tokens}, sort_keys=False))
+
+    custom = _load_custom(cd)
+    inc = custom.setdefault("includes", {})
+    _clear_managed_includes(inc, boot)
+    inc["SCREENS_CONFIG"] = "screens/managed_list.yaml"
+    inc.update(inc_managed)
+    _write_custom(cd, custom)
+    return {"mode": "multi", "boot_screen": boot, "screens": len(screens),
+            "screen_names": names}
+
+
+def restart_pyefis(timeout: int = 120) -> bool:
+    """Restart the pyEfis user service. Returns True on success.
+
+    The timeout exceeds systemd's stop timeout: an SVS/GL pyEfis can hang on
+    SIGTERM for up to its TimeoutStopSec (~90s) before systemd SIGKILLs it, so a
+    restart that has to stop a running GL panel can legitimately take that long.
+    A too-short timeout would raise and look like a failed restart (a spurious
+    rollback)."""
     env = dict(os.environ)
     env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     try:
         subprocess.run(["systemctl", "--user", "restart", "pyefis"],
-                       check=True, env=env, timeout=40,
+                       check=True, env=env, timeout=timeout,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except Exception:
@@ -206,7 +382,7 @@ def _systemctl_show(prop: str) -> str:
         return ""
 
 
-def restart_and_verify(wait_s: int = 14) -> bool:
+def restart_and_verify(wait_s: int = 16) -> bool:
     """Restart pyEfis and confirm it STAYS up. pyEfis is Type=simple +
     Restart=always, so a config that crashes it on load shows up as a CHANGED
     Main PID a few seconds later (systemd respawns it). Returns True if healthy."""
@@ -219,14 +395,22 @@ def restart_and_verify(wait_s: int = 14) -> bool:
 
 
 def rollback(cd: Path | None = None) -> str:
-    """Revert to the last working config after a failed swap: restore the previous
-    managed panel if there is one, else the pristine (stock) override. The caller
-    restarts pyEfis afterwards."""
+    """Revert to the last working config after a failed swap: restore every file
+    captured in the pre-install ``.panel_backup/`` snapshot (the override + all
+    managed screen/button files). Falls back to the pristine (stock) override if
+    there's no snapshot. The caller restarts pyEfis afterwards."""
     cd = cd or config_dir()
-    bak = cd / "screens" / "managed.yaml.bak"
-    if bak.exists():
-        _atomic_write(cd / "screens" / "managed.yaml", bak.read_text("utf-8"))
-        return "previous panel"
+    manifest = cd / _BACKUP_DIR / "manifest.txt"
+    if manifest.exists():
+        rels = [r.strip() for r in manifest.read_text("utf-8").splitlines() if r.strip()]
+        restored_any = False
+        for rel in rels:
+            src = cd / _BACKUP_DIR / rel
+            if src.exists():
+                _atomic_write(cd / rel, src.read_text("utf-8"))
+                restored_any = True
+        if restored_any:
+            return "previous panel"
     prepanel = cd / "preferences.yaml.custom.prepanel"
     if prepanel.exists():
         _atomic_write(cd / "preferences.yaml.custom", prepanel.read_text("utf-8"))

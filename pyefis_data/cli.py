@@ -392,7 +392,13 @@ def cmd_config_pull(args) -> int:
 
     from .config import write_config
     write_config(args.config, {"config_version": version})
-    print(f"installed panel config v{version} (boot screen: {summary['boot_screen']})")
+    n = summary.get("screens", 1)
+    if n > 1:
+        print(f"installed panel config v{version} -- {n} screens "
+              f"({', '.join(summary.get('screen_names', []))}); "
+              f"boot screen: {summary['boot_screen']}")
+    else:
+        print(f"installed panel config v{version} (boot screen: {summary['boot_screen']})")
     if args.no_restart:
         print("(skipped pyEfis restart; --no-restart)")
         return 0
