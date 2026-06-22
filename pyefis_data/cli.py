@@ -358,6 +358,51 @@ def cmd_pair(args) -> int:
     return 0
 
 
+def cmd_config_pull(args) -> int:
+    """Pull this device's panel config from the configurator and install it,
+    then restart pyEfis (#65 P3)."""
+    from . import config_pull
+    cfg = Config.load(args.config)
+    if getattr(args, "configurator_url", None):
+        cfg = _replace(cfg, configurator_url=args.configurator_url)
+
+    status, version, text = config_pull.fetch_config(cfg)
+    if status == "unpaired":
+        print("not paired -- run `pyefis-data pair <code>` first", file=sys.stderr)
+        return 2
+    if status == "up-to-date":
+        print(f"panel config up to date (v{version})")
+        return 0
+    if status == "none":
+        print("no panel config published for this device yet")
+        return 0
+    if status.startswith("error"):
+        print(f"config pull failed: {status[len('error:'):]}", file=sys.stderr)
+        return 2
+
+    try:
+        summary = config_pull.install_config(text)
+    except ValueError as e:
+        print(f"config install skipped: {e}", file=sys.stderr)
+        return 2
+    except Exception as e:
+        print(f"config install failed: {e}", file=sys.stderr)
+        return 2
+
+    from .config import write_config
+    write_config(args.config, {"config_version": version})
+    print(f"installed panel config v{version} (boot screen: {summary['boot_screen']})")
+    if args.no_restart:
+        print("(skipped pyEfis restart; --no-restart)")
+        return 0
+    if config_pull.restart_pyefis():
+        print("restarted pyEfis")
+        return 0
+    print("config installed but pyEfis restart failed; restart it manually "
+          "(systemctl --user restart pyefis)", file=sys.stderr)
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="pyefis-data")
     ap.add_argument("--config", help="path to data.yaml (default ~/.makerplane/pyefis/data.yaml)")
@@ -406,6 +451,11 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("code", help="the claim code shown in the dashboard")
     pr.add_argument("--configurator-url", help="override the configurator origin")
     pr.set_defaults(func=cmd_pair)
+
+    cp = sub.add_parser("config-pull", help="pull + install this device's panel config, restart pyEfis")
+    cp.add_argument("--no-restart", action="store_true", help="install but don't restart pyEfis")
+    cp.add_argument("--configurator-url", help="override the configurator origin")
+    cp.set_defaults(func=cmd_config_pull)
     return ap
 
 

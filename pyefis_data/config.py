@@ -57,6 +57,7 @@ class Config:
     configurator_url: str = DEFAULT_CONFIGURATOR_URL
     device_token: str | None = None
     device_id: int | None = None
+    config_version: int | None = None   # installed panel-config version (for If-None-Match)
 
     @property
     def manifest_url(self) -> str:
@@ -107,6 +108,8 @@ class Config:
             kw["device_token"] = data["device_token"]
         if isinstance(data.get("device_id"), int):
             kw["device_id"] = data["device_id"]
+        if isinstance(data.get("config_version"), int):
+            kw["config_version"] = data["config_version"]
         return replace(cfg, **kw)
 
 

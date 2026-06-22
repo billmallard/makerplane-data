@@ -1,0 +1,155 @@
+"""Device panel-config pull + install (#65 P3).
+
+A paired device fetches its latest panel config (native pyEfis YAML) from the
+configuration manager (``pyefis.aerocommons.org``) and installs it into the
+pyEfis config dir, then restarts pyEfis. Uses the device token stored by
+``pyefis-data pair``.
+
+Install strategy -- least-surgery and fully reversible. The pulled config is one
+screenbuilder ``screen`` (plus a ``main`` block). We:
+
+  * write it as a *managed* screen file, named after the device's EXISTING
+    ``main/default.yaml`` ``defaultScreen`` -- so the boot screen flips to the
+    panel without editing ``main/`` at all;
+  * point ``SCREENS_CONFIG`` at a one-entry managed screen list, by MERGING two
+    keys into ``preferences.yaml.custom`` (pyEfis's supported override that
+    layers over ``preferences.yaml``).
+
+The shipped config files are never modified. Uninstalling = drop the two
+override keys (a ``preferences.yaml.custom.prepanel`` backup of the pristine
+override is kept). Every write is atomic (temp + ``os.replace``).
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+# A real UA: Cloudflare's edge 403s the default "Python-urllib/*".
+_UA = "pyefis-data/0.1 (+https://github.com/makerplane/makerplane-data)"
+_DEFAULT_PYEFIS_CONFIG = "~/makerplane/pyefis/config"
+
+
+def config_dir() -> Path:
+    return Path(os.path.expanduser(
+        os.environ.get("PYEFIS_CONFIG_DIR", _DEFAULT_PYEFIS_CONFIG)))
+
+
+def fetch_config(cfg) -> tuple[str, int | None, str | None]:
+    """GET <configurator>/device/config with the device token.
+
+    Returns ``(status, version, yaml_text)`` where status is one of
+    ``updated`` (new config in yaml_text), ``up-to-date`` (304), ``none`` (404),
+    ``unpaired`` (no token), or ``error:<msg>``.
+    """
+    if not cfg.device_token:
+        return ("unpaired", None, None)
+    headers = {"Authorization": f"Bearer {cfg.device_token}", "User-Agent": _UA}
+    if cfg.config_version:
+        headers["If-None-Match"] = f'"v{cfg.config_version}"'
+    url = f"{cfg.configurator_url.rstrip('/')}/device/config"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers),
+                                    timeout=30) as resp:
+            text = resp.read().decode("utf-8")
+            ver = resp.headers.get("X-Config-Version")
+            return ("updated", int(ver) if ver else None, text)
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            return ("up-to-date", cfg.config_version, None)
+        if e.code == 404:
+            return ("none", None, None)
+        return (f"error:HTTP {e.code}", None, None)
+    except Exception as e:                       # network / TLS / timeout
+        return (f"error:{e}", None, None)
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _device_default_screen(cd: Path) -> str:
+    """The device's current ``defaultScreen`` (so the managed screen can take its
+    name and the boot screen flips without touching ``main/``). Defaults to
+    PANEL if unset/unreadable."""
+    import yaml
+    try:
+        main = yaml.safe_load((cd / "main" / "default.yaml").read_text("utf-8")) or {}
+        ds = main.get("defaultScreen")
+        if isinstance(ds, str) and ds.strip():
+            return ds.strip()
+    except Exception:
+        pass
+    return "PANEL"
+
+
+def install_config(yaml_text: str, cd: Path | None = None) -> dict:
+    """Install a pulled native config ({main, screens}) as the managed panel.
+
+    Returns a summary dict. Raises ValueError if the config isn't native form
+    (e.g. an old design blob), so the caller can tell the user to re-save.
+    """
+    import yaml
+    cd = cd or config_dir()
+    doc = yaml.safe_load(yaml_text)
+    if not isinstance(doc, dict) or not isinstance(doc.get("screens"), dict) or not doc["screens"]:
+        raise ValueError("config is not native pyEfis form (no 'screens:' block) -- "
+                         "re-save the panel in the editor")
+    _, screen_def = next(iter(doc["screens"].items()))
+    screen_def = dict(screen_def)
+    boot = _device_default_screen(cd)
+
+    # virtual_vfr needs screen-level config (dbpath / indexpath) that the editor
+    # can't know (device paths). Pull in the device's stock virtualvfr_db include
+    # so the widget initialises instead of crashing on a None dbpath. This is the
+    # device-side SVS wiring the editor deliberately leaves out.
+    if any(isinstance(i, dict) and i.get("type") == "virtual_vfr"
+           for i in screen_def.get("instruments", [])):
+        inc = list(screen_def.get("include") or [])
+        if "screens/virtualvfr_db.yaml" not in inc:
+            inc.append("screens/virtualvfr_db.yaml")
+        screen_def["include"] = inc
+
+    # 1) the managed screen (named after the device's default screen) + a
+    #    one-entry screen list (the panel + the nav-data currency flag screen).
+    _atomic_write(cd / "screens" / "managed.yaml",
+                  yaml.safe_dump({boot: screen_def}, sort_keys=False))
+    _atomic_write(cd / "screens" / "managed_list.yaml",
+                  yaml.safe_dump({"include": ["SCREEN_MANAGED", "SCREEN_DATA_STATUS"]},
+                                 sort_keys=False))
+
+    # 2) activate by merging two include overrides into preferences.yaml.custom.
+    custom_path = cd / "preferences.yaml.custom"
+    try:
+        custom = yaml.safe_load(custom_path.read_text("utf-8")) or {}
+    except Exception:
+        custom = {}
+    if not isinstance(custom, dict):
+        custom = {}
+    # Back up the PRISTINE override once, for a clean uninstall/rollback.
+    backup = cd / "preferences.yaml.custom.prepanel"
+    if custom_path.exists() and not backup.exists():
+        _atomic_write(backup, custom_path.read_text("utf-8"))
+    inc = custom.setdefault("includes", {})
+    inc["SCREENS_CONFIG"] = "screens/managed_list.yaml"
+    inc["SCREEN_MANAGED"] = "screens/managed.yaml"
+    _atomic_write(custom_path, yaml.safe_dump(custom, sort_keys=False))
+    return {"boot_screen": boot, "config_dir": str(cd)}
+
+
+def restart_pyefis() -> bool:
+    """Restart the pyEfis user service. Returns True on success."""
+    env = dict(os.environ)
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    try:
+        subprocess.run(["systemctl", "--user", "restart", "pyefis"],
+                       check=True, env=env, timeout=40,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
