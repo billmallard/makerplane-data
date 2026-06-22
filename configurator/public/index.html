@@ -223,7 +223,7 @@
       const status = document.createElement("span");
       status.className = "muted";
       status.style.marginLeft = "auto";
-      status.textContent = d.claimed_at ? "paired" : "unpaired";
+      status.textContent = deviceStatus(d);
       const pair = document.createElement("button");
       pair.className = "btn";
       pair.textContent = d.claimed_at ? "Re-pair" : "Pair";
@@ -235,6 +235,28 @@
       li.append(name, kind, status, pair, edit);
       ul.appendChild(li);
     }
+  }
+
+  function relTime(sqlts) {
+    // SQLite datetime('now') is UTC "YYYY-MM-DD HH:MM:SS".
+    const t = Date.parse(sqlts.replace(" ", "T") + "Z");
+    if (isNaN(t)) return sqlts;
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 90) return "just now";
+    if (s < 5400) return Math.round(s / 60) + " min ago";
+    if (s < 129600) return Math.round(s / 3600) + " h ago";
+    return Math.round(s / 86400) + " d ago";
+  }
+  function deviceStatus(d) {
+    if (!d.claimed_at) return "unpaired";
+    let s = "paired";
+    if (d.last_pull_at) s += " · pulled " + relTime(d.last_pull_at);
+    else if (d.latest_version) s += " · never pulled";
+    // A config saved after the device's last pull hasn't reached it yet.
+    if (d.latest_config_at && (!d.last_pull_at || d.latest_config_at > d.last_pull_at)) {
+      s += " · update pending";
+    }
+    return s;
   }
 
   async function pairDevice(id, li) {

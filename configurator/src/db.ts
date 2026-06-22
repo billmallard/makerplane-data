@@ -109,8 +109,11 @@ export async function listDevices(
   const res = await db
     .prepare(
       `SELECT d.id, d.kind, d.name, d.width, d.height,
-              d.claimed_at, d.last_pull_at, d.created_at
+              d.claimed_at, d.last_pull_at, d.created_at,
+              c.version AS latest_version, c.created_at AS latest_config_at
          FROM devices d JOIN projects p ON p.id = d.project_id
+         LEFT JOIN configs c ON c.device_id = d.id
+              AND c.version = (SELECT MAX(version) FROM configs WHERE device_id = d.id)
         WHERE d.project_id = ?1 AND p.user_id = ?2
         ORDER BY d.created_at`,
     )
