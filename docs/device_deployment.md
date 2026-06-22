@@ -134,14 +134,15 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
   — [panel_config_format.md](panel_config_format.md). Served by `GET /device/config`
   (device token, ETag/304). No compile step.
 - **P3 — On-Pi install (DONE):** `pyefis-data config-pull` fetches `/device/config`
-  (If-None-Match → 304), installs the native config as a **managed screen** and
-  points `SCREENS_CONFIG` at it by **merging two include keys into
-  `preferences.yaml.custom`** (the supported override) — stock files untouched, a
-  `.prepanel` backup kept for rollback. The screen is named after the device's
-  existing `defaultScreen` so the boot screen flips without editing `main/`. A
-  `virtual_vfr` instrument gets the device's `screens/virtualvfr_db.yaml` include
-  injected (it needs a screen-level `dbpath`, or it crashes on a `None`).
-  Validated on the Pi 5: paired device pulled its panel and pyEfis held on it.
+  (If-None-Match → 304), writes the native config as a **managed screen** named
+  after the device's existing `defaultScreen`, and activates it by **overriding
+  only that screen's include** (`SCREEN_<defaultScreen>` → `screens/managed.yaml`)
+  in `preferences.yaml.custom` — **keeping the device's stock screen set**. (An
+  earlier version replaced `SCREENS_CONFIG` with a 2-entry list; a *short* screen
+  list + the SVS GL widget **segfaults the eglfs `QOpenGLCompositor`** — #71. The
+  full set is fine.) Stock files untouched; a `.prepanel` backup is kept for
+  rollback. A `virtual_vfr` gets the stock `screens/virtualvfr_db.yaml` include
+  (screen-level `dbpath`) **and** an `svs` block (terrain). Validated on the Pi 5.
 - **P4 — Polish (mostly DONE):**
   - **Proper release (DONE):** `makerplane-data` **v0.2.2** wheel built + installed
     on the Pi, replacing the hot-patch (`pyefis-data pair` + `config-pull` ship in it).
@@ -155,11 +156,10 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
     in-flight EFIS restarts). On-demand updates use `pyefis-data config-pull`.
   - **Dashboard indicator (DONE):** per device "paired · pulled <rel> · update
     pending" from `last_pull_at` + the latest config's `created_at`.
-  - **SVS terrain (DEFERRED — follow-up):** injecting the stock `svs` options
-    block into a *bare* `virtual_vfr` **crashes pyEfis** on the Pi 5 (the stock
-    screen wraps `virtual_vfr` in the full AHRS-bundle include; a lone instrument
-    + `svs` isn't equivalent). The installer injects only `screens/virtualvfr_db.yaml`
-    (`dbpath`), so the widget runs as **sky/ground attitude**. Turning on real
-    SVS terrain for an editor-built screen needs replicating the AHRS-bundle setup
-    (or a pyEfis-side "managed screen" path) — a focused task, made safe by auto-rollback.
+  - **SVS terrain (DONE, #71):** the installer injects the `svs` block (terrain/
+    airport/water paths) into `virtual_vfr`, and the editor's panel renders real
+    synthetic-vision terrain on the Pi 5. Two fixes got there: pyEfis's AI
+    **redraw-before-resize guard** (`gpu-required`, PR #274) and the **install
+    keeping the full screen set** (above) — a short screen list was segfaulting the
+    eglfs GL compositor, not the overlapping instruments.
   - No per-device signing (decision 1).
