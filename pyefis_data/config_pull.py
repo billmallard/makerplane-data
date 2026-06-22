@@ -105,10 +105,12 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
     screen_def = dict(screen_def)
     boot = _device_default_screen(cd)
 
-    # virtual_vfr needs screen-level config (dbpath / indexpath) that the editor
-    # can't know (device paths). Pull in the device's stock virtualvfr_db include
-    # so the widget initialises instead of crashing on a None dbpath. This is the
-    # device-side SVS wiring the editor deliberately leaves out.
+    # virtual_vfr needs a screen-level dbpath that the editor can't know; pull in
+    # the device's stock virtualvfr_db include so it initialises instead of
+    # crashing on a None. (SVS *terrain* — the `svs` options block — is a deeper
+    # follow-up: a bare virtual_vfr + svs crashes on this hardware; the stock
+    # screen wraps it in the full AHRS bundle. The widget shows sky/ground until
+    # that's worked out. See docs/device_deployment.md.)
     if any(isinstance(i, dict) and i.get("type") == "virtual_vfr"
            for i in screen_def.get("instruments", [])):
         inc = list(screen_def.get("include") or [])
