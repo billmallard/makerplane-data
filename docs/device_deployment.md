@@ -133,7 +133,19 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
   YAML** (groups expanded, `main` snippet) so the stored file *is* the device file
   — [panel_config_format.md](panel_config_format.md). Served by `GET /device/config`
   (device token, ETag/304). No compile step.
-- **P3 — On-Pi install:** `pyefis_data` config pull + atomic-swap + service
-  restart + `status.json`; end-to-end test on the Pi 5.
-- **P4 — Polish:** optional signing (decision 1), rollback on bad config, "last
-  pulled / out-of-date" indicator in the dashboard and on-device.
+- **P3 — On-Pi install (DONE):** `pyefis-data config-pull` fetches `/device/config`
+  (If-None-Match → 304), installs the native config as a **managed screen** and
+  points `SCREENS_CONFIG` at it by **merging two include keys into
+  `preferences.yaml.custom`** (the supported override) — stock files untouched, a
+  `.prepanel` backup kept for rollback. The screen is named after the device's
+  existing `defaultScreen` so the boot screen flips without editing `main/`. A
+  `virtual_vfr` instrument gets the device's `screens/virtualvfr_db.yaml` include
+  injected (it needs a screen-level `dbpath`, or it crashes on a `None`).
+  Validated on the Pi 5: paired device pulled its panel and pyEfis held on it.
+- **P4 — Polish (remaining):** a **proper `pyefis-data` release** to replace the
+  Pi hot-patch (the venv has v0.1.9 + copied modules; a `pip install --upgrade`
+  would clobber it); an **auto-pull** (systemd timer alongside the navdata
+  update); **auto-rollback** if pyEfis fails to come up after a config swap (the
+  `.prepanel` backup is already there); SVS **terrain** for `virtual_vfr` (the
+  `svs` block, not just `dbpath`); a dashboard **"last pulled / out-of-date"**
+  indicator (from `last_pull_at` + version). No signing (decision 1).
