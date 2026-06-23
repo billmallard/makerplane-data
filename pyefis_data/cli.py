@@ -361,12 +361,31 @@ def cmd_pair(args) -> int:
 def cmd_config_pull(args) -> int:
     """Pull this device's panel config from the configurator and install it,
     then restart pyEfis (#65 P3)."""
+    import time
     from . import config_pull
     cfg = Config.load(args.config)
     if getattr(args, "configurator_url", None):
         cfg = _replace(cfg, configurator_url=args.configurator_url)
 
-    status, version, text = config_pull.fetch_config(cfg)
+    # On boot the network may not be up yet: the boot service can fire seconds
+    # into boot, before NetworkManager finishes -- and a systemd *user* unit
+    # can't usefully order against the system network-online.target, so the
+    # ordering in the unit is inert. With --wait-online, retry a transient fetch
+    # failure (DNS "name resolution", connection refused, timeout) until the
+    # network comes up or the deadline passes, so a power-cycle reliably pulls.
+    # Default 0 = manual runs fail fast; non-error statuses never loop.
+    wait_online = max(0, int(getattr(args, "wait_online", 0) or 0))
+    deadline = time.monotonic() + wait_online
+    waited = False
+    while True:
+        status, version, text = config_pull.fetch_config(cfg)
+        if not status.startswith("error") or time.monotonic() >= deadline:
+            break
+        if not waited:
+            print("waiting for network to come up...", file=sys.stderr)
+            waited = True
+        time.sleep(3)
+
     if status == "unpaired":
         print("not paired -- run `pyefis-data pair <code>` first", file=sys.stderr)
         return 2
@@ -377,7 +396,16 @@ def cmd_config_pull(args) -> int:
         print("no panel config published for this device yet")
         return 0
     if status.startswith("error"):
-        print(f"config pull failed: {status[len('error:'):]}", file=sys.stderr)
+        msg = status[len('error:'):]
+        if wait_online:
+            # Boot path: a parked aircraft usually has NO network. After the
+            # retry window, giving up is the expected, correct outcome -- keep
+            # the current panel and exit cleanly so the boot unit isn't left in
+            # a "failed" state on every offline power-up.
+            print(f"could not reach configurator after {wait_online}s ({msg}); "
+                  f"kept current config", file=sys.stderr)
+            return 0
+        print(f"config pull failed: {msg}", file=sys.stderr)
         return 2
 
     old_version = cfg.config_version          # to revert to if the new config crashes
@@ -467,6 +495,10 @@ def build_parser() -> argparse.ArgumentParser:
     cp = sub.add_parser("config-pull", help="pull + install this device's panel config, restart pyEfis")
     cp.add_argument("--no-restart", action="store_true", help="install but don't restart pyEfis")
     cp.add_argument("--configurator-url", help="override the configurator origin")
+    cp.add_argument("--wait-online", type=int, default=0, metavar="SECONDS",
+                    help="retry a transient (network-not-ready) fetch failure for up "
+                         "to SECONDS before giving up -- used by the boot service so a "
+                         "power-cycle reliably pulls once the network is up")
     cp.set_defaults(func=cmd_config_pull)
     return ap
 

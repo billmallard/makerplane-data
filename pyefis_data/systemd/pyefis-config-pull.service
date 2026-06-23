@@ -11,6 +11,14 @@
 # config-pull is safe: it verifies pyEfis comes back up after applying a new
 # config and auto-rolls-back to the last working panel if it doesn't, so a bad
 # config can never brick the boot.
+#
+# Network race: a systemd *user* unit cannot usefully order against the system
+# network-online.target (it's a system target; the user manager reaches its own
+# default.target seconds into boot, before NetworkManager has DNS up), so the
+# ordering below is effectively inert -- the pull would fire too early and fail
+# DNS. Instead, `--wait-online` retries the fetch until the network is up or the
+# window elapses. A parked aircraft usually has NO network, so it then gives up
+# gracefully (keeps the current panel, exits 0 -- not a "failed" unit).
 [Unit]
 Description=MakerPlane pyEfis panel-config pull (on boot)
 Wants=network-online.target
@@ -19,7 +27,8 @@ After=network-online.target pyefis.service
 [Service]
 Type=oneshot
 # A failed / offline pull is never fatal -- the device keeps its current panel.
-ExecStart=%h/.local/bin/pyefis-data config-pull
+# Retry for up to 60 s so a power-cycle reliably pulls once the network is up.
+ExecStart=%h/.local/bin/pyefis-data config-pull --wait-online 60
 
 [Install]
 WantedBy=default.target

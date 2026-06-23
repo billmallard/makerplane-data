@@ -195,3 +195,57 @@ def test_rejects_non_native_config(tmp_path):
     import pytest
     with pytest.raises(ValueError):
         config_pull.install_config(yaml.safe_dump({"design": {"instruments": []}}), cd=cd)
+
+
+# --- config-pull --wait-online network-race handling -------------------------
+
+def _cp_args(wait_online=0):
+    import argparse
+    return argparse.Namespace(config="/no/such/data.yaml", configurator_url=None,
+                              no_restart=True, wait_online=wait_online)
+
+
+def test_wait_online_retries_until_network_up(monkeypatch):
+    """A transient DNS failure is retried until it clears (the boot race)."""
+    from pyefis_data import cli, config_pull
+    calls = {"n": 0}
+
+    def fake_fetch(cfg):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return ("error:<urlopen error [Errno -3] Temporary failure "
+                    "in name resolution>", None, None)
+        return ("up-to-date", 7, None)
+
+    monkeypatch.setattr(config_pull, "fetch_config", fake_fetch)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    assert cli.cmd_config_pull(_cp_args(wait_online=30)) == 0
+    assert calls["n"] == 3            # retried twice, then up-to-date
+
+
+def test_wait_online_gives_up_clean_when_offline(monkeypatch):
+    """Boot path: a parked aircraft with no network gives up gracefully after
+    the window (exit 0, current panel kept) -- not a failed unit every boot."""
+    from pyefis_data import cli, config_pull
+    monkeypatch.setattr(config_pull, "fetch_config",
+                        lambda cfg: ("error:name resolution", None, None))
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    clock = {"t": 0.0}
+    monkeypatch.setattr("time.monotonic",
+                        lambda: clock.__setitem__("t", clock["t"] + 5.0) or clock["t"])
+    assert cli.cmd_config_pull(_cp_args(wait_online=10)) == 0
+
+
+def test_manual_pull_fails_fast_without_wait(monkeypatch):
+    """No --wait-online (manual run): a network error fails immediately."""
+    from pyefis_data import cli, config_pull
+    calls = {"n": 0}
+
+    def fake_fetch(cfg):
+        calls["n"] += 1
+        return ("error:name resolution", None, None)
+
+    monkeypatch.setattr(config_pull, "fetch_config", fake_fetch)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    assert cli.cmd_config_pull(_cp_args(wait_online=0)) == 2
+    assert calls["n"] == 1            # one attempt, no retry loop
