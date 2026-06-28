@@ -9,6 +9,16 @@
 <link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=Inter:wght@400;700&family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
 <style>
+  /* DejaVu is the pyEfis default family but isn't on Google Fonts; load it from
+     a CDN so instrument twins render in the same font as the device. */
+  @font-face { font-family: "DejaVu Sans Condensed"; font-weight: 400; font-display: swap;
+    src: url("https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSansCondensed.ttf") format("truetype"); }
+  @font-face { font-family: "DejaVu Sans Condensed"; font-weight: 700; font-display: swap;
+    src: url("https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSansCondensed-Bold.ttf") format("truetype"); }
+  @font-face { font-family: "DejaVu Sans"; font-weight: 400; font-display: swap;
+    src: url("https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans.ttf") format("truetype"); }
+  @font-face { font-family: "DejaVu Sans Mono"; font-weight: 400; font-display: swap;
+    src: url("https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSansMono.ttf") format("truetype"); }
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -290,6 +300,10 @@ function rgbaFromColor(c, op) {
     if (![r, g, b].some(Number.isNaN)) return `rgba(${r}, ${g}, ${b}, ${Math.max(0, op)})`;
   }
   return c;
+}
+// bg_opacity is a percent (0-100) -> 0-1 fraction; default 1 (opaque) when unset.
+function bgOpacity(o) {
+  return o.bg_opacity != null ? Math.max(0, Math.min(1, Number(o.bg_opacity) / 100)) : 1;
 }
 const _ALIGN_JUSTIFY = { AlignLeft: "flex-start", AlignCenter: "center", AlignRight: "flex-end" };
 function textJustify(inst) {
@@ -609,7 +623,7 @@ function buildHSI(inst) {
   const bg = _polar(50, 50, 43, 0), bgl = _polar(50, 50, 49, -3.5), bgr = _polar(50, 50, 49, 3.5);
   return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
-  <circle cx="50" cy="50" r="48" fill="${rgbaFromColor(o.bg_color || "#000", o.bg_opacity != null ? Number(o.bg_opacity) : 1)}" stroke="${fg}" stroke-width="0.8"/>
+  <circle cx="50" cy="50" r="48" fill="${rgbaFromColor(o.bg_color || "#000", bgOpacity(o))}" stroke="${fg}" stroke-width="0.8"/>
   <g transform="rotate(${-heading} 50 50)">${ticks}</g>
   <path d="M${bg.x} ${bg.y} L${bgl.x} ${bgl.y} L${bgr.x} ${bgr.y} Z" fill="#e000e0"/>
   ${nav}
@@ -629,7 +643,7 @@ function _needle(cx, cy, len, deg, halfw, fill) {
 }
 function _dialSvg(o, font, inner) {
   // Dial face honours bg_opacity (0 = transparent, show what's behind).
-  const bg = rgbaFromColor(o.bg_color || "#000", o.bg_opacity != null ? Number(o.bg_opacity) : 1);
+  const bg = rgbaFromColor(o.bg_color || "#000", bgOpacity(o));
   return svgFromString(`<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}"><circle cx="50" cy="50" r="48.5" fill="${bg}" stroke="#888" stroke-width="0.5"/>${inner}</svg>`);
 }
 function buildAirspeedDial(inst) {
@@ -1071,7 +1085,7 @@ function renderCanvas() {
       // stays for legibility, matching HeadingDisplay's drawRect outline.
       const bgc = o.bg_color || def.bg;
       if (bgc) content.style.background =
-        rgbaFromColor(bgc, o.bg_opacity != null ? Number(o.bg_opacity) : 1);
+        rgbaFromColor(bgc, bgOpacity(o));
       if (def.bold) content.style.fontWeight = "bold";
       if (def.framed) {
         content.style.boxSizing = "border-box";
