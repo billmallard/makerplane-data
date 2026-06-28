@@ -950,6 +950,7 @@ function renderPalette() {
 
   const byCat = {};
   for (const [type, meta] of Object.entries(state.schema.instruments)) {
+    if (meta.hidden) continue;  // system-managed (e.g. the data-management boot screen)
     (byCat[meta.category] ||= []).push([type, meta]);
   }
   for (const cat of Object.keys(byCat).sort()) {
