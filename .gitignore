@@ -16,6 +16,8 @@ venv/
 minisign.sec
 *.sec
 # Stray credential drop files (e.g. a Cloudflare API token / R2 keys handed off via disk)
+.env
+*.env
 *CloudflareToken*
 .cf_token
 *api*token*.txt
