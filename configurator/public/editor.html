@@ -628,7 +628,9 @@ function _needle(cx, cy, len, deg, halfw, fill) {
   return `<path d="M${tip.x} ${tip.y} L${b1.x} ${b1.y} L${tail.x} ${tail.y} L${b2.x} ${b2.y} Z" fill="${fill}"/>`;
 }
 function _dialSvg(o, font, inner) {
-  return svgFromString(`<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}"><circle cx="50" cy="50" r="48.5" fill="${o.bg_color || "#000"}" stroke="#888" stroke-width="0.5"/>${inner}</svg>`);
+  // Dial face honours bg_opacity (0 = transparent, show what's behind).
+  const bg = rgbaFromColor(o.bg_color || "#000", o.bg_opacity != null ? Number(o.bg_opacity) : 1);
+  return svgFromString(`<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}"><circle cx="50" cy="50" r="48.5" fill="${bg}" stroke="#888" stroke-width="0.5"/>${inner}</svg>`);
 }
 function buildAirspeedDial(inst) {
   const o = inst.options || {}, fg = o.fg_color || "#fff", font = o.font_family || "DejaVu Sans Condensed";
