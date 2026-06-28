@@ -609,7 +609,7 @@ function buildHSI(inst) {
   const bg = _polar(50, 50, 43, 0), bgl = _polar(50, 50, 49, -3.5), bgr = _polar(50, 50, 49, 3.5);
   return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
-  <circle cx="50" cy="50" r="48" fill="${o.bg_color || "#000"}" stroke="${fg}" stroke-width="0.8"/>
+  <circle cx="50" cy="50" r="48" fill="${rgbaFromColor(o.bg_color || "#000", o.bg_opacity != null ? Number(o.bg_opacity) : 1)}" stroke="${fg}" stroke-width="0.8"/>
   <g transform="rotate(${-heading} 50 50)">${ticks}</g>
   <path d="M${bg.x} ${bg.y} L${bgl.x} ${bgl.y} L${bgr.x} ${bgr.y} Z" fill="#e000e0"/>
   ${nav}
