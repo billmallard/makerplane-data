@@ -101,10 +101,15 @@ Vanilla JS, no build step. Key internals:
 
 ## Instrument-fidelity rule (important)
 
-The live previews must match **what the device actually renders**, which uses
-**military symbology** (the MakerPlane builders are military) — not a civilian/
-Garmin-Dynon look. **When building or changing an instrument twin: render the
-real pyEfis widget first, then match it.**
+**HARD RULE: the live previews must reproduce what the device (pyEfis) actually
+renders, as closely as the technology reasonably allows. No freelancing on
+instrument appearance in the configurator.** This is a *fidelity* requirement, not
+a style — the target look is whatever the pyEfis widget draws, whatever that look
+is. pyEfis is the single source of truth; the twin tracks it and never invents.
+**When building or changing an instrument twin: render the real pyEfis widget
+first, then match it.** (The pyEfis visuals are themselves a work in progress
+toward a category-leading catalog — when a widget's look improves, its twin
+follows.)
 - Reference renders: `python tools/render_instrument.py <type> --safe -o out.png`
   (in pyEfis; QPainter widgets render offscreen, GL/SVS do not).
 - SVS/Virtual VFR: GL can't render in a browser or headless. Capture real frames
@@ -112,8 +117,9 @@ real pyEfis widget first, then match it.**
   renderer, `SVS_W/SVS_H` for size) on a machine with a GPU + local terrain data;
   the look is **hypsometric** (green below you → yellow/red near your altitude →
   magenta/purple above → blue sky, with a wireframe mesh + airport flags).
-- A separate civilian/modern instrument set is tracked as pyEfis issue **#69**
-  (additive, not the default).
+- Growing the catalog (more instrument types, variations, and visual quality) is
+  an active goal; alternative/modern instrument styling is tracked as pyEfis issue
+  **#69**. Every new type/variation is still bound by the fidelity rule above.
 
 ## Status / next
 

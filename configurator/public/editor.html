@@ -323,7 +323,14 @@ function svgFromString(s) { const t = document.createElement("template"); t.inne
 function buildAttitude(inst) {
   const o = inst.options || {};
   const sym = o.symbol_color || "#ffff00";
-  const pitch = 4, roll = -9, slip = 2, ppd = 1.6, id = _svgUid++;
+  // Category-3 preview pose from the instrument schema (no live FIX here).
+  const meta = (state.schema && state.schema.instruments
+    && state.schema.instruments[inst.type]) || {};
+  const pv = meta.preview || {};
+  const pitch = pv.pitch !== undefined ? pv.pitch : 4;
+  const roll = pv.roll !== undefined ? pv.roll : -9;
+  const slip = pv.slip !== undefined ? pv.slip : 2;
+  const ppd = 1.6, id = _svgUid++;
   const ladder = [10, 20, -10, -20].map((d) => {
     const y = 50 - d * ppd, w = (d % 20 === 0) ? 16 : 10;
     return `<line x1="${50 - w}" y1="${y}" x2="${50 + w}" y2="${y}" stroke="#fff" stroke-width="0.7"/>`
@@ -335,6 +342,26 @@ function buildAttitude(inst) {
     const maj = (a % 30 === 0), p1 = _polar(50, 50, 45, a), p2 = _polar(50, 50, maj ? 40 : 42.5, a);
     rollarc += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#fff" stroke-width="${maj ? 0.9 : 0.6}"/>`;
   }
+  // Aircraft reference symbol -- must match pyefis ai._draw_aircraft_symbol:
+  // "garmin" = GI-275/G1000 tapered wedges + boresight ring; else classic
+  // split-wing bars + centre dot. Driven by the aircraft_symbol option.
+  const garmin = String(o.aircraft_symbol || "classic").toLowerCase() === "garmin";
+  const symbol = garmin
+    ? `<g fill="${sym}">
+      <polygon points="47,47.4 47,52.6 32,51 32,49.5"/>
+      <polygon points="53,47.4 53,52.6 68,51 68,49.5"/>
+      <circle cx="50" cy="50" r="2.2" fill="none" stroke="${sym}" stroke-width="0.6"/>
+      <circle cx="50" cy="50" r="0.8"/>
+    </g>`
+    : `<g fill="${sym}">
+      <rect x="20" y="48.8" width="20" height="2.4" rx="0.5"/>
+      <rect x="60" y="48.8" width="20" height="2.4" rx="0.5"/>
+      <circle cx="50" cy="50" r="1.4"/>
+    </g>`;
+  // Flight-path marker -- shown only when show_fpm is on (matches the widget,
+  // which hides it otherwise).
+  const fpm = (o.show_fpm === false) ? ""
+    : `<path d="M57 50 l3.5 -2.2 M57 50 l3.5 2.2" stroke="#37d36b" stroke-width="1" fill="none"/>`;
   return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" class="gauge-svg">
   <defs>
@@ -352,12 +379,8 @@ function buildAttitude(inst) {
     <g transform="rotate(${roll} 50 50)">${rollarc}</g>
     <path d="M47 6 L53 6 L50 11 Z" fill="#fff"/>
     <circle cx="${50 + slip}" cy="14" r="1.5" fill="none" stroke="#fff" stroke-width="0.6"/>
-    <g fill="${sym}">
-      <rect x="20" y="48.8" width="20" height="2.4" rx="0.5"/>
-      <rect x="60" y="48.8" width="20" height="2.4" rx="0.5"/>
-      <circle cx="50" cy="50" r="1.4"/>
-    </g>
-    <path d="M57 50 l3.5 -2.2 M57 50 l3.5 2.2" stroke="#37d36b" stroke-width="1" fill="none"/>
+    ${symbol}
+    ${fpm}
   </g>
 </svg>`);
 }
