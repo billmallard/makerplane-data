@@ -123,7 +123,7 @@
   .trendtape .tt-row { position: absolute; left: 0; right: 0; transform: translateY(-50%); display: flex; align-items: center; gap: 3px; }
   .trendtape .tt-num { width: 2.4em; text-align: right; opacity: .85; }
   .trendtape .tt-tick { flex: 1; height: 1px; background: currentColor; opacity: .5; }
-  .trendtape .tt-trend { position: absolute; right: 14%; width: 4px; background: #d000d0; }
+  .trendtape .tt-trend { position: absolute; right: 4px; width: 13%; background: #fff; }
   .vsipfd { position: relative; box-sizing: border-box; overflow: hidden; background: rgba(18,22,28,.72); color: #e6edf3; }
   .vsipfd .vp-row { position: absolute; left: 0; right: 0; transform: translateY(-50%); display: flex; align-items: center; gap: 2px; }
   .vsipfd .vp-line { flex: 1; height: 2px; background: #fff; }
@@ -132,7 +132,10 @@
   .wind { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; padding: 0 6%; line-height: 1.25; white-space: pre; }
   .trendstrip { position: relative; box-sizing: border-box; overflow: hidden; background: rgba(18,22,28,.5); }
   .trendstrip .ts-ref { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #fff; opacity: .6; }
-  .trendstrip .ts-bar { position: absolute; left: 32%; right: 32%; background: #f0f; }
+  .trendstrip .ts-bar { position: absolute; left: 50%; right: 0; background: #fff; }
+  .asbox { display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; padding: 1px 3px; line-height: 1; white-space: nowrap; }
+  .asbox .ab-mode { text-align: left; }
+  .asbox .ab-val { text-align: right; }
   .inst.sel { outline: 2px solid #2ea043; z-index: 50; }
   .inst .handle {
     position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px;
@@ -677,6 +680,20 @@ function buildWind(inst) {
   wrap.append(l1, l2);
   return wrap;
 }
+// Airspeed box: a mode readout (TAS/GS/IAS). pyEfis Airspeed_Box draws the mode
+// label top-left and the value bottom-right, both ~0.4 height, white.
+function buildAirspeedBox(inst) {
+  const o = inst.options || {}, r = rect(inst);
+  const wrap = document.createElement("div");
+  wrap.className = "gauge asbox";
+  wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
+  wrap.style.fontSize = Math.max(8, r.h * 0.4) + "px";
+  wrap.style.color = o.fg_color || "#fff";
+  const mode = document.createElement("div"); mode.className = "ab-mode"; mode.textContent = "TAS";
+  const val = document.createElement("div"); val.className = "ab-val"; val.textContent = "120";
+  wrap.append(mode, val);
+  return wrap;
+}
 // Airspeed trend tape: a thin trend vector from the centre -- mostly empty
 // without live acceleration data, like the device.
 function buildAirspeedTrend(inst) {
@@ -972,6 +989,8 @@ function renderCanvas() {
       el.appendChild(buildWind(inst));
     } else if (inst.type === "airspeed_trend_tape") {
       el.appendChild(buildAirspeedTrend(inst));
+    } else if (inst.type === "airspeed_box") {
+      el.appendChild(buildAirspeedBox(inst));
     } else if (LIVE_GAUGE.has(inst.type)) {
       el.appendChild(inst.type === "arc_gauge"
         ? buildArcGauge(inst)
