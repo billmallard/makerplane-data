@@ -396,21 +396,34 @@ function buildAttitude(inst) {
     rollarc += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#fff" stroke-width="${maj ? 0.9 : 0.6}"/>`;
   }
   // Aircraft reference symbol -- must match pyefis ai._draw_aircraft_symbol:
-  // "garmin" = GI-275/G1000 tapered wedges + boresight ring; else classic
-  // split-wing bars + centre dot. Driven by the aircraft_symbol option.
-  const garmin = String(o.aircraft_symbol || "classic").toLowerCase() === "garmin";
-  const symbol = garmin
-    ? `<g fill="${sym}">
-      <polygon points="47,47.4 47,52.6 32,51 32,49.5"/>
-      <polygon points="53,47.4 53,52.6 68,51 68,49.5"/>
-      <circle cx="50" cy="50" r="2.2" fill="none" stroke="${sym}" stroke-width="0.6"/>
-      <circle cx="50" cy="50" r="0.8"/>
-    </g>`
-    : `<g fill="${sym}">
+  //   "garmin"   = GI-275/G1000 tapered wedges + boresight ring
+  //   "brackets" = GRT-style flat bars with an inboard down-tick (L shapes)
+  //   "classic"  = split-wing bars + centre dot (default)
+  const symStyle = String(o.aircraft_symbol || "classic").toLowerCase();
+  let symbol;
+  if (symStyle === "garmin") {
+    // Bold GI-275/G1000 trapezoid wings (flat top, taper to blunt outboard
+    // tips) + centre dot -- matches ai._draw_aircraft_symbol "garmin".
+    symbol = `<g fill="${sym}">
+      <polygon points="45,47.25 29,49.3 29,50.7 45,52.75"/>
+      <polygon points="55,47.25 71,49.3 71,50.7 55,52.75"/>
+      <circle cx="50" cy="50" r="1.2"/>
+    </g>`;
+  } else if (["brackets", "grt", "l", "l-bracket", "l_bracket"].includes(symStyle)) {
+    symbol = `<g fill="${sym}">
+      <rect x="29" y="49.25" width="14" height="1.5"/>
+      <rect x="41.5" y="49.25" width="1.5" height="3.9"/>
+      <rect x="57" y="49.25" width="14" height="1.5"/>
+      <rect x="57" y="49.25" width="1.5" height="3.9"/>
+      <circle cx="50" cy="50" r="1.05"/>
+    </g>`;
+  } else {
+    symbol = `<g fill="${sym}">
       <rect x="20" y="48.8" width="20" height="2.4" rx="0.5"/>
       <rect x="60" y="48.8" width="20" height="2.4" rx="0.5"/>
       <circle cx="50" cy="50" r="1.4"/>
     </g>`;
+  }
   // Flight-path marker -- shown only when show_fpm is on (matches the widget,
   // which hides it otherwise).
   const fpm = (o.show_fpm === false) ? ""
