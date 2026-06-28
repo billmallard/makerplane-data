@@ -297,22 +297,40 @@ function _arcCW(cx, cy, r, a0, a1) {
 }
 // Arc gauge -- faithful to pyEfis: a 180-deg sweep with colour zones, a white
 // needle, the name top-left and the value lower-right.
+// Arc gauge -- faithful to pyEfis ArcGauge: a wide 180-deg sweep with FIVE
+// symmetric clearance zones (red-yellow-green-yellow-red), a white needle, the
+// name top-left and the value lower-right. The zone band fractions + needle
+// fill + sample value are representative (category-3 preview); the device uses
+// real FIX min/max + warn/alarm aux (#64).
 function buildArcGauge(inst) {
   const o = inst.options || {};
   const fg = o.fg_color || "#ffffff";
   const font = o.font_family || "DejaVu Sans Condensed";
-  const cx = 50, cy = 60, r = 33, A0 = -90, SPAN = 180;
-  const deg = (f) => A0 + f * SPAN, vdeg = deg(GAUGE_FILL);
-  const tip = _polar(cx, cy, r - 1, vdeg), bl = _polar(cx, cy, 3, vdeg - 90), br = _polar(cx, cy, 3, vdeg + 90);
+  const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
+  const pv = meta.preview || {};
+  const la = pv.low_alarm ?? 0.10, lw = pv.low_warn ?? 0.20, hw = pv.high_warn ?? 0.80, ha = pv.high_alarm ?? 0.90;
+  const fill = pv.fill ?? 0.72;
+  // Wide layout (viewBox ~1.9:1) so the arc fills a 2:1 box like the real
+  // ArcGauge (ratio 2) instead of letterboxing square.
+  const cx = 50, cy = 44, r = 40, A0 = -90, SPAN = 180, sw = 9;
+  const deg = (f) => A0 + f * SPAN, vdeg = deg(fill);
+  const tip = _polar(cx, cy, r - 2, vdeg), bl = _polar(cx, cy, 2.5, vdeg - 90), br = _polar(cx, cy, 2.5, vdeg + 90);
+  const valTxt = pv.value !== undefined ? pv.value : sampleGaugeValue(o);
+  const nameTxt = o.name || "DEMO";
+  const nameEl = (o.name_location || "top") === "right"
+    ? `<text x="97" y="12" fill="${fg}" font-size="9" font-family="${font}" text-anchor="end">${nameTxt}</text>`
+    : `<text x="3" y="12" fill="${fg}" font-size="9" font-family="${font}">${nameTxt}</text>`;
   return svgFromString(`
-<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
-  <path d="${_arcCW(cx, cy, r, deg(0), deg(0.6))}" stroke="#22b03a" stroke-width="11" fill="none"/>
-  <path d="${_arcCW(cx, cy, r, deg(0.6), deg(0.8))}" stroke="#e8c21a" stroke-width="11" fill="none"/>
-  <path d="${_arcCW(cx, cy, r, deg(0.8), deg(1))}" stroke="#e0231f" stroke-width="11" fill="none"/>
+<svg viewBox="0 0 100 52" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
+  <path d="${_arcCW(cx, cy, r, deg(0), deg(la))}" stroke="#e0231f" stroke-width="${sw}" fill="none"/>
+  <path d="${_arcCW(cx, cy, r, deg(la), deg(lw))}" stroke="#e8c21a" stroke-width="${sw}" fill="none"/>
+  <path d="${_arcCW(cx, cy, r, deg(lw), deg(hw))}" stroke="#22b03a" stroke-width="${sw}" fill="none"/>
+  <path d="${_arcCW(cx, cy, r, deg(hw), deg(ha))}" stroke="#e8c21a" stroke-width="${sw}" fill="none"/>
+  <path d="${_arcCW(cx, cy, r, deg(ha), deg(1))}" stroke="#e0231f" stroke-width="${sw}" fill="none"/>
   <path d="M${tip.x} ${tip.y} L${bl.x} ${bl.y} L${br.x} ${br.y} Z" fill="#fff"/>
-  <circle cx="${cx}" cy="${cy}" r="3" fill="#fff"/>
-  <text x="6" y="30" fill="${fg}" font-size="9" font-family="${font}">${o.name || "DEMO"}</text>
-  <text x="95" y="80" fill="${fg}" font-size="21" font-weight="600" font-family="${font}" text-anchor="end">${sampleGaugeValue(o)}</text>
+  <circle cx="${cx}" cy="${cy}" r="2.5" fill="#fff"/>
+  ${nameEl}
+  <text x="98" y="50" fill="${fg}" font-size="19" font-weight="600" font-family="${font}" text-anchor="end">${valTxt}</text>
 </svg>`);
 }
 
@@ -387,10 +405,15 @@ function buildAttitude(inst) {
 
 // Vertical tape (airspeed / altimeter): scrolling numbers around a sample value
 // with a centred readout box. HTML (not SVG) so the digits never distort.
+// Vertical tape. Airspeed adds the V-speed colour bands, a TAS box across the
+// bottom (show_tas) and a cyan trend arrow (show_trend) to match the real
+// Airspeed_Tape; sample IAS/TAS/trend are category-3 preview.
 function buildTape(inst) {
   const o = inst.options || {};
   const isAlt = inst.type === "altimeter_tape";
-  const value = isAlt ? 3500 : 110, step = isAlt ? 200 : 20, span = 6 * step;
+  const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
+  const pv = meta.preview || {};
+  const value = isAlt ? 3500 : (pv.value ?? 110), step = isAlt ? 200 : 20, span = 6 * step;
   const r = rect(inst);
   const wrap = document.createElement("div");
   wrap.className = "gauge tape" + (isAlt ? " alt" : "");
@@ -398,15 +421,32 @@ function buildTape(inst) {
   wrap.style.fontSize = Math.max(7, Math.min(14, r.w * 0.24)) + "px";
   if (o.fg_color) wrap.style.color = o.fg_color;
   if (!isAlt) wrap.appendChild(Object.assign(document.createElement("div"), { className: "vbands" }));
+  const showTas = !isAlt && o.show_tas !== false;
+  const botPad = showTas ? 18 : 0;   // % reserved at the bottom for the TAS box
   const base = Math.round(value / step) * step;
   for (let k = -4; k <= 4; k++) {
     const n = base + k * step, top = 50 - (n - value) / span * 100;
-    if (top < 3 || top > 97) continue;
+    if (top < 3 || top > 97 - botPad) continue;
     const tk = document.createElement("div"); tk.className = "tk";
     tk.style.top = top + "%"; tk.textContent = n; wrap.appendChild(tk);
   }
   const ro = document.createElement("div"); ro.className = "readout notch"; ro.textContent = value;
+  if (showTas) ro.style.top = (50 - botPad / 2) + "%";
   wrap.appendChild(ro);
+  if (!isAlt && o.show_trend !== false) {
+    const tr = pv.trend ?? 6, trh = Math.max(4, Math.min(22, tr * 1.6));
+    const trend = document.createElement("div");
+    trend.style.cssText = `position:absolute;left:9.5%;width:3px;background:#34d3ff;top:${50 - botPad / 2 - trh}%;height:${trh}%;`;
+    const head = document.createElement("div");
+    head.style.cssText = `position:absolute;left:8.2%;top:${50 - botPad / 2 - trh}%;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:5px solid #34d3ff;`;
+    wrap.appendChild(trend); wrap.appendChild(head);
+  }
+  if (showTas) {
+    const tas = document.createElement("div");
+    tas.style.cssText = `position:absolute;left:0;right:0;bottom:0;height:${botPad}%;background:#fff;color:#1e1e1e;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;`;
+    tas.innerHTML = `<div style="font-size:.62em">TAS</div><div style="font-weight:600">${pv.tas ?? 118}</div>`;
+    wrap.appendChild(tas);
+  }
   return wrap;
 }
 
@@ -524,14 +564,21 @@ function buildAltimeterDial(inst) {
 }
 function buildVsiDial(inst) {
   const o = inst.options || {}, fg = o.fg_color || "#fff", font = o.font_family || "DejaVu Sans Condensed";
-  const sample = 3, d = (v) => -90 + (v / 20) * 180;
+  const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
+  const pv = meta.preview || {};
+  const sampleV = (pv.value ?? -350) / 100;   // hundreds of fpm (sample rate)
+  const d = (v) => -90 + (v / 20) * 180;       // 0 at 9 o'clock, +/-2.0 at 3 o'clock
   let s = "";
   for (let v = -20; v <= 20; v += 1) {
     const maj = v % 5 === 0, p1 = _polar(50, 50, 46, d(v)), p2 = _polar(50, 50, maj ? 40 : 43, d(v));
     s += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${fg}" stroke-width="${maj ? 0.9 : 0.5}"/>`;
-    if (maj) s += _dialText(50, 50, 34, d(v), Math.abs(v) === 20 ? "2.0" : Math.abs(v), 6, fg);
   }
-  s += _needle(50, 50, 40, d(sample), 2.4, fg) + `<circle cx="50" cy="50" r="2.6" fill="${fg}"/>`;
+  // Labels: 0 at 9 o'clock; 5/10/15 + 2.0 over the top; 5/10/15 mirrored below.
+  // (-20 is skipped so 2.0 is not drawn twice at 3 o'clock.)
+  for (const v of [0, 5, 10, 15, 20, -5, -10, -15]) {
+    s += _dialText(50, 50, 34, d(v), Math.abs(v) === 20 ? "2.0" : String(Math.abs(v)), 6, fg);
+  }
+  s += _needle(50, 50, 40, d(sampleV), 2.4, fg) + `<circle cx="50" cy="50" r="2.6" fill="${fg}"/>`;
   return _dialSvg(o, font, s);
 }
 function buildTurnCoordinator(inst) {
