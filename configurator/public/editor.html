@@ -94,12 +94,17 @@
   .gauge-svg { width: 100%; height: 100%; display: block; }
   .svsimg { width: 100%; height: 100%; overflow: hidden; background: #15639f; }
   .svsimg img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .bargauge { display: flex; flex-direction: column; align-items: center; padding: 2px; gap: 1px; }
+  .bargauge { display: flex; flex-direction: column; padding: 2px 3px; gap: 1px; }
   .bargauge .g-name, .bargauge .g-val { line-height: 1; white-space: nowrap; }
+  /* Vertical: name/value centred over the bar (pyEfis VerticalBar AlignCenter). */
+  .bargauge.vert { align-items: center; justify-content: flex-start; }
+  /* Horizontal: name top-left, value bottom-left, bar full width (HorizontalBar AlignLeft). */
+  .bargauge.horiz { align-items: stretch; justify-content: space-between; }
+  .bargauge.horiz .g-name, .bargauge.horiz .g-val { text-align: left; }
   .bargauge .g-track { position: relative; border: 1px solid #30363d; border-radius: 2px; }
   .bargauge.vert .g-track { flex: 1; width: 32%; background: linear-gradient(to top, #e0231f 0 6%, #e8c21a 6% 18%, #22b03a 18% 82%, #e8c21a 82% 94%, #e0231f 94% 100%); }
   .bargauge.vert .g-mark { position: absolute; left: -18%; right: -18%; height: 2px; background: #fff; transform: translateY(50%); }
-  .bargauge.horiz .g-track { width: 90%; height: 32%; background: linear-gradient(to right, #e0231f 0 6%, #e8c21a 6% 18%, #22b03a 18% 82%, #e8c21a 82% 94%, #e0231f 94% 100%); }
+  .bargauge.horiz .g-track { width: 100%; height: 30%; background: linear-gradient(to right, #e0231f 0 6%, #e8c21a 6% 18%, #22b03a 18% 82%, #e8c21a 82% 94%, #e0231f 94% 100%); }
   .bargauge.horiz .g-mark { position: absolute; top: -18%; bottom: -18%; width: 2px; background: #fff; transform: translateX(-50%); }
   .tape { position: relative; box-sizing: border-box; background: rgba(18,22,28,.72); color: #e6edf3; }
   .tape .tk { position: absolute; right: 3px; transform: translateY(-50%); white-space: nowrap; line-height: 1; opacity: .85; }
@@ -259,6 +264,26 @@ function sampleText(inst) {
   }
 }
 
+// pyEfis text-widget defaults, matched class-by-class so an unset font / size /
+// alignment previews exactly what the device draws (fidelity rule):
+//   static_text      misc.StaticText        DejaVu Sans Condensed, AlignLeft, full height
+//   value_text       misc.ValueDisplay      Open Sans, AlignLeft, 0.9 height
+//   numeric_display  gauges.NumericDisplay  DejaVu Sans Condensed, AlignLeft (fits "000")
+//   heading_display  hsi.HeadingDisplay     DejaVu Sans Condensed, centred (fits "999")
+const TEXT_DEFAULTS = {
+  static_text:     { font: "DejaVu Sans Condensed", pct: 1.0 },
+  value_text:      { font: "Open Sans",             pct: 0.9 },
+  numeric_display: { font: "DejaVu Sans Condensed", pct: 0.85 },
+  heading_display: { font: "DejaVu Sans Condensed", pct: 0.75 },
+};
+const _ALIGN_JUSTIFY = { AlignLeft: "flex-start", AlignCenter: "center", AlignRight: "flex-end" };
+function textJustify(inst) {
+  if (inst.type === "heading_display") return "center";      // HeadingDisplay centres
+  if (inst.type === "static_text")                           // honours its alignment option
+    return _ALIGN_JUSTIFY[(inst.options || {}).alignment] || "flex-start";
+  return "flex-start";  // value_text + numeric_display are AlignLeft
+}
+
 // Live parametric gauges (arc + bar): drawn in the browser from the
 // instrument's options, with a sample value + warn/alarm zones. The real value
 // and bands are aircraft / FIX data (see #64), so the fill is representative.
@@ -279,13 +304,20 @@ function buildBarGauge(inst, vertical) {
   wrap.className = "gauge bargauge " + (vertical ? "vert" : "horiz");
   wrap.style.color = o.fg_color || "#e6edf3";
   wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
-  wrap.style.fontSize = Math.max(7, Math.min(15, (vertical ? r.w : r.h) * 0.24)) + "px";
-  const name = document.createElement("div"); name.className = "g-name"; name.textContent = o.name || ""; wrap.appendChild(name);
+  // pyEfis draws the name in a small font and the value ~2x larger (HorizontalBar
+  // bigFont = 4 sections vs name 2; VerticalBar big_font 0.10 vs name 0.08).
+  const nameSz = vertical ? Math.max(7, Math.min(15, r.w * 0.22))
+                          : Math.max(7, Math.min(15, r.h * 0.17));
+  const valSz = vertical ? Math.max(9, Math.min(22, r.w * 0.30))
+                         : Math.max(9, Math.min(34, r.h * 0.33));
+  const name = document.createElement("div"); name.className = "g-name";
+  name.textContent = o.name || ""; name.style.fontSize = nameSz + "px"; wrap.appendChild(name);
   const track = document.createElement("div"); track.className = "g-track";
   const mark = document.createElement("div"); mark.className = "g-mark";
   if (vertical) mark.style.bottom = (GAUGE_FILL * 100) + "%"; else mark.style.left = (GAUGE_FILL * 100) + "%";
   track.appendChild(mark); wrap.appendChild(track);
-  const val = document.createElement("div"); val.className = "g-val"; val.textContent = sampleGaugeValue(o); wrap.appendChild(val);
+  const val = document.createElement("div"); val.className = "g-val";
+  val.textContent = sampleGaugeValue(o); val.style.fontSize = valSz + "px"; wrap.appendChild(val);
   return wrap;
 }
 
@@ -946,13 +978,15 @@ function renderCanvas() {
         : buildBarGauge(inst, inst.type === "vertical_bar_gauge"));
     } else if (LIVE_TEXT.has(inst.type)) {
       const o = inst.options;
+      const def = TEXT_DEFAULTS[inst.type] || { font: "DejaVu Sans Condensed", pct: 0.5 };
       const content = document.createElement("div");
       content.className = "inst-text";
       content.textContent = sampleText(inst);
-      content.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
+      content.style.fontFamily = '"' + (o.font_family || def.font) + '"';
       if (o.fg_color) content.style.color = o.fg_color;
       if (o.bg_color) content.style.background = o.bg_color;
-      content.style.fontSize = Math.max(8, (o.font_percent || 0.5) * rect(inst).h) + "px";
+      content.style.fontSize = Math.max(8, (o.font_percent || def.pct) * rect(inst).h) + "px";
+      content.style.justifyContent = textJustify(inst);
       el.appendChild(content);
     } else {
       const content = document.createElement("img");
