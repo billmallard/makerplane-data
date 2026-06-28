@@ -383,17 +383,50 @@ function buildAttitude(inst) {
   const pitch = pv.pitch !== undefined ? pv.pitch : 4;
   const roll = pv.roll !== undefined ? pv.roll : -9;
   const slip = pv.slip !== undefined ? pv.slip : 2;
-  const ppd = 1.6, id = _svgUid++;
-  const ladder = [10, 20, -10, -20].map((d) => {
-    const y = 50 - d * ppd, w = (d % 20 === 0) ? 16 : 10;
-    return `<line x1="${50 - w}" y1="${y}" x2="${50 + w}" y2="${y}" stroke="#fff" stroke-width="0.7"/>`
-      + `<text x="${50 - w - 2}" y="${y + 1.4}" fill="#fff" font-size="4" text-anchor="end">${d}</text>`
-      + `<text x="${50 + w + 2}" y="${y + 1.4}" fill="#fff" font-size="4">${d}</text>`;
-  }).join("");
+  const id = _svgUid++;
+  // Pitch ladder, option-driven to match AI: viewBox 100 == the visible pitch
+  // FOV, ticks at the minor/major/numbered division degrees, lengths from the
+  // tick-width options, faded beyond the label range, at the ladder opacity.
+  const fov = Number(o.pitchDegreesShown) || 30;
+  const ppd = 100 / fov;
+  const minorD = Math.max(1, Number(o.minorDiv) || 1);
+  const majorD = Math.max(1, Number(o.majorDiv) || 5);
+  const numD = Math.max(1, Number(o.numberedDiv) || 10);
+  const labelRange = o.visiblePitchAngle != null ? Number(o.visiblePitchAngle) : 15;
+  const ladderOp = o.pitchOpacity != null ? Number(o.pitchOpacity) : 0.6;
+  const KW = 0.16;  // px tick-width option -> viewBox half-width
+  const numHW = (Number(o.numberedDivWidth) || 50) * KW;
+  const majHW = (Number(o.majorDivWidth) || 40) * KW;
+  const minHW = (Number(o.minorDivWidth) || 10) * KW;
+  let ladder = "";
+  const span = Math.ceil(fov / 2) + Math.abs(pitch) + numD;
+  for (let a = -span; a <= span; a += minorD) {
+    if (a === 0) continue;                          // zero line is the horizon
+    if (Math.abs(a - pitch) > labelRange) continue; // fade range
+    const isNum = a % numD === 0, isMaj = a % majorD === 0;
+    const hw = isNum ? numHW : (isMaj ? majHW : minHW);
+    const sw = isNum ? 0.7 : (isMaj ? 0.55 : 0.45);
+    const y = 50 - a * ppd;
+    ladder += `<line x1="${(50 - hw).toFixed(1)}" y1="${y.toFixed(1)}" x2="${(50 + hw).toFixed(1)}" y2="${y.toFixed(1)}" stroke="#fff" stroke-width="${sw}" opacity="${ladderOp}"/>`;
+    if (isNum) ladder += `<text x="${(50 - hw - 2).toFixed(1)}" y="${(y + 1.4).toFixed(1)}" fill="#fff" font-size="4" text-anchor="end" opacity="${ladderOp}">${a}</text>`
+      + `<text x="${(50 + hw + 2).toFixed(1)}" y="${(y + 1.4).toFixed(1)}" fill="#fff" font-size="4" opacity="${ladderOp}">${a}</text>`;
+  }
   let rollarc = "";
   for (const a of [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60]) {
     const maj = (a % 30 === 0), p1 = _polar(50, 50, 45, a), p2 = _polar(50, 50, maj ? 40 : 42.5, a);
     rollarc += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#fff" stroke-width="${maj ? 0.9 : 0.6}"/>`;
+  }
+  // Standard-rate bank markers (diamonds) -- shown when drawBankMarkers is on,
+  // at a representative bank clamped to the max-indicated-bank option (no live
+  // TAS in the editor). Fixed on the scale, like the widget.
+  let bankMarks = "";
+  if (o.drawBankMarkers !== false) {
+    const ba = Math.min(15, Number(o.bankAngleMaximum) || 25);
+    const ms = (Number(o.bankMarkSize) || 10) * 0.13;
+    for (const s of [-1, 1]) {
+      const c = _polar(50, 50, 45, s * ba);
+      bankMarks += `<path d="M${c.x.toFixed(1)} ${(c.y - ms).toFixed(1)} L${(c.x + ms * 0.7).toFixed(1)} ${c.y.toFixed(1)} L${c.x.toFixed(1)} ${(c.y + ms).toFixed(1)} L${(c.x - ms * 0.7).toFixed(1)} ${c.y.toFixed(1)} Z" fill="none" stroke="#fff" stroke-width="0.6"/>`;
+    }
   }
   // Aircraft reference symbol -- must match pyefis ai._draw_aircraft_symbol:
   //   "garmin"   = GI-275/G1000 tapered wedges + boresight ring
@@ -443,6 +476,7 @@ function buildAttitude(inst) {
       ${ladder}
     </g></g>
     <g transform="rotate(${roll} 50 50)">${rollarc}</g>
+    ${bankMarks}
     <path d="M47 6 L53 6 L50 11 Z" fill="#fff"/>
     <circle cx="${50 + slip}" cy="14" r="1.5" fill="none" stroke="#fff" stroke-width="0.6"/>
     ${symbol}
