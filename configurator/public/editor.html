@@ -260,7 +260,7 @@ function sampleText(inst) {
   const o = inst.options || {};
   switch (inst.type) {
     case "static_text": return o.text || "Text";
-    case "heading_display": return "360";
+    case "heading_display": return "360°";  // HeadingDisplay shows "NNN°"
     case "numeric_display": return "123";
     case "value_text": return o.dbkey || "ABC";
     default: return inst.type;
@@ -277,8 +277,20 @@ const TEXT_DEFAULTS = {
   static_text:     { font: "DejaVu Sans Condensed", pct: 1.0 },
   value_text:      { font: "Open Sans",             pct: 0.9 },
   numeric_display: { font: "DejaVu Sans Condensed", pct: 0.85 },
-  heading_display: { font: "DejaVu Sans Condensed", pct: 0.75 },
+  heading_display: { font: "DejaVu Sans Condensed", pct: 0.75,
+                     fg: "#aaaaaa", bg: "#000000", bold: true, framed: true },
 };
+// Apply an opacity (0-1) to a hex colour -> rgba(); pass-through for names/opaque.
+function rgbaFromColor(c, op) {
+  if (op == null || op >= 1) return c;
+  let h = String(c).trim();
+  if (h[0] === "#") {
+    if (h.length === 4) h = "#" + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
+    const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
+    if (![r, g, b].some(Number.isNaN)) return `rgba(${r}, ${g}, ${b}, ${Math.max(0, op)})`;
+  }
+  return c;
+}
 const _ALIGN_JUSTIFY = { AlignLeft: "flex-start", AlignCenter: "center", AlignRight: "flex-end" };
 function textJustify(inst) {
   if (inst.type === "heading_display") return "center";      // HeadingDisplay centres
@@ -1050,8 +1062,19 @@ function renderCanvas() {
       content.className = "inst-text";
       content.textContent = sampleText(inst);
       content.style.fontFamily = '"' + (o.font_family || def.font) + '"';
-      if (o.fg_color) content.style.color = o.fg_color;
-      if (o.bg_color) content.style.background = o.bg_color;
+      const fg = o.fg_color || def.fg;
+      if (fg) content.style.color = fg;
+      // Background fill honours bg_opacity (heading_display): 0 = transparent so
+      // the screen behind shows through, like the widget. The fg-coloured frame
+      // stays for legibility, matching HeadingDisplay's drawRect outline.
+      const bgc = o.bg_color || def.bg;
+      if (bgc) content.style.background =
+        rgbaFromColor(bgc, o.bg_opacity != null ? Number(o.bg_opacity) : 1);
+      if (def.bold) content.style.fontWeight = "bold";
+      if (def.framed) {
+        content.style.boxSizing = "border-box";
+        content.style.border = "1px solid " + (fg || "#aaaaaa");
+      }
       content.style.fontSize = Math.max(8, (o.font_percent || def.pct) * rect(inst).h) + "px";
       content.style.justifyContent = textJustify(inst);
       el.appendChild(content);
