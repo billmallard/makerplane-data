@@ -623,7 +623,8 @@ function buildHSI(inst) {
   const needleW = (o.needle_width != null ? Number(o.needle_width) : 3) * 0.4;
   const courseC = o.course_color || "#ff00ff";
   const hbC = o.heading_bug_color || "#00ffff";
-  const heading = 87, course = 110, headbug = 50;     // sample values
+  const trackC = o.track_color || "#ff00ff";
+  const heading = 87, course = 110, headbug = 50, track = 78;  // sample values
   const cdi = 0.3, gsi = -0.2, dev = 24;              // dev = r*0.5 (viewBox)
   let ticks = "";
   for (let d = 0; d < 360; d += 10) {
@@ -643,6 +644,14 @@ function buildHSI(inst) {
     const iA = _polar(50, 50, 44, hA + 3.5), iB = _polar(50, 50, 44, hA - 3.5);
     const nA = _polar(50, 50, 48, hA + 1.3), nB = _polar(50, 50, 48, hA - 1.3), nm = _polar(50, 50, 45.5, hA);
     pointers += `<path d="M${iA.x} ${iA.y} L${oA.x} ${oA.y} L${nA.x} ${nA.y} L${nm.x} ${nm.y} L${nB.x} ${nB.y} L${oB.x} ${oB.y} L${iB.x} ${iB.y} Z" fill="${hbC}"/>`;
+  }
+  // GPS ground-track diamond (magenta), card space, on the rose near the edge.
+  // On by default (matches the widget); driven by TRACK above the speed gate.
+  if (o.track_indicator_enabled !== false) {
+    const tA = track - heading;
+    const to = _polar(50, 50, 44.5, tA), tiN = _polar(50, 50, 40, tA);
+    const tl = _polar(50, 50, 42.25, tA - 2.7), tr = _polar(50, 50, 42.25, tA + 2.7);
+    pointers += `<path d="M${to.x} ${to.y} L${tr.x} ${tr.y} L${tiN.x} ${tiN.y} L${tl.x} ${tl.y} Z" fill="${trackC}"/>`;
   }
   // Fixed lubber index marks (yellow) at the four cardinal viewport positions.
   let lubber = "";
