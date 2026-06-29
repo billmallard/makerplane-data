@@ -1304,6 +1304,9 @@ function renderProps() {
     ["span cols", inst.span.columns, (v) => inst.span.columns = v],
   ]));
 
+  // Instruments loaded from a template/saved config can omit the options block;
+  // make it a real object so the fields render AND edits have somewhere to land.
+  inst.options = inst.options || {};
   const opts = { ...state.schema.common_options, ...meta.options };
   if (Object.keys(opts).length) {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
@@ -1382,7 +1385,7 @@ function buildFixKeyDatalist() {
 function optionField(inst, name, spec) {
   const f = document.createElement("div"); f.className = "field";
   const l = document.createElement("label"); l.textContent = spec.label || name; f.appendChild(l);
-  const cur = inst.options[name];
+  const cur = (inst.options || {})[name];
   let inp;
   if (spec.type === "boolean") {
     inp = document.createElement("input"); inp.type = "checkbox";
