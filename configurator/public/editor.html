@@ -266,13 +266,32 @@ function snapTo(v) { return state.snap ? Math.round(v / SNAP) * SNAP : Math.roun
 // chosen web font + colour), so font/colour/text changes preview accurately.
 // Everything else uses the pre-rendered SVG.
 const LIVE_TEXT = new Set(["static_text", "value_text", "numeric_display", "heading_display"]);
+// Mirror of ValueDisplay._format_value: a digit mask. "" = as-is; "000" =
+// rounded + zero-padded to 3 integer digits (089); "000.0" = + decimals.
+function formatValue(value, fmt) {
+  if (!fmt) return String(value);
+  const v = Number(value);
+  if (!isFinite(v)) return String(value);
+  const dot = fmt.indexOf(".");
+  if (dot >= 0) {
+    const decimals = fmt.length - dot - 1, intdigits = dot;
+    let s = v.toFixed(decimals), neg = s.startsWith("-"); if (neg) s = s.slice(1);
+    let [ip, dp] = s.split(".");
+    return (neg ? "-" : "") + ip.padStart(intdigits, "0") + (dp !== undefined ? "." + dp : "");
+  }
+  let s = Math.round(v).toString(), neg = s.startsWith("-"); if (neg) s = s.slice(1);
+  return (neg ? "-" : "") + s.padStart(fmt.length, "0");
+}
+
 function sampleText(inst) {
   const o = inst.options || {};
   switch (inst.type) {
     case "static_text": return o.text || "Text";
     case "heading_display": return "360°";  // HeadingDisplay shows "NNN°"
     case "numeric_display": return "123";
-    case "value_text": return o.dbkey || "ABC";
+    // With a number format set, preview a formatted sample so the mask is
+    // visible; otherwise fall back to the bound key name.
+    case "value_text": return o.number_format ? formatValue(88.8, o.number_format) : (o.dbkey || "ABC");
     default: return inst.type;
   }
 }
