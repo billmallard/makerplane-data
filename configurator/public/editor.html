@@ -1341,6 +1341,22 @@ function numGrid(rows) {
   return wrap;
 }
 
+// Shared <datalist> behind every fixkey input: a type-ahead over the FIX key
+// catalog (dumped from the fix-gateway database). Type to filter by key; the
+// description + units show alongside in the dropdown.
+function buildFixKeyDatalist() {
+  let dl = document.getElementById("fixkeys");
+  if (!dl) { dl = document.createElement("datalist"); dl.id = "fixkeys"; document.body.appendChild(dl); }
+  dl.innerHTML = "";
+  for (const k of (state.fixKeys || [])) {
+    const op = document.createElement("option");
+    op.value = k.key;
+    const u = k.units ? ` (${k.units})` : "";
+    if (k.description || u) op.label = (k.description || "") + u;
+    dl.appendChild(op);
+  }
+}
+
 function optionField(inst, name, spec) {
   const f = document.createElement("div"); f.className = "field";
   const l = document.createElement("label"); l.textContent = spec.label || name; f.appendChild(l);
@@ -1364,6 +1380,15 @@ function optionField(inst, name, spec) {
     inp.placeholder = spec.default ?? "";
     if (cur !== undefined) inp.value = cur;
     inp.addEventListener("input", () => setOpt(inst, name, inp.value === "" ? undefined : parseFloat(inp.value)));
+  } else if (spec.type === "fixkey") {
+    // Type-ahead over the FIX key catalog (datalist#fixkeys), still free-text
+    // so a key the catalog doesn't list can be entered.
+    inp = document.createElement("input"); inp.type = "text";
+    inp.setAttribute("list", "fixkeys");
+    inp.setAttribute("autocomplete", "off");
+    inp.placeholder = spec.default || "FIX key";
+    if (cur !== undefined) inp.value = cur;
+    inp.addEventListener("input", () => setOpt(inst, name, inp.value === "" ? undefined : inp.value));
   } else {
     inp = document.createElement("input"); inp.type = "text";
     inp.placeholder = spec.default ?? "";
@@ -1647,6 +1672,11 @@ async function boot() {
   if (!me.ok) { location.href = "/"; return; }
   $("ctx").textContent = deviceId ? "device #" + deviceId : "(scratch - no device)";
   state.schema = await (await fetch(ASSETS + "/schema.json")).json();
+  try {
+    const fk = await (await fetch(ASSETS + "/fix_keys.json")).json();
+    state.fixKeys = fk.keys || [];
+    buildFixKeyDatalist();
+  } catch (_) { /* no FIX-key catalog -- fixkey fields stay free-text */ }
   try {
     const gj = await (await fetch(ASSETS + "/groups.json")).json();
     state.groups = gj.groups || [];
