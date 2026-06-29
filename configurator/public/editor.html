@@ -590,15 +590,22 @@ function buildHeadingTape(inst) {
   return wrap;
 }
 
-// Horizontal situation indicator: rotating compass card + course pointer / CDI
-// + glideslope, from a sample heading/course. Reflects fg_color + cdi/gsi toggles.
-// HSI -- faithful to pyEfis: white ring + rotating card, a yellow full-diameter
-// course cross (course needle + lateral CDI) and a magenta heading bug.
+// Horizontal situation indicator -- faithful to the pyEfis HSI widget: a
+// rotating compass card (ticks + labels), a small selected-course pointer
+// (course_color, driven by COURSE), fixed yellow lubber index marks, the
+// CDI/GSI cross-pointer deviation needles (needle_color/width, fixed in the
+// viewport) over a centre deviation scale, and an optional Garmin-style cyan
+// heading bug (heading_bug_color) on the inside of the ring at the selected
+// heading. Reflects fg_color, bg_opacity and the cdi/gsi toggles.
 function buildHSI(inst) {
   const o = inst.options || {};
-  const fg = o.fg_color || "#ffffff", yc = "#ffe000";
-  const heading = 87, course = 110, id = _svgUid++;
-  const ca = course - heading;
+  const fg = o.fg_color || "#ffffff";
+  const needleC = o.needle_color || "#ffff00";
+  const needleW = (o.needle_width != null ? Number(o.needle_width) : 3) * 0.4;
+  const courseC = o.course_color || "#ff00ff";
+  const hbC = o.heading_bug_color || "#00ffff";
+  const heading = 87, course = 110, headbug = 50;     // sample values
+  const cdi = 0.3, gsi = -0.2, dev = 24;              // dev = r*0.5 (viewBox)
   let ticks = "";
   for (let d = 0; d < 360; d += 10) {
     const maj = d % 30 === 0;
@@ -606,28 +613,46 @@ function buildHSI(inst) {
     ticks += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${fg}" stroke-width="${maj ? 1 : 0.5}"/>`;
     if (maj) { const lp = _polar(50, 50, 34, d); ticks += `<text x="${lp.x}" y="${lp.y + 2}" fill="${fg}" font-size="6" text-anchor="middle">${headingLabel(d)}</text>`; }
   }
-  const cT = _polar(50, 50, 46, ca), cB = _polar(50, 50, 46, ca + 180);
-  const bl = _polar(cT.x, cT.y, 4, ca + 150), br = _polar(cT.x, cT.y, 4, ca - 150);
-  let nav = `<line x1="${cT.x}" y1="${cT.y}" x2="${cB.x}" y2="${cB.y}" stroke="${yc}" stroke-width="1.8"/>`
-    + `<path d="M${cT.x} ${cT.y} L${bl.x} ${bl.y} L${br.x} ${br.y} Z" fill="${yc}"/>`;
+  // Selected-course pointer (card space): base at the ring, apex inward.
+  const cA = course - heading;
+  const cb1 = _polar(50, 50, 47, cA + 3.5), cb2 = _polar(50, 50, 47, cA - 3.5), cap = _polar(50, 50, 42, cA);
+  let pointers = `<path d="M${cb1.x} ${cb1.y} L${cb2.x} ${cb2.y} L${cap.x} ${cap.y} Z" fill="${courseC}"/>`;
+  // Garmin-style heading bug (cyan, notched), card space, inside the ring.
+  if (o.heading_bug_enabled) {
+    const hA = headbug - heading;
+    const oA = _polar(50, 50, 48, hA + 3.5), oB = _polar(50, 50, 48, hA - 3.5);
+    const iA = _polar(50, 50, 44, hA + 3.5), iB = _polar(50, 50, 44, hA - 3.5);
+    const nA = _polar(50, 50, 48, hA + 1.3), nB = _polar(50, 50, 48, hA - 1.3), nm = _polar(50, 50, 45.5, hA);
+    pointers += `<path d="M${iA.x} ${iA.y} L${oA.x} ${oA.y} L${nA.x} ${nA.y} L${nm.x} ${nm.y} L${nB.x} ${nB.y} L${oB.x} ${oB.y} L${iB.x} ${iB.y} Z" fill="${hbC}"/>`;
+  }
+  // Fixed lubber index marks (yellow) at the four cardinal viewport positions.
+  let lubber = "";
+  for (const d of [0, 90, 180, 270]) {
+    const a = _polar(50, 50, 48, d), b = _polar(50, 50, 42, d);
+    lubber += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#ffff00" stroke-width="1.5"/>`;
+  }
+  // Centre deviation scale + CDI/GSI cross-pointer needles (viewport space).
+  let nav = "";
+  for (const dv of [-1, -2/3, -1/3, 1/3, 2/3, 1]) {
+    const hx = 50 + dv * dev, vy = 50 + dv * dev;
+    nav += `<line x1="${hx}" y1="48.5" x2="${hx}" y2="51.5" stroke="${fg}" stroke-width="0.4"/>`;
+    nav += `<line x1="48.5" y1="${vy}" x2="51.5" y2="${vy}" stroke="${fg}" stroke-width="0.4"/>`;
+  }
   if (o.cdi_enabled !== false) {
-    const l0 = _polar(50, 50, 46, ca + 90), l1 = _polar(50, 50, 46, ca - 90);
-    nav += `<line x1="${l0.x}" y1="${l0.y}" x2="${l1.x}" y2="${l1.y}" stroke="${yc}" stroke-width="1.2"/>`;
+    const x = 50 + cdi * dev;
+    nav += `<line x1="${x}" y1="22" x2="${x}" y2="78" stroke="${needleC}" stroke-width="${needleW}"/>`;
   }
-  let gs = "";
   if (o.gsi_enabled !== false) {
-    gs = `<line x1="90" y1="35" x2="90" y2="65" stroke="${fg}" stroke-width="0.5"/>`;
-    for (const y of [35, 42, 58, 65]) gs += `<circle cx="90" cy="${y}" r="1" fill="none" stroke="${fg}" stroke-width="0.5"/>`;
-    gs += `<path d="M90 46 L92.4 48.5 L90 51 L87.6 48.5 Z" fill="${yc}"/>`;
+    const y = 50 - gsi * dev;
+    nav += `<line x1="22" y1="${y}" x2="78" y2="${y}" stroke="${needleC}" stroke-width="${needleW}"/>`;
   }
-  const bg = _polar(50, 50, 43, 0), bgl = _polar(50, 50, 49, -3.5), bgr = _polar(50, 50, 49, 3.5);
   return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
   <circle cx="50" cy="50" r="48" fill="${rgbaFromColor(o.bg_color || "#000", bgOpacity(o))}" stroke="${fg}" stroke-width="0.8"/>
   <g transform="rotate(${-heading} 50 50)">${ticks}</g>
-  <path d="M${bg.x} ${bg.y} L${bgl.x} ${bgl.y} L${bgr.x} ${bgr.y} Z" fill="#e000e0"/>
+  ${pointers}
+  ${lubber}
   ${nav}
-  ${gs}
 </svg>`);
 }
 
