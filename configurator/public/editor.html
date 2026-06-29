@@ -1116,7 +1116,10 @@ function renderCanvas() {
         content.style.boxSizing = "border-box";
         content.style.border = "1px solid " + (fg || "#aaaaaa");
       }
-      content.style.fontSize = Math.max(8, (o.font_percent || def.pct) * rect(inst).h) + "px";
+      // font_percent: whole-number percent (40) or legacy fraction (0.40).
+      let _fp = o.font_percent != null ? Number(o.font_percent) : def.pct;
+      if (_fp > 1) _fp = _fp / 100;
+      content.style.fontSize = Math.max(8, _fp * rect(inst).h) + "px";
       content.style.justifyContent = textJustify(inst);
       el.appendChild(content);
     } else {
