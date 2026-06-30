@@ -638,10 +638,12 @@ function buildHeadingTape(inst) {
 // Horizontal situation indicator -- faithful to the pyEfis HSI widget: a
 // rotating compass card (ticks + labels), a small selected-course pointer
 // (course_color, driven by COURSE), fixed yellow lubber index marks, the
-// CDI/GSI cross-pointer deviation needles (needle_color/width, fixed in the
-// viewport) over a centre deviation scale, and an optional Garmin-style cyan
-// heading bug (heading_bug_color) on the inside of the ring at the selected
-// heading. Reflects fg_color, bg_opacity and the cdi/gsi toggles.
+// CDI/GSI cross-pointer deviation needles over a centre deviation scale, and an
+// optional Garmin-style cyan heading bug (heading_bug_color). With
+// source_auto_color on (default) the course pointer + CDI/GSI are coloured by
+// nav source -- the preview shows a GPS source (magenta); a VOR/LOC source uses
+// vloc_color (green). Off, the needles use needle_color. Reflects fg_color,
+// bg_opacity and the cdi/gsi toggles.
 function buildHSI(inst) {
   const o = inst.options || {};
   const fg = o.fg_color || "#ffffff";
@@ -650,6 +652,12 @@ function buildHSI(inst) {
   const courseC = o.course_color || "#ff00ff";
   const hbC = o.heading_bug_color || "#00ffff";
   const trackC = o.track_color || "#ff00ff";
+  // Source auto-colouring: the preview shows a GPS source, so the source colour
+  // is course_color (magenta). On (default), the course pointer + CDI/GSI use the
+  // source colour; off, the CDI/GSI fall back to needle_color. (vloc_color, for a
+  // VOR/LOC source, is not shown by the static GPS preview.)
+  const autoColor = o.source_auto_color !== false;
+  const navColor = autoColor ? courseC : needleC;
   const heading = 87, course = 110, headbug = 50, track = 78;  // sample values
   const cdi = 0.3, gsi = -0.2, dev = 24;              // dev = r*0.5 (viewBox)
   let ticks = "";
@@ -694,11 +702,11 @@ function buildHSI(inst) {
   }
   if (o.cdi_enabled !== false) {
     const x = 50 + cdi * dev;
-    nav += `<line x1="${x}" y1="22" x2="${x}" y2="78" stroke="${needleC}" stroke-width="${needleW}"/>`;
+    nav += `<line x1="${x}" y1="22" x2="${x}" y2="78" stroke="${navColor}" stroke-width="${needleW}"/>`;
   }
   if (o.gsi_enabled !== false) {
     const y = 50 - gsi * dev;
-    nav += `<line x1="22" y1="${y}" x2="78" y2="${y}" stroke="${needleC}" stroke-width="${needleW}"/>`;
+    nav += `<line x1="22" y1="${y}" x2="78" y2="${y}" stroke="${navColor}" stroke-width="${needleW}"/>`;
   }
   return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
