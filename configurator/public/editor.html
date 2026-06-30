@@ -708,6 +708,9 @@ function buildHSI(inst) {
     const y = 50 - gsi * dev;
     nav += `<line x1="22" y1="${y}" x2="78" y2="${y}" stroke="${navColor}" stroke-width="${needleW}"/>`;
   }
+  // Nav-source annunciation (top-left), source-coloured. Preview shows GPS.
+  const srcLabel = o.source_label_enabled === false ? ""
+    : `<text x="4" y="11" fill="${courseC}" font-size="8" font-weight="600">GPS</text>`;
   return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
   <circle cx="50" cy="50" r="48" fill="${rgbaFromColor(o.bg_color || "#000", bgOpacity(o))}" stroke="${fg}" stroke-width="0.8"/>
@@ -715,6 +718,7 @@ function buildHSI(inst) {
   ${pointers}
   ${lubber}
   ${nav}
+  ${srcLabel}
 </svg>`);
 }
 
