@@ -1155,7 +1155,6 @@ function renderCanvas() {
       const def = TEXT_DEFAULTS[inst.type] || { font: "DejaVu Sans Condensed", pct: 0.5 };
       const content = document.createElement("div");
       content.className = "inst-text";
-      content.textContent = sampleText(inst);
       content.style.fontFamily = '"' + (o.font_family || def.font) + '"';
       const fg = o.fg_color || def.fg;
       if (fg) content.style.color = fg;
@@ -1171,10 +1170,32 @@ function renderCanvas() {
         content.style.border = "1px solid " + (fg || "#aaaaaa");
       }
       // font_percent: whole-number percent (40) or legacy fraction (0.40).
+      const _vh = rect(inst).h;
       let _fp = o.font_percent != null ? Number(o.font_percent) : def.pct;
       if (_fp > 1) _fp = _fp / 100;
-      content.style.fontSize = Math.max(8, _fp * rect(inst).h) + "px";
+      content.style.fontSize = Math.max(8, _fp * _vh) + "px";
       content.style.justifyContent = textJustify(inst);
+      // value_text: optional prefix label (own font/size/colour) drawn before
+      // the value, plus a configurable value colour -- matches misc.ValueDisplay.
+      if (inst.type === "value_text" && o.prefix_text) {
+        content.style.alignItems = "baseline";
+        const pre = document.createElement("span");
+        pre.textContent = o.prefix_text;
+        pre.style.fontFamily = '"' + (o.prefix_font_family || o.font_family || def.font) + '"';
+        pre.style.color = o.prefix_color || "#ffffff";
+        let _pfp = o.prefix_font_percent != null ? Number(o.prefix_font_percent) : 50;
+        if (_pfp > 1) _pfp = _pfp / 100;
+        pre.style.fontSize = Math.max(6, _pfp * _vh) + "px";
+        pre.style.marginRight = "0.3em";
+        content.appendChild(pre);
+        const valSpan = document.createElement("span");
+        valSpan.textContent = sampleText(inst);
+        if (o.value_color) valSpan.style.color = o.value_color;
+        content.appendChild(valSpan);
+      } else {
+        content.textContent = sampleText(inst);
+        if (inst.type === "value_text" && o.value_color) content.style.color = o.value_color;
+      }
       el.appendChild(content);
     } else {
       const content = document.createElement("img");
