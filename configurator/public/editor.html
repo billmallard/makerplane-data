@@ -1175,6 +1175,20 @@ function renderCanvas() {
       if (_fp > 1) _fp = _fp / 100;
       content.style.fontSize = Math.max(8, _fp * _vh) + "px";
       content.style.justifyContent = textJustify(inst);
+      // value_text: optional box (border + background) on the widget bounds.
+      // bg_opacity defaults to 0 (transparent), matching misc.ValueDisplay.
+      if (inst.type === "value_text") {
+        const _bgo = o.bg_opacity != null ? Math.max(0, Math.min(1, Number(o.bg_opacity) / 100)) : 0;
+        content.style.background = o.bg_color ? rgbaFromColor(o.bg_color, _bgo) : "transparent";
+        const _bw = Number(o.border_width) || 0;
+        if (_bw > 0) {
+          content.style.boxSizing = "border-box";
+          const _bo = o.border_opacity != null ? Math.max(0, Math.min(1, Number(o.border_opacity) / 100)) : 1;
+          content.style.border = _bw + "px solid " + rgbaFromColor(o.border_color || "#ffffff", _bo);
+        } else {
+          content.style.border = "none";
+        }
+      }
       // value_text: optional prefix label (own font/size/colour) drawn before
       // the value, plus a configurable value colour -- matches misc.ValueDisplay.
       if (inst.type === "value_text" && o.prefix_text) {
