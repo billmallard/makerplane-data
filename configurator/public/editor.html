@@ -509,6 +509,28 @@ function buildAttitude(inst) {
   // which hides it otherwise).
   const fpm = (o.show_fpm === false) ? ""
     : `<path d="M57 50 l3.5 -2.2 M57 50 l3.5 2.2" stroke="#37d36b" stroke-width="1" fill="none"/>`;
+  // Compass heading scale on the horizon (matches ai._draw_horizon_heading):
+  // ticks every interval deg + an upright label every label-interval deg, on
+  // the y=50 horizon line so it rides the rolled/pitched horizon. Sample
+  // heading for the preview. Labels counter-rotate (-roll) to stay upright.
+  let headingMarks = "";
+  if (o.horizon_heading_marks) {
+    const hHead = 0;
+    const hIv = Math.max(1, Number(o.horizon_heading_interval) || 10);
+    const hLiv = Math.max(hIv, Number(o.horizon_heading_label_interval) || 20);
+    const hCol = o.horizon_heading_color || "#ffffff";
+    const hTick = (Number(o.horizon_heading_tick_length) || 5) / 5 * 2;
+    for (let m = 0; m < 360; m += hIv) {
+      const d = ((m - hHead + 180) % 360) - 180, x = 50 + d * ppd;
+      if (x < 2 || x > 98) continue;
+      headingMarks += `<line x1="${x.toFixed(1)}" y1="50" x2="${x.toFixed(1)}" y2="${(50 - hTick).toFixed(1)}" stroke="${hCol}" stroke-width="0.5"/>`;
+      if (m % hLiv === 0) {
+        const lbl = (m === 0) ? "N" : m === 90 ? "E" : m === 180 ? "S" : m === 270 ? "W" : String(Math.floor(m / 10));
+        const ly = (50 - hTick - 1).toFixed(1);
+        headingMarks += `<text x="${x.toFixed(1)}" y="${ly}" fill="${hCol}" font-size="3.5" text-anchor="middle" transform="rotate(${-roll} ${x.toFixed(1)} ${ly})">${lbl}</text>`;
+      }
+    }
+  }
   return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" class="gauge-svg">
   <defs>
@@ -522,6 +544,7 @@ function buildAttitude(inst) {
       <rect x="-90" y="50" width="280" height="220" fill="url(#aig${id})"/>
       <line x1="-90" y1="50" x2="190" y2="50" stroke="#fff" stroke-width="1.1"/>
       ${ladder}
+      ${headingMarks}
     </g></g>
     <g transform="rotate(${roll} 50 50)">${rollarc}</g>
     ${bankMarks}
