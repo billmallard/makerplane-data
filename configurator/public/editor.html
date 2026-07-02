@@ -426,17 +426,18 @@ function buildAttitude(inst) {
   const meta = (state.schema && state.schema.instruments
     && state.schema.instruments[inst.type]) || {};
   const pv = meta.preview || {};
+  const r = rect(inst);
   return svgFromString(attitudeSVG(inst,
     pv.pitch !== undefined ? pv.pitch : 4,
     pv.roll !== undefined ? pv.roll : -9,
-    pv.slip !== undefined ? pv.slip : 2, true));
+    pv.slip !== undefined ? pv.slip : 2, true, r.w / r.h));
 }
 
 // Shared attitude symbology -- used by buildAttitude AND buildVirtualVfr (the SVS
 // preview draws the SAME symbology over a captured clean-terrain image). Returns
 // SVG markup. withBackground draws the sky/ground gradient; when false the SVG is
 // transparent so the terrain <img> behind shows through.
-function attitudeSVG(inst, pitch, roll, slip, withBackground) {
+function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
   const o = inst.options || {};
   const sym = o.symbol_color || "#ffff00";
   const id = _svgUid++;
@@ -445,17 +446,26 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground) {
   // ~10x too thick. pyEfis draws its linework with a fontSize*0.05 pen ~= 0.1%
   // of the width (measured: 2px on a 1920 SVS). LW brings the twin to that ratio.
   const LW = 0.095;
+  // Aspect compensation. preserveAspectRatio="slice" scales the square 100x100
+  // viewBox by the LARGER box dimension and crops the other. On a WIDE SVS box it
+  // scales by width and crops top/bottom, so pitch (pyEfis scales by height/fov)
+  // and the bank arc (height/3) must be compressed by sc = max(1, W/H) to fit and
+  // match the device. sc=1 for square/tall boxes leaves the attitude twin as-is.
+  const sc = Math.max(1, aspect || 1);
+  const arcR = 33.3 / sc;              // bank-arc radius (pyEfis height/3)
+  const arcTop = 50 - arcR;            // top of the arc (bank pointer sits here)
   // Pitch ladder, option-driven to match AI: viewBox 100 == the visible pitch
   // FOV, ticks at the minor/major/numbered division degrees, lengths from the
   // tick-width options, faded beyond the label range, at the ladder opacity.
   const fov = Number(o.pitchDegreesShown) || 30;
-  const ppd = 100 / fov;
+  const ppd = 100 / (sc * fov);
   const minorD = Math.max(1, Number(o.minorDiv) || 1);
   const majorD = Math.max(1, Number(o.majorDiv) || 5);
   const numD = Math.max(1, Number(o.numberedDiv) || 10);
   const labelRange = o.visiblePitchAngle != null ? Number(o.visiblePitchAngle) : 15;
   const ladderOp = o.pitchOpacity != null ? Number(o.pitchOpacity) : 0.6;
-  const KW = 0.16;  // px tick-width option -> viewBox half-width
+  const KW = 0.031;  // px tick-width -> viewBox half-width; pyEfis autoscales the
+                     // widths to fontSize (numbered ~3.1% of width, not ~16%)
   const numHW = (Number(o.numberedDivWidth) || 50) * KW;
   const majHW = (Number(o.majorDivWidth) || 40) * KW;
   const minHW = (Number(o.minorDivWidth) || 10) * KW;
@@ -469,12 +479,12 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground) {
     const sw = (isNum ? 0.7 : (isMaj ? 0.55 : 0.45)) * LW;
     const y = 50 - a * ppd;
     ladder += `<line x1="${(50 - hw).toFixed(1)}" y1="${y.toFixed(1)}" x2="${(50 + hw).toFixed(1)}" y2="${y.toFixed(1)}" stroke="#fff" stroke-width="${sw}" opacity="${ladderOp}"/>`;
-    if (isNum) ladder += `<text x="${(50 - hw - 2).toFixed(1)}" y="${(y + 1.4).toFixed(1)}" fill="#fff" font-size="4" text-anchor="end" opacity="${ladderOp}">${a}</text>`
-      + `<text x="${(50 + hw + 2).toFixed(1)}" y="${(y + 1.4).toFixed(1)}" fill="#fff" font-size="4" opacity="${ladderOp}">${a}</text>`;
+    if (isNum) ladder += `<text x="${(50 - hw - 1).toFixed(1)}" y="${(y + 0.75).toFixed(1)}" fill="#fff" font-size="2.1" text-anchor="end" opacity="${ladderOp}">${a}</text>`
+      + `<text x="${(50 + hw + 1).toFixed(1)}" y="${(y + 0.75).toFixed(1)}" fill="#fff" font-size="2.1" opacity="${ladderOp}">${a}</text>`;
   }
   let rollarc = "";
   for (const a of [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60]) {
-    const maj = (a % 30 === 0), p1 = _polar(50, 50, 45, a), p2 = _polar(50, 50, maj ? 40 : 42.5, a);
+    const maj = (a % 30 === 0), p1 = _polar(50, 50, arcR, a), p2 = _polar(50, 50, arcR * (maj ? 0.889 : 0.944), a);
     rollarc += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#fff" stroke-width="${(maj ? 0.9 : 0.6) * LW}"/>`;
   }
   // Standard-rate bank markers (diamonds) -- shown when drawBankMarkers is on,
@@ -483,9 +493,9 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground) {
   let bankMarks = "";
   if (o.drawBankMarkers !== false) {
     const ba = Math.min(15, Number(o.bankAngleMaximum) || 25);
-    const ms = (Number(o.bankMarkSize) || 10) * 0.13;
+    const ms = (Number(o.bankMarkSize) || 10) * 0.08;
     for (const s of [-1, 1]) {
-      const c = _polar(50, 50, 45, s * ba);
+      const c = _polar(50, 50, arcR, s * ba);
       bankMarks += `<path d="M${c.x.toFixed(1)} ${(c.y - ms).toFixed(1)} L${(c.x + ms * 0.7).toFixed(1)} ${c.y.toFixed(1)} L${c.x.toFixed(1)} ${(c.y + ms).toFixed(1)} L${(c.x - ms * 0.7).toFixed(1)} ${c.y.toFixed(1)} Z" fill="none" stroke="#fff" stroke-width="${0.6 * LW}"/>`;
     }
   }
@@ -496,20 +506,22 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground) {
   const symStyle = String(o.aircraft_symbol || "classic").toLowerCase();
   let symbol;
   if (symStyle === "garmin") {
-    // Bold GI-275/G1000 trapezoid wings (flat top, taper to blunt outboard
-    // tips) + centre dot -- matches ai._draw_aircraft_symbol "garmin".
+    // Garmin wing symbol -- SLIM (the old 5.5-unit-tall wedge was ~10x too big).
+    // Tapered wings hugging the reference line + a small dot. Geometry is a
+    // stopgap pending the chevron redo (pyEfis #85).
     symbol = `<g fill="${sym}">
-      <polygon points="45,47.25 29,49.3 29,50.7 45,52.75"/>
-      <polygon points="55,47.25 71,49.3 71,50.7 55,52.75"/>
-      <circle cx="50" cy="50" r="1.2"/>
+      <polygon points="45,49.4 29,49.85 29,50.15 45,50.6"/>
+      <polygon points="55,49.4 71,49.85 71,50.15 55,50.6"/>
+      <circle cx="50" cy="50" r="0.5"/>
     </g>`;
   } else if (["brackets", "grt", "l", "l-bracket", "l_bracket"].includes(symStyle)) {
+    // GRT-style flat bars with an inboard down-tick -- slimmed to the device weight.
     symbol = `<g fill="${sym}">
-      <rect x="29" y="49.25" width="14" height="1.5"/>
-      <rect x="41.5" y="49.25" width="1.5" height="3.9"/>
-      <rect x="57" y="49.25" width="14" height="1.5"/>
-      <rect x="57" y="49.25" width="1.5" height="3.9"/>
-      <circle cx="50" cy="50" r="1.05"/>
+      <rect x="29" y="49.8" width="14" height="0.4"/>
+      <rect x="42.5" y="49.8" width="0.5" height="1.4"/>
+      <rect x="57" y="49.8" width="14" height="0.4"/>
+      <rect x="57" y="49.8" width="0.5" height="1.4"/>
+      <circle cx="50" cy="50" r="0.45"/>
     </g>`;
   } else {
     // classic split-wing bars + centre dot. Bars stay wide (the symbol span)
@@ -518,13 +530,13 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground) {
     symbol = `<g fill="${sym}">
       <rect x="20" y="49.8" width="20" height="0.4" rx="0.15"/>
       <rect x="60" y="49.8" width="20" height="0.4" rx="0.15"/>
-      <circle cx="50" cy="50" r="0.9"/>
+      <circle cx="50" cy="50" r="0.5"/>
     </g>`;
   }
   // Flight-path marker (matches ai._drawFPM): a green boresight CIRCLE with two
   // side wings + a top stem, not a chevron. Shown unless show_fpm is off. Placed
   // at a representative drift offset; thin stroke like the rest of the linework.
-  const fr = 2;                 // fpm circle radius (viewBox units)
+  const fr = 1.3;               // fpm circle radius (viewBox units)
   const fx = 57, fy = 50;       // representative flight-path position
   const fpm = (o.show_fpm === false) ? ""
     : `<g fill="none" stroke="#37d36b" stroke-width="${2 * LW}">
@@ -543,7 +555,7 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground) {
     const hIv = Math.max(1, Number(o.horizon_heading_interval) || 10);
     const hLiv = Math.max(hIv, Number(o.horizon_heading_label_interval) || 20);
     const hCol = o.horizon_heading_color || "#ffffff";
-    const hTick = (Number(o.horizon_heading_tick_length) || 5) / 5 * 2;
+    const hTick = (Number(o.horizon_heading_tick_length) || 5) / 5 * 1;
     for (let m = 0; m < 360; m += hIv) {
       const d = ((m - hHead + 180) % 360) - 180, x = 50 + d * ppd;
       if (x < 2 || x > 98) continue;
@@ -551,7 +563,7 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground) {
       if (m % hLiv === 0) {
         const lbl = (m === 0) ? "N" : m === 90 ? "E" : m === 180 ? "S" : m === 270 ? "W" : String(Math.floor(m / 10));
         const ly = (50 - hTick - 1).toFixed(1);
-        headingMarks += `<text x="${x.toFixed(1)}" y="${ly}" fill="${hCol}" font-size="3.5" text-anchor="middle" transform="rotate(${-roll} ${x.toFixed(1)} ${ly})">${lbl}</text>`;
+        headingMarks += `<text x="${x.toFixed(1)}" y="${ly}" fill="${hCol}" font-size="1.8" text-anchor="middle" transform="rotate(${-roll} ${x.toFixed(1)} ${ly})">${lbl}</text>`;
       }
     }
   }
@@ -572,8 +584,8 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground) {
     </g></g>
     <g transform="rotate(${roll} 50 50)">${rollarc}</g>
     ${bankMarks}
-    <path d="M47 6 L53 6 L50 11 Z" fill="#fff"/>
-    <circle cx="${50 + slip}" cy="14" r="1.5" fill="none" stroke="#fff" stroke-width="${0.6 * LW}"/>
+    <path d="M48.5 ${(arcTop - 3).toFixed(1)} L51.5 ${(arcTop - 3).toFixed(1)} L50 ${(arcTop + 0.8).toFixed(1)} Z" fill="#fff"/>
+    <circle cx="${(50 + slip).toFixed(1)}" cy="${(arcTop + 3.4).toFixed(1)}" r="1" fill="none" stroke="#fff" stroke-width="${0.6 * LW}"/>
     ${symbol}
     ${fpm}
   </g>
@@ -919,7 +931,8 @@ function buildVirtualVfr(inst) {
   // LIVE from the user's options (aircraft symbol, pitch ladder, bank scale,
   // FPM, heading marks). Drawn at level (pitch 0 / roll 0) so it aligns with the
   // level terrain; transparent background so the terrain shows through.
-  const ov = svgFromString(attitudeSVG(inst, 0, 0, 0, false));
+  const r = rect(inst);
+  const ov = svgFromString(attitudeSVG(inst, 0, 0, 0, false, r.w / r.h));
   ov.style.position = "absolute";
   ov.style.left = "0";
   ov.style.top = "0";
