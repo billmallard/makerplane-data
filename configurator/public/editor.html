@@ -455,6 +455,17 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
   const sc = Math.max(1, aspect || 1);
   const arcR = 33.3 / sc;              // bank-arc radius (pyEfis height/3)
   const arcTop = 50 - arcR;            // top of the arc (bank pointer sits here)
+  // horizon_position: percent up the screen where the pitch=0 horizon sits
+  // (50 = centred). pyEfis (_horizon_offset_px) raises the whole attitude
+  // reference -- horizon, ladder, symbol, FPM, heading marks -- as a pure
+  // screen-space vertical shift applied AFTER the roll rotation, so the
+  // horizon keeps pivoting on the raised symbol at any bank. The bank scale,
+  // bank pointer and slip ball stay anchored on the viewport centre.
+  const hpRaw = Number(o.horizon_position);
+  const hp = (o.horizon_position == null || o.horizon_position === ""
+              || !isFinite(hpRaw)) ? 50 : hpRaw;
+  const hoff = (hp / 100 - 0.5) * (100 / sc);  // viewBox units, positive = up
+                                               // (visible height = 100/sc)
   // Pitch ladder, option-driven to match AI: viewBox 100 == the visible pitch
   // FOV, ticks at the minor/major/numbered division degrees, lengths from the
   // tick-width options, faded beyond the label range, at the ladder opacity.
@@ -576,19 +587,21 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
     <linearGradient id="aig${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7d5328"/><stop offset="1" stop-color="#553619"/></linearGradient>
   </defs>
   <g clip-path="url(#aic${id})">
-    <g transform="rotate(${roll} 50 50)"><g transform="translate(0 ${pitch * ppd})">
+    <g transform="translate(0 ${(-hoff).toFixed(2)})"><g transform="rotate(${roll} 50 50)"><g transform="translate(0 ${pitch * ppd})">
       ${withBackground ? `<rect x="-90" y="-170" width="280" height="220" fill="url(#ais${id})"/>
       <rect x="-90" y="50" width="280" height="220" fill="url(#aig${id})"/>` : ``}
       <line x1="-90" y1="50" x2="190" y2="50" stroke="#fff" stroke-width="${1.1 * LW}"/>
       ${ladder}
       ${headingMarks}
-    </g></g>
+    </g></g></g>
     <g transform="rotate(${roll} 50 50)">${rollarc}</g>
     ${bankMarks}
     <path d="M49.65 ${(arcTop - 0.8).toFixed(2)} L50.35 ${(arcTop - 0.8).toFixed(2)} L50 ${(arcTop + 0.1).toFixed(2)} Z" fill="#fff"/>
     <circle cx="${(50 + slip).toFixed(1)}" cy="${(arcTop + 1.9).toFixed(2)}" r="0.5" fill="#fff"/>
-    ${symbol}
-    ${fpm}
+    <g transform="translate(0 ${(-hoff).toFixed(2)})">
+      ${symbol}
+      ${fpm}
+    </g>
   </g>
 </svg>`;
 }
@@ -927,6 +940,18 @@ function buildVirtualVfr(inst) {
   img.src = `${ASSETS}/svs/${scene}.webp`;
   img.alt = "synthetic vision — " + scene;
   img.draggable = false;
+  // horizon_position: the device depresses the SVS camera so the TERRAIN
+  // horizon rises with the attitude reference (_horizon_offset_deg). The
+  // capture's horizon sits at the frame centre, so shift the image by the
+  // same fraction and scale just enough to keep the frame covered (the
+  // slight zoom at large offsets is the price of a static capture).
+  const hpRaw = Number(o.horizon_position);
+  const hpf = (o.horizon_position == null || o.horizon_position === ""
+               || !isFinite(hpRaw)) ? 0 : (hpRaw / 100 - 0.5);
+  if (hpf !== 0) {
+    img.style.transform =
+      `translateY(${(-hpf * 100).toFixed(1)}%) scale(${(1 + 2 * Math.abs(hpf)).toFixed(3)})`;
+  }
   wrap.appendChild(img);
   // Overlay: the SAME attitude symbology the device draws over SVS, rendered
   // LIVE from the user's options (aircraft symbol, pitch ladder, bank scale,
