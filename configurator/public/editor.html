@@ -102,7 +102,7 @@
   }
   .gauge { width: 100%; height: 100%; box-sizing: border-box; pointer-events: none; overflow: hidden; }
   .gauge-svg { width: 100%; height: 100%; display: block; }
-  .svsimg { width: 100%; height: 100%; overflow: hidden; background: #15639f; }
+  .svsimg { position: relative; width: 100%; height: 100%; overflow: hidden; background: #15639f; }
   .svsimg img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .bargauge { display: flex; flex-direction: column; padding: 2px 3px; gap: 1px; }
   .bargauge .g-name, .bargauge .g-val { line-height: 1; white-space: nowrap; }
@@ -422,15 +422,23 @@ function buildArcGauge(inst) {
 let _svgUid = 0;
 function svgFromString(s) { const t = document.createElement("template"); t.innerHTML = s.trim(); return t.content.firstChild; }
 function buildAttitude(inst) {
-  const o = inst.options || {};
-  const sym = o.symbol_color || "#ffff00";
   // Category-3 preview pose from the instrument schema (no live FIX here).
   const meta = (state.schema && state.schema.instruments
     && state.schema.instruments[inst.type]) || {};
   const pv = meta.preview || {};
-  const pitch = pv.pitch !== undefined ? pv.pitch : 4;
-  const roll = pv.roll !== undefined ? pv.roll : -9;
-  const slip = pv.slip !== undefined ? pv.slip : 2;
+  return svgFromString(attitudeSVG(inst,
+    pv.pitch !== undefined ? pv.pitch : 4,
+    pv.roll !== undefined ? pv.roll : -9,
+    pv.slip !== undefined ? pv.slip : 2, true));
+}
+
+// Shared attitude symbology -- used by buildAttitude AND buildVirtualVfr (the SVS
+// preview draws the SAME symbology over a captured clean-terrain image). Returns
+// SVG markup. withBackground draws the sky/ground gradient; when false the SVG is
+// transparent so the terrain <img> behind shows through.
+function attitudeSVG(inst, pitch, roll, slip, withBackground) {
+  const o = inst.options || {};
+  const sym = o.symbol_color || "#ffff00";
   const id = _svgUid++;
   // Pitch ladder, option-driven to match AI: viewBox 100 == the visible pitch
   // FOV, ticks at the minor/major/numbered division degrees, lengths from the
@@ -531,7 +539,7 @@ function buildAttitude(inst) {
       }
     }
   }
-  return svgFromString(`
+  return `
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" class="gauge-svg">
   <defs>
     <clipPath id="aic${id}"><rect x="0" y="0" width="100" height="100"/></clipPath>
@@ -540,8 +548,8 @@ function buildAttitude(inst) {
   </defs>
   <g clip-path="url(#aic${id})">
     <g transform="rotate(${roll} 50 50)"><g transform="translate(0 ${pitch * ppd})">
-      <rect x="-90" y="-170" width="280" height="220" fill="url(#ais${id})"/>
-      <rect x="-90" y="50" width="280" height="220" fill="url(#aig${id})"/>
+      ${withBackground ? `<rect x="-90" y="-170" width="280" height="220" fill="url(#ais${id})"/>
+      <rect x="-90" y="50" width="280" height="220" fill="url(#aig${id})"/>` : ``}
       <line x1="-90" y1="50" x2="190" y2="50" stroke="#fff" stroke-width="1.1"/>
       ${ladder}
       ${headingMarks}
@@ -553,7 +561,7 @@ function buildAttitude(inst) {
     ${symbol}
     ${fpm}
   </g>
-</svg>`);
+</svg>`;
 }
 
 // Vertical tape (airspeed / altimeter): scrolling numbers around a sample value
@@ -883,11 +891,25 @@ function buildVirtualVfr(inst) {
   const scene = ["mountains", "approach", "coastal"].includes(o.preview_scene) ? o.preview_scene : "mountains";
   const wrap = document.createElement("div");
   wrap.className = "gauge svsimg";
+  // Background: a captured CLEAN SVS terrain frame (symbology-free), object-fit
+  // cover. The terrain is static (GL can't render in a browser); the horizon
+  // sits at the frame's vertical centre (pyEfis projects pitch=0 there).
   const img = document.createElement("img");
   img.src = `${ASSETS}/svs/${scene}.webp`;
   img.alt = "synthetic vision — " + scene;
   img.draggable = false;
   wrap.appendChild(img);
+  // Overlay: the SAME attitude symbology the device draws over SVS, rendered
+  // LIVE from the user's options (aircraft symbol, pitch ladder, bank scale,
+  // FPM, heading marks). Drawn at level (pitch 0 / roll 0) so it aligns with the
+  // level terrain; transparent background so the terrain shows through.
+  const ov = svgFromString(attitudeSVG(inst, 0, 0, 0, false));
+  ov.style.position = "absolute";
+  ov.style.left = "0";
+  ov.style.top = "0";
+  ov.style.width = "100%";
+  ov.style.height = "100%";
+  wrap.appendChild(ov);
   return wrap;
 }
 
