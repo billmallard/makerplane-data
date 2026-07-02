@@ -924,10 +924,6 @@ function buildAirspeedTrend(inst) {
   return wrap;
 }
 
-// Virtual VFR / synthetic vision: a REAL captured SVS frame (local
-// visual_svs_test, polar renderer) used as a background image, cropped to fit
-// (object-fit: cover). preview_scene picks the master; the device renders live
-// terrain. Far more faithful than redrawing SVS in SVG.
 // ---- SVS data-driven preview -----------------------------------------------
 // The virtual_vfr twin renders REAL terrain: a per-scene JSON patch (exported
 // by pyEfis tools/export_svs_preview_patch.py from SRTM + NASR, served from
@@ -936,6 +932,11 @@ function buildAirspeedTrend(inst) {
 // constants, clearance bands, elevation-gated airport-proximity collapse,
 // SAFE_LOW gradient, exponential haze, world grid/texture. Like the device,
 // there is no depth test -- painter's order, far to near.
+// HANDOFF: full notes (fidelity constants with their pyEfis source locations,
+// asset regeneration + Pi capture recipes, validation workflow, known gaps)
+// live in configurator/CLAUDE.md, section "The SVS data-driven preview".
+// Scene poses are owned by the pyEfis exporter's SCENES dict -- never
+// hardcode them here; the patch meta carries the camera.
 const SVS_PALETTES = {   // safe, caution, warning, conflict, water (svs.py)
   clearance:     [[0,100,0],[180,130,0],[200,40,0],[180,0,180],[20,80,150]],
   subdued:       [[20,70,25],[120,95,15],[140,45,15],[150,0,150],[25,60,105]],

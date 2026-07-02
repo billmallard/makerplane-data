@@ -86,8 +86,10 @@ Vanilla JS, no build step. Key internals:
   - `buildAttitude`, `buildHSI`, `buildTape` (airspeed/altimeter), `buildHeadingTape`,
     the dials (`buildAirspeedDial`/`buildAltimeterDial`/`buildVsiDial`/
     `buildTurnCoordinator`), `buildTrendTape`, `buildVsiPfd`, `buildWind`.
-  - `buildVirtualVfr` → **an `<img object-fit:cover>`** of `svs/<scene>.webp`
-    (real captured SVS frame; NOT redrawn in SVG). `preview_scene` picks the master.
+  - `buildVirtualVfr` → **a `<canvas>` rendered by `renderSVS()` from a real
+    terrain data patch** (see "The SVS data-driven preview" below). The
+    captured `svs/<scene>.webp` is only the loading/error fallback.
+    `preview_scene` picks the scene (mountains / approach / coastal / final).
   - everything else → the static palette SVG from R2.
   - `setOpt()` re-renders so option edits update live.
 - Complex SVG built via the `svgFromString(...)` template helper; `_polar` for
@@ -98,6 +100,76 @@ Vanilla JS, no build step. Key internals:
   debounced `applyCode`; canvas↔YAML, focus-guarded so it never clobbers typing).
 
 `public/index.html` is the dashboard (auth → projects → devices → `/editor?device=N`).
+
+## The SVS data-driven preview (shipped 2026-07-02 — session handoff notes)
+
+The virtual_vfr twin renders **real terrain live** instead of a static image.
+Everything an option changes re-renders instantly. Architecture:
+
+```
+  pyEfis tools/export_svs_preview_patch.py        (SCENE POSES = source of truth)
+    SRTM3 (D:/EarthData/srtm3) + NASR (pyEfis/nasr/airports.sqlite)
+      -> work/svs_patches/<scene>.json   (two-tier elev grid + runways + meta)
+      -> R2 assets/editor/svs/<scene>.json  (+ <scene>.webp fallback captures)
+  editor.html renderSVS(canvas, patch, options)   (the JS twin of svs_gl.py)
+    called from buildVirtualVfr; _svsPatchFor() caches the fetch per scene,
+    calls renderCanvas() once when a patch lands (webp img shows until then).
+```
+
+Scenes: `coastal` (SBA 34.4275/-119.8546, 2500 ft, hdg 000), `mountains`
+(Aspen 39.20/-106.85, 12500 ft, hdg 150), `approach` (Telluride ~3 NM final
+RWY 9), `final` (**1 NM final RWY 7 KSBA at 600 ft AGL** — user-requested).
+
+**Fidelity: the renderer is a PORT of svs.py/svs_gl.py, not an imitation.**
+If you touch it, keep these tied to the pyEfis source (all verified against
+the GL shader in `src/pyefis/instruments/ai/svs_gl.py`):
+- Palettes + band logic: `_PALETTES`/`_clearance_color` (svs.py) and the
+  fragment shader (conflict < 0 clearance; airport-proximity collapse is
+  **elevation-gated**: `near_airport && elev_ft < field_elev + 400` → SAFE).
+- Safe gradient: `mix(SAFE_LOW(128,117,56), SAFE, clearance-green/2500)`.
+- Haze: `1 - exp(-d/haze_eff)` toward HAZE (166,196,230), where `haze_eff =
+  min(max(haze_nm, 0.9*1.22*sqrt(alt_ft)), 200)` NM and `d` is **3D slant**
+  distance (GL fogs by v_dist). Runway surface fogs at 0.4 strength.
+- Projection: GL is `ppd * DEG_PER_RAD * tan(angle)` (camera.py); the twin's
+  pinhole `f = H/(2*tan(fov/2))`, `fov = pitchDegreesShown` (default 30),
+  matches within 2.3%. Proven by PIL blend-diff: the KSBA runways align.
+- **No depth test on the device** — painter's order far→near, runways drawn
+  after terrain. Keep it that way; it's faithful, not a shortcut.
+- Water: patch cells are `-9999` sentinel where the EXPORTER flood-filled
+  elev<=0 from the patch border (ocean). The GL itself only paints water for
+  the heightmap void sentinel (`WATER_THR_M = -1000`) — on-device blue water
+  comes from the water-polygon DB layer, which the preview approximates.
+
+**To regenerate assets** (after changing scenes, poses, or the exporter):
+```bash
+cd pyEfis && PYTHONPATH="C:/pylib;src" python tools/export_svs_preview_patch.py --out work/svs_patches
+PYTHONPATH="C:/pylib;src" python -m pyefis.editor.schema > work/svs_patches/schema.json
+cd ../makerplane-data/configurator   # NO CLOUDFLARE_API_TOKEN (R2-scoped token can't deploy)
+npx wrangler r2 object put makerplane-configs/assets/editor/svs/<scene>.json --file ... --content-type application/json --remote
+npx wrangler deploy
+```
+
+**Pi reference captures** (fallback webps + fidelity A/B frames) are taken at
+the exporter's poses: stop pyefis (`systemctl --user stop pyefis`), then
+`QT_QPA_PLATFORM=eglfs QT_QPA_EGLFS_KMS_CONFIG=~/eglfs_hdmi.json
+SVS_RENDERER=opengl SVS_TERRAIN_ONLY=1 SVS_LAT/LON/ALT/HEAD=...
+SVS_RANGE=15 SVS_AUTO_RANGE=false SVS_TILE_PATH=$HOME/EarthData/srtm3
+SVS_SCREENSHOT=/tmp/x.png SVS_SCREENGRAB=1 SVS_SCREENSHOT_DELAY_MS=7000
+timeout 60 ~/pyEfis/.venv/bin/python tests/visual_svs_test.py`, restart
+pyefis. Output is 1920x1080 regardless of SVS_W/H (eglfs fullscreens).
+
+**Validation workflow that worked:** extract the editor functions by brace
+matching into a standalone proto page (inline the patch JSON — file:// fetch
+is blocked), screenshot via the browse skill, PIL blend/diff against the Pi
+capture. Structural alignment (runways, ridgelines) is the pass signal;
+tonal deltas get tuned against the constants above.
+
+**Known gaps (good next increments):** no airport flag poles / obstacle
+markers in the canvas (device draws them; data could ride in the patch);
+coastal zero-elev flats (Goleta Slough) render water-blue where the device
+shows land — proper fix is shipping water-DB polygons in the patch;
+`font_percent` doesn't drive twin label sizes yet; garmin chevron geometry
+redo pending (pyEfis #85).
 
 ## Instrument-fidelity rule (important)
 
