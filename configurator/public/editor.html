@@ -697,6 +697,7 @@ function buildHeadingTape(inst) {
 function buildHSI(inst) {
   const o = inst.options || {};
   const fg = o.fg_color || "#ffffff";
+  const font = o.font_family || "DejaVu Sans Condensed";  // HSI uses QFont(self.font_family)
   const needleC = o.needle_color || "#ffff00";
   const needleW = (o.needle_width != null ? Number(o.needle_width) : 3) * 0.4;
   const courseC = o.course_color || "#ff00ff";
@@ -762,7 +763,7 @@ function buildHSI(inst) {
   const srcLabel = o.source_label_enabled === false ? ""
     : `<text x="4" y="11" fill="${courseC}" font-size="8" font-weight="600">GPS</text>`;
   return svgFromString(`
-<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
+<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font.replace(/"/g,'')}">
   <circle cx="50" cy="50" r="48" fill="${rgbaFromColor(o.bg_color || "#000", bgOpacity(o))}" stroke="${fg}" stroke-width="0.8"/>
   <g transform="rotate(${-heading} 50 50)">${ticks}</g>
   ${pointers}
