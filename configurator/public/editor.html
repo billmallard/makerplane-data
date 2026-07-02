@@ -928,36 +928,266 @@ function buildAirspeedTrend(inst) {
 // visual_svs_test, polar renderer) used as a background image, cropped to fit
 // (object-fit: cover). preview_scene picks the master; the device renders live
 // terrain. Far more faithful than redrawing SVS in SVG.
+// ---- SVS data-driven preview -----------------------------------------------
+// The virtual_vfr twin renders REAL terrain: a per-scene JSON patch (exported
+// by pyEfis tools/export_svs_preview_patch.py from SRTM + NASR, served from
+// R2) drawn on a canvas as a static frame and re-rendered on option change.
+// The colour model is a direct port of svs.py/svs_gl.py: the palette
+// constants, clearance bands, elevation-gated airport-proximity collapse,
+// SAFE_LOW gradient, exponential haze, world grid/texture. Like the device,
+// there is no depth test -- painter's order, far to near.
+const SVS_PALETTES = {   // safe, caution, warning, conflict, water (svs.py)
+  clearance:     [[0,100,0],[180,130,0],[200,40,0],[180,0,180],[20,80,150]],
+  subdued:       [[20,70,25],[120,95,15],[140,45,15],[150,0,150],[25,60,105]],
+  high_contrast: [[0,170,0],[245,190,0],[235,35,0],[230,0,230],[0,120,215]],
+};
+const SVS_HAZE_RGB = [166, 196, 230];   // svs_gl HAZE_COLOR
+function _svsNum(v, d) { const x = Number(v); return (v == null || v === "" || !isFinite(x)) ? d : x; }
+function _svsBool(v, d) { if (v == null || v === "") return d; return v === true || v === "true" || v === 1 || v === "1"; }
+function _svsHash(i, j) { const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); }
+function _svsNoise(x, y) {   // smooth value noise on the SRTM sample lattice
+  const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const a = _svsHash(i, j), b = _svsHash(i + 1, j), c = _svsHash(i, j + 1), d = _svsHash(i + 1, j + 1);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
+function renderSVS(canvas, patch, o) {
+  const meta = patch.meta, cam = meta.cam;
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext("2d");
+  const fov = _svsNum(o.pitchDegreesShown, 30);
+  const f = H / (2 * Math.tan(fov / 2 * Math.PI / 180));
+  const hp = _svsNum(o.horizon_position, 50);
+  const horizonY = H * (1 - hp / 100);
+  const altFt = cam.alt_ft, altM = altFt * 0.3048;
+  const greenFt = _svsNum(o.svs_clearance_green_ft, 1000);
+  const yellowFt = _svsNum(o.svs_clearance_yellow_ft, 500);
+  const pal = SVS_PALETTES[String(o.svs_palette || "clearance").toLowerCase()] || SVS_PALETTES.clearance;
+  const hazeOn = _svsBool(o.svs_haze, true);
+  // Altitude-scaled visibility, exactly svs_gl _frame_haze_inv: the config
+  // value is the floor, stretched toward ~90% of the true-horizon distance.
+  const hazeNm = _svsNum(o.svs_haze_distance_nm, 40);
+  const hazeEff = Math.min(Math.max(hazeNm, 0.9 * 1.22 * Math.sqrt(Math.max(altFt, 0))), 200);
+  const gridAmp = _svsNum(o.svs_terrain_grid, 0.35);
+  const texAmp = _svsNum(o.svs_terrain_texture, 0.35);
+  const safeGrad = _svsBool(o.svs_safe_gradient, true);
+  const fill = _svsBool(o.svs_terrain_fill, true);
+  const curve = _svsBool(o.svs_earth_curvature, true);
+  const rangeM = Math.min(_svsNum(o.svs_range_nm, meta.range_nm), meta.range_nm) * 1852 * 1.35;
+  const nearApt = meta.near_airport;
+  const gateFt = (meta.field_elev_ft != null ? meta.field_elev_ft : 0) + 400;
+  // sky (the AI scene gradient) + hazy far-field backdrop below the horizon
+  const sky = ctx.createLinearGradient(0, 0, 0, Math.max(horizonY, 1));
+  sky.addColorStop(0, "#1f6fd0"); sky.addColorStop(1, "#57a0e8");
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, Math.max(horizonY, 0));
+  const bg = ctx.createLinearGradient(0, horizonY, 0, H);
+  bg.addColorStop(0, "rgb(166,196,230)"); bg.addColorStop(0.3, "rgb(130,158,182)");
+  bg.addColorStop(1, "rgb(90,120,145)");
+  ctx.fillStyle = bg; ctx.fillRect(0, horizonY, W, H - horizonY);
+
+  const hRad = cam.head * Math.PI / 180;
+  const fwdE = Math.sin(hRad), fwdN = Math.cos(hRad);
+  const rgtE = Math.cos(hRad), rgtN = -Math.sin(hRad);
+  const mPerLat = 110574, mPerLon = 111320 * Math.cos(cam.lat * Math.PI / 180);
+  const R_E = 6371000;
+  function proj(lat, lon, elevM) {
+    const dE = (lon - cam.lon) * mPerLon, dN = (lat - cam.lat) * mPerLat;
+    const zc = dE * fwdE + dN * fwdN, xc = dE * rgtE + dN * rgtN;
+    if (zc < 20) return null;
+    const d2 = dE * dE + dN * dN;
+    const dU = elevM - altM - (curve ? d2 / (2 * R_E) : 0);
+    return [W / 2 + f * xc / zc, horizonY - f * dU / zc];
+  }
+  // Merge every tier's cells into ONE painter-sorted list. Coarse cells that
+  // fall inside the fine tier's coverage are dropped (the fine tier redraws
+  // that ground at full resolution).
+  const fine = patch.tiers[patch.tiers.length - 1];
+  const inFine = (lat, lon) => patch.tiers.length > 1
+    && lat <= fine.lat_top && lat >= fine.lat_top - fine.dlat * (fine.ny - 1)
+    && lon >= fine.lon_w && lon <= fine.lon_w + fine.dlon * (fine.nx - 1);
+  const cells = [];
+  patch.tiers.forEach((tier, ti) => {
+    const isFine = ti === patch.tiers.length - 1 && patch.tiers.length > 1;
+    for (let iy = 0; iy < tier.ny - 1; iy++) for (let ix = 0; ix < tier.nx - 1; ix++) {
+      const cLat = tier.lat_top - (iy + 0.5) * tier.dlat;
+      const cLon = tier.lon_w + (ix + 0.5) * tier.dlon;
+      if (!isFine && inFine(cLat, cLon)) continue;
+      const dE = (cLon - cam.lon) * mPerLon, dN = (cLat - cam.lat) * mPerLat;
+      if (dE * fwdE + dN * fwdN < 20) continue;
+      const d = Math.sqrt(dE * dE + dN * dN);
+      if (d > rangeM) continue;
+      cells.push([d, ti, iy, ix]);
+    }
+  });
+  cells.sort((a, b) => b[0] - a[0]);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  for (const [d, ti, iy, ix] of cells) {
+    const tier = patch.tiers[ti];
+    const E = tier.elev_m;
+    const raw = [E[iy][ix], E[iy][ix + 1], E[iy + 1][ix + 1], E[iy + 1][ix]];
+    // water: the exporter's ocean sentinel (border flood-fill of sea-level
+    // cells -- inland zero-elevation flats stay land, like the device)
+    const water = raw.every(v => v === -9999);
+    const el = v => (v === -9999 || v < 0) ? 0 : v;
+    const lat0 = tier.lat_top - iy * tier.dlat, lon0 = tier.lon_w + ix * tier.dlon;
+    const p0 = proj(lat0, lon0, el(raw[0]));
+    const p1 = proj(lat0, lon0 + tier.dlon, el(raw[1]));
+    const p2 = proj(lat0 - tier.dlat, lon0 + tier.dlon, el(raw[2]));
+    const p3 = proj(lat0 - tier.dlat, lon0, el(raw[3]));
+    if (!p0 || !p1 || !p2 || !p3) continue;
+    if (Math.max(p0[0], p1[0], p2[0], p3[0]) < 0
+        || Math.min(p0[0], p1[0], p2[0], p3[0]) > W) continue;
+    if (Math.min(p0[1], p1[1], p2[1], p3[1]) > H) continue;
+    const elevFt = (el(raw[0]) + el(raw[1]) + el(raw[2]) + el(raw[3])) / 4 * 3.28084;
+    // 3D slant distance (the GL fogs by v_dist, not ground distance)
+    const dSl = Math.hypot(d, altM - elevFt * 0.3048);
+    let c;
+    if (water) c = pal[4].slice();
+    else {
+      const clear = altFt - elevFt;              // svs_gl fragment shader
+      if (clear < 0) c = pal[3].slice();
+      else if (nearApt && elevFt < gateFt) c = pal[0].slice();
+      else if (clear < yellowFt) c = pal[2].slice();
+      else if (clear < greenFt) c = pal[1].slice();
+      else {
+        c = pal[0].slice();
+        if (safeGrad) {                          // mix(SAFE_LOW, SAFE, t/2500)
+          const t = Math.max(0, Math.min(1, (clear - greenFt) / 2500));
+          c = [lerp(128, c[0], t), lerp(117, c[1], t), lerp(56, c[2], t)];
+        }
+      }
+      // slope shading + world-anchored texture noise (faded by ~4 NM)
+      const sl = Math.max(-1, Math.min(1, (raw[3] - raw[0] + raw[2] - raw[1]) / (60 * (ti === 0 ? 1 : 0.35))));
+      c = c.map(v => v * (1 + sl * 0.12));
+      if (texAmp > 0) {
+        const nse = _svsNoise(lat0 * 1200 / 3, lon0 * 1200 / 3);
+        const fade = Math.max(0.15, 1 - dSl / (4 * 1852));
+        c = c.map(v => v * (1 + (nse - 0.5) * texAmp * 0.8 * fade));
+      }
+    }
+    if (hazeOn) {                                // svs_gl: 1 - exp(-d/haze_eff)
+      const hf = 1 - Math.exp(-(dSl / 1852) / hazeEff);
+      c = c.map((v, i) => lerp(v, SVS_HAZE_RGB[i], hf));
+    }
+    // feather the far range boundary into the backdrop (the GL polar fan's
+    // arc edge hides under haze; a hard quantised edge would staircase)
+    ctx.globalAlpha = d > rangeM * 0.86
+      ? Math.max(0, 1 - (d - rangeM * 0.86) / (rangeM * 0.14)) : 1;
+    const col = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+    ctx.beginPath();
+    ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]);
+    ctx.lineTo(p2[0], p2[1]); ctx.lineTo(p3[0], p3[1]);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = col; ctx.fill(); }
+    else { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke(); }
+    // world grid fishnet, gaussian-faded by ~2 NM slant (svs terrain_grid)
+    if (fill && gridAmp > 0 && !water && dSl < 2.6 * 1852) {
+      const gf = Math.exp(-(dSl / 1852) * (dSl / 1852) / 1.4) * gridAmp;
+      if (gf > 0.02 && (ti === 0 || ((iy % 3 === 0) || (ix % 3 === 0)))) {
+        ctx.strokeStyle = `rgba(0,0,0,${(gf * 0.7).toFixed(3)})`;
+        ctx.lineWidth = 1; ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  // Runways last -- painter's order on the device too (no depth test).
+  for (const rw of patch.runways || []) {
+    const [aLat, aLon, aEl] = rw.ends[0], [bLat, bLon, bEl] = rw.ends[1];
+    const dEE = (bLon - aLon) * mPerLon, dNN = (bLat - aLat) * mPerLat;
+    const len = Math.sqrt(dEE * dEE + dNN * dNN);
+    if (!len) continue;
+    const ux = dEE / len, uy = dNN / len, px = -uy, py = ux;
+    const wHalf = rw.w_ft * 0.3048 / 2;
+    const at = (t, s) => [aLat + (uy * len * t + s * py * wHalf) / mPerLat,
+                          aLon + (ux * len * t + s * px * wHalf) / mPerLon];
+    const elM = ((aEl + bEl) / 2) * 0.3048;
+    const q = [at(0, 1), at(1, 1), at(1, -1), at(0, -1)].map(pt => proj(pt[0], pt[1], elM));
+    if (q.some(p => !p)) continue;
+    // fog the surface + markings at the GL overlay pass's reduced strength
+    const cLat = (aLat + bLat) / 2, cLon2 = (aLon + bLon) / 2;
+    const rd = Math.hypot((cLat - cam.lat) * mPerLat, (cLon2 - cam.lon) * mPerLon);
+    const rFog = hazeOn ? (1 - Math.exp(-(rd / 1852) / hazeEff)) * 0.4 : 0;
+    const rc = [0x3d, 0x3d, 0x40].map((v, i) => lerp(v, SVS_HAZE_RGB[i], rFog) | 0);
+    ctx.fillStyle = `rgb(${rc[0]},${rc[1]},${rc[2]})`;
+    ctx.beginPath(); ctx.moveTo(q[0][0], q[0][1]);
+    for (let i = 1; i < 4; i++) ctx.lineTo(q[i][0], q[i][1]);
+    ctx.closePath(); ctx.fill();
+    // Markings only when the surface subtends real screen area -- a nearly
+    // edge-on runway is a dark streak on the device, not a white outline.
+    const qh = Math.max(q[0][1], q[1][1], q[2][1], q[3][1])
+             - Math.min(q[0][1], q[1][1], q[2][1], q[3][1]);
+    if (qh < H * 0.012) continue;
+    const mAlpha = Math.max(0.15, 0.9 - rFog * 1.6);
+    ctx.strokeStyle = `rgba(255,255,255,${(mAlpha * 0.9).toFixed(2)})`;
+    ctx.lineWidth = Math.max(1, H / 700); ctx.stroke();
+    // centreline dashes + threshold bars
+    ctx.strokeStyle = `rgba(255,255,255,${mAlpha.toFixed(2)})`;
+    ctx.setLineDash([H / 90, H / 90]);
+    const pa = proj(...at(0.03, 0), elM), pb = proj(...at(0.97, 0), elM);
+    if (pa && pb) { ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke(); }
+    ctx.setLineDash([]);
+    ctx.lineWidth = Math.max(1.5, H / 400);
+    for (const t of [0.015, 0.985]) {
+      const t1 = proj(...at(t, 0.7), elM), t2 = proj(...at(t, -0.7), elM);
+      if (t1 && t2) { ctx.beginPath(); ctx.moveTo(t1[0], t1[1]); ctx.lineTo(t2[0], t2[1]); ctx.stroke(); }
+    }
+  }
+}
+// Per-scene patch cache: fetch once, then every rebuild renders synchronously.
+const _svsPatches = {};
+function _svsPatchFor(scene) {
+  let e = _svsPatches[scene];
+  if (e) return e;
+  e = _svsPatches[scene] = { data: null, failed: false };
+  fetch(`${ASSETS}/svs/${scene}.json`)
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { e.data = d; e.failed = !d; if (d) renderCanvas(); })
+    .catch(() => { e.failed = true; });
+  return e;
+}
+
 function buildVirtualVfr(inst) {
   const o = inst.options || {};
-  const scene = ["mountains", "approach", "coastal"].includes(o.preview_scene) ? o.preview_scene : "mountains";
+  const scene = ["mountains", "approach", "coastal", "final"].includes(o.preview_scene) ? o.preview_scene : "mountains";
   const wrap = document.createElement("div");
   wrap.className = "gauge svsimg";
-  // Background: a captured CLEAN SVS terrain frame (symbology-free), object-fit
-  // cover. The terrain is static (GL can't render in a browser); the horizon
-  // sits at the frame's vertical centre (pyEfis projects pitch=0 there).
-  const img = document.createElement("img");
-  img.src = `${ASSETS}/svs/${scene}.webp`;
-  img.alt = "synthetic vision — " + scene;
-  img.draggable = false;
-  // horizon_position: the device depresses the SVS camera so the TERRAIN
-  // horizon rises with the attitude reference (_horizon_offset_deg). The
-  // capture's horizon sits at the frame centre, so shift the image by the
-  // same fraction and scale just enough to keep the frame covered (the
-  // slight zoom at large offsets is the price of a static capture).
-  const hpRaw = Number(o.horizon_position);
-  const hpf = (o.horizon_position == null || o.horizon_position === ""
-               || !isFinite(hpRaw)) ? 0 : (hpRaw / 100 - 0.5);
-  if (hpf !== 0) {
-    img.style.transform =
-      `translateY(${(-hpf * 100).toFixed(1)}%) scale(${(1 + 2 * Math.abs(hpf)).toFixed(3)})`;
+  const r = rect(inst);
+  const patch = _svsPatchFor(scene);
+  if (patch.data) {
+    // Background: REAL terrain rendered from the scene's data patch, live to
+    // the SVS options (palette, clearance bands, haze, grid, texture, range,
+    // horizon position, FOV). Re-rendered on every option change.
+    const cv = document.createElement("canvas");
+    cv.width = Math.max(64, Math.round(r.w * 2));    // 2x for crispness
+    cv.height = Math.max(36, Math.round(r.h * 2));
+    cv.style.position = "absolute";
+    cv.style.inset = "0";
+    cv.style.width = "100%";
+    cv.style.height = "100%";
+    renderSVS(cv, patch.data, o);
+    wrap.appendChild(cv);
+  } else {
+    // Fallback while the patch loads (or if it failed): the captured clean
+    // GL frame. Horizon sits at the frame centre; approximate
+    // horizon_position by shifting + covering scale until the canvas lands.
+    const img = document.createElement("img");
+    img.src = `${ASSETS}/svs/${scene}.webp`;
+    img.alt = "synthetic vision — " + scene;
+    img.draggable = false;
+    img.onerror = () => img.remove();
+    const hpRaw = Number(o.horizon_position);
+    const hpf = (o.horizon_position == null || o.horizon_position === ""
+                 || !isFinite(hpRaw)) ? 0 : (hpRaw / 100 - 0.5);
+    if (hpf !== 0) {
+      img.style.transform =
+        `translateY(${(-hpf * 100).toFixed(1)}%) scale(${(1 + 2 * Math.abs(hpf)).toFixed(3)})`;
+    }
+    wrap.appendChild(img);
   }
-  wrap.appendChild(img);
   // Overlay: the SAME attitude symbology the device draws over SVS, rendered
   // LIVE from the user's options (aircraft symbol, pitch ladder, bank scale,
   // FPM, heading marks). Drawn at level (pitch 0 / roll 0) so it aligns with the
   // level terrain; transparent background so the terrain shows through.
-  const r = rect(inst);
   const ov = svgFromString(attitudeSVG(inst, 0, 0, 0, false, r.w / r.h));
   ov.style.position = "absolute";
   ov.style.left = "0";
