@@ -518,14 +518,33 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
   const symStyle = String(o.aircraft_symbol || "classic").toLowerCase();
   let symbol;
   if (symStyle === "garmin") {
-    // Garmin wing symbol -- SLIM (the old 5.5-unit-tall wedge was ~10x too big).
-    // Tapered wings hugging the reference line + a small dot. Geometry is a
-    // stopgap pending the chevron redo (pyEfis #85).
-    symbol = `<g fill="${sym}">
-      <polygon points="45,49.4 29,49.85 29,50.15 45,50.6"/>
-      <polygon points="55,49.4 71,49.85 71,50.15 55,50.6"/>
-      <circle cx="50" cy="50" r="0.5"/>
-    </g>`;
+    // Garmin G3X-style bat wing (matches ai._draw_aircraft_symbol): two
+    // slender anhedral triangles sweeping down-outboard from a notched apex
+    // on the horizon, each split lengthwise into a lit upper face (symbol
+    // colour) and a Qt darker(165) lower face, plus two-tone pill barbs
+    // riding the horizon at +/-35% width. Wing dims are width-derived in
+    // pyEfis, so they are plain viewBox units; the barb thickness is
+    // height-derived, so it divides by the aspect (sc).
+    const dk = (hex => {   // Qt darker(165): divide RGB by 1.65
+      const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+      if (!m) return "#8f8f00";
+      const v = parseInt(m[1], 16);
+      const f = x => Math.round(x / 1.65);
+      return `rgb(${f(v >> 16 & 255)},${f(v >> 8 & 255)},${f(v & 255)})`;
+    })(sym);
+    const gp = 1.2, sp = 15, dr = 4.5, rt = 2.4;   // gap/span/drop/root
+    const bl = 6.2, bx = 35, bh = 2.4 / sc;        // barb len/offset/thickness
+    const ow = 0.6 * LW;                            // hairline outline
+    let g = `<g stroke="#000" stroke-width="${ow}">`;
+    for (const s of [-1, 1]) {
+      const xi = 50 + s * gp, xo = 50 + s * (gp + sp);
+      g += `<polygon points="${xi},50 ${xo},${50 + dr} ${xi},${50 + rt * 0.5}" fill="${sym}"/>`
+         + `<polygon points="${xi},${50 + rt * 0.5} ${xo},${50 + dr} ${xi},${50 + rt}" fill="${dk}"/>`;
+      const x0 = 50 + s * bx - bl / 2;
+      g += `<rect x="${x0}" y="${(50 - bh / 2).toFixed(2)}" width="${bl}" height="${bh.toFixed(2)}" rx="${(bh / 2).toFixed(2)}" fill="${sym}"/>`
+         + `<rect x="${x0}" y="50" width="${bl}" height="${(bh / 2).toFixed(2)}" rx="${(bh / 4).toFixed(2)}" fill="${dk}"/>`;
+    }
+    symbol = g + "</g>";
   } else if (["brackets", "grt", "l", "l-bracket", "l_bracket"].includes(symStyle)) {
     // GRT-style flat bars with an inboard down-tick -- slimmed to the device weight.
     symbol = `<g fill="${sym}">
