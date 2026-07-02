@@ -512,16 +512,27 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground) {
       <circle cx="50" cy="50" r="1.05"/>
     </g>`;
   } else {
+    // classic split-wing bars + centre dot. Bars stay wide (the symbol span)
+    // but THIN -- pyEfis draws them ~4px on a 1920 SVS (~0.2% of width), so the
+    // fill height matches the linework weight rather than a fat 2.4-unit bar.
     symbol = `<g fill="${sym}">
-      <rect x="20" y="48.8" width="20" height="2.4" rx="0.5"/>
-      <rect x="60" y="48.8" width="20" height="2.4" rx="0.5"/>
-      <circle cx="50" cy="50" r="1.4"/>
+      <rect x="20" y="49.8" width="20" height="0.4" rx="0.15"/>
+      <rect x="60" y="49.8" width="20" height="0.4" rx="0.15"/>
+      <circle cx="50" cy="50" r="0.9"/>
     </g>`;
   }
-  // Flight-path marker -- shown only when show_fpm is on (matches the widget,
-  // which hides it otherwise).
+  // Flight-path marker (matches ai._drawFPM): a green boresight CIRCLE with two
+  // side wings + a top stem, not a chevron. Shown unless show_fpm is off. Placed
+  // at a representative drift offset; thin stroke like the rest of the linework.
+  const fr = 2;                 // fpm circle radius (viewBox units)
+  const fx = 57, fy = 50;       // representative flight-path position
   const fpm = (o.show_fpm === false) ? ""
-    : `<path d="M57 50 l3.5 -2.2 M57 50 l3.5 2.2" stroke="#37d36b" stroke-width="${1 * LW}" fill="none"/>`;
+    : `<g fill="none" stroke="#37d36b" stroke-width="${2 * LW}">
+      <circle cx="${fx}" cy="${fy}" r="${fr}"/>
+      <line x1="${fx - fr * 2.4}" y1="${fy}" x2="${fx - fr * 1.1}" y2="${fy}"/>
+      <line x1="${fx + fr * 1.1}" y1="${fy}" x2="${fx + fr * 2.4}" y2="${fy}"/>
+      <line x1="${fx}" y1="${fy - fr * 1.1}" x2="${fx}" y2="${fy - fr * 2}"/>
+    </g>`;
   // Compass heading scale on the horizon (matches ai._draw_horizon_heading):
   // ticks every interval deg + an upright label every label-interval deg, on
   // the y=50 horizon line so it rides the rolled/pitched horizon. Sample
