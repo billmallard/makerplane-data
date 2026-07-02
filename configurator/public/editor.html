@@ -440,6 +440,7 @@ function buildAttitude(inst) {
 function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
   const o = inst.options || {};
   const sym = o.symbol_color || "#ffff00";
+  const font = o.font_family || "DejaVu Sans Condensed";  // pyEfis AI uses self.font_family
   const id = _svgUid++;
   // Line-weight scale. Strokes are in the 100-unit viewBox and get magnified by
   // preserveAspectRatio (~boxWidth/100 on a wide SVS box), so a raw 1.1 renders
@@ -568,7 +569,7 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
     }
   }
   return `
-<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" class="gauge-svg">
+<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" class="gauge-svg" font-family="${font.replace(/"/g,'')}">
   <defs>
     <clipPath id="aic${id}"><rect x="0" y="0" width="100" height="100"/></clipPath>
     <linearGradient id="ais${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1f6fd0"/><stop offset="1" stop-color="#57a0e8"/></linearGradient>
