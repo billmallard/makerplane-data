@@ -537,12 +537,13 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
     const ow = 0.6 * LW;                            // hairline outline
     let g = `<g stroke="#000" stroke-width="${ow}">`;
     for (const s of [-1, 1]) {
-      // sharp apex at centre on the horizon; wing widens outboard to a
-      // blunt two-tone outer edge (points at the TOP, like the G3X)
-      const xi = 50 + s * gp, xo = 50 + s * (gp + sp);
-      const ym = 50 + dr + rt * 0.5;
-      g += `<polygon points="${xi},50 ${xo},${50 + dr} ${xo},${ym}" fill="${sym}"/>`
-         + `<polygon points="${xi},50 ${xo},${ym} ${xo},${50 + dr + rt}" fill="${dk}"/>`;
+      // sharp apex at centre on the horizon; wing widens outboard and the
+      // base is cut on a slant -- the bottom corner runs further out and
+      // down, the drooped G3X tip (points at the TOP, like the G3X)
+      const xi = 50 + s * gp, xo = 50 + s * (gp + sp), xt = xo + s * sp * 0.12;
+      const mx = (xo + xt) / 2, my = 50 + dr + rt * 0.5;
+      g += `<polygon points="${xi},50 ${xo},${50 + dr} ${mx},${my}" fill="${sym}"/>`
+         + `<polygon points="${xi},50 ${mx},${my} ${xt},${50 + dr + rt}" fill="${dk}"/>`;
       const x0 = 50 + s * bx - bl / 2;
       g += `<rect x="${x0}" y="${(50 - bh / 2).toFixed(2)}" width="${bl}" height="${bh.toFixed(2)}" rx="${(bh / 2).toFixed(2)}" fill="${sym}"/>`
          + `<rect x="${x0}" y="50" width="${bl}" height="${(bh / 2).toFixed(2)}" rx="${(bh / 4).toFixed(2)}" fill="${dk}"/>`;
