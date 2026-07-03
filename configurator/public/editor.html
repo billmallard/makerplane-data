@@ -869,23 +869,33 @@ function buildTurnCoordinator(inst) {
 // Altimeter / VSI trend tape: a vertical VSI scale with tick lines + a magenta
 // trend bar from 0. HTML so the digits stay crisp.
 function buildTrendTape(inst) {
-  const o = inst.options || {}, max = 24, trend = 4;
+  // Matches vsi.Alt_Trend_Tape: configurable full scale (maxvs, +/- ft/min),
+  // minor tick interval (minorDiv) and numbered-graduation interval
+  // (numberedDiv, labels in hundreds), with bg_color/bg_opacity face control.
+  const o = inst.options || {}, trend = 400;
+  const maxvs = Math.max(500, _svsNum(o.maxvs, 2500));
+  const minor = Math.max(25, _svsNum(o.minorDiv, 100));
+  const numbered = Math.max(minor, _svsNum(o.numberedDiv, 200));
   const r = rect(inst);
   const wrap = document.createElement("div");
   wrap.className = "gauge trendtape";
+  wrap.style.background = rgbaFromColor(o.bg_color || "#000", bgOpacity(o));
   wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
   wrap.style.fontSize = Math.max(6, Math.min(11, r.w * 0.12)) + "px";
   if (o.fg_color) wrap.style.color = o.fg_color;
   const hdr = document.createElement("div"); hdr.className = "tt-hdr"; hdr.innerHTML = "VSI<br><b>0</b>"; wrap.appendChild(hdr);
-  for (let v = max; v >= -max; v -= 2) {
-    const row = document.createElement("div"); row.className = "tt-row"; row.style.top = (50 - v / (2 * max) * 100) + "%";
-    const num = document.createElement("span"); num.className = "tt-num"; num.textContent = v;
+  for (let f = maxvs; f >= -maxvs; f -= minor) {
+    const isNum = f % numbered === 0;
+    const row = document.createElement("div"); row.className = "tt-row"; row.style.top = (50 - f / (2 * maxvs) * 100) + "%";
+    const num = document.createElement("span"); num.className = "tt-num";
+    num.textContent = isNum ? String(Math.round(f / 100)) : "";
     const tick = document.createElement("span"); tick.className = "tt-tick";
+    if (!isNum) tick.style.opacity = "0.3";
     row.appendChild(num); row.appendChild(tick); wrap.appendChild(row);
   }
   const tb = document.createElement("div"); tb.className = "tt-trend";
-  tb.style.top = Math.min(50, 50 - trend / (2 * max) * 100) + "%";
-  tb.style.height = Math.abs(trend / (2 * max) * 100) + "%";
+  tb.style.top = Math.min(50, 50 - trend / (2 * maxvs) * 100) + "%";
+  tb.style.height = Math.abs(trend / (2 * maxvs) * 100) + "%";
   wrap.appendChild(tb);
   return wrap;
 }
