@@ -504,11 +504,12 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
     if (a === 0) continue;                          // zero line is the horizon
     if (Math.abs(a - pitch) > labelRange) continue; // fade range
     if (o.pitch_ladder_avoid_bank) {
-      // G1000-style declutter (matches the widget): hide rows whose
-      // screen y lands above a line just below the bank arc's tips.
+      // G1000-style declutter (matches the widget): the ladder climbs
+      // into the bank arch but stops at the slip ball's bottom edge
+      // (ball centre arcTop+1.9, r 0.5, plus a little air).
       const yRow = 50 - a * ppd + pitch * ppd;
       const yScr = 50 + (yRow - 50) * Math.cos(roll * Math.PI / 180) - hoff;
-      if (yScr < bankCy - arcR * 0.5 + 2) continue;
+      if (yScr < arcTop + 2.7) continue;
     }
     const isNum = a % numD === 0, isMaj = a % majorD === 0;
     const hw = isNum ? numHW : (isMaj ? majHW : minHW);
