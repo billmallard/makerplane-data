@@ -152,6 +152,35 @@ schema authority) and flow to the UI without Worker changes. Engine
 count is unbounded in the model; the UI lists engines 1..n with a
 type picker each.
 
+## 6b. Fuel-system provider model (added 2026-07-04)
+
+Fuel tank configurations are effectively unbounded (Bill's Bonanza:
+4 tanks going on 5; experimentals commonly run a HEADER tank that
+feeds the engine while every other tank feeds the header; his tip
+tanks transfer into the mains which feed the engine). So fuel is a
+provider/topology model, not just a count:
+
+- Each tank carries a **role** (`main`, `aux`, `tip`, `header`,
+  `transfer`) and a **feeds** edge: -> engine N, or -> tank N (a
+  transfer), or none. That directed graph IS the fuel system.
+- Quantities/bands stay per-tank FIX aux (FUELQt Max/lowWarn/
+  lowAlarm) as today; the topology lives in the profile's
+  `meta.fuel` array — forward data for fuel totalizer logic, the
+  in-EFIS fuel page, and the system diagram (6c). Nothing in
+  fix-gateway consumes it yet; the profile is the canonical record.
+- Validation: every engine should be fed by at least one tank
+  (warning, not error); transfer cycles flagged.
+
+## 6c. Future: aircraft system ("node") diagram
+
+Direction (Bill, 2026-07-04): the configurator should eventually
+render an IT-network-style **node diagram** of the aircraft — fuel
+tanks/feed edges (6b), engines, buses/nodes on the CAN-FIX bus,
+devices — generated from the profile + device data it already holds.
+Pairs naturally with the aircraft-local web server vision (8a): the
+same diagram is the aircraft home page's centerpiece. Not scheduled;
+recorded so 6b stores topology as a proper graph from day one.
+
 ## 7. Compile & delivery (reuses the #65 pipeline)
 
 Compile step (Worker, on publish): profile JSON ->

@@ -180,7 +180,7 @@ function fillCounts() {
     el.value = v; };
   opt("engines", 4, profile.meta.engines);
   opt("cylinders", 28, profile.meta.cylinders);
-  opt("tanks", 4, profile.meta.tanks);
+  opt("tanks", 8, profile.meta.tanks);
   $("speedunit").value = profile.meta.speed_unit;
   $("twinspeeds").value = profile.meta.twin_speeds ? "1" : "0";
 }
@@ -194,6 +194,40 @@ function render() {
     card.innerHTML = `<h2>${g.label}</h2>`;
     if (g.id === "aoa")
       card.innerHTML += `<p class="sub">Placeholder — values firm up with the AOA/OnSpeed integration.</p>`;
+    if (g.id === "fuel") {
+      // Fuel-system provider (spec 6b): per-tank role + feeds edge.
+      if (!Array.isArray(profile.meta.fuel)) profile.meta.fuel = [];
+      while (profile.meta.fuel.length < profile.meta.tanks)
+        profile.meta.fuel.push({ role: "main", feeds: "E1" });
+      profile.meta.fuel.length = profile.meta.tanks;
+      const tg = document.createElement("div"); tg.className = "grid";
+      for (let t = 1; t <= profile.meta.tanks; t++) {
+        const cfg = profile.meta.fuel[t - 1];
+        const f = document.createElement("div"); f.className = "field";
+        const lab = document.createElement("label");
+        lab.textContent = `Tank ${t} role / feeds`;
+        const role = document.createElement("select");
+        for (const r of ["main","aux","tip","header","transfer"]) {
+          const o = document.createElement("option"); o.value = r;
+          o.textContent = r; role.appendChild(o);
+        }
+        role.value = cfg.role;
+        role.addEventListener("change", () => { cfg.role = role.value; });
+        const feeds = document.createElement("select");
+        const fo = (v, txt) => { const o = document.createElement("option");
+          o.value = v; o.textContent = txt; feeds.appendChild(o); };
+        fo("", "feeds: nothing");
+        for (let e = 1; e <= profile.meta.engines; e++) fo("E"+e, "feeds: engine "+e);
+        for (let o2 = 1; o2 <= profile.meta.tanks; o2++)
+          if (o2 !== t) fo("T"+o2, "feeds: tank "+o2);
+        feeds.value = cfg.feeds || "";
+        feeds.addEventListener("change", () => { cfg.feeds = feeds.value; });
+        f.append(lab, role, feeds); tg.appendChild(f);
+      }
+      const sh = document.createElement("div"); sh.className = "subhead";
+      sh.textContent = "Fuel system (roles + feed graph -- e.g. tips feed mains, mains feed the engine; header tanks feed the engine and are fed by the rest)";
+      card.append(sh, tg);
+    }
     for (const k of g.keys) {
       for (const inst of instances(k.key, g.repeat)) {
         const sh = document.createElement("div"); sh.className = "subhead";
