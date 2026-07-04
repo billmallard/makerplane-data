@@ -42,8 +42,12 @@ npx wrangler deploy          # builds + deploys; provisions the custom domain
   re-fetch a few times until you see your change before concluding it failed —
   this has bitten every editor deploy. Pattern that works:
   ```bash
-  for i in 1 2 3 4 5; do curl -s URL -o /tmp/e.html; grep -q MARKER /tmp/e.html && break; done
+  for i in 1 2 3 4 5; do curl -sL URL -o /tmp/e.html; grep -q MARKER /tmp/e.html && break; done
   ```
+  **`-L` is load-bearing:** Workers static assets 307-redirect `/editor.html`
+  -> `/editor` (drop-extension handling), and the 307 body is EMPTY — a curl
+  without `-L` greps 0 matches forever and reads as "deploy failed" when the
+  deploy was fine (burned 2026-07-04).
 - Secrets are already set in prod (`SESSION_SECRET`, `GOOGLE_CLIENT_ID`,
   `GOOGLE_CLIENT_SECRET`). `APP_URL` is a non-secret `var` in `wrangler.jsonc`.
 - DB migrations: `npm run migrate` (remote D1) / `npm run migrate:local`.
