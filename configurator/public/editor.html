@@ -453,8 +453,20 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
   // and the bank arc (height/3) must be compressed by sc = max(1, W/H) to fit and
   // match the device. sc=1 for square/tall boxes leaves the attitude twin as-is.
   const sc = Math.max(1, aspect || 1);
-  const arcR = 33.3 / sc;              // bank-arc radius (pyEfis height/3)
-  const arcTop = 50 - arcR;            // top of the arc (bank pointer sits here)
+  // Bank-cluster geometry (matches the pyEfis AI options): bank_radius is
+  // percent of height (default 100/3 = the classic height/3), and
+  // bank_position anchors the arc CENTRE, percent up from the bottom
+  // (50 = the classic viewport centre). Vertical units compress by sc.
+  const bankRadRaw = Number(o.bank_radius);
+  const arcR = (isFinite(bankRadRaw) && bankRadRaw > 0
+                ? bankRadRaw : 100 / 3) / sc;
+  const bankPosRaw = Number(o.bank_position);
+  const bankPos = (o.bank_position == null || o.bank_position === ""
+                   || !isFinite(bankPosRaw)) ? 50 : bankPosRaw;
+  const bankCy = 50 - (bankPos / 100 - 0.5) * (100 / sc);
+  const arcTop = bankCy - arcR;        // top of the arc (bank pointer sits here)
+  // symbol_scale multiplies the reference symbol's own dimensions.
+  const symSc = Math.max(0.3, Math.min(3, Number(o.symbol_scale) || 1));
   // horizon_position: percent up the screen where the pitch=0 horizon sits
   // (50 = centred). pyEfis (_horizon_offset_px) raises the whole attitude
   // reference -- horizon, ladder, symbol, FPM, heading marks -- as a pure
@@ -501,7 +513,7 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
   }
   let rollarc = "";
   for (const a of [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60]) {
-    const maj = (a % 30 === 0), p1 = _polar(50, 50, arcR, a), p2 = _polar(50, 50, arcR * (maj ? 0.889 : 0.944), a);
+    const maj = (a % 30 === 0), p1 = _polar(50, bankCy, arcR, a), p2 = _polar(50, bankCy, arcR * (maj ? 0.889 : 0.944), a);
     rollarc += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#fff" stroke-width="${(maj ? 0.9 : 0.6) * LW}"/>`;
   }
   // Standard-rate bank markers (diamonds) -- shown when drawBankMarkers is on,
@@ -512,7 +524,7 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
     const ba = Math.min(15, Number(o.bankAngleMaximum) || 25);
     const ms = (Number(o.bankMarkSize) || 10) * 0.08;
     for (const s of [-1, 1]) {
-      const c = _polar(50, 50, arcR, s * ba);
+      const c = _polar(50, bankCy, arcR, s * ba);
       bankMarks += `<path d="M${c.x.toFixed(1)} ${(c.y - ms).toFixed(1)} L${(c.x + ms * 0.7).toFixed(1)} ${c.y.toFixed(1)} L${c.x.toFixed(1)} ${(c.y + ms).toFixed(1)} L${(c.x - ms * 0.7).toFixed(1)} ${c.y.toFixed(1)} Z" fill="none" stroke="#fff" stroke-width="${0.6 * LW}"/>`;
     }
   }
@@ -541,8 +553,10 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
       const f = x => Math.round(x / 1.65);
       return `rgb(${f(v >> 16 & 255)},${f(v >> 8 & 255)},${f(v & 255)})`;
     })(sym);
-    const gp = 1.2, sp = 15, dr = 4.5, rt = 2.4;   // gap/span/drop/thickness
-    const bl = 6.2, bx = 35, bh = 2.4 / sc;        // barb len/offset/thickness
+    const gp = 1.2 * symSc, sp = 15 * symSc, dr = 4.5 * symSc,
+          rt = 2.4 * symSc;                        // gap/span/drop/thickness
+    const bl = 6.2 * symSc, bx = 35 * symSc,
+          bh = 2.4 * symSc / sc;                   // barb len/offset/thickness
     const ow = 0.6 * LW;                            // hairline outline
     let g = `<g stroke="#000" stroke-width="${ow}">`;
     for (const s of [-1, 1]) {
@@ -559,22 +573,29 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
     }
     symbol = g + "</g>";
   } else if (["brackets", "grt", "l", "l-bracket", "l_bracket"].includes(symStyle)) {
-    // GRT-style flat bars with an inboard down-tick -- slimmed to the device weight.
+    // GRT-style flat bars with an inboard down-tick -- slimmed to the device
+    // weight. Centre-relative so symbol_scale grows them around the anchor
+    // (inner edge 7, bar 14, tick 1.4 at scale 1 = the historical layout).
+    const bi = 7 * symSc, bwid = 14 * symSc, bth = 0.4 * symSc,
+          btk = 1.4 * symSc, bd = 0.45 * symSc;
     symbol = `<g fill="${sym}">
-      <rect x="29" y="49.8" width="14" height="0.4"/>
-      <rect x="42.5" y="49.8" width="0.5" height="1.4"/>
-      <rect x="57" y="49.8" width="14" height="0.4"/>
-      <rect x="57" y="49.8" width="0.5" height="1.4"/>
-      <circle cx="50" cy="50" r="0.45"/>
+      <rect x="${(50 - bi - bwid).toFixed(2)}" y="${(50 - bth / 2).toFixed(2)}" width="${bwid.toFixed(2)}" height="${bth.toFixed(2)}"/>
+      <rect x="${(50 - bi - bth * 1.25).toFixed(2)}" y="${(50 - bth / 2).toFixed(2)}" width="${(bth * 1.25).toFixed(2)}" height="${btk.toFixed(2)}"/>
+      <rect x="${(50 + bi).toFixed(2)}" y="${(50 - bth / 2).toFixed(2)}" width="${bwid.toFixed(2)}" height="${bth.toFixed(2)}"/>
+      <rect x="${(50 + bi).toFixed(2)}" y="${(50 - bth / 2).toFixed(2)}" width="${(bth * 1.25).toFixed(2)}" height="${btk.toFixed(2)}"/>
+      <circle cx="50" cy="50" r="${bd.toFixed(2)}"/>
     </g>`;
   } else {
     // classic split-wing bars + centre dot. Bars stay wide (the symbol span)
     // but THIN -- pyEfis draws them ~4px on a 1920 SVS (~0.2% of width), so the
     // fill height matches the linework weight rather than a fat 2.4-unit bar.
+    // Centre-relative: inner edge 10, bar 20 at scale 1 = historical layout.
+    const ci = 10 * symSc, cwid = 20 * symSc, cth = 0.4 * symSc,
+          cd = 0.5 * symSc;
     symbol = `<g fill="${sym}">
-      <rect x="20" y="49.8" width="20" height="0.4" rx="0.15"/>
-      <rect x="60" y="49.8" width="20" height="0.4" rx="0.15"/>
-      <circle cx="50" cy="50" r="0.5"/>
+      <rect x="${(50 - ci - cwid).toFixed(2)}" y="${(50 - cth / 2).toFixed(2)}" width="${cwid.toFixed(2)}" height="${cth.toFixed(2)}" rx="${(cth * 0.375).toFixed(2)}"/>
+      <rect x="${(50 + ci).toFixed(2)}" y="${(50 - cth / 2).toFixed(2)}" width="${cwid.toFixed(2)}" height="${cth.toFixed(2)}" rx="${(cth * 0.375).toFixed(2)}"/>
+      <circle cx="50" cy="50" r="${cd.toFixed(2)}"/>
     </g>`;
   }
   // Flight-path marker (matches ai._drawFPM): a green boresight CIRCLE with two
@@ -627,7 +648,7 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
       ${headingMarks}
     </g></g></g>
     ${bankOp > 0 ? `<g opacity="${bankOp}">
-    <g transform="rotate(${roll} 50 50)">${rollarc}</g>
+    <g transform="rotate(${roll} 50 ${bankCy.toFixed(2)})">${rollarc}</g>
     ${bankMarks}
     <path d="M49.65 ${(arcTop - 0.8).toFixed(2)} L50.35 ${(arcTop - 0.8).toFixed(2)} L50 ${(arcTop + 0.1).toFixed(2)} Z" fill="#fff"/>
     <circle cx="${(50 + slip).toFixed(1)}" cy="${(arcTop + 1.9).toFixed(2)}" r="0.5" fill="#fff"/>
