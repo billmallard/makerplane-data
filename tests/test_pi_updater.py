@@ -109,7 +109,38 @@ def test_status_json_is_rich(tmp_path):
     assert a.severity == "none"
     d = a.as_dict()
     assert set(d) >= {"id", "name", "kind", "status", "severity", "cycle",
-                      "expires", "days", "detail"}
+                      "expires", "days", "detail", "effective", "next_cycle",
+                      "next_effective", "next_staged"}
+
+
+def test_status_detail_spells_out_cycle_dates(tmp_path):
+    """The CLI/status.json mirror the catalog site: the happy path names
+    the cycle's validity window and surfaces the pre-published (staged)
+    next cycle, not just the word "current"."""
+    root, pub = build_store(tmp_path)
+    up = make_updater(tmp_path, pub, remote_root=root)
+    up.update()   # installs 2606, pre-stages 2607
+    up2 = make_updater(tmp_path, pub, remote_root=root)
+    rows = {r.pack_id: r for r in up2.status()}
+
+    a = rows["airports-conus"]
+    assert a.effective and a.expires
+    assert f"effective {a.effective} to {a.expires}" in a.detail
+    assert a.next_cycle == "2607" and a.next_staged
+    assert f"next 2607 from {a.next_effective} (staged)" in a.detail
+
+    o = rows["obstacles-conus"]     # DOF: no next cycle in the fixture
+    assert f"effective {o.effective} to {o.expires}" in o.detail
+    assert o.next_cycle is None and "next" not in o.detail
+
+
+def test_status_missing_detail_includes_window(tmp_path):
+    root, pub = build_store(tmp_path)
+    up = make_updater(tmp_path, pub, remote_root=root)
+    rows = {r.pack_id: r for r in up.status()}   # nothing installed yet
+    a = rows["airports-conus"]
+    assert a.status == MISSING
+    assert "available: 2606 (effective " in a.detail
 
 
 def test_update_refreshes_status_doc(tmp_path):

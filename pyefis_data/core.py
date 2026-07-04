@@ -321,6 +321,13 @@ class PackStatus:
     cycle: str = ""                 # installed cycle, or "" if none
     expires: str | None = None      # installed cycle's expiry (ISO)
     days: int | None = None         # days until that expiry (negative if past)
+    effective: str | None = None    # installed cycle's effective date (ISO)
+    # The pre-published NEXT cycle, when the catalog carries one (the FAA
+    # releases each cycle ahead of its effective date; the updater stages
+    # it early so rollover is seamless). Mirrors the catalog site.
+    next_cycle: str | None = None
+    next_effective: str | None = None
+    next_staged: bool = False
 
     @property
     def severity(self) -> str:
@@ -331,6 +338,9 @@ class PackStatus:
             "id": self.pack_id, "name": self.name, "kind": self.kind,
             "status": self.status, "severity": self.severity,
             "cycle": self.cycle, "expires": self.expires, "days": self.days,
+            "effective": self.effective, "next_cycle": self.next_cycle,
+            "next_effective": self.next_effective,
+            "next_staged": self.next_staged,
             "detail": self.detail,
         }
 
@@ -438,15 +448,34 @@ class Updater:
         inst_entry = next((e for e in entries if e.cycle == installed), None) if installed else None
         days = inst_entry.days_until_expiry(self.today) if inst_entry else None
         expires = inst_entry.expires if inst_entry else None
-        status, detail = self._classify(m, pid, entries, inv, installed, inst_entry, days)
+        nxt = self._next_entry(m, pid)
+        status, detail = self._classify(m, pid, entries, inv, installed,
+                                        inst_entry, days, nxt)
         return PackStatus(pid, status, detail, kind=kind, name=name,
-                          cycle=installed, expires=expires, days=days)
+                          cycle=installed, expires=expires, days=days,
+                          effective=inst_entry.effective if inst_entry else None,
+                          next_cycle=nxt.cycle if nxt else None,
+                          next_effective=nxt.effective if nxt else None,
+                          next_staged=bool(nxt and inv.get("staged") == nxt.cycle))
 
-    def _classify(self, m, pid, entries, inv, installed, inst_entry, days):
+    def _classify(self, m, pid, entries, inv, installed, inst_entry, days,
+                  nxt=None):
         if not entries:
             return UNKNOWN, "not in catalog"
         cur = m.select(pid, self.today)             # entry whose window covers today
+
+        def next_note():
+            # The pre-published next cycle (visible as soon as the FAA
+            # releases it, marked once staged on this device).
+            if not nxt:
+                return ""
+            staged = " (staged)" if inv.get("staged") == nxt.cycle else ""
+            return f", next {nxt.cycle} from {nxt.effective}{staged}"
+
         if not installed:
+            if cur and cur.expires:
+                return MISSING, (f"available: {cur.cycle} (effective "
+                                 f"{cur.effective} to {cur.expires})")
             return MISSING, (f"available: {cur.cycle}" if cur else "no current cycle")
         if days is not None and days < 0:
             return EXPIRED, f"{installed} expired {inst_entry.expires}"
@@ -455,7 +484,11 @@ class Updater:
                 return STAGED, f"{cur.cycle} staged (effective {cur.effective})"
             return UPDATE, f"{installed} -> {cur.cycle}"
         if days is not None and days <= 7:
-            return EXPIRES, f"{installed} expires {inst_entry.expires} ({days}d)"
+            return EXPIRES, (f"{installed} expires {inst_entry.expires} "
+                             f"({days}d)" + next_note())
+        if inst_entry is not None and inst_entry.expires:
+            return CURRENT, (f"{installed} effective {inst_entry.effective} "
+                             f"to {inst_entry.expires}" + next_note())
         return CURRENT, installed
 
     # --- catalog (full picker listing) ---
