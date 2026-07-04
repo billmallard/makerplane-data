@@ -1,8 +1,8 @@
 # Aircraft Parameters (CAN-FIX) Configurator — spec / plan
 
-Status: PROPOSED (2026-07-04). Companion to `system_designer.md` (product
-vision) and the panel editor. Lives in the same Worker at
-pyefis.aerocommons.org.
+Status: APPROVED WITH DECISIONS (2026-07-04, see section 10). Companion
+to `system_designer.md` (product vision) and the panel editor. Lives in
+the same Worker at pyefis.aerocommons.org.
 
 ## 1. What this is
 
@@ -59,8 +59,8 @@ is live data; its *capacity* is).
 | Group | Keys | Aux managed | Notes |
 |---|---|---|---|
 | **Airspeeds** | IAS | Vs, Vs0, Vfe, Vno, Vne, Va, Vx, Vy, Vmc, V1, V2, Min, Max | Arcs derive: white = Vs0..Vfe, green = Vs..Vno, yellow = Vno..Vne, red >= Vne. Va/Vx/Vy shown as bugs where supported. Vmc/V1/V2 hidden behind a "twin/turbine" toggle. |
-| **Engine (per engine)** | TACHx, MAPx, OILPx, OILTx | Min, Max, lowWarn, highWarn, lowAlarm, highAlarm | Repeated group per engine count (1..2 to start). |
-| **Cylinders (per engine)** | CHTxy, EGTxy, CHTMAXx | Min, Max, highWarn, highAlarm | Repeated per cylinder count (1..6); one shared band set applied to all cylinders, with per-cylinder override escape hatch later. |
+| **Engine (per engine)** | TACHx, MAPx, OILPx, OILTx | Min, Max, lowWarn, highWarn, lowAlarm, highAlarm | Repeated group per engine; the **engine-type provider** (section 6a) decides which parameters exist. |
+| **Cylinders (per engine)** | CHTxy, EGTxy, CHTMAXx | Min, Max, highWarn, highAlarm | Cylinder count is free-form (4/6 common, 8 rare, radials odd counts up to 28); one shared band set applied to all cylinders, per-cylinder override escape hatch later. |
 | **Fuel** | FUELQx (capacity = Max, lowWarn, lowAlarm), FUELFx, FUELPx | Min, Max, warns/alarms | Tank count 1..4. FUELQT derives (sum) — display only. |
 | **Electrical** | VOLT, CURRNT | Min, Max, lowWarn, highWarn, lowAlarm, highAlarm | 12 V / 24 V presets. |
 | **Air / misc** | OAT, CAT, AOA | bands; AOA calibration refs (Min/Max/0g/warn/stall as defined in database.yaml) | AOA numbers come from flight-test calibration — the form stores what the OnSpeed/AOA source needs displayed. |
@@ -118,15 +118,39 @@ profile on the aircraft):
 - Validation, hard where physics demands, soft otherwise:
   - ordering: `Vs0 <= Vs < Vno < Vne <= Max`, `Vfe` within
     `[Vs0, Vno]`, warns inside alarms inside Min/Max;
-  - unit display from schema (kt, degF/degC, psi, gal) — stored in the
-    FIX database's native units, shown with the unit label; no
-    conversion editing in v1;
+  - units: values are STORED in the FIX database's native units;
+    the airspeed group offers a **kt / mph / kph entry selector**
+    (default kt — near-universal) so a POH in mph (C170B) or kph
+    (European types) can be typed as-published and converted on entry;
+    the selector is remembered per profile. Other groups display the
+    schema unit label only (no conversion editing in v1);
   - blank = "leave unset" (pyEfis already renders no band for unset
     aux) — explicitly allowed.
 - **Panel-preview tie-in**: the editor's airspeed tape/dial/arc-gauge
   twins currently draw sample bands. When the project has a profile,
   the twins read it so the panel preview shows the real arcs. (Small,
   high-delight, keeps both features honest.)
+
+## 6a. Engine-type providers (decided: build generic from day one)
+
+The engine group is a **provider model**, the pattern proven by the
+airport-data providers: an engine TYPE selects a parameter template,
+and the profile holds one instantiated provider per engine position.
+
+- `piston` (v1): TACH, MAP, OILP, OILT + cylinder group (CHT/EGT,
+  free-form cylinder count — radials go to 28, odd counts legal).
+- `turbine` (schema reserved, UI later): ITT, N1, N2, torque, fuel
+  flow — parameters exist in CAN-FIX; wiring the group is cheap once
+  someone needs it.
+- `electric` / `hybrid` (schema reserved): motor temp, controller
+  temp, pack voltage/current/SOC — CAN-FIX parameter mapping TBD;
+  the provider seam is where they will land.
+
+The `aircraft_params_schema.json` exporter emits parameter sets PER
+PROVIDER TYPE, so new engine kinds are added in fix-gateway (the
+schema authority) and flow to the UI without Worker changes. Engine
+count is unbounded in the model; the UI lists engines 1..n with a
+type picker each.
 
 ## 7. Compile & delivery (reuses the #65 pipeline)
 
@@ -176,6 +200,32 @@ order of likelihood:
 The profile schema carrying CAN-FIX parameter IDs from day one is what
 keeps this door open without rework.
 
+## 8a. Future state: the aircraft's own interface (recorded, not v1)
+
+Direction from Bill (2026-07-04), recorded here so the seams are cut
+in the right places:
+
+- fix-gateway is where you "talk to the aircraft" — long-term it
+  should run a **local web server on the plane**: the aircraft's "home
+  page", reachable from a laptop or phone on the aircraft's network,
+  showing everything about the machine (live FIX values, node status,
+  data currency, this parameter profile, logs).
+- That implies **robust debugging and flight-data capture** in
+  fix-gateway itself: structured logging / recording of bus traffic
+  and FIX values, retrievable from the home page. (fixgw already runs
+  headless under systemd on the Pi; a UI has never been required —
+  keep it that way, the web page IS the UI.)
+- There will be **overlap between the cloud configurator and the
+  aircraft-local server** (both render aircraft state and this
+  profile). Design for it: keep the profile JSON + params schema as
+  self-contained artifacts a local server could serve/edit and later
+  sync, rather than burying them in Worker-only code.
+
+None of this is a first-pass deliverable; it shapes naming and file
+formats now (self-describing `aircraft.ini` header, profile JSON as
+the canonical artifact, schema from fix-gateway) so the local-server
+future does not require a migration.
+
 ## 9. Phases
 
 - **Phase A — profile editing (no delivery).** Schema exporter in
@@ -190,22 +240,25 @@ keeps this door open without rework.
   handling, on-Pi end-to-end proof. ~1-2 sessions after #65.
 - **Phase D — CAN-FIX node config.** Hardware-gated exploration.
 
-## 10. Open questions (for Bill)
+## 10. Decisions (Bill, 2026-07-04)
 
-1. **Units**: store/edit in FIX native units only (v1 proposal), or
-   support kt/mph toggle for the airspeed group? (C170B POH is mph…)
-2. **Min/Max ownership**: instrument display ranges (`Min`/`Max`) are
-   half display-taste, half airframe. Proposal: keep them in the
-   profile (they are FIX aux), but pre-fill from templates and
-   de-emphasize in the UI.
-3. **Apply semantics**: is auto-restart of fixgw on config pull
-   acceptable, or should application require a confirm on the device
-   (DataStatus-screen style)? Proposal: device confirms, same UX as
-   panel apply will use.
-4. **Multi-engine/cylinder counts**: 1 engine / 4 cylinders / 2 tanks
-   covers the fleet today — cap v1 there, or build the repeated groups
-   generic from the start? (Generic is cheap if the schema drives it.)
-5. **Which template aircraft** should ship first? (c170b exists; an
-   RV-ish O-320 profile would fit MakerPlane's audience.)
-6. Does **AOA calibration** belong here or with the OnSpeed
-   integration when it lands? (Placeholder group in v1, values TBD.)
+1. **Units**: airspeed group gets a **kt / mph / kph** entry selector
+   (European builders included), **default kt** — used almost
+   universally. Values stored in FIX native units; selector converts
+   on entry and is remembered per profile. (Folded into section 6.)
+2. **Min/Max ownership**: keep in the profile, pre-filled from
+   templates, de-emphasized in the UI — as proposed.
+3. **Apply semantics**: **auto-restart of fixgw on config pull is
+   acceptable** (it already runs headless in the background on the
+   Pi). The larger direction this surfaced — fixgw as the aircraft's
+   local web server with robust debugging and flight-data capture —
+   is recorded in section 8a as future state, not first pass.
+4. **Multiplicity**: build **generic from the start** — multiple
+   engines, free-form cylinder counts (radials: odd counts, up to
+   28), and an **engine-type provider model** (piston now; turbine /
+   electric / hybrid seams reserved). Section 6a.
+5. **Templates**: ship **Lycoming O-320** (RV-ish) and **O-360**
+   profiles first, plus a **Continental O-470**; c170b already exists
+   in-tree as reference data.
+6. **AOA calibration**: tentatively lives here — **placeholder group
+   in v1**, values firmed up when the OnSpeed/AOA integration lands.
