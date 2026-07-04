@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aircraft parameters — pyEfis configurator</title>
+<style>
+  :root { --navy:#16324f; --line:#e3e7ee; --muted:#68737f; --orange:#e8630a;
+          --green:#1d7a46; --amber:#a86a00; --red:#b3261e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui, "Segoe UI", sans-serif; color:#1c2733; background:#f6f8fa; }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:12px 22px;
+           display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:18px; margin:0; color:var(--navy); }
+  header .muted { color:var(--muted); font-size:13.5px; }
+  header .right { margin-left:auto; display:flex; gap:10px; align-items:center; }
+  main { max-width: 980px; margin: 22px auto 80px; padding: 0 18px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px;
+          padding:16px 20px; margin-bottom:16px; }
+  .card h2 { margin:0 0 4px; font-size:16px; color:var(--navy); }
+  .card .sub { color:var(--muted); font-size:13px; margin:0 0 12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px 14px; }
+  .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:2px; white-space:nowrap; }
+  .field input, .field select { width:100%; padding:6px 8px; border:1px solid var(--line);
+          border-radius:7px; font:inherit; background:#fff; }
+  .field input.err { border-color: var(--red); background:#fff6f5; }
+  .field .unit { font-size:11px; color:var(--muted); margin-left:4px; }
+  .counts { display:flex; gap:18px; flex-wrap:wrap; }
+  .counts .field { min-width:130px; }
+  .btn { background:#fff; border:1px solid var(--line); border-radius:8px; padding:7px 13px;
+         font:inherit; font-weight:600; color:var(--navy); cursor:pointer; text-decoration:none; }
+  .btn:hover { border-color:var(--orange); color:var(--orange); }
+  .btn.primary { background:var(--orange); border-color:var(--orange); color:#fff; }
+  .btn.primary:disabled { background:#cfd4dc; border-color:#cfd4dc; cursor:default; }
+  .errors { color:var(--red); font-size:13px; margin:8px 0 0; }
+  .ok { color:var(--green); font-size:13.5px; }
+  canvas#arc { width:100%; height:44px; border:1px solid var(--line); border-radius:8px;
+               background:#fafbfc; margin-top:10px; }
+  .subhead { font-weight:600; font-size:13.5px; color:var(--navy); margin:14px 0 6px; }
+  .footer-note { color:var(--muted); font-size:12.5px; }
+  .pill { font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:20px;
+          background:#eef1f6; color:var(--navy); white-space:nowrap; }
+  #msg { margin-left:8px; font-size:13.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Aircraft parameters</h1>
+  <span class="muted" id="proj-label"></span>
+  <span class="pill" id="ver-label">no profile yet</span>
+  <div class="right">
+    <select id="template" class="btn">
+      <option value="">Load template…</option>
+      <option value="o320">Lycoming O-320 (engine)</option>
+      <option value="o360">Lycoming O-360 (engine)</option>
+      <option value="o470">Continental O-470 (engine)</option>
+      <option value="c170b">Cessna 170B (full example)</option>
+    </select>
+    <button class="btn" id="import">Import .ini</button>
+    <button class="btn" id="download">Download aircraft.ini</button>
+    <button class="btn primary" id="save">Save</button>
+    <span id="msg"></span>
+    <a class="btn" href="/">Back</a>
+  </div>
+</header>
+<main>
+  <div class="card">
+    <h2>Configuration</h2>
+    <p class="sub">Counts shape the groups below. Values are stored in the FIX
+      database's native units; the airspeed unit selector converts what you type.
+      Blank = leave unset (no band on the instrument). <b>Verify every number
+      against your POH / type certificate.</b></p>
+    <div class="counts">
+      <div class="field"><label>Engines</label>
+        <select id="engines"></select></div>
+      <div class="field"><label>Cylinders per engine</label>
+        <select id="cylinders"></select></div>
+      <div class="field"><label>Fuel tanks</label>
+        <select id="tanks"></select></div>
+      <div class="field"><label>Airspeed entry unit</label>
+        <select id="speedunit">
+          <option value="kt">knots (default)</option>
+          <option value="mph">mph</option>
+          <option value="kph">km/h</option>
+        </select></div>
+      <div class="field"><label>Twin / turbine speeds</label>
+        <select id="twinspeeds"><option value="0">Hide Vmc/V1/V2</option>
+          <option value="1">Show Vmc/V1/V2</option></select></div>
+    </div>
+  </div>
+  <div id="groups"></div>
+  <p class="footer-note">Aircraft Parameter Profile — schema from fix-gateway
+    (<span id="schema-ver"></span>). Delivered today by downloading
+    <code>aircraft.ini</code> into the aircraft's
+    <code>~/makerplane/fixgw/config/init_data/</code> and listing it last under
+    <code>initialization files</code>; device push arrives with config
+    delivery (Phase C).</p>
+</main>
+<input type="file" id="inifile" accept=".ini,text/plain" style="display:none">
+<script>
+"use strict";
+const qs = new URLSearchParams(location.search);
+const PROJECT = qs.get("project");
+const DEMO = qs.get("demo") === "1";
+const $ = id => document.getElementById(id);
+
+// Aux slots that get form fields, in display order, per group kind.
+const SPEED_ORDER = ["Vs0","Vs","Vfe","Vno","Vne","Va","Vx","Vy","Vmc","V1","V2","Min","Max"];
+const TWIN_ONLY = new Set(["Vmc","V1","V2"]);
+const DEEMPH = new Set(["Min","Max"]);
+const KT = {kt:1, mph:1.15078, kph:1.852};   // 1 kt = X unit
+
+let schema = null;
+let profile = { schema_version: 1,
+                meta: { engines:1, cylinders:4, tanks:2, speed_unit:"kt",
+                        engine_type:"piston", twin_speeds:false },
+                values: {} };
+let savedVersion = null;
+
+// ---- templates (STARTING POINTS -- verify against the POH) ----------------
+// Engine templates fill engine/cylinder groups only; c170b is a full example
+// (numbers from fix-gateway's init_data/airplanes/cessna/c170b.ini heritage).
+const TEMPLATES = {
+  o320: { label:"Lycoming O-320", counts:{cylinders:4}, values:{
+    "TACH1.Min":0,"TACH1.Max":3500,"TACH1.highWarn":2600,"TACH1.highAlarm":2700,
+    "OILP1.Min":0,"OILP1.Max":115,"OILP1.lowAlarm":25,"OILP1.lowWarn":55,"OILP1.highWarn":95,"OILP1.highAlarm":115,
+    "OILT1.Min":0,"OILT1.Max":130,"OILT1.lowWarn":60,"OILT1.highWarn":110,"OILT1.highAlarm":118,
+    "CHT1.Min":0,"CHT1.Max":300,"CHT1.highWarn":232,"CHT1.highAlarm":260,
+    "CHTMAX1.highWarn":232,"CHTMAX1.highAlarm":260,
+    "FUELF1.Min":0,"FUELF1.Max":20 } },
+  o360: { label:"Lycoming O-360", counts:{cylinders:4}, values:{
+    "TACH1.Min":0,"TACH1.Max":3500,"TACH1.highWarn":2600,"TACH1.highAlarm":2700,
+    "OILP1.Min":0,"OILP1.Max":115,"OILP1.lowAlarm":25,"OILP1.lowWarn":55,"OILP1.highWarn":95,"OILP1.highAlarm":115,
+    "OILT1.Min":0,"OILT1.Max":130,"OILT1.lowWarn":60,"OILT1.highWarn":110,"OILT1.highAlarm":118,
+    "CHT1.Min":0,"CHT1.Max":300,"CHT1.highWarn":232,"CHT1.highAlarm":260,
+    "CHTMAX1.highWarn":232,"CHTMAX1.highAlarm":260,
+    "FUELF1.Min":0,"FUELF1.Max":22 } },
+  o470: { label:"Continental O-470", counts:{cylinders:6}, values:{
+    "TACH1.Min":0,"TACH1.Max":3200,"TACH1.highWarn":2500,"TACH1.highAlarm":2600,
+    "OILP1.Min":0,"OILP1.Max":100,"OILP1.lowAlarm":10,"OILP1.lowWarn":30,"OILP1.highWarn":60,"OILP1.highAlarm":100,
+    "OILT1.Min":0,"OILT1.Max":130,"OILT1.lowWarn":60,"OILT1.highWarn":107,"OILT1.highAlarm":116,
+    "CHT1.Min":0,"CHT1.Max":300,"CHT1.highWarn":210,"CHT1.highAlarm":238,
+    "CHTMAX1.highWarn":210,"CHTMAX1.highAlarm":238,
+    "FUELF1.Min":0,"FUELF1.Max":25 } },
+  c170b: { label:"Cessna 170B", counts:{cylinders:6, tanks:2}, values:{
+    "IAS.Vs0":45,"IAS.Vs":50,"IAS.Vfe":87,"IAS.Vno":122,"IAS.Vne":139,"IAS.Max":156,
+    "VOLT.Min":3,"VOLT.Max":16,"VOLT.lowAlarm":9.6,"VOLT.lowWarn":10.6,"VOLT.highWarn":12.8,"VOLT.highAlarm":13.2,
+    "OAT.Min":-60,"OAT.Max":60,"OAT.lowAlarm":-30,"OAT.lowWarn":-25,"OAT.highWarn":28,"OAT.highAlarm":35,
+    "TACH1.Min":0,"TACH1.Max":3500,"TACH1.highWarn":2500,"TACH1.highAlarm":2600,
+    "FUELQ1.Max":21,"FUELQ1.lowWarn":5,"FUELQ1.lowAlarm":2.5,
+    "FUELQ2.Max":21,"FUELQ2.lowWarn":5,"FUELQ2.lowAlarm":2.5 } },
+};
+
+// ---- key instantiation ------------------------------------------------------
+// Template keys use e/c/t suffixes ("TACHe","CHTec","FUELQt"). Cylinders are
+// edited as ONE shared band set per engine, stored under the cylinder-less
+// pseudo-instance ("CHT1.highWarn") and expanded to CHT11..CHT1c in the ini.
+function instances(keyTmpl, repeat) {
+  const m = profile.meta, out = [];
+  if (repeat === "engine") {
+    for (let e=1; e<=m.engines; e++) out.push(keyTmpl.replace(/e$/, String(e)));
+  } else if (repeat === "engine_cylinder") {
+    for (let e=1; e<=m.engines; e++)
+      out.push(keyTmpl.replace(/ec$|e$/, String(e)));   // shared per engine
+  } else if (repeat === "tank") {
+    for (let t=1; t<=m.tanks; t++) out.push(keyTmpl.replace(/t$/, String(t)));
+  } else out.push(keyTmpl);
+  return out;
+}
+
+function isSpeed(groupId) { return groupId === "speeds"; }
+function toNative(v, gid) { return isSpeed(gid) ? v / KT[profile.meta.speed_unit] : v; }
+function toDisplay(v, gid) { return isSpeed(gid) ? v * KT[profile.meta.speed_unit] : v; }
+function fmt(v) { return (Math.round(v * 100) / 100).toString(); }
+
+// ---- rendering --------------------------------------------------------------
+function fillCounts() {
+  const opt = (sel, n, v) => { const el=$(sel); el.innerHTML="";
+    for (let i=1;i<=n;i++){const o=document.createElement("option");o.value=i;o.textContent=i;el.appendChild(o);}
+    el.value = v; };
+  opt("engines", 4, profile.meta.engines);
+  opt("cylinders", 28, profile.meta.cylinders);
+  opt("tanks", 4, profile.meta.tanks);
+  $("speedunit").value = profile.meta.speed_unit;
+  $("twinspeeds").value = profile.meta.twin_speeds ? "1" : "0";
+}
+
+function render() {
+  fillCounts();
+  const root = $("groups");
+  root.innerHTML = "";
+  for (const g of schema.groups) {
+    const card = document.createElement("div"); card.className = "card";
+    card.innerHTML = `<h2>${g.label}</h2>`;
+    if (g.id === "aoa")
+      card.innerHTML += `<p class="sub">Placeholder — values firm up with the AOA/OnSpeed integration.</p>`;
+    for (const k of g.keys) {
+      for (const inst of instances(k.key, g.repeat)) {
+        const sh = document.createElement("div"); sh.className = "subhead";
+        sh.textContent = `${inst} — ${k.label.replace(/%e|%c|%t/g, s => inst.match(/\d+/) || "")}`
+          + (k.units ? ` (${k.units}${isSpeed(g.id) ? ", entered as " + profile.meta.speed_unit : ""})` : "");
+        card.appendChild(sh);
+        const grid = document.createElement("div"); grid.className = "grid";
+        const auxList = isSpeed(g.id)
+          ? SPEED_ORDER.filter(a => k.aux.includes(a))
+          : k.band_aux;
+        for (const aux of auxList) {
+          if (isSpeed(g.id) && TWIN_ONLY.has(aux) && !profile.meta.twin_speeds) continue;
+          const fk = inst + "." + aux;
+          const f = document.createElement("div"); f.className = "field";
+          if (DEEMPH.has(aux)) f.style.opacity = "0.62";
+          const lab = document.createElement("label"); lab.textContent = aux;
+          const inp = document.createElement("input");
+          inp.type = "number"; inp.step = "any"; inp.dataset.fk = fk; inp.dataset.gid = g.id;
+          const v = profile.values[fk];
+          if (v != null) inp.value = fmt(toDisplay(v, g.id));
+          inp.addEventListener("input", () => {
+            const raw = inp.value.trim();
+            if (raw === "") delete profile.values[fk];
+            else {
+              const n = Number(raw);
+              if (isFinite(n)) profile.values[fk] = toNative(n, g.id);
+            }
+            validate(); if (g.id === "speeds") drawArc();
+          });
+          f.append(lab, inp); grid.appendChild(f);
+        }
+        card.appendChild(grid);
+      }
+    }
+    if (g.id === "speeds") {
+      const cv = document.createElement("canvas"); cv.id = "arc"; card.appendChild(cv);
+    }
+    root.appendChild(card);
+  }
+  validate(); drawArc();
+}
+
+// ---- validation --------------------------------------------------------------
+function validate() {
+  document.querySelectorAll("input.err").forEach(i => i.classList.remove("err"));
+  const errs = [], V = profile.values;
+  const mark = fk => { const el = document.querySelector(`input[data-fk="${fk}"]`);
+                       if (el) el.classList.add("err"); };
+  const ord = (aFk, bFk, label) => {
+    if (V[aFk] != null && V[bFk] != null && V[aFk] > V[bFk]) {
+      errs.push(label); mark(aFk); mark(bFk); } };
+  ord("IAS.Vs0","IAS.Vs","Vs0 must be <= Vs");
+  ord("IAS.Vs","IAS.Vno","Vs must be <= Vno");
+  ord("IAS.Vno","IAS.Vne","Vno must be <= Vne");
+  ord("IAS.Vne","IAS.Max","Vne must be <= Max (display range)");
+  ord("IAS.Vs0","IAS.Vfe","Vfe must be >= Vs0");
+  ord("IAS.Vfe","IAS.Vno","Vfe should be <= Vno");
+  // warn/alarm ordering on every banded instance present
+  const insts = new Set(Object.keys(V).map(k => k.split(".")[0]));
+  for (const i of insts) {
+    if (i === "IAS") continue;
+    ord(i+".Min", i+".Max", i+": Min <= Max");
+    ord(i+".lowAlarm", i+".lowWarn", i+": lowAlarm <= lowWarn");
+    ord(i+".highWarn", i+".highAlarm", i+": highWarn <= highAlarm");
+    ord(i+".lowWarn", i+".highWarn", i+": lowWarn <= highWarn");
+  }
+  let box = $("errbox");
+  if (!box) { box = document.createElement("p"); box.id = "errbox"; box.className = "errors";
+              $("groups").prepend(box); }
+  box.textContent = errs.length ? "Check: " + errs.join(" · ") : "";
+  $("save").style.background = errs.length ? "var(--amber)" : "";
+  return errs;
+}
+
+// ---- airspeed arc preview ------------------------------------------------------
+function drawArc() {
+  const cv = $("arc"); if (!cv) return;
+  const ctx = cv.getContext("2d");
+  cv.width = cv.clientWidth * 2; cv.height = 88;
+  const V = profile.values, u = KT[profile.meta.speed_unit];
+  const vs0=V["IAS.Vs0"], vs=V["IAS.Vs"], vfe=V["IAS.Vfe"], vno=V["IAS.Vno"], vne=V["IAS.Vne"];
+  const max = (V["IAS.Max"] ?? (vne ? vne * 1.12 : 200));
+  ctx.clearRect(0,0,cv.width,cv.height);
+  if (!(vne && vs)) { ctx.fillStyle="#68737f"; ctx.font="24px system-ui";
+    ctx.fillText("Enter Vs and Vne to preview the arcs", 20, 52); return; }
+  const x = v => (v / max) * (cv.width - 40) + 20;
+  const band = (a,b,color,y,hh) => { if (a==null||b==null||b<=a) return;
+    ctx.fillStyle=color; ctx.fillRect(x(a), y, x(b)-x(a), hh); };
+  band(vs0 ?? vs, vfe, "#ffffff", 48, 18); ctx.strokeStyle="#c8cdd4";
+  if (vs0!=null&&vfe!=null) ctx.strokeRect(x(vs0),48,x(vfe)-x(vs0),18);
+  band(vs, vno, "#2e9e5b", 22, 22);
+  band(vno, vne, "#e2b93b", 22, 22);
+  band(vne, max, "#c53929", 22, 22);
+  ctx.fillStyle="#c53929"; ctx.fillRect(x(vne)-2, 12, 4, 42);
+  ctx.fillStyle="#1c2733"; ctx.font="20px system-ui";
+  for (const [lbl, v] of [["Vs0",vs0],["Vs",vs],["Vfe",vfe],["Vno",vno],["Vne",vne]])
+    if (v!=null) ctx.fillText(lbl + " " + fmt(v*u), x(v)-18, 82);
+}
+
+// ---- ini compile / import ------------------------------------------------------
+function cylinderExpand(values) {
+  // "CHT1.x"/"EGT1.x" pseudo-instances -> CHT11..CHT1c per profile counts.
+  const out = {};
+  for (const [fk, v] of Object.entries(values)) {
+    const m = /^(CHT|EGT)(\d+)\.(.+)$/.exec(fk);
+    if (m) {
+      for (let c = 1; c <= profile.meta.cylinders; c++)
+        out[`${m[1]}${m[2]}${c}.${m[3]}`] = v;
+    } else out[fk] = v;
+  }
+  return out;
+}
+
+function buildIni() {
+  const lines = [
+    "; aircraft.ini -- generated by the pyEfis configurator (Aircraft parameters)",
+    "; project: " + ($("proj-label").textContent || PROJECT || "unknown")
+      + "  profile v" + (savedVersion ?? "unsaved") + "  " + new Date().toISOString().slice(0,10),
+    "; Values are FIX-database native units. VERIFY AGAINST YOUR POH.",
+    "; Install: ~/makerplane/fixgw/config/init_data/aircraft.ini, listed LAST",
+    ";          under 'initialization files' in default.yaml.",
+    "",
+  ];
+  const vals = cylinderExpand(profile.values);
+  const keys = Object.keys(vals).sort();
+  let prev = "";
+  for (const fk of keys) {
+    const inst = fk.split(".")[0];
+    if (inst !== prev) { lines.push(""); prev = inst; }
+    lines.push(`${fk} = ${vals[fk]}`);
+  }
+  return lines.join("\n") + "\n";
+}
+
+function importIni(text) {
+  let n = 0;
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*([A-Za-z0-9]+\.[A-Za-z0-9]+)\s*=\s*(-?[\d.]+)\s*$/.exec(line);
+    if (m) { profile.values[m[1]] = Number(m[2]); n++; }
+  }
+  render();
+  $("msg").textContent = `imported ${n} values`;
+}
+
+// ---- boot / io ------------------------------------------------------------------
+async function boot() {
+  const s = await fetch("/assets/editor/aircraft_params_schema.json").then(r => r.json());
+  schema = s;
+  $("schema-ver").textContent = "v" + s.schema_version + ", " + s.generated;
+  if (!DEMO) {
+    const me = await fetch("/api/me", { credentials: "same-origin" });
+    if (!me.ok) { location.href = "/"; return; }
+    if (!PROJECT) { location.href = "/"; return; }
+    const pr = await fetch("/api/projects/" + PROJECT, { credentials: "same-origin" });
+    if (pr.ok) $("proj-label").textContent = (await pr.json()).project.name;
+    const res = await fetch(`/api/projects/${PROJECT}/aircraft`, { credentials: "same-origin" });
+    if (res.ok) {
+      const doc = await res.json();
+      if (doc.profile) {
+        profile = doc.profile; savedVersion = doc.version;
+        $("ver-label").textContent = "v" + doc.version + " active";
+      }
+    }
+  } else { $("proj-label").textContent = "demo mode (not saved)"; }
+  render();
+}
+
+$("save").addEventListener("click", async () => {
+  if (DEMO) { $("msg").textContent = "demo mode - not saved"; return; }
+  const res = await fetch(`/api/projects/${PROJECT}/aircraft`, {
+    method: "PUT", credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ profile }),
+  });
+  if (res.ok) { const d = await res.json(); savedVersion = d.version;
+    $("ver-label").textContent = "v" + d.version + " active";
+    $("msg").innerHTML = '<span class="ok">saved</span>';
+  } else $("msg").textContent = "save failed (" + res.status + ")";
+  setTimeout(() => $("msg").textContent = "", 4000);
+});
+
+$("download").addEventListener("click", () => {
+  const blob = new Blob([buildIni()], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "aircraft.ini";
+  a.click(); URL.revokeObjectURL(a.href);
+});
+
+$("import").addEventListener("click", () => $("inifile").click());
+$("inifile").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (f) importIni(await f.text());
+});
+
+$("template").addEventListener("change", e => {
+  const t = TEMPLATES[e.target.value]; e.target.value = "";
+  if (!t) return;
+  if (!confirm(`Load "${t.label}" values over the current form?`)) return;
+  Object.assign(profile.values, t.values);
+  if (t.counts) Object.assign(profile.meta, t.counts);
+  render();
+});
+
+for (const [id, key, num] of [["engines","engines",1],["cylinders","cylinders",1],
+                              ["tanks","tanks",1]])
+  $(id).addEventListener("change", e => { profile.meta[key] = Number(e.target.value); render(); });
+$("speedunit").addEventListener("change", e => { profile.meta.speed_unit = e.target.value; render(); });
+$("twinspeeds").addEventListener("change", e => { profile.meta.twin_speeds = e.target.value === "1"; render(); });
+
+boot();
+</script>
+</body>
+</html>

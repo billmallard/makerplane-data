@@ -4,20 +4,24 @@
 import { Hono } from "hono";
 
 import {
+  activateAircraftProfileVersion,
   claimDevice,
   createDevice,
   createProject,
   deleteDevice,
   deleteProject,
   deviceByTokenHash,
+  getAircraftProfile,
   getDevice,
   getProject,
   getUser,
   insertConfig,
   latestConfig,
+  listAircraftProfileVersions,
   listDevices,
   listProjects,
   nextConfigVersion,
+  saveAircraftProfile,
   setClaimCode,
   touchLastPull,
 } from "./db";
@@ -74,6 +78,46 @@ app.get("/api/projects/:id", async (c) => {
   if (!project) return c.json({ error: "not found" }, 404);
   const devices = await listDevices(c.env.DB, userId, projectId);
   return c.json({ project, devices });
+});
+
+// --- aircraft parameter profile (docs/canfix_configurator.md Phase A) ------
+
+app.get("/api/projects/:id/aircraft", async (c) => {
+  const row = await getAircraftProfile(
+    c.env.DB, c.get("userId"), Number(c.req.param("id")));
+  if (!row) return c.json({ profile: null });
+  return c.json({
+    version: row.version,
+    created_at: row.created_at,
+    profile: JSON.parse(String(row.json)),
+  });
+});
+
+app.put("/api/projects/:id/aircraft", async (c) => {
+  const body = await c.req.json<{ profile?: unknown }>().catch(() => ({}) as { profile?: unknown });
+  if (!body.profile || typeof body.profile !== "object")
+    return c.json({ error: "profile object required" }, 400);
+  const text = JSON.stringify(body.profile);
+  if (text.length > 256 * 1024)
+    return c.json({ error: "profile too large" }, 413);
+  const saved = await saveAircraftProfile(
+    c.env.DB, c.get("userId"), Number(c.req.param("id")), text);
+  if (!saved) return c.json({ error: "not found" }, 404);
+  return c.json({ ok: true, version: saved.version });
+});
+
+app.get("/api/projects/:id/aircraft/versions", async (c) => {
+  return c.json({
+    versions: await listAircraftProfileVersions(
+      c.env.DB, c.get("userId"), Number(c.req.param("id"))),
+  });
+});
+
+app.post("/api/projects/:id/aircraft/activate/:v", async (c) => {
+  const ok = await activateAircraftProfileVersion(
+    c.env.DB, c.get("userId"), Number(c.req.param("id")),
+    Number(c.req.param("v")));
+  return ok ? c.json({ ok: true }) : c.json({ error: "not found" }, 404);
 });
 
 app.delete("/api/projects/:id", async (c) => {

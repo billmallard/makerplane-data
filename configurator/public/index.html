@@ -202,7 +202,14 @@
     const res = await fetch("/api/projects/" + id, { credentials: "same-origin" });
     if (!res.ok) return;
     const { devices } = await res.json();
-    $("pd-name").textContent = name + " — devices";
+    $("pd-name").innerHTML = "";
+    $("pd-name").append(name + " — devices");
+    const acLink = document.createElement("a");
+    acLink.className = "btn";
+    acLink.style.marginLeft = "12px";
+    acLink.textContent = "Aircraft parameters";
+    acLink.href = "/aircraft?project=" + id;
+    $("pd-name").appendChild(acLink);
     $("project-detail").classList.remove("hidden");
     renderDevices(devices);
   }

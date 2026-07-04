@@ -281,3 +281,100 @@ export async function latestConfig(
     .bind(deviceId, userId)
     .first();
 }
+
+// --- aircraft parameter profiles (ownership via the parent project) ---------
+// docs/canfix_configurator.md Phase A: append-only versions, one active.
+
+export async function getAircraftProfile(
+  db: D1Database,
+  userId: number,
+  projectId: number,
+): Promise<Record<string, unknown> | null> {
+  return db
+    .prepare(
+      `SELECT a.id, a.version, a.json, a.created_at
+         FROM aircraft_profiles a
+         JOIN projects p ON p.id = a.project_id
+        WHERE a.project_id = ?1 AND p.user_id = ?2 AND a.active = 1
+        ORDER BY a.version DESC LIMIT 1`,
+    )
+    .bind(projectId, userId)
+    .first();
+}
+
+export async function saveAircraftProfile(
+  db: D1Database,
+  userId: number,
+  projectId: number,
+  json: string,
+): Promise<Record<string, unknown> | null> {
+  // Ownership check first; the writes below are project-scoped only.
+  const owned = await db
+    .prepare(`SELECT id FROM projects WHERE id = ?1 AND user_id = ?2`)
+    .bind(projectId, userId)
+    .first();
+  if (!owned) return null;
+  const next = await db
+    .prepare(
+      `SELECT COALESCE(MAX(version), 0) + 1 AS v
+         FROM aircraft_profiles WHERE project_id = ?1`,
+    )
+    .bind(projectId)
+    .first<{ v: number }>();
+  const version = next?.v ?? 1;
+  await db.batch([
+    db.prepare(
+      `UPDATE aircraft_profiles SET active = 0 WHERE project_id = ?1`,
+    ).bind(projectId),
+    db.prepare(
+      `INSERT INTO aircraft_profiles (project_id, version, json, active)
+         VALUES (?1, ?2, ?3, 1)`,
+    ).bind(projectId, version, json),
+  ]);
+  return { version };
+}
+
+export async function listAircraftProfileVersions(
+  db: D1Database,
+  userId: number,
+  projectId: number,
+): Promise<unknown[]> {
+  const res = await db
+    .prepare(
+      `SELECT a.version, a.active, a.created_at
+         FROM aircraft_profiles a
+         JOIN projects p ON p.id = a.project_id
+        WHERE a.project_id = ?1 AND p.user_id = ?2
+        ORDER BY a.version DESC`,
+    )
+    .bind(projectId, userId)
+    .all();
+  return res.results;
+}
+
+export async function activateAircraftProfileVersion(
+  db: D1Database,
+  userId: number,
+  projectId: number,
+  version: number,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT a.id FROM aircraft_profiles a
+         JOIN projects p ON p.id = a.project_id
+        WHERE a.project_id = ?1 AND p.user_id = ?2 AND a.version = ?3`,
+    )
+    .bind(projectId, userId, version)
+    .first();
+  if (!row) return false;
+  await db.batch([
+    db.prepare(
+      `UPDATE aircraft_profiles SET active = 0 WHERE project_id = ?1`,
+    ).bind(projectId),
+    db.prepare(
+      `UPDATE aircraft_profiles SET active = 1
+        WHERE project_id = ?1 AND version = ?2`,
+    ).bind(projectId, version),
+  ]);
+  return true;
+}
