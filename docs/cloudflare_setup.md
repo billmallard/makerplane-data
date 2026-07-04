@@ -15,7 +15,7 @@ GitHub Actions (cyclical.yml)  --S3 API-->  Cloudflare R2 bucket
    builds + signs packs                     makerplane-data
                                               |  public serving
                                               v
-                              data.makerplane.org  (Pi / browser downloads)
+                        navdata.aerocommons.org  (Pi / browser downloads)
 ```
 
 Cloudflare provides two things here:
@@ -47,7 +47,21 @@ So a reader knows what is already done vs. what a from-nothing rebuild redoes:
 - [x] **Production URL base** wired into the pipeline default
       (`https://navdata.aerocommons.org/packs`); the orchestrator re-roots all
       manifest pack URLs onto it.
-- [ ] **Pages site** (Phase E): not built yet.
+- [x] **Static site** (Phase E, live 2026-06-14): not Cloudflare Pages after
+      all — `site/index.html` (+ `data.yaml.sample`, `assets/`) is uploaded to
+      the **bucket root** and served from the same custom domain; a Cloudflare
+      Transform Rule rewrites `/` to `/index.html`. Redeploy after editing:
+      ```bash
+      npx wrangler r2 object put makerplane-data/index.html \
+          --file=site/index.html --content-type "text/html; charset=utf-8" --remote
+      ```
+- [x] **Navaids pack** (2026-07-04): `navaids-conus` (kind `navaids`) joined
+      the cyclical pipeline — the first **multi-archive source** (NAV + FIX +
+      AWY zips per cycle; see *What the pipeline builds* below).
+- [x] **`PYEFIS_REF` repository variable set to `display-changes`**
+      (2026-07-04). Required in practice: the workflow default had pointed at
+      a since-deleted pyEfis branch, which would have failed every checkout.
+      If pyEfis branches are renamed/retired, update this variable.
 
 > Ownership note: the account today is Bill Mallard's personal Cloudflare
 > account; the data domain is `navdata.aerocommons.org` (AeroCommons, the
@@ -188,13 +202,20 @@ defaults:
 gh variable set R2_BUCKET   --repo "$R" --body "makerplane-data"
 # where the FAA build tools are checked out from (interim tool-sharing shim)
 gh variable set PYEFIS_REPO --repo "$R" --body "billmallard/pyEfis"
-gh variable set PYEFIS_REF  --repo "$R" --body "svs-renderer"
+gh variable set PYEFIS_REF  --repo "$R" --body "display-changes"
 ```
 
 `PYEFIS_REPO`/`PYEFIS_REF` exist because the FAA→sqlite build tools currently
-live in pyEfis (`tools/build_airport_db.py`, `build_obstacle_db.py`). When
-those move into a standalone `pyefis-tools` package, point these at it or drop
-them. See `packtools/build/__init__.py`.
+live in pyEfis (`tools/build_airport_db.py`, `build_obstacle_db.py`,
+`build_navaid_db.py`). When those move into a standalone `pyefis-tools`
+package, point these at it or drop them. See `packtools/build/__init__.py`.
+
+> **`PYEFIS_REF` is effectively required, not optional** (set in production
+> since 2026-07-04). The checked-out ref must contain all three build tools;
+> `display-changes` does. A stale ref fails the workflow at the pyEfis
+> checkout step — this actually happened when the workflow default pointed at
+> a deleted branch — so treat any pyEfis branch cleanup as a prompt to
+> re-verify this variable.
 
 ---
 
@@ -209,9 +230,25 @@ Watch it: `gh run watch <id> --repo "$R" --exit-status`. A green run logs:
 ```
 built+uploaded airports-conus 2606 sha256=…  5,861,376 B
 built+uploaded airports-conus 2607 sha256=…  5,890,048 B
+built+uploaded navaids-conus 2606 sha256=…  5,816,320 B
+built+uploaded navaids-conus 2607 sha256=…  5,812,224 B
 built+uploaded obstacles-conus 260611 sha256=…  75,075,584 B
-manifest: 3 pack(s), 3 new, signed + uploaded
+manifest: 5 pack(s), 5 new, signed + uploaded
 ```
+
+**What the pipeline builds** (`packtools/sources.py` is the registry):
+
+| Pack id | Kind | Cadence | Upstream | Builder (pyEfis tools/) |
+|---|---|---|---|---|
+| `airports-conus` | `navdata` | AIRAC (current+next) | NASR `{date}_APT_CSV.zip` | `build_airport_db.py` |
+| `navaids-conus` | `navaids` | AIRAC (current+next) | NASR `{date}_NAV/FIX/AWY_CSV.zip` (three archives) | `build_navaid_db.py --nasr-dir` |
+| `obstacles-conus` | `obstacles` | DOF (current only) | `DAILY_DOF_CSV.ZIP` | `build_obstacle_db.py` |
+| `cifp-conus` | `cifp` | AIRAC | CIFP zip | deferred (GPL indexer) |
+
+`navaids-conus` is the model for **multi-archive sources**: `Source.url_for`
+returns a tuple of URLs and the runner extracts every archive into one input
+directory before invoking the builder. AIRAC next-cycle fetches that 404
+(FAA not yet published) are logged and skipped, never fatal.
 
 **Independent confirmation that R2 actually has the objects:** run it a second
 time. The `HEAD`-to-skip check reads R2, so a clean second run logs
@@ -326,7 +363,7 @@ the packs or manifest is account-specific.
 | Object keys | `manifest.json`, `manifest.json.minisig`, `packs/<id>-<cycle>.pack` |
 | Public base | `https://navdata.aerocommons.org/` (custom domain; `r2.dev` dev URL also live) |
 | GH secrets | `MINISIGN_SECRET_KEY`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` |
-| GH variables (optional) | `R2_BUCKET`, `PYEFIS_REPO`, `PYEFIS_REF` |
+| GH variables | `PYEFIS_REF` = `display-changes` (set; must have the build tools); `R2_BUCKET`, `PYEFIS_REPO` optional |
 | Pipeline trigger | `cyclical.yml` — daily 09:20 UTC + `workflow_dispatch` |
 | Signing key id | `178caefeabc5afb1` (public key in `keys/minisign.pub`) |
 

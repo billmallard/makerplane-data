@@ -58,7 +58,11 @@ extra Cloudflare spend is involved.
 
 - **`cyclical.yml`** — the daily FAA navdata pipeline already runs in CI:
   fetch (NASR/DOF) → build → **sign with the minisign key** → **upload to R2**.
-  Proves auth + signing + upload from Actions end-to-end.
+  Proves auth + signing + upload from Actions end-to-end. Now covers
+  airports, obstacles, and navaids (2026-07-04) — navaids being the first
+  **multi-archive source** (NAV+FIX+AWY zips extracted into one build input;
+  `Source.url_for` may return a tuple), the pattern to reuse for any future
+  product spanning several upstream files.
 - **`water.yml`** — a `workflow_dispatch` that builds a *small* scope (default
   `texas`) via `fetch_geofabrik_water.py` + `build_water_db` and runs
   `build-pack --upload`. The loop works; it just hasn't been scaled.
