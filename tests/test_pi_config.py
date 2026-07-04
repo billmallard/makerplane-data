@@ -10,7 +10,7 @@ def test_defaults_when_no_file(tmp_path):
     assert cfg.base_url == DEFAULT_BASE_URL
     # Selection is kind-driven now: core navdata tracked, no explicit packs,
     # no bulk regions opted in.
-    assert set(cfg.track_kinds) == {"navdata", "obstacles", "cifp"}
+    assert set(cfg.track_kinds) == {"navdata", "navaids", "obstacles", "cifp"}
     assert cfg.packs == ()
     assert cfg.regions == ()
     assert cfg.manifest_url.endswith("/manifest.json")

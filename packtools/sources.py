@@ -37,6 +37,17 @@ def nasr_apt_csv_url(c: Cycle) -> str:
             f"{_faa_day(c.effective)}_APT_CSV.zip")
 
 
+def nasr_navaid_csv_urls(c: Cycle) -> tuple[str, str, str]:
+    """The three 28DaySub 'extra' zips a navaids pack is built from
+    (navaids, fixes, airways). Same URL family as APT, verified live
+    2026-07-04 for the 11_Jun_2026 cycle."""
+    base = "https://nfdc.faa.gov/webContent/28DaySub/extra/"
+    day = _faa_day(c.effective)
+    return (f"{base}{day}_NAV_CSV.zip",
+            f"{base}{day}_FIX_CSV.zip",
+            f"{base}{day}_AWY_CSV.zip")
+
+
 def cifp_url(c: Cycle) -> str:
     return (f"https://aeronav.faa.gov/Upload_313-d/cifp/"
             f"CIFP_{c.effective:%y%m%d}.zip")
@@ -50,11 +61,15 @@ def dof_url(c: Cycle) -> str:
 
 @dataclass(frozen=True)
 class Source:
-    """A cyclical dataset: how to name its pack, fetch it, and build it."""
+    """A cyclical dataset: how to name its pack, fetch it, and build it.
+
+    ``url_for`` may return one URL or a tuple of URLs; multi-URL sources
+    (navaids = NAV + FIX + AWY) have every archive extracted into the same
+    input directory before the builder runs."""
     pack_id: str
     kind: str                       # packmeta kind
     cadence: str                    # 'airac' | 'dof'
-    url_for: Callable[[Cycle], str]
+    url_for: Callable[[Cycle], "str | tuple[str, ...]"]
     builder: str                    # key into packtools.build.BUILDERS
     attribution: str
     regions: tuple[str, ...] = ("conus",)
@@ -75,6 +90,11 @@ SOURCES: dict[str, Source] = {
         pack_id="obstacles-conus", kind="obstacles", cadence="dof",
         url_for=dof_url, builder="obstacles",
         attribution="FAA DOF (public domain)",
+    ),
+    "navaids-conus": Source(
+        pack_id="navaids-conus", kind="navaids", cadence="airac",
+        url_for=nasr_navaid_csv_urls, builder="navaids",
+        attribution="FAA NASR (public domain)",
     ),
     # CIFP is a real source but its indexer lives in pyAvTools (GPL-2.0); we
     # do not vendor GPL into this MIT repo. Building CIFP packs is deferred

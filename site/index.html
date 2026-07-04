@@ -192,8 +192,8 @@
 <script>
 const MANIFEST = "manifest.json";
 const GROUPS = [
-  { kinds: ["navdata", "obstacles", "cifp", "airports"], title: "Navigation data",
-    blurb: "US airports, runways, obstacles & procedures (FAA cycle), plus regional airport packs for outside the US (OurAirports — e.g. Canada)." },
+  { kinds: ["navdata", "navaids", "obstacles", "cifp", "airports"], title: "Navigation data",
+    blurb: "US airports, runways, navaids, airways, obstacles & procedures (FAA cycle), plus regional airport packs for outside the US (OurAirports — e.g. Canada)." },
   { kinds: ["terrain"], title: "Terrain (Copernicus GLO-30)",
     blurb: "30 m elevation, by region. Big — pick the areas you fly." },
   { kinds: ["water"], title: "Water",
@@ -218,7 +218,8 @@ function currency(p, future) {
 // (expires is exclusive -- the "to" date is the next cycle's effective
 // date, matching how FAA products state it).
 function cycleName(p) {
-  return ({ navdata: "AIRAC " + p.cycle, cifp: "AIRAC " + p.cycle,
+  return ({ navdata: "AIRAC " + p.cycle, navaids: "AIRAC " + p.cycle,
+            cifp: "AIRAC " + p.cycle,
             obstacles: "FAA DOF" })[p.kind] || ("cycle " + p.cycle);
 }
 
@@ -242,7 +243,8 @@ function pickCycles(list) {
 function packLabel(p) {
   if (p.kind === "terrain" && p.regions && p.regions.length) return "Terrain — " + p.regions[0];
   if (p.kind === "airports" && p.regions && p.regions.length) return "Airports — " + p.regions[0];
-  return ({ navdata: "Airports & runways", obstacles: "Obstacles", cifp: "Procedures & waypoints",
+  return ({ navdata: "Airports & runways", navaids: "Navaids & airways",
+            obstacles: "Obstacles", cifp: "Procedures & waypoints",
             water: "Water", highways: "Roads & highways", airports: "Airports (regional)" })[p.kind] || p.id;
 }
 

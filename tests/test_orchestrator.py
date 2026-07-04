@@ -16,6 +16,7 @@ from packtools.upload import LocalStore
 TODAY = dt.date(2026, 6, 14)
 AIRPORTS = SOURCES["airports-conus"]
 OBSTACLES = SOURCES["obstacles-conus"]
+NAVAIDS = SOURCES["navaids-conus"]
 
 
 def fake_fetch(url, work_dir, member=None):
@@ -41,7 +42,8 @@ def make_runner(tmp_path):
         store=store, secret=sk, work_dir=tmp_path / "work",
         url_base="https://data.makerplane.org/packs",
         fetcher=fake_fetch,
-        builders={"airports": fake_build, "obstacles": fake_build},
+        builders={"airports": fake_build, "obstacles": fake_build,
+                  "navaids": fake_build},
         today=TODAY,
     )
     return runner, store, pub
@@ -61,6 +63,21 @@ def test_run_builds_current_and_next_for_airac_only_current_for_dof(tmp_path):
     # packs landed in the store
     assert store.exists("packs/airports-conus-2606.pack")
     assert store.exists("packs/obstacles-conus-260611.pack")
+
+
+def test_multi_url_source_fetches_all_archives_into_one_input(tmp_path):
+    # navaids = NAV + FIX + AWY zips; every URL is fetched per cycle and the
+    # builder sees a single extracted directory.
+    runner, store, pub = make_runner(tmp_path)
+    fetched = []
+    runner.fetcher = lambda url, wd, member=None: (
+        fetched.append(url) or fake_fetch(url, wd, member))
+    m = runner.run([NAVAIDS])
+
+    cur = [u for u in fetched if "11_Jun_2026" in u]
+    assert [u.rsplit("_", 2)[1] for u in cur] == ["NAV", "FIX", "AWY"]
+    assert ("navaids-conus", "2606") in {(p.id, p.cycle) for p in m.packs}
+    assert store.exists("packs/navaids-conus-2606.pack")
 
 
 def test_manifest_uploaded_and_signature_verifies(tmp_path):

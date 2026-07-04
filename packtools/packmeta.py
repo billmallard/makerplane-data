@@ -29,7 +29,7 @@ SCHEMA_VERSION = 1
 # Recognised pack kinds. "kind" drives which build tool produced the pack and
 # how the Pi installs it; it is open for extension (charts, etc.).
 KINDS = ("navdata", "obstacles", "cifp", "water", "terrain", "highways",
-         "airports")
+         "airports", "navaids")
 
 
 @dataclass

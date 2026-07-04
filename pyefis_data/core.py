@@ -43,6 +43,7 @@ UNKNOWN = "unknown"
 # kind -> (subdirectory under root, canonical filename pyEfis opens)
 SQLITE_KINDS: dict[str, tuple[str, str]] = {
     "navdata": ("navdata", "airports.sqlite"),
+    "navaids": ("navaids", "navaids.sqlite"),
     "obstacles": ("obstacles", "obstacles.sqlite"),
     "water": ("water", "water.sqlite"),
     "highways": ("highways", "highways.sqlite"),
@@ -77,6 +78,7 @@ TILE_KINDS = ("terrain",)
 # Human labels for the on-device status screen.
 KIND_LABELS = {
     "navdata": "Airports & Runways",
+    "navaids": "Navaids & Airways",
     "obstacles": "Obstacles",
     "cifp": "Procedures & Waypoints",
     "water": "Water",

@@ -69,6 +69,15 @@ def build_obstacles(input_dir: Path, out_path: Path) -> Path:
     return out_path
 
 
+def build_navaids(input_dir: Path, out_path: Path) -> Path:
+    # input_dir holds the NAV + FIX + AWY CSV zips all extracted together
+    # (multi-URL source; see packtools/sources.py).
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    _run_tool("build_navaid_db.py",
+              ["--nasr-dir", str(input_dir), "--output", str(out_path)])
+    return out_path
+
+
 def _build_cifp(input_dir: Path, out_path: Path) -> Path:
     raise BuildError(
         "CIFP pack building is deferred: its indexer is GPL (pyAvTools). "
@@ -80,5 +89,6 @@ def _build_cifp(input_dir: Path, out_path: Path) -> Path:
 BUILDERS: dict[str, Builder] = {
     "airports": build_airports,
     "obstacles": build_obstacles,
+    "navaids": build_navaids,
     "cifp": _build_cifp,
 }

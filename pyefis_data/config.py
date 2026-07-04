@@ -23,7 +23,7 @@ DEFAULT_CONFIGURATOR_URL = "https://pyefis.aerocommons.org"
 # (small, CONUS-wide, everyone wants them) and no bulk packs — terrain/charts
 # are opt-in by region. `packs` adds explicit ids on top; nothing here ever
 # forces a bulk download or restricts what the EFIS may use.
-DEFAULT_TRACK_KINDS = ("navdata", "obstacles", "cifp")
+DEFAULT_TRACK_KINDS = ("navdata", "navaids", "obstacles", "cifp")
 DEFAULT_PACKS: tuple[str, ...] = ()      # explicit extra ids (none by default)
 DEFAULT_REGIONS: tuple[str, ...] = ()    # opted-in bulk regions (none by default)
 

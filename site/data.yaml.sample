@@ -33,6 +33,7 @@ root: /data/makerplane-data
 packs:
   # --- Core navigation data (small, nationwide -- you almost certainly want these)
   - airports-conus               # navdata    FAA airports & runways
+  - navaids-conus                # navaids    FAA navaids, fixes & airways
   - obstacles-conus              # obstacles  FAA obstacles (Digital Obstacle File)
 
   # --- Roads & water (moderate)
@@ -66,6 +67,7 @@ regions: []
 #
 # Every data type (kind) we support:
 #   navdata    FAA airports & runways        (small, nationwide)
+#   navaids    FAA navaids, fixes & airways  (small, nationwide)
 #   obstacles  FAA obstacles / DOF           (small, nationwide)
 #   cifp       FAA procedures & waypoints    (planned -- not yet published)
 #   terrain    Copernicus GLO-30 elevation   (LARGE -- ~8-15 GB per region)
@@ -74,7 +76,7 @@ regions: []
 #
 # A kind listed in track_kinds pulls ALL of its packs (every region), so put
 # the big region-split kinds here only if you really want the whole continent:
-# track_kinds: [navdata, obstacles, cifp, terrain, water, highways]
+# track_kinds: [navdata, navaids, obstacles, cifp, terrain, water, highways]
 #
 # Every region we define (only affects terrain / water / highways). A bulk
 # pack is pulled if any of its regions appears here:

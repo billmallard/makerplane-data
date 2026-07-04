@@ -73,9 +73,13 @@ class CyclicalRunner:
         builder = self.builders[source.builder]
         cycle_work = self.work_dir / source.pack_id / c.cycle
         cycle_work.mkdir(parents=True, exist_ok=True)
-        self.log(f"  fetch {source.url_for(c)}")
-        extracted = self.fetcher(source.url_for(c), cycle_work,
-                                 member=(source.archive_member or None))
+        urls = source.url_for(c)
+        if isinstance(urls, str):
+            urls = (urls,)
+        for url in urls:
+            self.log(f"  fetch {url}")
+            extracted = self.fetcher(url, cycle_work,
+                                     member=(source.archive_member or None))
         pack_path = cycle_work / f"{source.pack_id}-{c.cycle}.pack"
         self.log(f"  build {source.builder} -> {pack_path.name}")
         builder(Path(extracted), pack_path)
