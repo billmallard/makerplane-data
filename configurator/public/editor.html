@@ -476,6 +476,11 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
   const numD = Math.max(1, Number(o.numberedDiv) || 10);
   const labelRange = o.visiblePitchAngle != null ? Number(o.visiblePitchAngle) : 15;
   const ladderOp = o.pitchOpacity != null ? Number(o.pitchOpacity) : 0.6;
+  // bankOpacity fades the whole bank cluster together (scale + roll pointer
+  // + std-rate diamonds + datum triangle + slip ball); horizonOpacity fades
+  // the zero-pitch line -- both match the pyEfis AI options.
+  const bankOp = o.bankOpacity != null ? Number(o.bankOpacity) : 1;
+  const horizonOp = o.horizonOpacity != null ? Number(o.horizonOpacity) : 1;
   const KW = 0.031;  // px tick-width -> viewBox half-width; pyEfis autoscales the
                      // widths to fontSize (numbered ~3.1% of width, not ~16%)
   const numHW = (Number(o.numberedDivWidth) || 50) * KW;
@@ -517,7 +522,11 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
   //   "classic"  = split-wing bars + centre dot (default)
   const symStyle = String(o.aircraft_symbol || "classic").toLowerCase();
   let symbol;
-  if (symStyle === "garmin") {
+  if (["none", "off", "hidden"].includes(symStyle)) {
+    // SVS-as-background mode: no fixed reference symbol (matches the
+    // widget's _draw_aircraft_symbol early return).
+    symbol = "";
+  } else if (symStyle === "garmin") {
     // Garmin G3X-style bat wing (matches ai._draw_aircraft_symbol): two
     // slender anhedral triangles sweeping down-outboard from a notched apex
     // on the horizon, each split lengthwise into a lit upper face (symbol
@@ -613,14 +622,16 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
     <g transform="translate(0 ${(-hoff).toFixed(2)})"><g transform="rotate(${roll} 50 50)"><g transform="translate(0 ${pitch * ppd})">
       ${withBackground ? `<rect x="-90" y="-170" width="280" height="220" fill="url(#ais${id})"/>
       <rect x="-90" y="50" width="280" height="220" fill="url(#aig${id})"/>` : ``}
-      <line x1="-90" y1="50" x2="190" y2="50" stroke="#fff" stroke-width="${1.1 * LW}"/>
+      <line x1="-90" y1="50" x2="190" y2="50" stroke="#fff" stroke-width="${1.1 * LW}" opacity="${horizonOp}"/>
       ${ladder}
       ${headingMarks}
     </g></g></g>
+    ${bankOp > 0 ? `<g opacity="${bankOp}">
     <g transform="rotate(${roll} 50 50)">${rollarc}</g>
     ${bankMarks}
     <path d="M49.65 ${(arcTop - 0.8).toFixed(2)} L50.35 ${(arcTop - 0.8).toFixed(2)} L50 ${(arcTop + 0.1).toFixed(2)} Z" fill="#fff"/>
     <circle cx="${(50 + slip).toFixed(1)}" cy="${(arcTop + 1.9).toFixed(2)}" r="0.5" fill="#fff"/>
+    </g>` : ``}
     <g transform="translate(0 ${(-hoff).toFixed(2)})">
       ${symbol}
       ${fpm}
