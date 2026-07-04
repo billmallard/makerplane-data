@@ -45,6 +45,9 @@
   .pack .meta { flex: 1; min-width: 0; }
   .pack .meta .name { font-weight: 600; }
   .pack .meta .det { color: var(--muted); font-size: 13.5px; }
+  .pack .meta .cyc { color: var(--navy2); font-size: 12.5px; margin-top: 1px;
+    font-variant-numeric: tabular-nums; }
+  .pack .meta .cyc a { color: var(--navy2); }
   .pack .size { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; white-space: nowrap; }
   .badge { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
   .b-current { background: #e8f5ee; color: var(--green); }
@@ -204,12 +207,39 @@ const GROUPS = [
 const fmtBytes = b => b >= 1e9 ? (b/1e9).toFixed(1)+" GB" : b >= 1e6 ? Math.round(b/1e6)+" MB" : Math.round(b/1e3)+" KB";
 const daysUntil = iso => Math.round((new Date(iso) - new Date()) / 86400000);
 
-function currency(p) {
+function currency(p, future) {
   if (!p.expires) return { cls: "b-edition", text: "edition " + p.cycle };
+  if (future)     return { cls: "b-edition", text: "effective " + p.effective };
   const d = daysUntil(p.expires);
   if (d < 0)  return { cls: "b-amber", text: "expired" };
   if (d <= 7) return { cls: "b-amber", text: "expires in " + d + "d" };
   return { cls: "b-current", text: "current" };
+}
+
+// FAA cyclical packs: name the cycle and spell out its validity window
+// (expires is exclusive -- the "to" date is the next cycle's effective
+// date, matching how FAA products state it).
+function cycleName(p) {
+  return ({ navdata: "AIRAC " + p.cycle, cifp: "AIRAC " + p.cycle,
+            obstacles: "FAA DOF" })[p.kind] || ("cycle " + p.cycle);
+}
+
+// The manifest may carry several cycles of one pack: the FAA publishes
+// the next cycle ahead of its effective date so devices can stage it
+// early. Show the cycle that is ACTIVE today; surface the staged next
+// cycle alongside it.
+function pickCycles(list) {
+  const today = new Date().toISOString().slice(0, 10);
+  const dated = list.filter(p => p.effective && p.expires)
+                    .sort((a, b) => a.effective.localeCompare(b.effective));
+  if (!dated.length)
+    return { show: list.reduce((a, b) => ("" + b.cycle) > ("" + a.cycle) ? b : a),
+             next: null, future: false };
+  const active = dated.filter(p => p.effective <= today && today < p.expires).pop() || null;
+  const next   = dated.find(p => p.effective > today) || null;
+  if (active) return { show: active, next: next, future: false };
+  if (next)   return { show: next, next: null, future: true };
+  return { show: dated[dated.length - 1], next: null, future: false };
 }
 function packLabel(p) {
   if (p.kind === "terrain" && p.regions && p.regions.length) return "Terrain — " + p.regions[0];
@@ -224,24 +254,32 @@ function render(m) {
   const cat = document.getElementById("catalog");
   cat.innerHTML = "";
   const byId = {};
-  (m.packs || []).forEach(p => { if (!byId[p.id] || p.cycle > byId[p.id].cycle) byId[p.id] = p; });
-  const packs = Object.values(byId);
+  (m.packs || []).forEach(p => (byId[p.id] = byId[p.id] || []).push(p));
+  const packs = Object.values(byId).map(pickCycles);
 
   let shown = 0;
   for (const g of GROUPS) {
-    const items = packs.filter(p => g.kinds.includes(p.kind))
-                       .sort((a, b) => a.id.localeCompare(b.id));
+    const items = packs.filter(x => g.kinds.includes(x.show.kind))
+                       .sort((a, b) => a.show.id.localeCompare(b.show.id));
     if (!items.length) continue;
     shown += items.length;
     const box = document.createElement("div"); box.className = "group";
     box.innerHTML = `<h3>${g.title} <small>${g.blurb}</small></h3>`;
-    for (const p of items) {
-      const c = currency(p);
+    for (const it of items) {
+      const p = it.show;
+      const c = currency(p, it.future);
+      let cyc = "";
+      if (p.effective && p.expires) {
+        cyc = `${cycleName(p)} &middot; effective ${p.effective} to ${p.expires}`;
+        if (it.next) cyc += ` &middot; next cycle from ${it.next.effective}
+          (<a href="${it.next.url}" download>download</a>)`;
+        cyc = `<div class="cyc">${cyc}</div>`;
+      }
       const row = document.createElement("div"); row.className = "pack";
       row.innerHTML =
         `<input type="checkbox" data-url="${p.url}" data-name="${p.id}-${p.cycle}.pack">
          <div class="meta"><div class="name">${packLabel(p)}</div>
-           <div class="det">${p.attribution || ""}</div></div>
+           ${cyc}<div class="det">${p.attribution || ""}</div></div>
          <span class="badge ${c.cls}">${c.text}</span>
          <span class="size">${fmtBytes(p.bytes)}</span>
          <a class="dl" href="${p.url}" download>Download</a>`;
