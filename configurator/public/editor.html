@@ -675,6 +675,11 @@ function buildTape(inst) {
   const r = rect(inst);
   const wrap = document.createElement("div");
   wrap.className = "gauge tape" + (isAlt ? " alt" : "");
+  if (o.edge_fade) {
+    // Mirrors the device's edge_fade: scale melts out over the top/bottom 15%.
+    const m = "linear-gradient(transparent, black 15%, black 85%, transparent)";
+    wrap.style.webkitMaskImage = m; wrap.style.maskImage = m;
+  }
   wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
   wrap.style.fontSize = Math.max(7, Math.min(14, r.w * 0.24)) + "px";
   if (o.fg_color) wrap.style.color = o.fg_color;
