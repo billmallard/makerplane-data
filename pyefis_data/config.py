@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """On-Pi updater configuration — ``~/.makerplane/pyefis/data.yaml``.
 
 Construct-never-raises (the pyEfis house rule): a missing or unreadable

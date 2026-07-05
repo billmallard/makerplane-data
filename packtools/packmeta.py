@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """pack_meta — the self-describing header carried *inside* every pack.
 
 A pack must identify itself even when it is separated from the manifest

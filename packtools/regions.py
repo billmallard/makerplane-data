@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Region definitions and tile-to-region assignment.
 
 Loads ``regions.yaml`` and answers two questions the pipeline asks:

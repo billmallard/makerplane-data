@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """pyefis_data end-to-end — the Pi updater against real orchestrator-built,
 signed packs served from a local directory (no network, no pyEfis tools).
 

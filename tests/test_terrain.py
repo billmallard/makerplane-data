@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Terrain pipeline: build region packs from an HGT tree, then install them
 through the real Pi updater (download -> verify -> unzip-merge)."""
 

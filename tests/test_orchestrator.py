@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """CyclicalRunner — orchestration logic with injected fakes (no network,
 no pyEfis tools)."""
 

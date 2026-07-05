@@ -229,3 +229,15 @@ into `~/makerplane/pyefis/config`.
 - Only runtime dependency is **Hono**; all crypto is Web Crypto.
 - Magic-link email logs to the console unless `MAIL_API_KEY` (Resend) is set.
 - See [CLAUDE.md](CLAUDE.md) for an orientation aimed at AI coding sessions.
+
+## Licensing & Patents
+
+The configurator service is **AGPL-3.0-or-later** ([LICENSE](LICENSE)):
+run it, modify it, but a modified copy operated as a service must publish
+its source. One exception by provenance: `public/editor.html` is
+**GPL-3.0-or-later** — its instrument-preview twins are ported from GPL
+pyEfis widget code. The interfaces this service builds on (pack formats,
+device updater, schemas) are Apache-2.0 in the parent repo, with its
+express patent grant. The project's intent is that this architecture
+remain unencumbered; see `../docs/AC-DP-001-architecture-disclosure.md`
+(defensive publication) and `../docs/LICENSE-AUDIT.md`.

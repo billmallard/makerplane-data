@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """OurAirports merge — augment a NASR-built airports.sqlite with foreign
 airports, offline (fixture rows, no network)."""
 import sqlite3

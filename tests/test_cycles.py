@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Cycle arithmetic — pinned against known FAA dates.
 
 The anchor 2024-04-18 == AIRAC 2404 is confirmed against FAA CIFP filenames

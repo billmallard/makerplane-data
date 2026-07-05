@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Region loading + tile-to-region assignment (the Phase A gap)."""
 
 import pytest

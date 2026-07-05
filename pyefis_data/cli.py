@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """pyefis-data — the on-Pi navigation-data updater CLI.
 
     pyefis-data status [--json]      installed vs catalog; currency per pack

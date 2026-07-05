@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Build terrain packs from an HGT tile tree, grouped by region.
 
 Terrain is the bulk/static data shape: huge, ~never changes, edition-tagged

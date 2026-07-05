@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // makerplane-configurator: accounts/auth + design-storage API for the pyEfis
 // configuration manager. See ../../docs/system_designer.md.
 

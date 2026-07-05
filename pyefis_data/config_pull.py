@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Device panel-config pull + install (#65 P3, multi-screen #72).
 
 A paired device fetches its latest panel config (native pyEfis YAML) from the

@@ -1,0 +1,22 @@
+AeroCommons avionics data tools (makerplane-data)
+Copyright 2026 AeroCommons contributors
+
+This repository is multi-licensed by component. See docs/LICENSE-AUDIT.md
+for the audit and rationale; SPDX-License-Identifier headers on each file
+are authoritative.
+
+  * packtools/, pyefis_data/, site/, tests/, scripts/
+      Apache License 2.0 (LICENSE)
+  * configurator/  (the hosted configuration service)
+      GNU Affero General Public License v3.0 or later (configurator/LICENSE)
+  * configurator/public/editor.html
+      GNU General Public License v3.0 or later (LICENSES/GPL-3.0-or-later.txt)
+      -- contains instrument-preview rendering logic ported from pyEfis,
+      which is GPL-2.0-or-later, Copyright (c) Phil Birkelbach and the
+      pyEfis contributors (https://github.com/makerplane/pyEfis)
+  * docs/
+      Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+Data packs built by these tools carry their own upstream attributions
+(FAA public domain; OurAirports public domain; OpenStreetMap ODbL), stated
+per pack in the signed manifest and on the download site.

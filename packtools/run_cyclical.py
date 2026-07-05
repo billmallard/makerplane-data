@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The daily pipeline orchestrator (Leg 1).
 
 For each cyclical source, for the current cycle (and the next, for AIRAC

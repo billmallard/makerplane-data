@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """packtool — Phase A command line.
 
 Three subcommands prove the contract end to end:

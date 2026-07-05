@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """packtool CLI — genkey -> build-pack -> verify, plus failure exit codes."""
 
 import sqlite3

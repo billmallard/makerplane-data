@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The catalog manifest — the single contract between all three legs.
 
 One JSON document at a stable URL (``https://data.makerplane.org/manifest.json``)

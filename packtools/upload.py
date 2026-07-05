@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Object stores — where packs and the manifest live.
 
 The orchestrator talks to an :class:`ObjectStore` interface, so the same

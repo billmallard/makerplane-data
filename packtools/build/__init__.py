@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Build shim — turn extracted upstream files into an sqlite pack.
 
 INTERIM (Phase A/B decision): the FAA->sqlite build logic lives in the

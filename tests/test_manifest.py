@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Manifest schema — roundtrip, validation, currency queries, and the
 end-to-end build+sign+verify path with a real (tiny) sqlite pack."""
 

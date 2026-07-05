@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Accounts + design storage for the pyEfis configuration manager.
 -- See ../../docs/system_designer.md for the data model rationale.
 

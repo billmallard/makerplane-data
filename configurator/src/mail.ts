@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Sends the magic-link email. Stub-friendly: if MAIL_API_KEY is unset the link
 // is logged to the worker console (fine for local dev). Wire a transactional
 // provider for production -- Resend's API is shown.

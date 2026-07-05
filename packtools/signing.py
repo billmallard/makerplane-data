@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Manifest signing — ed25519, minisign wire-compatible.
 
 The catalog manifest is the only thing the Pi trusts; everything else

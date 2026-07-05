@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Upstream data sources — the FAA URLs, cycle-aware.
 
 One place for every upstream URL so that when the FAA moves a path (it
@@ -97,7 +98,7 @@ SOURCES: dict[str, Source] = {
         attribution="FAA NASR (public domain)",
     ),
     # CIFP is a real source but its indexer lives in pyAvTools (GPL-2.0); we
-    # do not vendor GPL into this MIT repo. Building CIFP packs is deferred
+    # do not vendor GPL into this Apache-2.0 component. Building CIFP packs is deferred
     # to a focused step (call faa-cifp-data's tooling at build time, or
     # reimplement the index). Registered so the orchestrator can see it.
     "cifp-conus": Source(

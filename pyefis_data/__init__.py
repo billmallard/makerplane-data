@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """pyefis_data — the on-Pi navigation-data updater CLI (Leg 3).
 
 Implemented in Phase C. Responsible for: fetching the signed manifest,

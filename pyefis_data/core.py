@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """On-Pi updater core — fetch, verify, install (verify-then-atomic-swap).
 
 The safety contract (this is avionics-adjacent, so it matters):

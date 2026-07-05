@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Publish packs to an object store and re-sign the manifest.
 
 Shared by every build path (cyclical navdata, terrain, water, one-off

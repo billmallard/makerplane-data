@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // D1 access helpers. Designs (project blobs) will live in R2; D1 holds the
 // records that tie users -> projects -> devices -> configs.
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Passwordless email sign-in: request a magic link, then verify it. Only a hash
 // of the one-time token is stored (in KV with a 15-minute TTL).
 

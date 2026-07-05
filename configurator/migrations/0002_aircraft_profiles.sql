@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Aircraft Parameter Profiles (docs/canfix_configurator.md, Phase A).
 -- One profile per PROJECT (the aircraft), append-only versions, one
 -- active. json = {schema_version, meta:{engines,cylinders,tanks,

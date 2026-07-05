@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Signing — roundtrip, tamper detection, and the trust-chain invariants.
 
 A test keypair is generated fresh per run (no committed secrets in tests).

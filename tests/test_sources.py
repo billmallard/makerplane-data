@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Source URL builders — pinned against URLs verified live on the FAA
 servers 2026-06-14 (see the Phase B research)."""
 

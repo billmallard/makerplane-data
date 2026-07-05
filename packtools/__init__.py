@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """packtools — the MakerPlane data pack builder (Leg 1).
 
 Produces signed, versioned navigation-data packs and a single catalog

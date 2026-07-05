@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """On-device pack picker backend (Phase 1): the full-catalog listing the
 picker shows, and persisting the user's selection to data.yaml so the picker
 replaces hand-editing the file.

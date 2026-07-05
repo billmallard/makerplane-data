@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Water pipeline: a water.sqlite is a single sqlite pack (kind=water). It
 reuses the existing sqlite install path; the build side is build-pack/publish.
 ODbL attribution (OSM) must ride along in pack_meta."""

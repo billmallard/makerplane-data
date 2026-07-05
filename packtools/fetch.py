@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Download + extract upstream archives. Resumable, no surprises.
 
 Kept deliberately small and side-effect-explicit so the orchestrator can

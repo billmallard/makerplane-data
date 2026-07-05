@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """pyefis_data.config_pull -- the on-Pi panel install (single + multi-screen #72).
 
 Exercises the pure-Python install/rollback logic against a fake pyEfis config

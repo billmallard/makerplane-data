@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Stateless signed-cookie sessions: the cookie is `<payload>.<hmac>` where
 // payload is base64url(JSON {uid, exp}). No server-side session store needed.
 

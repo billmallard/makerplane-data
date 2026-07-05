@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Google sign-in via OpenID Connect (authorization-code flow with PKCE + state).
 
 import type { Context } from "hono";

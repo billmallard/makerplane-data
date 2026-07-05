@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """pyefis_data.config — defaults and the construct-never-raises contract."""
 
 from pathlib import Path

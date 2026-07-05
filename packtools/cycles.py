@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """FAA data-cycle arithmetic.
 
 Three upstream cadences matter:

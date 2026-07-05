@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Small crypto helpers built on the Workers Web Crypto API (no dependencies):
 // base64url, random tokens, SHA-256, and HMAC sign/verify for session cookies.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """pack_meta embedding/reading for both container types."""
 
 import sqlite3

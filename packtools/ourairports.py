@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Merge OurAirports (public domain) airports into a NASR-built airports.sqlite.
 
 FAA NASR is US-only, so the airport DB has no Canadian (or other foreign)
