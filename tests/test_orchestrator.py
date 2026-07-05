@@ -11,6 +11,7 @@ import pytest
 from packtools import signing
 from packtools.manifest import Manifest
 from packtools.run_cyclical import CyclicalRunner
+from packtools.schema_guard import NULL_GUARD
 from packtools.sources import SOURCES
 from packtools.upload import LocalStore
 
@@ -45,7 +46,8 @@ def make_runner(tmp_path):
         fetcher=fake_fetch,
         builders={"airports": fake_build, "obstacles": fake_build,
                   "navaids": fake_build},
-        today=TODAY,
+        guard=NULL_GUARD,          # fake FAA data; the real guard is exercised
+        today=TODAY,               # in tests/test_schema_guard.py
     )
     return runner, store, pub
 
@@ -127,7 +129,7 @@ def test_url_base_is_authoritative_and_rerooted_on_change(tmp_path):
     store = LocalStore(tmp_path / "r2")
     common = dict(store=store, secret=sk, fetcher=fake_fetch,
                   builders={"airports": fake_build, "obstacles": fake_build},
-                  today=TODAY)
+                  guard=NULL_GUARD, today=TODAY)
 
     # First build under one origin.
     CyclicalRunner(work_dir=tmp_path / "w1",

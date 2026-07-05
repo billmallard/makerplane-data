@@ -26,11 +26,12 @@ import tempfile
 from pathlib import Path
 
 from . import build as _build
-from . import cycles, fetch, signing
+from . import cycles, fetch, schema_guard, signing
 from .manifest import Manifest
 from .packmeta import PackMeta, embed_sqlite
 from .manifest import PackEntry
 from .regions import load_regions, manifest_regions_block
+from .schema_guard import SchemaGuardError
 from .sources import Source, cyclical_sources
 from .upload import LocalStore, ObjectStore, R2Store
 
@@ -39,12 +40,21 @@ SIG_KEY = "manifest.json.minisig"
 _DEFAULT_URL_BASE = "https://navdata.aerocommons.org/packs"
 
 
+class PipelineFailure(RuntimeError):
+    """One or more sources failed a HARD check (schema guard / build error).
+    The manifest for the healthy sources is still signed + uploaded -- the
+    failed source simply ships nothing and its previously published packs keep
+    serving -- but the run exits nonzero so CI goes red and a human looks. A
+    not-yet-published next cycle is NOT this: that is a benign fetch WARN."""
+
+
 class CyclicalRunner:
     def __init__(self, *, store: ObjectStore, secret: signing.SecretKey | None,
                  url_base: str = _DEFAULT_URL_BASE,
                  work_dir: str | Path | None = None,
                  fetcher=fetch.fetch_and_extract,
                  builders: dict | None = None,
+                 guard=schema_guard.DEFAULT,
                  today: _dt.date | None = None):
         self.store = store
         self.secret = secret
@@ -52,6 +62,9 @@ class CyclicalRunner:
         self.work_dir = Path(work_dir or tempfile.mkdtemp(prefix="packtools-"))
         self.fetcher = fetcher
         self.builders = builders if builders is not None else _build.BUILDERS
+        # The data-contract guard (schema_guard). Injected like fetcher/builders;
+        # tests that use fake FAA data pass schema_guard.NULL_GUARD.
+        self.guard = guard
         self.today = today or _dt.date.today()
         self.log = print
 
@@ -81,9 +94,14 @@ class CyclicalRunner:
             self.log(f"  fetch {url}")
             extracted = self.fetcher(url, cycle_work,
                                      member=(source.archive_member or None))
+        # Contract check 1-3, against the live download, before we build.
+        self.guard.check_inputs(source, Path(extracted))
         pack_path = cycle_work / f"{source.pack_id}-{c.cycle}.pack"
         self.log(f"  build {source.builder} -> {pack_path.name}")
         builder(Path(extracted), pack_path)
+        # Contract check 4, against the built sqlite, before it is embedded /
+        # uploaded -- a below-floor or empty pack must not ship.
+        self.guard.check_output(source, pack_path)
         meta = PackMeta(id=source.pack_id, kind=source.kind, cycle=c.cycle,
                         effective=c.effective.isoformat(),
                         expires=c.expires.isoformat(),
@@ -105,6 +123,7 @@ class CyclicalRunner:
         for p in m.packs:
             p.url = f"{self.url_base}/{p.id}-{p.cycle}.pack"
         built = 0
+        failures: list[str] = []
 
         for source in sources:
             for c in self._cycles_for(source):
@@ -121,9 +140,18 @@ class CyclicalRunner:
                     continue
                 try:
                     entry, pack_path = self._build_one(source, c)
+                except (SchemaGuardError, _build.BuildError) as e:
+                    # A HARD failure: an upstream contract break or a build
+                    # error. Do not abort the run (one bad source must not block
+                    # DOF), but record it so the run exits nonzero. The failing
+                    # source ships nothing -- its pack was never put or upserted,
+                    # so its previously published packs keep serving.
+                    self.log(f"FAIL {source.pack_id} {c.cycle}: {e}")
+                    failures.append(f"{source.pack_id} {c.cycle}: {e}")
+                    continue
                 except Exception as e:
                     # A not-yet-published next cycle, or a transient upstream
-                    # error, must not abort the whole run.
+                    # error, must not abort the whole run and is NOT a failure.
                     self.log(f"WARN {source.pack_id} {c.cycle}: {e}")
                     continue
                 self.store.put_file(key, pack_path, content_type="application/octet-stream")
@@ -144,6 +172,14 @@ class CyclicalRunner:
         self.store.put_bytes(MANIFEST_KEY, raw, content_type="application/json")
         self.store.put_bytes(SIG_KEY, sig.encode("ascii"), content_type="text/plain")
         self.log(f"manifest: {len(m.packs)} pack(s), {built} new, signed + uploaded")
+
+        # Healthy sources have published; now surface any hard failures as a
+        # nonzero exit (a red run is the whole point of the guard).
+        if failures:
+            raise PipelineFailure(
+                f"{len(failures)} source(s) failed a hard check; "
+                f"healthy sources were still published:\n  - "
+                + "\n  - ".join(failures))
         return m
 
 
@@ -186,7 +222,11 @@ def main(argv=None) -> int:
     srcs = cyclical_sources()
     if args.only:
         srcs = [s for s in srcs if s.pack_id in set(args.only)]
-    runner.run(srcs, dry_run=args.dry_run)
+    try:
+        runner.run(srcs, dry_run=args.dry_run)
+    except PipelineFailure as e:
+        print(f"PIPELINE FAILED: {e}", file=sys.stderr)
+        return 1
     return 0
 
 

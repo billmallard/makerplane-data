@@ -15,6 +15,7 @@ import nacl.exceptions
 
 from packtools import signing
 from packtools.run_cyclical import CyclicalRunner
+from packtools.schema_guard import NULL_GUARD
 from packtools.sources import SOURCES
 from packtools.upload import LocalStore
 
@@ -50,6 +51,7 @@ def build_store(tmp_path):
         store=store, secret=sk, work_dir=tmp_path / "wbuild",
         url_base=f"{ORIGIN}/packs", fetcher=_fake_fetch,
         builders={"airports": _fake_build, "obstacles": _fake_build},
+        guard=NULL_GUARD,          # fake FAA data; real guard tested separately
         today=TODAY,
     ).run([SOURCES["airports-conus"], SOURCES["obstacles-conus"]])
     return store.root, pub
