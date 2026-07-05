@@ -1,8 +1,31 @@
 # NASR 26-01 DPN prep — pipeline readiness for the 03 Sep 2026 format changes
 
-Status: **work spec, ready to implement** (analyzed 2026-07-05).
+Status: **implemented 2026-07-05** — both parts built, tested, and committed
+(not yet pushed). Analyzed + implemented 2026-07-05.
 Source notice: [NASR_26-01_DPN_10.1_Subscriber_Enhancement.pdf](NASR_26-01_DPN_10.1_Subscriber_Enhancement.pdf)
 (FAA Data Product Notice, 27 May 2026).
+
+## Implementation status (2026-07-05)
+
+- **§4 SP filter** — done in pyEfis `tools/build_navaid_db.py` on
+  `display-changes` (commit `a206609`): `EXCLUDE_AWY_DESIGNATIONS = {"SP"}`,
+  skip count always printed, new `tests/tools/` package (7 tests). Verified a
+  no-op on the real 2606/2607 cycles (row counts unchanged, skipped 0) and that
+  a synthetic SP route is dropped while V/AT routes are kept.
+- **§8 schema guard** — done in makerplane-data on `feat/accounts-auth`
+  (commit `2aeb480`): `packtools/schema_guard.py`, committed `packtools/schemas/`
+  snapshots (seeded from real 2607), wired into `run_cyclical` with a hard
+  `PipelineFailure` (exit 1) distinct from the benign fetch WARN, and
+  `tests/test_schema_guard.py`. Full suite green (149 tests). Verified
+  end-to-end: real 2607 inputs pass; a simulated 03 Sep APT change (PAVEMENT
+  CLASSIFICATION + PCN `(3,0)`→`(4,0)`) fires the structure diff and an unknown
+  AWY_DESIGNATION fires the enum check.
+- **Correction folded in:** the observed `AWY_DESIGNATION` set is the nine
+  values in §4.1 (no `Y`/`N` — those are `REGULATORY`); the guard's enum set is
+  those nine plus `SP`.
+- **Remaining (owner action):** push both branches; confirm a green nightly
+  before ~06 Aug; refresh `APT_structure.csv` when the 03 Sep cycle (or FAA CSV
+  test files) posts and the airports build correctly goes red.
 
 **Deadline: the change must be live before ~06 Aug 2026**, not 03 Sep.
 The daily orchestrator builds *current and next* AIRAC cycles
@@ -386,16 +409,16 @@ injected-fetcher/builder test style:
 
 ### 8.6 Acceptance criteria
 
-- [ ] Renamed required column, new column, changed width, unknown
+- [x] Renamed required column, new column, changed width, unknown
       AWY_DESIGNATION value, empty output table, below-floor table:
       each produces a failing run, proven by unit test.
-- [ ] A guard failure in one source does not prevent other sources
+- [x] A guard failure in one source does not prevent other sources
       from building/uploading, but the run still exits nonzero.
-- [ ] Rebuild of the 2607 cycle from `work/localwork` inputs passes all
+- [x] Rebuild of the 2607 cycle from `work/localwork` inputs passes all
       four checks green (no false positives on current data).
-- [ ] Snapshots committed with provenance; refresh procedure documented
+- [x] Snapshots committed with provenance; refresh procedure documented
       in `packtools/schemas/README.md`.
-- [ ] Existing orchestrator tests pass unmodified (guard injected,
+- [x] Existing orchestrator tests pass unmodified (guard injected,
       default no-op in their fixtures only where they predate it).
 
 ## 9. Watch items (no action now)
