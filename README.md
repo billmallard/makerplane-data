@@ -215,9 +215,33 @@ and USB import are all unit-tested (108 tests total).
 - **Tool sharing.** Still the interim `pip install pyEfis from git` shim
   (`PYEFIS_TOOLS_DIR`); the standalone `pyefis-tools` package is a later refactor.
 
-## Data licensing
+## Licensing & patents
 
-MIT covers the tooling. Packaged data carries its own terms (FAA = public
-domain, Copernicus = redistributable, OSM water = ODbL attribution, NavCanada
-charts = user-supplied only). Each pack embeds its `attribution`. See
-[LICENSE](LICENSE).
+This repository is multi-licensed by component (per-file SPDX headers are
+authoritative; [docs/LICENSE-AUDIT.md](docs/LICENSE-AUDIT.md) has the full
+audit and rationale):
+
+- **Apache License 2.0** — the data tools, pack formats, and device
+  updater (`packtools/`, `pyefis_data/`, `site/`, `tests/`, `scripts/`).
+  Apache 2.0's express patent grant and patent-retaliation clause apply:
+  contributors license any essential patent claims to all users, and that
+  license terminates for anyone who asserts patents against the work.
+  These are the interfaces third parties (including commercial vendors)
+  are encouraged to build against.
+- **AGPL-3.0-or-later** — the hosted configurator service
+  (`configurator/`), so the platform cannot be operated as a modified
+  closed service.
+- **GPL-3.0-or-later** — `configurator/public/editor.html` (contains
+  preview code ported from GPL pyEfis widgets).
+- **CC BY 4.0** — documentation.
+
+Packaged *data* carries its own terms (FAA = public domain, Copernicus =
+redistributable, OSM = ODbL attribution, NavCanada charts = user-supplied
+only); each pack embeds its `attribution`.
+
+**Patent posture:** this project intends the disclosed architecture to
+remain permanently unencumbered and free to implement. The integrated
+architecture is publicly disclosed as prior art in
+[docs/AC-DP-001-architecture-disclosure.md](docs/AC-DP-001-architecture-disclosure.md).
+Contributions are accepted under the Developer Certificate of Origin
+([CONTRIBUTING.md](CONTRIBUTING.md)).
