@@ -243,7 +243,10 @@ The work is: (1) the schema exposing real fields, (2) the editor UI + twin, and
   It rides on this button work but adds: the `include`/composition model, the
   listbox editor, and the radio key mapping.
 - The **encoder/HMI navigation** editor (Phase D) is the other half of the
-  interaction story and is likewise deferred.
+  interaction story. It now has its own spec:
+  [knob_encoder_configurator.md](knob_encoder_configurator.md) — the physical
+  rotary knob (binding + navigation ring + edit behaviour; no on-screen widget,
+  so an order-badge overlay stands in for a twin).
 
 ## 10. Notes
 
