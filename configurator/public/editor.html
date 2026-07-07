@@ -1535,6 +1535,47 @@ function sizeCanvas() {
   c.style.setProperty("--ch10", ch * 10 + "px");
 }
 
+// Live twin for the Button (soft-controls). Renders the static styled button
+// (text / colours / two-line label); condition-driven appearance is a later
+// phase. Fidelity: match the pyEfis QPushButton -- fill = bg_color (none when
+// transparent), label = fg_color, centred, DejaVu Sans Condensed, \n -> lines.
+function buildButton(inst) {
+  const o = inst.options || {};
+  const el = document.createElement("div");
+  el.className = "inst-button";
+  el.style.cssText = "width:100%;height:100%;box-sizing:border-box;display:flex;"
+    + "align-items:center;justify-content:center;text-align:center;overflow:hidden;"
+    + "white-space:pre-line;line-height:1.1;border-radius:3px;"
+    + 'font-family:"DejaVu Sans Condensed";';
+  const transparent = o.transparent === true || o.transparent === "true";
+  el.style.background = transparent ? "transparent" : (o.bg_color || "#101418");
+  el.style.color = o.fg_color || "#00ffff";
+  el.style.border = transparent ? "1px dashed rgba(255,255,255,0.2)"
+                                : "1px solid rgba(255,255,255,0.28)";
+  const txt = (o.text != null && o.text !== "" ? String(o.text) : "Button")
+                .replace(/\\n/g, "\n");
+  const lines = Math.max(1, txt.split("\n").length);
+  el.style.fontSize = Math.max(8, (0.45 / lines) * rect(inst).h) + "px";
+  el.textContent = txt;
+  return el;
+}
+
+// Allocate an unused touchscreen-button FIX key (TSBTN{id}<n>, n in 1..40 per
+// fix-gateway variables.yaml) among the design's own buttons. Cross-device
+// collision avoidance (stock + injected switch buttons) is Phase C hardening
+// (makerplane-data/docs/soft_controls_configurator.md).
+function allocateTsbtn() {
+  const used = new Set();
+  for (const it of state.instruments) {
+    if (it.type === "button" && it.options && it.options.dbkey) {
+      const m = /TSBTN\{id\}(\d+)/.exec(it.options.dbkey);
+      if (m) used.add(Number(m[1]));
+    }
+  }
+  for (let n = 1; n <= 40; n++) if (!used.has(n)) return "TSBTN{id}" + n;
+  return "TSBTN{id}40";
+}
+
 function renderCanvas() {
   const c = $("canvas");
   c.querySelectorAll(".inst").forEach((e) => e.remove());
@@ -1585,6 +1626,9 @@ function renderCanvas() {
       el.appendChild(buildAirspeedTrend(inst));
     } else if (inst.type === "airspeed_box") {
       el.appendChild(buildAirspeedBox(inst));
+    } else if (inst.type === "button") {
+      el.classList.remove("placeholder");   // has a real twin, not a placeholder
+      el.appendChild(buildButton(inst));
     } else if (LIVE_GAUGE.has(inst.type)) {
       el.appendChild(inst.type === "arc_gauge"
         ? buildArcGauge(inst)
@@ -1687,7 +1731,11 @@ canvas.addEventListener("drop", (e) => {
     const sp = def.defaultSpan || { rows: 40, columns: 50 };
     state.instruments.push({ type: "group", id: def.id, row, column: col, span: { rows: sp.rows, columns: sp.columns } });
   } else if (state.schema.instruments[data]) {
-    state.instruments.push({ type: data, row, column: col, span: { rows: 20, columns: 20 }, options: {} });
+    const options = {};
+    // A button needs a backing touchscreen-button FIX key; assign an unused one
+    // so the builder never has to hand-pick it (dbkey is a required option).
+    if (data === "button") options.dbkey = allocateTsbtn();
+    state.instruments.push({ type: data, row, column: col, span: { rows: 20, columns: 20 }, options });
   } else { return; }
   state.selected = state.instruments.length - 1;
   renderCanvas(); renderProps();
