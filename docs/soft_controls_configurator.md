@@ -247,6 +247,11 @@ The work is: (1) the schema exposing real fields, (2) the editor UI + twin, and
   [knob_encoder_configurator.md](knob_encoder_configurator.md) — the physical
   rotary knob (binding + navigation ring + edit behaviour; no on-screen widget,
   so an order-badge overlay stands in for a twin).
+- **Umbrella:** the button (a control *source* + *annunciator*) and the knob
+  (another source) both act on instrument settings through
+  [control_bindings.md](control_bindings.md) — the shared *target* model (bindable
+  properties + a UI-key layer + the configurator binding surface). Read that for
+  how a control changes and reflects an instrument's live state.
 
 ## 10. Notes
 

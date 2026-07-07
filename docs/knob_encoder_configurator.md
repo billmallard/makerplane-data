@@ -9,6 +9,12 @@ and the pyEfis instrument-widget pipeline. Scope this round: **the knob** —
 Eric Blevins' rotary-encoder interaction layer. This is the "Phase D — the
 interaction layer" the button spec deferred (§6, §9 there).
 
+The knob is one *control source* in the larger control layer:
+[control_bindings.md](control_bindings.md) is the umbrella — the shared model for
+how any control (button or knob) changes and reflects an instrument's live setting
+through the FIX bus. The knob's per-instrument `encoder_set_key` (§2d) is already a
+binding by another name; that umbrella is where it and the button meet.
+
 ## 1. What this is (and the gap it closes)
 
 The **knob** is a physical **rotary encoder + push** that navigates and edits the
