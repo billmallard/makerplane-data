@@ -151,7 +151,7 @@ Semantics tell the configurator how to write the key and which verb to offer:
 | semantics | key shape | control verb | example |
 |---|---|---|---|
 | `bool` | 0/1 | `toggle bit` | a map layer |
-| `index_ladder` | int, min 0 / max N-1 | `change value wrap` | map range (2,5,10,…) |
+| `index_ladder` | int, min 0 / max N (step count) | `change value wrap` | map range (2,5,10,…) |
 | `enum` | int index into an enum | `change value wrap` | orientation track/north |
 | `scalar` | float, min/max/step | `change value` | a continuously-tuned setting |
 
@@ -179,10 +179,12 @@ existing `TSBTN` namespace for buttons:
 - **Definition.** The keys are generated into the fix-gateway init data (a
   configurator-produced include), not hand-curated per aircraft. Same philosophy
   as `TSBTN{id}<n>` auto-allocation for buttons.
-- **Shape from semantics.** `bool` → min 0 max 1; `index_ladder`/`enum` → min 0
-  max N-1 (so `change value wrap` cycles cleanly — the ladder is non-uniform, an
-  index is not); `scalar` → min/max/step from the `Prop`. The wrap/clamp maths
-  already live in `changeValueWrap`/`changeValue`.
+- **Shape from semantics.** `bool` → min 0 max 1; `index_ladder`/`enum` → min 0,
+  **max N** (the *step count*, not N-1) so `change value wrap` cycles cleanly — its
+  span is `max - min`, so max must equal the number of steps for the wrap to reach
+  every index and roll over (the ladder is non-uniform, an index is not; the widget
+  clamps a received value into `[0, N-1]`). `scalar` → min/max/step from the `Prop`.
+  The wrap/clamp maths already live in `changeValueWrap`/`changeValue`.
 - **Per-instance.** Where two of the same instrument can coexist (two maps, two
   screens), the key is templated per instance (`MAPRANGE{id}` or a
   configurator-assigned suffix) so they do not gang — same reason buttons use
