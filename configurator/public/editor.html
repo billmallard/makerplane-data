@@ -184,6 +184,44 @@
     border: 1px solid #30363d; border-radius: 5px; padding: 4px 6px;
   }
   .num { width: 62px; }
+  /* --- Button behaviour (conditions/actions) editor ------------------------ */
+  .cond-help { font-size: 11px; color: #6e7681; margin: 0 0 8px; line-height: 1.4; }
+  .cond { border: 1px solid #21262d; border-radius: 6px; padding: 8px; margin-bottom: 8px; background: #0d1117; }
+  .cond-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .cond-head .cond-n { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #6e7681; flex: 1; }
+  .cond-when { margin-bottom: 6px; }
+  .clause { display: grid; grid-template-columns: 1fr auto; gap: 5px; margin-bottom: 5px; }
+  .clause .cl-fields { display: grid; grid-template-columns: 1.2fr 0.9fr 1fr; gap: 5px; }
+  .clause.no-val .cl-fields { grid-template-columns: 1.2fr 0.9fr; }
+  .cond-join { font-size: 11px; color: #8b949e; display: flex; align-items: center; gap: 6px; margin: 2px 0 6px; }
+  .cond-when textarea, .act textarea {
+    width: 100%; font: inherit; font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 5px 7px; resize: vertical;
+  }
+  .acts { border-top: 1px dashed #21262d; padding-top: 6px; margin-top: 2px; }
+  .acts-label { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #6e7681; margin-bottom: 4px; }
+  .act { border: 1px solid #21262d; border-radius: 5px; padding: 6px; margin-bottom: 5px; }
+  .act-head { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; }
+  .act-head select { flex: 1; }
+  .act-args { display: grid; gap: 5px; }
+  .act-args.two { grid-template-columns: 1fr 1fr; }
+  .act input, .act select, .clause input, .clause select {
+    width: 100%; font: inherit; font-size: 12px; background: #0d1117; color: #e6edf3;
+    border: 1px solid #30363d; border-radius: 5px; padding: 4px 6px;
+  }
+  .act input[type=color] { height: 28px; padding: 2px; }
+  .mini {
+    font: inherit; font-size: 12px; line-height: 1; padding: 4px 8px; cursor: pointer;
+    background: #161b22; color: #8b949e; border: 1px solid #30363d; border-radius: 5px;
+  }
+  .mini:hover { border-color: #8b949e; color: #e6edf3; }
+  .mini.x { padding: 4px 7px; color: #b0868f; }
+  .mini.x:hover { border-color: #f85149; color: #f85149; }
+  .mini.add { width: 100%; margin-top: 2px; color: #58a6ff; }
+  .mini.add:hover { border-color: #58a6ff; }
+  .act-warn { font-size: 11px; color: #d29922; margin: 4px 0 0; display: flex; gap: 5px; align-items: baseline; }
+  .act-warn::before { content: "\26A0"; }
+  .act-help { font-size: 10px; color: #6e7681; margin: 3px 0 0; }
 </style>
 </head>
 <body>
@@ -1869,6 +1907,10 @@ function renderProps() {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
     for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
   }
+
+  // Soft-controls: a Button's behaviour is a list of conditions, each firing a
+  // list of actions. Its own dedicated editor (below the plain options).
+  if (inst.type === "button") p.appendChild(renderConditions(inst));
 }
 
 // Reorder the selected instrument in the array (= change paint order).
@@ -1994,6 +2036,429 @@ function setOpt(inst, name, value) {
   if (value === undefined) delete inst.options[name];
   else inst.options[name] = value;
   renderCanvas();   // redraw live instruments (text + gauges) and sync the code
+}
+
+// --- Button behaviour: conditions + actions editor --------------------------
+// A Button's runtime contract (pyefis instruments/button): options.conditions
+// is a list of {when, actions[, continue]}. `when` is a pycond string (magic
+// keys CLICKED/SCREEN/DBKEY + FIX keys) or a bool; `actions` is a list of
+// single-key {verb: args} dicts. options.condition_keys lists the FIX keys the
+// button subscribes to so a key change re-evaluates -- we DERIVE it from the
+// clauses so the author never touches it. Verbs + arg shapes come from
+// schema.actions (pyefis editor/schema _ACTIONS, kept in lockstep with the HMI
+// registry by a CI test).
+
+const _MAGIC_KEYS = ["CLICKED", "SCREEN", "DBKEY", "PREVIOUS_CONDITION"];
+const _COMPARATORS = [
+  { op: "is true",  label: "is true",  noVal: true },
+  { op: "is false", label: "is false", noVal: true },
+  { op: "eq", label: "=" },
+  { op: "ne", label: "≠" },
+  { op: "lt", label: "<" },
+  { op: "le", label: "≤" },
+  { op: "gt", label: ">" },
+  { op: "ge", label: "≥" },
+  { op: "contains", label: "contains" },
+];
+const _OP_LABELS = Object.fromEntries(_COMPARATORS.map((c) => [c.op, c.label]));
+const _ACT_GROUP_LABELS = {
+  value: "FIX value", screen: "Screen", style: "Appearance",
+  mode: "Instrument mode", menu: "Menu", advanced: "Advanced",
+};
+
+function actionsCatalogue() { return (state.schema && state.schema.actions) || []; }
+function catalogueForVerb(verb) {
+  if (!verb) return null;
+  const v = String(verb).toLowerCase();
+  return actionsCatalogue().find((a) => a.verb.toLowerCase() === v) || null;
+}
+
+// Best-effort parse of a pycond `when` string into structured clauses joined by
+// a single and/or. Returns null when the expression is too complex to render
+// with the guided builder (the editor falls back to a raw text box then).
+function parseWhen(when) {
+  if (typeof when !== "string") return null;   // bool `when` -> raw
+  const s = when.trim();
+  if (!s) return { join: "and", clauses: [{ key: "", op: "is true", value: "" }] };
+  if (/[[\]()]/.test(s)) return null;          // grouping -> raw
+  const hasAnd = /\s+and\s+/.test(s), hasOr = /\s+or\s+/.test(s);
+  if (hasAnd && hasOr) return null;            // mixed and/or -> raw
+  const join = hasOr ? "or" : "and";
+  const parts = s.split(hasOr ? /\s+or\s+/ : /\s+and\s+/);
+  const clauses = [];
+  for (let part of parts) {
+    part = part.trim();
+    let neg = false;
+    if (/^not\s+/.test(part)) { neg = true; part = part.replace(/^not\s+/, "").trim(); }
+    const toks = part.split(/\s+/);
+    if (toks.length === 1) {
+      clauses.push({ key: toks[0], op: neg ? "is false" : "is true", value: "" });
+    } else if (toks.length === 3 && !neg && _OP_LABELS[toks[1]]) {
+      let val = toks[2];
+      if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
+        val = val.slice(1, -1);
+      }
+      clauses.push({ key: toks[0], op: toks[1], value: val });
+    } else {
+      return null;                             // unrecognised clause -> raw
+    }
+  }
+  return { join, clauses };
+}
+function clauseToStr(c) {
+  if (!c.key) return "";
+  if (c.op === "is true") return c.key;
+  if (c.op === "is false") return "not " + c.key;
+  let v = String(c.value);
+  const bare = /^-?\d+(\.\d+)?$/.test(v) || v === "true" || v === "false";
+  if (!bare) v = "'" + v.replace(/'/g, "") + "'";
+  return `${c.key} ${c.op} ${v}`;
+}
+function buildWhen(structured) {
+  return structured.clauses.map(clauseToStr).filter(Boolean).join(` ${structured.join} `);
+}
+
+// Union of every FIX key any condition references (excluding magic keys and the
+// button's own dbkey), written to options.condition_keys so the widget
+// subscribes and re-evaluates on change. Raw `when` strings are scanned too.
+function deriveConditionKeys(inst) {
+  const keys = new Set();
+  const own = inst.options && inst.options.dbkey;
+  const add = (raw) => {
+    if (!raw) return;
+    const k = String(raw).split(".")[0];       // strip .old/.bad/.aux...
+    if (!k || _MAGIC_KEYS.includes(k)) return;
+    if (own && k === own) return;              // own key is auto-subscribed
+    if (!/^[A-Za-z][A-Za-z0-9_{}]*$/.test(k)) return;
+    keys.add(k);
+  };
+  const KW = new Set(["and", "or", "not", "eq", "ne", "lt", "le", "gt", "ge",
+    "contains", "true", "false"]);
+  for (const cond of (inst.options.conditions || [])) {
+    const parsed = parseWhen(cond.when);
+    if (parsed) {
+      for (const c of parsed.clauses) add(c.key);
+    } else if (typeof cond.when === "string") {
+      const bare = cond.when.replace(/'[^']*'/g, " ").replace(/"[^"]*"/g, " ");
+      for (const t of bare.split(/[^A-Za-z0-9_{}.]+/)) {
+        if (t && !KW.has(t.toLowerCase()) && /^[A-Za-z]/.test(t)) add(t);
+      }
+    }
+  }
+  const list = [...keys].sort();
+  if (list.length) inst.options.condition_keys = list;
+  else delete inst.options.condition_keys;
+}
+
+function commitConditions(inst, restructure) {
+  deriveConditionKeys(inst);
+  syncCode();
+  if (restructure) renderProps();
+}
+
+// Datalists behind the clause-key and screen-name inputs (magic keys + FIX keys,
+// and the design's screen names).
+function ensureConditionDatalists() {
+  let dl = document.getElementById("condkeys");
+  if (!dl) { dl = document.createElement("datalist"); dl.id = "condkeys"; document.body.appendChild(dl); }
+  dl.innerHTML = "";
+  for (const k of _MAGIC_KEYS) { const o = document.createElement("option"); o.value = k; o.label = "(button state)"; dl.appendChild(o); }
+  for (const k of (state.fixKeys || [])) { const o = document.createElement("option"); o.value = k.key; if (k.description) o.label = k.description; dl.appendChild(o); }
+  let sd = document.getElementById("screennames");
+  if (!sd) { sd = document.createElement("datalist"); sd.id = "screennames"; document.body.appendChild(sd); }
+  sd.innerHTML = "";
+  for (const sc of (state.screens || [])) { const o = document.createElement("option"); o.value = sc.name; sd.appendChild(o); }
+}
+
+function plainInput(value, placeholder, onInput) {
+  const inp = document.createElement("input"); inp.type = "text";
+  inp.value = value; inp.placeholder = placeholder;
+  inp.addEventListener("input", onInput);
+  return inp;
+}
+function fixKeyInput(value, placeholder, onInput) {
+  const inp = plainInput(value, placeholder, onInput);
+  inp.setAttribute("list", "fixkeys"); inp.setAttribute("autocomplete", "off");
+  return inp;
+}
+function splitArg(arg, n) {
+  const parts = String(arg == null ? "" : arg).split(",");
+  const out = [];
+  for (let i = 0; i < n; i++) out.push((parts[i] == null ? "" : parts[i]).trim());
+  return out;
+}
+function normHex(v) {
+  if (typeof v !== "string") return null;
+  const m = v.trim().match(/^#?([0-9a-fA-F]{6})/);
+  return m ? "#" + m[1] : null;
+}
+function defaultArgForKind(kind) {
+  if (kind === "color") return "#1f6b1f";
+  return "";
+}
+
+function renderConditions(inst) {
+  inst.options.conditions = inst.options.conditions || [];
+  deriveConditionKeys(inst);   // keep condition_keys current even without an edit
+  ensureConditionDatalists();
+  const wrap = document.createElement("div");
+  const h = document.createElement("h3"); h.textContent = "Behaviour"; wrap.appendChild(h);
+  const help = document.createElement("p"); help.className = "cond-help";
+  help.textContent = "Conditions are checked top to bottom; when one matches, its "
+    + "actions run and checking stops — tick “Keep checking” to let later "
+    + "ones run too. CLICKED is true only on the tap that triggered the check.";
+  wrap.appendChild(help);
+
+  if (!actionsCatalogue().length) {
+    const n = document.createElement("p"); n.className = "muted";
+    n.textContent = "Action catalogue unavailable (schema.json has no actions).";
+    wrap.appendChild(n);
+  }
+
+  const list = document.createElement("div"); list.className = "cond-list";
+  inst.options.conditions.forEach((cond, i) => list.appendChild(condCard(inst, cond, i)));
+  wrap.appendChild(list);
+
+  const add = document.createElement("button"); add.className = "mini add";
+  add.textContent = "+ Add condition";
+  add.addEventListener("click", () => {
+    inst.options.conditions.push({ when: "CLICKED eq true", actions: [] });
+    commitConditions(inst, true);
+  });
+  wrap.appendChild(add);
+  return wrap;
+}
+
+function condCard(inst, cond, i) {
+  const card = document.createElement("div"); card.className = "cond";
+  const parsed = parseWhen(cond.when);
+  const raw = !!(inst._condRaw && inst._condRaw[i]);
+  const guided = !raw && parsed !== null;
+
+  const head = document.createElement("div"); head.className = "cond-head";
+  const n = document.createElement("span"); n.className = "cond-n"; n.textContent = "When #" + (i + 1);
+  head.appendChild(n);
+
+  const tgl = document.createElement("button"); tgl.className = "mini";
+  tgl.textContent = guided ? "Raw" : "Guided";
+  tgl.title = guided ? "Edit as raw pycond text" : "Switch back to the guided builder";
+  tgl.addEventListener("click", () => {
+    inst._condRaw = inst._condRaw || [];
+    if (guided) inst._condRaw[i] = true;
+    else {
+      if (parseWhen(cond.when) === null) {
+        alert("This expression is too complex for the guided builder; keep editing it as raw text.");
+        return;
+      }
+      inst._condRaw[i] = false;
+    }
+    renderProps();
+  });
+  head.appendChild(tgl);
+
+  const del = document.createElement("button"); del.className = "mini x"; del.textContent = "✕";
+  del.title = "Delete this condition";
+  del.addEventListener("click", () => {
+    inst.options.conditions.splice(i, 1);
+    if (inst._condRaw) inst._condRaw.splice(i, 1);
+    commitConditions(inst, true);
+  });
+  head.appendChild(del);
+  card.appendChild(head);
+
+  const when = document.createElement("div"); when.className = "cond-when";
+  when.appendChild(guided ? whenBuilder(inst, cond, parsed) : whenRaw(inst, cond));
+  card.appendChild(when);
+
+  const contWrap = document.createElement("label"); contWrap.className = "cond-join";
+  const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!cond.continue; cb.style.width = "auto";
+  cb.addEventListener("change", () => {
+    if (cb.checked) cond.continue = true; else delete cond.continue;
+    commitConditions(inst, false);
+  });
+  contWrap.append(cb, document.createTextNode("Keep checking later conditions"));
+  card.appendChild(contWrap);
+
+  card.appendChild(actionsEditor(inst, cond));
+  return card;
+}
+
+function whenBuilder(inst, cond, parsed) {
+  const box = document.createElement("div");
+  const push = (restructure) => { cond.when = buildWhen(parsed); commitConditions(inst, restructure); };
+
+  parsed.clauses.forEach((cl, ci) => {
+    const noVal = cl.op === "is true" || cl.op === "is false";
+    const row = document.createElement("div"); row.className = "clause" + (noVal ? " no-val" : "");
+    const fields = document.createElement("div"); fields.className = "cl-fields";
+
+    const key = document.createElement("input"); key.type = "text";
+    key.setAttribute("list", "condkeys"); key.setAttribute("autocomplete", "off");
+    key.placeholder = "key"; key.value = cl.key;
+    key.addEventListener("input", () => { cl.key = key.value.trim(); push(false); });
+    fields.appendChild(key);
+
+    const op = document.createElement("select");
+    for (const c of _COMPARATORS) { const o = document.createElement("option"); o.value = c.op; o.textContent = c.label; op.appendChild(o); }
+    op.value = cl.op;
+    op.addEventListener("change", () => {
+      const wasNoVal = noVal, willNoVal = op.value === "is true" || op.value === "is false";
+      cl.op = op.value;
+      if (willNoVal) cl.value = "";
+      push(wasNoVal !== willNoVal);   // relayout only when the value box appears/disappears
+    });
+    fields.appendChild(op);
+
+    if (!noVal) {
+      const val = document.createElement("input"); val.type = "text";
+      val.placeholder = "value"; val.value = cl.value;
+      val.addEventListener("input", () => { cl.value = val.value; push(false); });
+      fields.appendChild(val);
+    }
+    row.appendChild(fields);
+
+    const rm = document.createElement("button"); rm.className = "mini x"; rm.textContent = "✕";
+    rm.title = "Remove this clause";
+    if (parsed.clauses.length <= 1) rm.style.visibility = "hidden";
+    rm.addEventListener("click", () => { parsed.clauses.splice(ci, 1); push(true); });
+    row.appendChild(rm);
+    box.appendChild(row);
+  });
+
+  const foot = document.createElement("div"); foot.className = "cond-join";
+  if (parsed.clauses.length > 1) {
+    const js = document.createElement("select"); js.style.width = "auto";
+    for (const j of ["and", "or"]) { const o = document.createElement("option"); o.value = j; o.textContent = j.toUpperCase(); js.appendChild(o); }
+    js.value = parsed.join;
+    js.addEventListener("change", () => { parsed.join = js.value; push(false); });
+    foot.append(document.createTextNode("Join with "), js);
+  }
+  const addC = document.createElement("button"); addC.className = "mini"; addC.textContent = "+ clause";
+  addC.addEventListener("click", () => { parsed.clauses.push({ key: "", op: "is true", value: "" }); push(true); });
+  foot.appendChild(addC);
+  box.appendChild(foot);
+  return box;
+}
+
+function whenRaw(inst, cond) {
+  const box = document.createElement("div");
+  const ta = document.createElement("textarea"); ta.rows = 2;
+  ta.value = typeof cond.when === "string" ? cond.when : String(cond.when);
+  ta.placeholder = "e.g. CLICKED eq true and NAVSRC lt 0.5";
+  ta.addEventListener("input", () => {
+    const v = ta.value.trim();
+    if (v === "true") cond.when = true;
+    else if (v === "false") cond.when = false;
+    else cond.when = ta.value;
+    commitConditions(inst, false);
+  });
+  box.appendChild(ta);
+  const hint = document.createElement("p"); hint.className = "act-help";
+  hint.textContent = "Raw pycond: FIX keys plus CLICKED, SCREEN, DBKEY; comparators "
+    + "eq ne lt le gt ge contains; combine with and / or / not.";
+  box.appendChild(hint);
+  return box;
+}
+
+function actionsEditor(inst, cond) {
+  cond.actions = cond.actions || [];
+  const box = document.createElement("div"); box.className = "acts";
+  const lbl = document.createElement("div"); lbl.className = "acts-label"; lbl.textContent = "Do"; box.appendChild(lbl);
+  cond.actions.forEach((act) => box.appendChild(actionRow(inst, cond, act)));
+  const add = document.createElement("button"); add.className = "mini add"; add.textContent = "+ Add action";
+  add.addEventListener("click", () => { cond.actions.push({ "set text": "" }); commitConditions(inst, true); });
+  box.appendChild(add);
+  return box;
+}
+
+function actionRow(inst, cond, act) {
+  const verb = Object.keys(act)[0] || "";
+  const args = act[verb];
+  const meta = catalogueForVerb(verb);
+  const row = document.createElement("div"); row.className = "act";
+
+  const head = document.createElement("div"); head.className = "act-head";
+  const sel = document.createElement("select");
+  const groups = {};
+  for (const a of actionsCatalogue()) (groups[a.group] = groups[a.group] || []).push(a);
+  for (const g of Object.keys(groups)) {
+    const og = document.createElement("optgroup"); og.label = _ACT_GROUP_LABELS[g] || g;
+    for (const a of groups[g]) { const o = document.createElement("option"); o.value = a.verb; o.textContent = a.label; og.appendChild(o); }
+    sel.appendChild(og);
+  }
+  if (verb && !meta) { const o = document.createElement("option"); o.value = verb; o.textContent = verb + " (custom)"; sel.appendChild(o); }
+  sel.value = verb;
+  sel.addEventListener("change", () => {
+    const nv = sel.value, nm = catalogueForVerb(nv);
+    delete act[verb];
+    act[nv] = defaultArgForKind(nm ? nm.arg.kind : "string");
+    commitConditions(inst, true);
+  });
+  head.appendChild(sel);
+
+  const del = document.createElement("button"); del.className = "mini x"; del.textContent = "✕";
+  del.title = "Remove this action";
+  del.addEventListener("click", () => {
+    const idx = cond.actions.indexOf(act); if (idx >= 0) cond.actions.splice(idx, 1);
+    commitConditions(inst, true);
+  });
+  head.appendChild(del);
+  row.appendChild(head);
+
+  if (meta) row.appendChild(argEditor(inst, act, verb, meta));
+  else if (verb) {
+    const w = document.createElement("div"); w.className = "act-args";
+    w.appendChild(plainInput(String(args == null ? "" : args), "argument",
+      function () { act[verb] = this.value; commitConditions(inst, false); }));
+    row.appendChild(w);
+  }
+  if (meta && meta.warn) { const wn = document.createElement("p"); wn.className = "act-warn"; wn.textContent = meta.warn; row.appendChild(wn); }
+  if (meta && meta.help) { const hp = document.createElement("p"); hp.className = "act-help"; hp.textContent = meta.help; row.appendChild(hp); }
+  return row;
+}
+
+function argEditor(inst, act, verb, meta) {
+  const kind = meta.arg.kind;
+  const cur = act[verb];
+  const commit = (v) => { act[verb] = v; commitConditions(inst, false); };
+  const w = document.createElement("div"); w.className = "act-args";
+  if (kind === "none") {
+    return w;
+  } else if (kind === "fixkey") {
+    const inp = fixKeyInput(String(cur == null ? "" : cur), "FIX key", () => commit(inp.value.trim()));
+    w.appendChild(inp);
+  } else if (kind === "fixkey_number") {
+    const [k, num] = splitArg(cur, 2);
+    const set = () => commit([keyInp.value.trim(), numInp.value.trim()].join(","));
+    const keyInp = fixKeyInput(k, "FIX key", set);
+    const numInp = plainInput(num, meta.arg.number_label || "value", set);
+    w.className = "act-args two"; w.append(keyInp, numInp);
+  } else if (kind === "fixkey_fixkey") {
+    const [a, b] = splitArg(cur, 2);
+    const labels = meta.arg.labels || ["key", "key"];
+    const set = () => commit([aInp.value.trim(), bInp.value.trim()].join(","));
+    const aInp = fixKeyInput(a, labels[0], set);
+    const bInp = fixKeyInput(b, labels[1], set);
+    w.className = "act-args two"; w.append(aInp, bInp);
+  } else if (kind === "screen") {
+    const inp = plainInput(String(cur == null ? "" : cur), "screen name", () => commit(inp.value.trim()));
+    inp.setAttribute("list", "screennames"); inp.setAttribute("autocomplete", "off");
+    w.appendChild(inp);
+  } else if (kind === "color") {
+    const inp = document.createElement("input"); inp.type = "color";
+    inp.value = normHex(cur) || "#1f6b1f"; inp.title = typeof cur === "string" ? cur : "";
+    inp.addEventListener("input", () => commit(inp.value));
+    w.appendChild(inp);
+  } else if (kind === "raw") {
+    const ta = document.createElement("textarea"); ta.rows = 2; ta.value = String(cur == null ? "" : cur);
+    ta.placeholder = "Python expression";
+    ta.addEventListener("input", () => commit(ta.value));
+    w.appendChild(ta);
+  } else {   // text | string
+    const inp = plainInput(String(cur == null ? "" : cur), kind === "text" ? "label text" : "argument", () => commit(inp.value));
+    w.appendChild(inp);
+  }
+  return w;
 }
 
 function syncPosFields(inst) {
