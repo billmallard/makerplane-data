@@ -317,3 +317,7 @@ The map feature we started from is now just the first instance of the system.
   stay pycond, actions stay the catalogue); not source arbitration for sensors
   (that is a separate roadmap item); not a rendering concern (a bound setting has
   no appearance of its own — the *instrument* renders the result).
+- **Related:** testing this layer against the configurator surfaced the
+  single-prod-artifact problem (`schema.json` lives only in prod R2), addressed by
+  [environments.md](environments.md) — DEV/QA/PROD envs so a dev schema can be
+  tested without touching prod.
