@@ -1,6 +1,6 @@
 # Soft Controls in the Configurator — spec / plan
 
-Status: **DRAFT for review** (2026-07-06). Companion to
+Status: **Phases A + B implemented and deployed** (2026-07-07; Phases C/D pending — see §6). Companion to
 [device_deployment.md](device_deployment.md), [panel_config_format.md](panel_config_format.md),
 and the pyEfis instrument-widget pipeline. Scope this round: the **Button** —
 the reusable interaction primitive. Radios (MGL V16 and others) and the full
@@ -191,14 +191,24 @@ Same pipeline as every instrument (umbrella CLAUDE.md):
 
 ## 6. Phases
 
-- **Phase A — Button as a first-class instrument (no logic yet).**
+- **Phase A — Button as a first-class instrument (no logic yet). DONE.**
   Schema exposes `text`/`type`/`dbkey`/colors; the editor renders a live Button
   twin and edits those fields; TSBTN auto-allocation; emitted + installed via
   config-pull. A *static* button you can place, style, and deploy. *This is the
-  bulk of the plumbing and immediately useful.*
-- **Phase B — Conditions/actions editor.** The `when`/actions form + the
-  data-driven action catalog + argument editors + the safe-subset default. The
-  button becomes *interactive* (cycle NAVSRC, show screen, set colours by state).
+  bulk of the plumbing and immediately useful.* (pyEfis `display-changes` a58873b;
+  makerplane-data `feat/accounts-auth`.)
+- **Phase B — Conditions/actions editor. DONE (deployed 2026-07-07).** A "Behaviour"
+  section on the Button properties panel: a guided `when`-builder (key/comparator/
+  value clauses joined by AND/OR, plus a raw pycond escape hatch) and a
+  per-condition actions list. Verbs + argument shapes come from `schema.actions`
+  (the `_ACTIONS` catalogue, kept in lockstep with the HMI registry by a CI test);
+  arg editors render per `arg.kind`; `evaluate` shows an in-UI warning.
+  `condition_keys` is derived automatically from the clauses. The button becomes
+  *interactive* (cycle NAVSRC, show screen, set colours by state). (pyEfis
+  `display-changes` b004250 catalogue + schema.json→R2; makerplane-data
+  `feat/accounts-auth` 071b670 editor UI.) Not yet exercised signed-in end-to-end
+  on the live site (auth-gated); verified via a standalone proto built from the
+  live CSS+JS+schema.
 - **Phase C — Delivery hardening + key management.** Robust TSBTN allocation
   across multi-screen panels, dedupe, and the device install of `buttons/*.yaml`
   proven on the Pi end-to-end.
