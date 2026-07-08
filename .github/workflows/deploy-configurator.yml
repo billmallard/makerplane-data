@@ -1,0 +1,59 @@
+name: deploy-configurator
+
+# Phase 3 of docs/environments.md (section 6): a push to an env branch deploys
+# the configurator Worker and applies D1 migrations to that branch's environment.
+#   dev -> dev env, qa -> qa env, main -> prod (the wrangler top-level default).
+# Promotion is just the merge: dev -> qa -> main each re-triggers this on the
+# target branch (re-deploy from the promoted source). The job SKIPS with a warning
+# (stays green) until CLOUDFLARE_API_TOKEN is set, so landing this file causes no
+# red runs. Token scopes + the OAuth-vs-token split: configurator/CLAUDE.md and
+# docs/environments.md section 6.
+on:
+  push:
+    branches: [dev, qa, main]
+    paths:
+      - "configurator/**"
+      - ".github/workflows/deploy-configurator.yml"
+  workflow_dispatch:
+
+# Never let two deploys of the same env race.
+concurrency: deploy-configurator-${{ github.ref_name }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: configurator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+
+      - name: Map branch -> env + npm scripts
+        id: map
+        run: |
+          b="${{ github.ref_name }}"
+          if   [ "$b" = dev ];  then d=deploy:dev; m=migrate:dev; e=dev
+          elif [ "$b" = qa ];   then d=deploy:qa;  m=migrate:qa;  e=qa
+          elif [ "$b" = main ]; then d=deploy;     m=migrate;     e=prod
+          else d=""; m=""; e="(none)"; fi
+          { echo "deploy=$d"; echo "migrate=$m"; echo "env=$e"; } >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Worker + apply D1 migrations (env=${{ steps.map.outputs.env }})
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN not set - skipping deploy (env=${{ steps.map.outputs.env }}). See docs/environments.md section 6."
+            exit 0
+          fi
+          if [ -z "${{ steps.map.outputs.deploy }}" ]; then
+            echo "branch ${{ github.ref_name }} maps to no environment; nothing to do."
+            exit 0
+          fi
+          npm run ${{ steps.map.outputs.deploy }}
+          npm run ${{ steps.map.outputs.migrate }}
