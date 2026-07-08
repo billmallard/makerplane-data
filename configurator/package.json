@@ -8,9 +8,11 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "deploy:dev": "wrangler deploy --env dev",
+    "deploy:qa": "wrangler deploy --env qa",
     "typecheck": "tsc --noEmit",
     "migrate": "wrangler d1 migrations apply makerplane_configurator --remote",
     "migrate:dev": "wrangler d1 migrations apply makerplane_configurator_dev --env dev --remote",
+    "migrate:qa": "wrangler d1 migrations apply makerplane_configurator_qa --env qa --remote",
     "migrate:local": "wrangler d1 migrations apply makerplane_configurator --local"
   },
   "dependencies": {

@@ -85,6 +85,30 @@
       "r2_buckets": [
         { "binding": "CONFIGS", "bucket_name": "makerplane-configs" }
       ]
+    },
+    "qa": {
+      "name": "makerplane-configurator-qa",
+      "vars": {
+        "APP_URL": "https://pyefis-qa.aerocommons.org",
+        "ENV": "qa"
+      },
+      "routes": [
+        { "pattern": "pyefis-qa.aerocommons.org", "custom_domain": true }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "makerplane_configurator_qa",
+          "database_id": "4480883d-5fca-4c10-af78-dfe06344f4c1",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "kv_namespaces": [
+        { "binding": "KV", "id": "cbd23f16f960417982e960aa02bb6c16" }
+      ],
+      "r2_buckets": [
+        { "binding": "CONFIGS", "bucket_name": "makerplane-configs" }
+      ]
     }
   }
 }
