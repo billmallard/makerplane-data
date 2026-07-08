@@ -17,7 +17,8 @@
   // http://localhost:8787 in .dev.vars. Secrets (SESSION_SECRET, GOOGLE_*,
   // MAIL_*) come from .dev.vars in dev and `wrangler secret put` in prod.
   "vars": {
-    "APP_URL": "https://pyefis.aerocommons.org"
+    "APP_URL": "https://pyefis.aerocommons.org",
+    "ENV": "prod"
   },
 
   // Replace the ids after `wrangler d1 create` / `wrangler kv namespace create`.
@@ -51,5 +52,39 @@
     "directory": "./public",
     "binding": "ASSETS",
     "run_worker_first": true
+  },
+
+  // Named environments (docs/environments.md). Bindings, vars, and routes are
+  // NOT inherited by named envs — each is repeated below; main / compatibility_date
+  // / observability / assets ARE inherited from the top-level (prod) default.
+  // Deploy with `wrangler deploy --env dev`; secrets are per-env
+  // (`wrangler secret put SESSION_SECRET --env dev`). The R2 bucket is shared;
+  // isolation is the prefix the Worker composes from ENV (configs-dev/,
+  // assets/editor/dev/). QA is added in Phase 2.
+  "env": {
+    "dev": {
+      "name": "makerplane-configurator-dev",
+      "vars": {
+        "APP_URL": "https://pyefis-dev.aerocommons.org",
+        "ENV": "dev"
+      },
+      "routes": [
+        { "pattern": "pyefis-dev.aerocommons.org", "custom_domain": true }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "makerplane_configurator_dev",
+          "database_id": "b19436b3-80fb-4c4e-911a-fce32324e304",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "kv_namespaces": [
+        { "binding": "KV", "id": "3908cb7bfbe646abab21f7e97d00cadc" }
+      ],
+      "r2_buckets": [
+        { "binding": "CONFIGS", "bucket_name": "makerplane-configs" }
+      ]
+    }
   }
 }
