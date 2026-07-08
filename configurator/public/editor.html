@@ -2215,6 +2215,14 @@ function renderConditions(inst) {
     wrap.appendChild(n);
   }
 
+  // Phase 2 binding surface: pick another instrument's live setting and let the
+  // editor wire the FIX key on both sides -- no hand-written conditions/keys.
+  wrap.appendChild(renderBindHelper(inst));
+
+  const ch = document.createElement("h3");
+  ch.textContent = "Conditions (advanced)"; ch.style.marginTop = "14px";
+  wrap.appendChild(ch);
+
   const list = document.createElement("div"); list.className = "cond-list";
   inst.options.conditions.forEach((cond, i) => list.appendChild(condCard(inst, cond, i)));
   wrap.appendChild(list);
@@ -2227,6 +2235,130 @@ function renderConditions(inst) {
   });
   wrap.appendChild(add);
   return wrap;
+}
+
+// --- Phase 2: bind-a-control surface (control_bindings.md section 7) ---------
+// Every instrument option whose schema carries a `bindable` descriptor is a
+// runtime-drivable setting. This lets a Button target one: the editor allocates
+// the FIX key, sets the target's <prop>_key option, and writes the button's
+// action -- the whole loop from a menu instead of hand-authored YAML.
+
+function bindableTargets(exceptInst) {
+  const out = [];
+  for (const t of (state.instruments || [])) {
+    if (t === exceptInst || t.type === "group") continue;
+    const meta = (state.schema.instruments || {})[t.type];
+    if (!meta || !meta.options) continue;
+    const props = [];
+    for (const [name, spec] of Object.entries(meta.options)) {
+      if (spec && spec.bindable) props.push({ name, spec, bindable: spec.bindable });
+    }
+    if (props.length) out.push({ inst: t, type: t.type, label: meta.label || t.type, props });
+  }
+  return out;
+}
+
+// Suggested key name: <TARGET-ABBREV><SETTING>, e.g. moving_map + range -> MAPRANGE
+// (control_bindings.md 11.1). Editable, and reused if the target already has one.
+function bindKeyName(targetType, prop) {
+  const words = String(targetType).split(/[_\s]+/).filter(Boolean);
+  const abbrev = (words[words.length - 1] || targetType)
+    .replace(/[^a-z]/gi, "").toUpperCase().slice(0, 4);
+  const base = String(prop.bindable.key_option || (prop.name + "_key"))
+    .replace(/_key$/, "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+  return abbrev + base;
+}
+
+function bindOpLabel(semantics) {
+  if (semantics === "bool") return "toggle it on / off";
+  if (semantics === "index_ladder" || semantics === "enum") return "cycle through the options";
+  return "step it up";
+}
+
+function applyBinding(inst, target, prop, key, annunciate) {
+  key = String(key || "").trim();
+  if (!key) { alert("Enter a FIX key name for the binding."); return; }
+  // 1. the target instrument reads this key for the setting
+  target.options = target.options || {};
+  target.options[prop.bindable.key_option] = key;
+  // 2. the button writes it, per the setting's semantics
+  const sem = prop.bindable.semantics;
+  const action = (sem === "bool") ? { "toggle bit": key }
+    : (sem === "index_ladder" || sem === "enum") ? { "change value wrap": key + ",1" }
+    : { "change value": key + ",1" };
+  inst.options.conditions = inst.options.conditions || [];
+  inst.options.conditions.push({ when: "CLICKED eq true", actions: [action] });
+  // 2b. optional annunciation: colour the button by the bound state
+  if (annunciate && sem === "bool") {
+    inst.options.conditions.push({ when: key, actions: [{ "set bg color": "#1f6b1f" }], continue: true });
+    inst.options.conditions.push({ when: "not " + key, actions: [{ "set bg color": "#3a3a3a" }], continue: true });
+  }
+  deriveConditionKeys(inst);
+  renderCanvas();   // target option now rides in the YAML
+  renderProps();    // redraw the panel with the new condition(s)
+}
+
+function renderBindHelper(inst) {
+  const box = document.createElement("div");
+  const h = document.createElement("h3"); h.textContent = "Bind a control"; box.appendChild(h);
+  const targets = bindableTargets(inst);
+  if (!targets.length) {
+    const n = document.createElement("p"); n.className = "cond-help";
+    n.textContent = "No bindable instruments on this screen yet. Place a Moving Map "
+      + "(or another instrument with live settings) to wire this button to it.";
+    box.appendChild(n);
+    return box;
+  }
+  const help = document.createElement("p"); help.className = "cond-help";
+  help.textContent = "Wire this button to another instrument's live setting. The "
+    + "editor allocates the FIX key and writes both sides for you.";
+  box.appendChild(help);
+
+  const row1 = document.createElement("div"); row1.className = "field";
+  row1.appendChild(Object.assign(document.createElement("label"), { textContent: "Target instrument" }));
+  const tsel = document.createElement("select");
+  targets.forEach((t, i) => { const o = document.createElement("option"); o.value = String(i); o.textContent = t.label; tsel.appendChild(o); });
+  row1.appendChild(tsel); box.appendChild(row1);
+
+  const row2 = document.createElement("div"); row2.className = "field";
+  row2.appendChild(Object.assign(document.createElement("label"), { textContent: "Setting" }));
+  const psel = document.createElement("select");
+  row2.appendChild(psel); box.appendChild(row2);
+
+  const detail = document.createElement("div"); box.appendChild(detail);
+
+  function fillDetail() {
+    const t = targets[+tsel.value]; const p = t.props[+psel.value];
+    detail.innerHTML = "";
+    if (!p) return;
+    const op = document.createElement("p"); op.className = "act-help";
+    op.textContent = "Tapping the button will " + bindOpLabel(p.bindable.semantics) + ".";
+    detail.appendChild(op);
+    const kf = document.createElement("div"); kf.className = "field";
+    kf.appendChild(Object.assign(document.createElement("label"), { textContent: "FIX key (auto)" }));
+    const ki = document.createElement("input"); ki.type = "text"; ki.setAttribute("autocomplete", "off");
+    ki.value = (t.inst.options && t.inst.options[p.bindable.key_option]) || bindKeyName(t.type, p);
+    kf.appendChild(ki); detail.appendChild(kf);
+    let annCb = null;
+    if (p.bindable.semantics === "bool") {
+      const al = document.createElement("label"); al.className = "cond-join";
+      annCb = document.createElement("input"); annCb.type = "checkbox"; annCb.checked = true; annCb.style.width = "auto";
+      al.append(annCb, document.createTextNode("also colour the button green when on"));
+      detail.appendChild(al);
+    }
+    const b = document.createElement("button"); b.className = "mini add"; b.textContent = "+ Bind this control";
+    b.addEventListener("click", () => applyBinding(inst, t.inst, p, ki.value, annCb && annCb.checked));
+    detail.appendChild(b);
+  }
+  function fillProps() {
+    const t = targets[+tsel.value]; psel.innerHTML = "";
+    t.props.forEach((p, i) => { const o = document.createElement("option"); o.value = String(i); o.textContent = p.spec.label || p.name; psel.appendChild(o); });
+    fillDetail();
+  }
+  tsel.addEventListener("change", fillProps);
+  psel.addEventListener("change", fillDetail);
+  fillProps();
+  return box;
 }
 
 function condCard(inst, cond, i) {
