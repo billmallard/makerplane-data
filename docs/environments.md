@@ -160,26 +160,35 @@ hosts on the aerocommons.org zone, so the zone's Universal SSL (`*.aerocommons.o
 covers them and `custom_domain: true` provisions them exactly as prod does today —
 no third-level cert story (§9.3).
 
-## 6. CI/CD — automate what is now hand-work
+## 6. CI/CD — automated (implemented 2026-07-08)
 
-The manual `wrangler r2 object put` + `wrangler deploy` become GitHub Actions keyed
+The manual `wrangler r2 object put` + `wrangler deploy` are now GitHub Actions keyed
 on branch:
 
-- **makerplane-data** push → `wrangler deploy --env {env}` + `d1 migrations apply
-  --env {env}` for the branch's env.
-- **pyEfis** push → regenerate `schema.json` (`python -m pyefis.editor.schema`),
-  palette SVGs, `groups.json`, SVS previews → upload to the branch's asset prefix
-  (`assets/editor/{env}/`; prod → bare `assets/editor/`).
-  (The `cyclical.yml` workflow already checks out `billmallard/pyEfis` for the
-  data-tool shim, so pulling pyEfis in CI is established.)
-- **Promotion** (`dev → qa → prod` merge, or a manual "promote" action):
-  re-generate assets from the promoted pyEfis ref into the target prefix and
-  `wrangler deploy --env {target}`. Assets are reproducible from source, so promote
-  by **re-generating**, not copying, to avoid drift.
+- **makerplane-data** `.github/workflows/deploy-configurator.yml` — push to
+  `dev`/`qa`/`main` → `wrangler deploy --env {env}` + `d1 migrations apply` for that
+  env (`main` = the bare-prod top-level default).
+- **pyEfis** `.github/workflows/editor-assets.yml` — push to `dev`/`qa`/`master` →
+  regenerate `schema.json` + `groups.json` and upload to the branch's asset prefix
+  (`assets/editor/{env}/`; `master` → bare `assets/editor/`). **Palette SVGs and the
+  SVS preview patches are NOT built in CI**: headless runners render the Qt widgets as
+  placeholders, and the SVS patches need local SRTM/NASR terrain data. Both stay
+  **local-gen** — `tools/build_editor_assets.py` on a machine with a display,
+  `tools/export_svs_preview_patch.py` — and are uploaded by hand.
+- **Promotion is the merge**: `dev → qa → main` each re-triggers the target env's
+  deploy on push. No separate promote action. Assets are reproducible from source, so
+  promotion re-generates rather than copies.
 
-Credential note: the R2-scoped token in `CloudFlare R2 Bucket Keys.txt` can `put`
-objects but **cannot** deploy Workers — Worker deploys use the wrangler OAuth /
-an account API token in CI. Keep that split (see configurator/CLAUDE.md).
+Both workflows **skip green until `CLOUDFLARE_API_TOKEN` is set** (an in-step guard),
+so landing them caused no red runs.
+
+Credential note: Worker deploys, D1 migrations, and editor-asset R2 writes all use a
+single **`CLOUDFLARE_API_TOKEN`** (scopes: Account = Workers Scripts + Workers KV +
+Workers R2 + D1 + Account Settings:Read; Zone `aerocommons.org` = Workers Routes:Edit
++ Zone:Read) plus `CLOUDFLARE_ACCOUNT_ID`, set as GH secrets in **both** repos. The
+R2-scoped S3 keys in `CloudFlare R2 Bucket Keys.txt` / the `R2_*` GH secrets are
+**navdata-bucket-scoped** and cannot write `makerplane-configs` — don't reuse them
+here. CI runners must use **Node ≥ 22** (wrangler 4's floor).
 
 ## 7. Devices (the Pi) and env selection
 
@@ -203,8 +212,10 @@ machinery; env selection is one more field.
   lines across the three repos (cut from each default, seeding `dev` from the
   current feat-accounts-auth / `gpu-required`+`display-changes` / `gcu` work;
   existing branches preserved, not renamed).
-- **Phase 3 — automate.** CI generates + uploads assets and deploys the Worker per
-  branch; add the promotion action. Retire the manual `wrangler` steps.
+- **Phase 3 — automate. DONE (2026-07-08).** CI deploys the Worker + migrates D1
+  (makerplane-data) and regenerates + uploads `schema.json`/`groups.json` (pyEfis)
+  per branch; promotion is the merge. Palette SVGs + SVS previews stay local-gen
+  (§6). The manual `wrangler` deploy/schema steps are retired.
 - **Phase 4 — finish isolation.** Env-scoped config storage + device env pairing.
   (No prod-alias to drop — prod is permanently bare per §9.4.)
 
