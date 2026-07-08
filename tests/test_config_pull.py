@@ -78,6 +78,25 @@ def test_single_screen_keeps_stock_list(tmp_path):
     assert not (cd / "screens" / "managed_list.yaml").exists()
 
 
+def test_non_stock_boot_screen_is_woven_into_the_loaded_list(tmp_path):
+    """If the device boots into a NON-stock screen name (a prior managed config or
+    bench testing left defaultScreen there), the repurposed SCREEN_<boot> maps a
+    file but is never in the loaded SCREENS_CONFIG -- so gui.showScreen KeyErrors
+    on the DataStatus continue and the device crash-loops. Weave the boot token
+    into the list so the screen loads."""
+    cd = _config_dir(tmp_path, default_screen="MAP_CTL_TEST")   # non-stock boot
+    summary = config_pull.install_config(yaml.safe_dump(_doc("PANEL")), cd=cd)
+
+    assert summary["boot_screen"] == "MAP_CTL_TEST"
+    inc = _read(cd, "preferences.yaml.custom")["includes"]
+    assert inc["SCREEN_MAP_CTL_TEST"] == "screens/managed.yaml"
+    # a managed_list override must now exist AND include the boot token
+    assert inc["SCREENS_CONFIG"] == "screens/managed_list.yaml"
+    loaded = _read(cd, "screens/managed_list.yaml")["include"]
+    assert "SCREEN_MAP_CTL_TEST" in loaded               # <- would KeyError without this
+    assert "SCREEN_PFD_AI_ONLY" in loaded                # stock ballast still kept
+
+
 def test_single_screen_injects_svs_and_db(tmp_path):
     cd = _config_dir(tmp_path)
     config_pull.install_config(yaml.safe_dump(_doc("PANEL", vfr_on="PANEL")), cd=cd)

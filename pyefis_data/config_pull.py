@@ -320,6 +320,7 @@ def _install_single(cd: Path, screen_def: dict, boot: str) -> dict:
     inc = custom.setdefault("includes", {})
     _clear_managed_includes(inc, boot)
     inc[f"SCREEN_{boot}"] = "screens/managed.yaml"
+    _ensure_boot_loaded(cd, inc, boot)   # boot may be a non-stock name
     _write_custom(cd, custom)
     return {"mode": "single", "boot_screen": boot, "screens": 1,
             "screen_names": [boot]}
@@ -353,6 +354,27 @@ def _stock_screen_tokens(cd: Path) -> list[str]:
     except Exception:
         pass
     return list(_STOCK_FALLBACK_TOKENS)
+
+
+def _ensure_boot_loaded(cd: Path, inc: dict, boot: str) -> None:
+    """Guarantee ``SCREEN_<boot>`` is in the loaded ``SCREENS_CONFIG`` list.
+
+    Both install paths repurpose the device's ``defaultScreen`` slot -- which is
+    normally a STOCK screen already in the list. But if a prior managed config (or
+    bench testing) left the device booting into a NON-stock screen name, the
+    repurposed ``SCREEN_<boot>`` maps a file yet is never instantiated, and
+    ``gui.showScreen`` raises ``KeyError: Screen <boot> Not Found`` on the
+    DataStatus continue -> crash-loop. Weave the boot token into the list so the
+    screen always loads."""
+    import yaml
+    boot_token = f"SCREEN_{boot}"
+    stock = _stock_screen_tokens(cd)
+    if boot_token in stock:
+        return
+    merged = list(stock) + [boot_token]
+    _atomic_write(cd / "screens" / "managed_list.yaml",
+                  yaml.safe_dump({"include": merged}, sort_keys=False))
+    inc["SCREENS_CONFIG"] = "screens/managed_list.yaml"
 
 
 def _install_multi(cd: Path, screens: dict, default_name: str, boot: str) -> dict:
@@ -413,13 +435,19 @@ def _install_multi(cd: Path, screens: dict, default_name: str, boot: str) -> dic
             inc[token] = f"screens/{fname}"
             extra_tokens.append(token)
 
-    if extra_tokens:
-        # extend (never shrink) the stock list with the additional editor screens
-        merged = list(stock_tokens) + [t for t in extra_tokens if t not in stock_tokens]
+    boot_token = f"SCREEN_{boot}"
+    need_boot = boot_token not in stock_tokens   # boot slot may be a non-stock name
+    if extra_tokens or need_boot:
+        # extend (never shrink) the stock list with the boot slot (if non-stock)
+        # + the additional editor screens
+        merged = list(stock_tokens)
+        if need_boot:
+            merged.append(boot_token)
+        merged += [t for t in extra_tokens if t not in merged]
         _atomic_write(cd / "screens" / "managed_list.yaml",
                       yaml.safe_dump({"include": merged}, sort_keys=False))
         inc["SCREENS_CONFIG"] = "screens/managed_list.yaml"
-    # (no additional screens -> keep the stock SCREENS_CONFIG untouched)
+    # (boot is stock + no additional screens -> keep the stock SCREENS_CONFIG)
 
     _write_custom(cd, custom)
     return {"mode": "multi", "boot_screen": boot, "screens": len(screens),
