@@ -10,6 +10,10 @@ export interface Bindings {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   APP_URL: string;
+  // Environment name (docs/environments.md). Unset/"prod" -> bare R2 prefixes,
+  // so an un-migrated prod deploy is byte-identical to today. dev/qa isolate by
+  // prefix. Non-secret var, set per-env in wrangler.jsonc.
+  ENV?: "dev" | "qa" | "prod";
   MAIL_API_KEY?: string;
   MAIL_FROM?: string;
 }

@@ -34,6 +34,16 @@ import type { Env } from "./types";
 
 const PAIR_TTL_SECONDS = 15 * 60;
 
+// R2 key/prefix composition per environment — see docs/environments.md §3.
+// PROD uses the bare prefixes it has always used; DEV/QA nest under an env
+// segment. D1 is per-env, so a stored config key already carries the right
+// prefix on read — only the write path and the public /assets/* path compose it.
+// A missing ENV is treated as prod, so an un-migrated prod deploy is unchanged.
+const isProdEnv = (env?: string) => !env || env === "prod";
+const configPrefix = (env?: string) => (isProdEnv(env) ? "configs" : `configs-${env}`);
+const assetKey = (env: string | undefined, key: string) =>
+  isProdEnv(env) ? key : key.replace(/^assets\/editor\//, `assets/editor/${env}/`);
+
 const app = new Hono<Env>();
 
 app.get("/healthz", (c) => c.json({ service: "makerplane-configurator", ok: true }));
@@ -157,7 +167,7 @@ app.put("/api/devices/:id/config", async (c) => {
     return c.json({ error: "yaml required" }, 400);
   }
   const version = await nextConfigVersion(c.env.DB, deviceId);
-  const key = `configs/${userId}/${deviceId}/v${version}.yaml`;
+  const key = `${configPrefix(c.env.ENV)}/${userId}/${deviceId}/v${version}.yaml`;
   await c.env.CONFIGS.put(key, body.yaml);
   await insertConfig(c.env.DB, deviceId, version, key);
   return c.json({ ok: true, version });
@@ -237,7 +247,7 @@ app.get("/device/config", async (c) => {
 // these are shared, not user data. (User configs live under configs/ and are
 // only reachable through the authed /api routes above.)
 app.get("/assets/*", async (c) => {
-  const key = c.req.path.replace(/^\/assets\//, "assets/");
+  const key = assetKey(c.env.ENV, c.req.path.replace(/^\/assets\//, "assets/"));
   const obj = await c.env.CONFIGS.get(key);
   if (!obj) return c.json({ error: "not found" }, 404);
   const headers: Record<string, string> = { "cache-control": "public, max-age=300" };
