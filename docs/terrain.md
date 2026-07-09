@@ -18,6 +18,12 @@ tiles are 3601×3601 int16 (≈26 MB each). A tile is assigned to a region by
 its SW corner (`regions.yaml` bboxes); a tile in two regions is written into
 both packs (identical content — the Pi unions them into one tile tree).
 
+Each pack also carries that tile's **mip pyramid** when one has been built:
+coarse `.mip/<L>/<NSdir>/<name>.hgt` levels (pyEfis `docs/terrain_mip_pyramid.md`)
+that the moving-map/SVS renderer's `get_mip()` reads for fast wide-range zoom.
+It's a pure path convention — no manifest/pack_meta change; a tree without a
+pyramid simply produces native-only packs.
+
 Manifest entry: `kind: terrain`, `regions: [<region>]`, `tiles_bbox`,
 `effective/expires: null` (non-cyclical), plus the usual sha256/bytes/url.
 
@@ -27,7 +33,13 @@ Requirements on the build host: the HGT tile tree, this package
 (`pip install`), `boto3`, the R2 credentials (env), and the signing secret.
 
 ```bash
-# one region (repeat per region, or loop):
+# 1. Build the mip pyramid INTO the HGT tree (once per edition; ~3-4 h for
+#    all-NA, parallelizable per tile). Idempotent (skips built tiles). The
+#    coarse .mip/<L>/ tiles then ride along in each region pack automatically.
+python /path/to/pyEfis/tools/build_terrain_mips.py /path/to/glo30hgt
+
+# 2. Build + upload region packs (now native + pyramid). One region shown;
+#    repeat per region, or loop:
 R2_ENDPOINT=https://<acct>.r2.cloudflarestorage.com \
 R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
 packtool make-terrain /path/to/glo30hgt \

@@ -67,6 +67,42 @@ def test_build_region_pack_shape(tmp_path):
     assert "pack_meta.json" in names
 
 
+def _add_mip_pyramid(root, names, levels=2):
+    """Fake coarse .mip/<L>/<NSdir>/<name>.hgt tiles alongside the native tree."""
+    for n in names:
+        for level in range(1, levels + 1):
+            d = root / ".mip" / str(level) / _ns(n)
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"{n}.hgt").write_bytes(b"\x0a\x0b" * (8 // level or 1))
+    return root
+
+
+def test_pack_carries_mip_pyramid_and_updater_installs_it(tmp_path):
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mip_pyramid(src, US_WEST_TILES, levels=2)
+    # native tiles are still found; the .mip tree is NOT treated as native
+    assert set(make_terrain.find_tiles(src)) == {"N32W120", "N33W121"}
+    store = LocalStore(tmp_path / "r2")
+    packs = make_terrain.make_terrain_packs(
+        src_root=src, out_dir=tmp_path / "build", edition="2024ed",
+        url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
+    assert packs[0].tile_count == 2                       # native count, not inflated by mips
+    with zipfile.ZipFile(packs[0].path) as z:
+        names_in = set(z.namelist())
+    assert "N32/N32W120.hgt" in names_in                  # native
+    assert ".mip/1/N32/N32W120.hgt" in names_in           # coarse levels ride along
+    assert ".mip/2/N33/N33W121.hgt" in names_in
+    # install through the real updater: the pyramid lands in the tile tree
+    sk, pub = signing.generate_keypair()
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+                                 sign=signing.sign, log=lambda *a: None)
+    make_updater(tmp_path, pub, store.root).update()
+    tiles = tmp_path / "pi" / "terrain" / "tiles"
+    assert (tiles / "N32" / "N32W120.hgt").exists()
+    assert (tiles / ".mip" / "1" / "N32" / "N32W120.hgt").exists()
+    assert (tiles / ".mip" / "2" / "N33" / "N33W121.hgt").exists()
+
+
 def test_terrain_only_tracked_when_region_opted_in(tmp_path):
     store, pub, _ = build_store_with_terrain(tmp_path)
     m = Manifest.from_bytes(store.get_bytes("manifest.json"))

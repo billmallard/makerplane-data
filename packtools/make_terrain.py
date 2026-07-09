@@ -27,12 +27,23 @@ from .regions import Region, load_regions, regions_for_tile, tile_sw_corner
 
 DEFAULT_ATTRIBUTION = "Copernicus GLO-30 (redistribution permitted)"
 
+# Deepest mip-pyramid level a pack may carry. Coarse tiles ride in
+# .mip/<L>/<NSdir>/<name>.hgt (terrain_mip_pyramid.md); the renderer's get_mip()
+# reads them. Keep in sync with pyEfis tools/build_terrain_mips.py MAX_LEVEL and
+# the terrain.py mip clamp.
+MIP_LEVELS = 6
+
 
 def find_tiles(src_root: str | Path) -> dict[str, Path]:
-    """Map TILE_NAME (e.g. ``N32W097``) -> path for every .hgt under src."""
+    """Map TILE_NAME (e.g. ``N32W097``) -> path for every native .hgt under src.
+
+    The coarse ``.mip/`` pyramid tree is skipped -- those tiles ride along in
+    each region pack (see ``build_region_pack``) but are not native tiles."""
     src = Path(src_root)
     out: dict[str, Path] = {}
     for p in src.rglob("*.hgt"):
+        if ".mip" in p.parts:
+            continue
         out[p.stem.upper()] = p
     return out
 
@@ -71,7 +82,18 @@ def build_region_pack(region: str, tiles: list[tuple[str, Path]], *,
 
     with zipfile.ZipFile(pack_path, "w", mode) as z:
         for name, src in sorted(tiles):
-            z.write(src, f"{_ns_dir(name)}/{name}.hgt")
+            ns = _ns_dir(name)
+            z.write(src, f"{ns}/{name}.hgt")
+            # Ride the pre-built mip pyramid if present (pure path convention --
+            # no manifest/pack_meta change): coarse .mip/<L>/<NSdir>/<name>.hgt
+            # tiles unzip into the tile tree and the renderer's get_mip() reads
+            # them. Absent (no pyramid built) -> a native-only pack, unchanged.
+            # Build the pyramid first with pyEfis tools/build_terrain_mips.py.
+            mip_root = src.parent.parent / ".mip"
+            for level in range(1, MIP_LEVELS + 1):
+                mp = mip_root / str(level) / ns / f"{name}.hgt"
+                if mp.is_file():
+                    z.write(mp, f".mip/{level}/{ns}/{name}.hgt")
 
     meta = PackMeta(id=pack_id, kind="terrain", cycle=edition, attribution=attribution)
     packmeta.embed_zip(pack_path, meta)   # adds pack_meta.json into the zip
