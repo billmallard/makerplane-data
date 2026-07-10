@@ -76,6 +76,12 @@ BULK_KINDS = ("water", "terrain", "charts", "highways")
 # (vs. sqlite packs that are swapped via the current symlink).
 TILE_KINDS = ("terrain",)
 
+# The national terrain MOSAIC (fast wide-range zoom) is a single whole-extent
+# pack tagged with this synthetic region so it never collides with the real
+# region packs' tile provenance. Mirrors packtools.make_terrain.MOSAIC_REGION;
+# duplicated here to keep the device updater independent of the build side.
+MOSAIC_REGION = "mosaic"
+
 # Human labels for the on-device status screen.
 KIND_LABELS = {
     "navdata": "Airports & Runways",
@@ -435,6 +441,15 @@ class Updater:
                 ids.add(pid)
             elif e.kind in BULK_KINDS and set(e.regions) & set(self.config.regions):
                 ids.add(pid)
+        # Auto-track the national terrain mosaic whenever any *real* terrain
+        # region is tracked, so wide-range zoom is fast with no separate opt-in.
+        # (It's one whole-extent pack that serves any region combination.)
+        tracks_real_terrain = any(
+            by_id[pid].kind == "terrain" and MOSAIC_REGION not in by_id[pid].regions
+            for pid in ids if pid in by_id)
+        if tracks_real_terrain:
+            ids.update(pid for pid, e in by_id.items()
+                       if e.kind == "terrain" and MOSAIC_REGION in e.regions)
         return sorted(ids)
 
     # --- status ---

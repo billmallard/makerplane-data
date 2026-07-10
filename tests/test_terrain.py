@@ -173,6 +173,29 @@ def test_terrain_only_tracked_when_region_opted_in(tmp_path):
     assert yes._tracked_ids(m) == ["terrain-us-west"]
 
 
+def test_mosaic_auto_tracked_with_any_terrain_region(tmp_path):
+    """The national terrain-mosaic pack is pulled automatically whenever any real
+    terrain region is tracked -- no separate opt-in -- but never on its own."""
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mosaic(src)
+    store = LocalStore(tmp_path / "r2")
+    packs = make_terrain.make_terrain_packs(
+        src_root=src, out_dir=tmp_path / "build", edition="2024ed",
+        url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
+    packs.append(make_terrain.build_mosaic_pack(
+        src, out_dir=tmp_path / "build", edition="2024ed", url_base=f"{ORIGIN}/packs"))
+    sk, pub = signing.generate_keypair()
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+                                 sign=signing.sign, log=lambda *a: None)
+    m = Manifest.from_bytes(store.get_bytes("manifest.json"))
+    # no terrain regions -> mosaic NOT tracked (it only rides along)
+    none_up = Updater(Config(base_url=ORIGIN, root=tmp_path / "p0"), pub, today=TODAY)
+    assert none_up._tracked_ids(m) == []
+    # opting into us-west auto-adds the mosaic
+    yes = make_updater(tmp_path, pub, store.root)
+    assert yes._tracked_ids(m) == ["terrain-mosaic", "terrain-us-west"]
+
+
 def test_install_merges_tiles_and_records_region(tmp_path):
     store, pub, _ = build_store_with_terrain(tmp_path)
     up = make_updater(tmp_path, pub, store.root)
