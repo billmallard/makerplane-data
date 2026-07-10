@@ -37,17 +37,27 @@ for repo in pyEfis makerplane-data; do
 done
 
 # ---- 1. mip pyramid (parallel; written into the mounted tree, persists) ----
-echo ">> [1/3] building mip pyramid (jobs=$JOBS)..."
+echo ">> [1/5] building mip pyramid (jobs=$JOBS)..."
 PYTHONPATH=/opt/pyEfis/src python /opt/pyEfis/tools/build_terrain_mips.py "$TILE_ROOT" -j "$JOBS"
 
-# ---- 2. build + upload each region pack (re-signs the manifest per region) ----
+# ---- 2. coarse mosaic: one whole-extent stitch per level from the mip tree.
+#         Fast (seconds -- it stitches the already-built .mip tiles), written
+#         into $TILE_ROOT/.mip/mosaic/, persists on the NAS like the pyramid.
+#         Renderer TileCache.get_mosaic() reads it for constant-time wide zoom. --
+echo ">> [2/5] stitching coarse terrain mosaic..."
+PYTHONPATH=/opt/pyEfis/src python /opt/pyEfis/tools/build_terrain_mosaic.py "$TILE_ROOT" --levels 4 5 6
+
+# ---- 3. build + upload each region pack (re-signs the manifest per region) --
+# Packs ship COMPRESSED (DEFLATE): ~50% smaller on R2 and on the wire, at the
+# cost of build CPU + a one-time Pi decompress on pull. (Flipped from
+# --no-compress per docs/terrain.md's pre-release footprint decision.)
 cd /opt/makerplane-data
 mkdir -p "$PACK_OUT"
 fail=0
 for r in $REGIONS; do
-  echo ">> [2/3] region $r  $(date -u +%H:%M:%S)"
+  echo ">> [3/5] region $r  $(date -u +%H:%M:%S)"
   if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
-        --edition "$EDITION" --only "$r" --out "$PACK_OUT" --no-compress \
+        --edition "$EDITION" --only "$r" --out "$PACK_OUT" \
         --url-base "$URL_BASE" --upload --bucket "$R2_BUCKET"; then
     rm -f "$PACK_OUT/packs/terrain-$r-$EDITION.pack"          # free scratch as we go
   else
@@ -55,8 +65,20 @@ for r in $REGIONS; do
   fi
 done
 
-# ---- 3. verify the published manifest (signature + that it parses) ----
-echo ">> [3/3] verifying published manifest..."
+# ---- 4. build + upload the single national mosaic pack (compressed). Works for
+#         any region combination, so it is one pack (region tag 'mosaic'); a
+#         device opts in with `packs: [terrain-mosaic]`. --
+echo ">> [4/5] mosaic pack  $(date -u +%H:%M:%S)"
+if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
+      --edition "$EDITION" --mosaic --out "$PACK_OUT" \
+      --url-base "$URL_BASE" --upload --bucket "$R2_BUCKET"; then
+  rm -f "$PACK_OUT/packs/terrain-mosaic-$EDITION.pack"
+else
+  echo "!! FAILED: mosaic pack"; fail=1
+fi
+
+# ---- 5. verify the published manifest (signature + that it parses) ----
+echo ">> [5/5] verifying published manifest..."
 curl -fsS "$MANIFEST_URL" -o /tmp/manifest.json
 # verify reads the detached signature next to the manifest (<name>.minisig) --
 # fetch it too, else verify throws FileNotFoundError and pipefail fails the run.
