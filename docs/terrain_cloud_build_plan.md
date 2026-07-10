@@ -110,6 +110,7 @@ done
 
 # verify + wipe key + self-terminate
 curl -s https://navdata.aerocommons.org/manifest.json > /tmp/m.json
+curl -s https://navdata.aerocommons.org/manifest.json.minisig > /tmp/m.json.minisig  # verify reads <name>.minisig
 PYTHONPATH=. python -m packtools.cli verify /tmp/m.json --pub keys/minisign.pub
 shred -u keys/minisign.sec
 shutdown -h now      # launch with InstanceInitiatedShutdownBehavior=terminate

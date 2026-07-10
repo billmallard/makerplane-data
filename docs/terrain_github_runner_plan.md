@@ -86,6 +86,7 @@ jobs:
           done
       - run: |
           curl -fsS https://navdata.aerocommons.org/manifest.json -o /tmp/m.json
+          curl -fsS https://navdata.aerocommons.org/manifest.json.minisig -o /tmp/m.json.minisig
           python -m packtools.cli verify /tmp/m.json --pub keys/minisign.pub
     env:
       TILE_ROOT: /data/glo30hgt

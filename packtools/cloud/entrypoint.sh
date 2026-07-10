@@ -58,6 +58,9 @@ done
 # ---- 3. verify the published manifest (signature + that it parses) ----
 echo ">> [3/3] verifying published manifest..."
 curl -fsS "$MANIFEST_URL" -o /tmp/manifest.json
+# verify reads the detached signature next to the manifest (<name>.minisig) --
+# fetch it too, else verify throws FileNotFoundError and pipefail fails the run.
+curl -fsS "${MANIFEST_URL}.minisig" -o /tmp/manifest.json.minisig
 PYTHONPATH=. python -m packtools.cli verify /tmp/manifest.json --pub keys/minisign.pub | head -2
 
 echo ">> DONE (exit $fail)"
