@@ -16,13 +16,14 @@ Container Station runs Docker **natively on the NAS**, so a bind mount's host
 side must be the **native storage-pool path**, not a friendly symlink:
 
 ```
-    /share/<POOL>/pyEfisData/EarthData    e.g.  /share/CACHEDEV1_DATA/pyEfisData/EarthData
+    /share/ZFS22_DATA/pyEfisData/EarthData     (this NAS; pool ZFS22_DATA)
 ```
 
 The tiles live on the `pyEfisData` share (SMB `\\10.110.10.6\pyEfisData`), but the
-container mount must use the **native pool path** above. Find `<POOL>` by SSH'ing
-the NAS and running `ls /share/` (common: `CACHEDEV1_DATA`, `ZFS19_DATA`). **Do NOT
-use** `\\10.110.10.6\pyEfisData` (UNC/SMB), `/share/pyEfisData` (symlink), or `Z:\...`
+container mount must use the **native pool path** above. That path was resolved from
+the share symlink with `readlink -f /share/pyEfisData` → `/share/ZFS22_DATA/pyEfisData`
+(on another NAS, re-resolve — the pool differs). **Do NOT use**
+`\\10.110.10.6\pyEfisData` (UNC/SMB), `/share/pyEfisData` (symlink), or `Z:\...`
 (mapped drive) — Container Station mounts those as an **empty volume and fails
 silently**, and the container aborts with the "TILE_ROOT missing/empty" guard.
 (Lesson from the OpenClaw Container Station guide.)
