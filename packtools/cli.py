@@ -154,12 +154,27 @@ def cmd_verify(args) -> int:
 
 def cmd_make_terrain(args) -> int:
     from . import make_terrain
-    packs = make_terrain.make_terrain_packs(
-        src_root=args.source, out_dir=args.out, edition=args.edition,
-        url_base=args.url_base, regions_path=args.regions,
-        only_regions=args.only or None, compress=not args.no_compress)
-    if not packs:
-        return 1
+    compress = not args.no_compress
+    if args.mosaic:
+        # Package the pre-built coarse mosaic (one whole-extent pack, shared by
+        # all region combinations) instead of the per-region native packs.
+        tp = make_terrain.build_mosaic_pack(
+            args.source, out_dir=args.out, edition=args.edition,
+            url_base=args.url_base, compress=compress)
+        if tp is None:
+            print("no mosaic under <source>/.mip/mosaic/ -- run pyEfis "
+                  "tools/build_terrain_mosaic.py first")
+            return 1
+        packs = [tp]
+        print(f"  mosaic: {tp.tile_count} level file(s) -> {tp.path.name} "
+              f"({tp.entry.bytes:,} B, sha {tp.entry.sha256[:12]}...)")
+    else:
+        packs = make_terrain.make_terrain_packs(
+            src_root=args.source, out_dir=args.out, edition=args.edition,
+            url_base=args.url_base, regions_path=args.regions,
+            only_regions=args.only or None, compress=compress)
+        if not packs:
+            return 1
     if args.upload:
         from .upload import R2Store
         store = R2Store.from_env(args.bucket)
@@ -210,6 +225,9 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--edition", required=True, help="edition tag, e.g. 2024ed")
     t.add_argument("--regions", help="regions.yaml path (default: repo regions.yaml)")
     t.add_argument("--only", nargs="*", help="limit to these region keys")
+    t.add_argument("--mosaic", action="store_true",
+                   help="package the pre-built coarse mosaic (.mip/mosaic/) as "
+                        "the single national terrain-mosaic pack (ignores --only)")
     t.add_argument("--out", default="work")
     t.add_argument("--url-base", default=_DEFAULT_URL_BASE)
     t.add_argument("--no-compress", action="store_true", help="store uncompressed (faster)")

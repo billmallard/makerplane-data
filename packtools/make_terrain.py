@@ -16,6 +16,7 @@ the Pi unions them into one tile tree).
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -102,6 +103,74 @@ def build_region_pack(region: str, tiles: list[tuple[str, Path]], *,
         pack_path, meta, url=f"{url_base.rstrip('/')}/{pack_path.name}",
         regions=[region], tiles_bbox=_bbox([n for n, _ in tiles]))
     return TerrainPack(region, pack_path, entry, len(tiles))
+
+
+# The coarse MOSAIC is a single whole-extent stitch (one file per mip level,
+# from pyEfis tools/build_terrain_mosaic.py). It is packaged apart from the
+# region packs because it cannot ride inside them: the mosaic is one array over
+# the whole extent, but devices union *arbitrary* region subsets, and per-region
+# mosaic pieces don't stitch back into one file on-device. So the national
+# mosaic is its own pack, tagged with the synthetic region ``mosaic`` -- a device
+# opts in with ``packs: [terrain-mosaic]`` (an explicit id is always tracked).
+MOSAIC_PACK_ID = "terrain-mosaic"
+MOSAIC_REGION = "mosaic"
+
+
+def _mosaic_bbox(hgt_files: list[Path]) -> list[int]:
+    """[min_lat, min_lon, max_lat, max_lon] from a mosaic level's JSON sidecar
+    (``lat_n``/``lon_w`` north-west origin + ``rows``/``cols``/``spd``). Every
+    level shares the extent, so the first readable sidecar suffices."""
+    for hgt in hgt_files:
+        mj = hgt.with_suffix(".json")
+        if not mj.is_file():
+            continue
+        d = json.loads(mj.read_text())
+        spd = d["spd"]
+        lat_n, lon_w = d["lat_n"], d["lon_w"]
+        lat_s = lat_n - (d["rows"] - 1) / spd
+        lon_e = lon_w + (d["cols"] - 1) / spd
+        return [int(round(lat_s)), int(lon_w), int(lat_n), int(round(lon_e))]
+    return []
+
+
+def build_mosaic_pack(src_root: str | Path, *, out_dir: str | Path,
+                      edition: str, url_base: str,
+                      attribution: str = DEFAULT_ATTRIBUTION,
+                      compress: bool = True) -> TerrainPack | None:
+    """Package the pre-built coarse terrain mosaic into one signed-able pack.
+
+    Ships only ``<src_root>/.mip/mosaic/L*.{hgt,json}`` (built by pyEfis
+    ``tools/build_terrain_mosaic.py``), which the renderer's
+    ``TileCache.get_mosaic()`` reads for constant-time wide-range zoom. Unpacks
+    on-device straight into ``terrain/tiles/.mip/mosaic/`` -- no renderer change.
+
+    Returns ``None`` if no mosaic has been built yet (the stitch step was not
+    run), so a caller can skip it cleanly."""
+    src = Path(src_root)
+    mos_dir = src / ".mip" / "mosaic"
+    hgts = sorted(mos_dir.glob("L*.hgt")) if mos_dir.is_dir() else []
+    if not hgts:
+        return None
+    out_dir = Path(out_dir)
+    (out_dir / "packs").mkdir(parents=True, exist_ok=True)
+    pack_path = out_dir / "packs" / f"{MOSAIC_PACK_ID}-{edition}.pack"
+    mode = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
+
+    with zipfile.ZipFile(pack_path, "w", mode) as z:
+        for hgt in hgts:
+            z.write(hgt, f".mip/mosaic/{hgt.name}")
+            meta_json = hgt.with_suffix(".json")   # get_mosaic needs the sidecar
+            if meta_json.is_file():
+                z.write(meta_json, f".mip/mosaic/{meta_json.name}")
+
+    meta = PackMeta(id=MOSAIC_PACK_ID, kind="terrain", cycle=edition,
+                    attribution=attribution)
+    packmeta.embed_zip(pack_path, meta)
+
+    entry = PackEntry.from_pack(
+        pack_path, meta, url=f"{url_base.rstrip('/')}/{pack_path.name}",
+        regions=[MOSAIC_REGION], tiles_bbox=_mosaic_bbox(hgts))
+    return TerrainPack(MOSAIC_REGION, pack_path, entry, len(hgts))
 
 
 def make_terrain_packs(*, src_root: str | Path, out_dir: str | Path,

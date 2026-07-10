@@ -103,6 +103,65 @@ def test_pack_carries_mip_pyramid_and_updater_installs_it(tmp_path):
     assert (tiles / ".mip" / "2" / "N33" / "N33W121.hgt").exists()
 
 
+def _add_mosaic(root, levels=(4, 5, 6)):
+    """Fake .mip/mosaic/L<level>.{hgt,json} as build_terrain_mosaic.py writes
+    them (a 2deg CONUS-ish window: lat 32..34, lon -121..-119)."""
+    mdir = root / ".mip" / "mosaic"
+    mdir.mkdir(parents=True, exist_ok=True)
+    for lv in levels:
+        spd = 225 >> (lv - 4)                              # coarser levels, smaller spd
+        rows = cols = 2 * spd + 1                          # 2deg span
+        (mdir / f"L{lv}.hgt").write_bytes(b"\x00\x64" * (rows * cols))
+        (mdir / f"L{lv}.json").write_text(json.dumps(
+            {"level": lv, "rows": rows, "cols": cols, "spd": spd,
+             "lat_n": 34, "lon_w": -121}))
+    return root
+
+
+def test_build_mosaic_pack_shape(tmp_path):
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mosaic(src)
+    tp = make_terrain.build_mosaic_pack(
+        src, out_dir=tmp_path / "b", edition="2024ed", url_base=f"{ORIGIN}/packs")
+    assert tp is not None
+    assert tp.entry.id == "terrain-mosaic" and tp.entry.kind == "terrain"
+    assert tp.entry.regions == ["mosaic"]                  # synthetic region, isolates provenance
+    assert tp.entry.effective is None and tp.entry.expires is None
+    assert tp.entry.tiles_bbox == [32, -121, 34, -119]     # derived from the L*.json sidecar
+    with zipfile.ZipFile(tp.path) as z:
+        names = set(z.namelist())
+    assert ".mip/mosaic/L4.hgt" in names and ".mip/mosaic/L4.json" in names
+    assert ".mip/mosaic/L6.hgt" in names                   # every level rides in one pack
+    assert "pack_meta.json" in names
+    assert "N32/N32W120.hgt" not in names                  # NOT the native tiles
+
+
+def test_build_mosaic_pack_absent_returns_none(tmp_path):
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)   # no .mip/mosaic built
+    assert make_terrain.build_mosaic_pack(
+        src, out_dir=tmp_path / "b", edition="2024ed", url_base=f"{ORIGIN}/packs") is None
+
+
+def test_updater_installs_mosaic_pack_by_explicit_id(tmp_path):
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mosaic(src)
+    store = LocalStore(tmp_path / "r2")
+    tp = make_terrain.build_mosaic_pack(
+        src, out_dir=tmp_path / "build", edition="2024ed", url_base=f"{ORIGIN}/packs")
+    sk, pub = signing.generate_keypair()
+    make_terrain.update_manifest(store, sk, [tp], generated="2026-06-14T00:00:00Z",
+                                 sign=signing.sign, log=lambda *a: None)
+    # A device opts in with an explicit pack id (always tracked), no region needed.
+    cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", packs=("terrain-mosaic",))
+    up = Updater(cfg, pub, remote=LocalDirRemote(store.root), today=TODAY)
+    assert up._tracked_ids(Manifest.from_bytes(store.get_bytes("manifest.json"))) == ["terrain-mosaic"]
+    up.update()
+    tiles = tmp_path / "pi" / "terrain" / "tiles"
+    assert (tiles / ".mip" / "mosaic" / "L4.hgt").exists()
+    assert (tiles / ".mip" / "mosaic" / "L4.json").exists()
+    assert not (tiles / "pack_meta.json").exists()         # metadata not unpacked into the tree
+
+
 def test_terrain_only_tracked_when_region_opted_in(tmp_path):
     store, pub, _ = build_store_with_terrain(tmp_path)
     m = Manifest.from_bytes(store.get_bytes("manifest.json"))
