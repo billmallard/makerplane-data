@@ -29,7 +29,7 @@ manifest change — they simply ride along in each region pack (§ Pack format) 
 the renderer's `get_mip()` discovers them, falling back to the native tile if a
 pack has none (old packs keep working, just slow at range).
 
-Two-step build (details in § Build + upload; renderer/design spec in pyEfis
+Three-step build (details in § Build + upload; renderer/design spec in pyEfis
 `docs/terrain_mip_pyramid.md`):
 
 1. `pyEfis/tools/build_terrain_mips.py <tiletree>` — walk the HGT tree and write
@@ -37,10 +37,33 @@ Two-step build (details in § Build + upload; renderer/design spec in pyEfis
    the originals untouched. Dense ladder = levels 1–6 (decimation 2ᵏ), ≈+8.6 MB
    per native tile (**~+33 %**, NA ≈ +31 GB). **Run this first** so the `.mip/`
    tree exists to be zipped in.
-2. `packtool make-terrain … --upload` — zip each region (native **plus** the
-   `.mip/` tiles) and publish it to R2 + the signed manifest. Every user's device
-   then pulls the pyramid through the normal `pyefis-data update` — no per-device
-   build.
+2. `pyEfis/tools/build_terrain_mosaic.py <tiletree> --levels 4 5 6` — stitch the
+   coarse `.mip` levels into one whole-extent **mosaic** per level under
+   `.mip/mosaic/` (fast — seconds). The renderer memory-maps it for
+   *constant-time* wide-range zoom (see § Mosaic). Idempotent; persists beside
+   the pyramid.
+3. `packtool make-terrain … --upload` — zip each region (native **plus** the
+   `.mip/` tiles) and, once, `make-terrain --mosaic` to publish the national
+   mosaic pack. Every user's device then pulls both through the normal
+   `pyefis-data update` — no per-device build.
+
+## Mosaic — instant national zoom (primer)
+
+The pyramid made wide-range terrain *render-bound* rather than *tile-bound*, but
+a national view still opened hundreds-to-thousands of tiny `.mip` files (cold
+I/O). The **mosaic** removes even that: one memory-mappable big-endian `>i2`
+file per coarse level (`.mip/mosaic/L{4,5,6}.hgt` + a `.json` sidecar with the
+extent/pitch), sampled in a single vectorized bilinear. Render then goes flat
+**~0.19 s at any range** — constant-time nationwide zoom.
+
+A mosaic is a **single whole-extent stitch**, so — unlike the per-tile pyramid —
+it can't ride inside the per-region packs (a device unions arbitrary regions;
+per-region mosaic pieces don't stitch back into one file on-device). It ships
+instead as **one national `terrain-mosaic` pack**, tagged with the synthetic
+region `mosaic`. The updater **auto-tracks it whenever any terrain region is
+tracked**, and it unzips straight into `terrain/tiles/.mip/mosaic/`, which the
+renderer's `TileCache.get_mosaic()` reads with no code change (absent ⇒ the
+per-tile path still works, just slower at range).
 
 ## Pack format
 
@@ -72,26 +95,36 @@ Requirements on the build host: the HGT tile tree, this package
 #    ride along in each region pack automatically.
 python /path/to/pyEfis/tools/build_terrain_mips.py /path/to/glo30hgt   # -j N to cap workers
 
-# 2. Build + upload region packs (now native + pyramid). One region shown;
-#    repeat per region, or loop:
+# 2. Stitch the coarse mosaic from the mip tree (fast; once per edition).
+python /path/to/pyEfis/tools/build_terrain_mosaic.py /path/to/glo30hgt --levels 4 5 6
+
+# 3. Build + upload region packs (native + pyramid), then the national mosaic
+#    pack. One region shown; repeat per region, or loop:
 R2_ENDPOINT=https://<acct>.r2.cloudflarestorage.com \
 R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
 packtool make-terrain /path/to/glo30hgt \
     --edition 2024ed --only us-west \
     --url-base https://navdata.aerocommons.org/packs \
     --upload --bucket makerplane-data --sec keys/minisign.sec
+# ... then once, the whole-extent mosaic pack (all regions share it):
+packtool make-terrain /path/to/glo30hgt --edition 2024ed --mosaic \
+    --url-base https://navdata.aerocommons.org/packs \
+    --upload --bucket makerplane-data --sec keys/minisign.sec
 ```
+
+In practice all of the above runs unattended in the **cloud container**
+(`packtools/cloud/`, `entrypoint.sh` — mips → mosaic → region packs → mosaic
+pack → verify); the manual commands are the same steps for a workstation.
 
 Each run builds the region pack, uploads it to R2, and **upserts** the
 terrain entry into the existing manifest (preserving navdata), re-signing.
 Run region-by-region for resilience (each commits independently).
 
 Notes:
-- `--no-compress` skips DEFLATE. With a fast uplink this is far quicker to
-  build (no CPU compression) at the cost of larger files — and R2 storage is
-  cheap with **zero egress**, so it's usually the right call. (NA total
-  ≈ 91 GB uncompressed; +pyramid ≈ 120 GB.) See § Compression & data footprint
-  for the numbers and the pre-release decision.
+- Packs now ship **DEFLATE-compressed** by default (~50 % smaller on R2 and the
+  wire, at the cost of build CPU + a one-time Pi decompress on pull). Pass
+  `--no-compress` to store uncompressed (faster build, larger files) if a
+  specific run wants it. See § Compression & data footprint for the numbers.
 - Run on a workstation that holds the GLO-30 tree — **not** the EFIS device.
 - Don't run the daily navdata pipeline and a terrain upload at the same
   time; both rewrite the manifest.
@@ -135,17 +168,14 @@ SD-card / small deployments pull only their flying-area regions.
 
 ## Compression & data footprint (design note)
 
-Terrain packs currently ship **`--no-compress`** (`ZIP_STORED`). On a fast
-(~gigabit) build/publish uplink that is the right call: DEFLATE would add real
-CPU to every region build and make the Pi decompress on pull, to save a transfer
-that is already only minutes — and R2 storage is ~$1.40/mo for all-NA with zero
-egress. So for our own bench + early users, uncompressed wins end-to-end.
-
-**This flips for a public release.** Footprint matters a lot for consumers on
-slow or metered links, and for parity with commercial systems: Garmin's terrain
-database is far smaller than ours — coarser tiles plus compression, a deliberate
-trade of detail for size that still yields acceptable results. That is not an
-accident, and it is worth designing for before we ship widely.
+Terrain packs now ship **DEFLATE-compressed** (`ZIP_DEFLATED`, the `make-terrain`
+default; the cloud pipeline dropped its old `--no-compress`). Footprint matters
+for consumers on slow or metered links, and for parity with commercial systems:
+Garmin's terrain database is far smaller than ours — coarser tiles plus
+compression, a deliberate trade of detail for size that still yields acceptable
+results. Halving the download (~120 GB → ~60 GB all-NA) is worth the build CPU +
+one-time Pi decompress; R2 storage stays cheap either way (~$1.40/mo, zero
+egress). Pass `--no-compress` for a one-off uncompressed build if ever needed.
 
 Measured DEFLATE-6 on real GLO-30 tiles from this tree:
 
@@ -157,10 +187,9 @@ Measured DEFLATE-6 on real GLO-30 tiles from this tree:
 | mip pyramid (per tile) | 8.65 MB | 2.78 MB | 68 % |
 
 Blended NA ≈ **~50 % smaller** (~120 GB → ~60 GB per edition; ruggedness drives
-the spread — flat coast squashes hard, mountains resist). **Pre-release decision
-(revisit `--no-compress`):** options, roughly in increasing effort — (a) ship
-compressed packs (halve the download, cost = build CPU + Pi decompress);
-(b) compress only large/rugged regions; (c) coarser native base — decimate
-GLO-30 to a smaller level-0 (closer to Garmin's approach: smaller *and* faster to
-render, at a bounded detail cost) while keeping the pyramid on top. Tracked here
-as an open pre-release call; the current bench edition stays uncompressed.
+the spread — flat coast squashes hard, mountains resist). **Decision (2026-07):
+option (a) shipped** — packs are compressed by default. Two further footprint
+levers remain open if a public release wants them: (b) compress only
+large/rugged regions; (c) a coarser native base — decimate GLO-30 to a smaller
+level-0 (closer to Garmin's approach: smaller *and* faster to render, at a
+bounded detail cost) while keeping the pyramid on top.
