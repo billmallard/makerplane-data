@@ -1,0 +1,31 @@
+# Terrain pyramid build + publish — QNAP Container Station (or any Docker host).
+# Batch job: builds the GLO-30 mip pyramid and publishes region packs to R2,
+# then exits. No listening service, so no port mapping is needed.
+#
+# ┌─ QNAP NATIVE VOLUME PATH — the hard-won gotcha (see README) ───────────────┐
+# │ Share = pyEfisData (SMB: \\10.110.10.6\pyEfisData). Inside Container        │
+# │ Station the host side MUST be the native storage-pool path, NOT the SMB /   │
+# │ UNC path:                                                                   │
+# │     /share/<POOL>/pyEfisData/EarthData   e.g. /share/CACHEDEV1_DATA/...      │
+# │ Find <POOL> by SSH'ing the NAS and running:  ls /share/                     │
+# │ Do NOT use \\10.110.10.6\pyEfisData (UNC), /share/pyEfisData (symlink), or  │
+# │ Z:\ — Container Station mounts those as EMPTY volumes and fails SILENTLY.   │
+# └────────────────────────────────────────────────────────────────────────────┘
+services:
+  terrain-build:
+    build: .
+    image: makerplane/terrain-build:latest
+    container_name: terrain-build
+    volumes:
+      # EDIT <POOL> to match your NAS (from `ls /share/`). Mounts the EarthData
+      # folder that holds the tile tree (glo30hgt/) AND the pack scratch.
+      - /share/<POOL>/pyEfisData/EarthData:/data
+    env_file:
+      - .env                    # R2_* creds + MINISIGN_SECRET_KEY — gitignored, never commit
+    environment:
+      TILE_ROOT: /data/glo30hgt          # native GLO-30 tiles live here on the NAS
+      PACK_OUT:  /data/pack-scratch      # region packs stage here, deleted after upload
+      EDITION:   "2024ed"
+      JOBS:      "8"                      # V1500B = 4 cores / 8 threads
+      CODE_REF:  dev                      # branch/tag of pyEfis + makerplane-data to run
+    restart: "no"                          # run-once batch job
