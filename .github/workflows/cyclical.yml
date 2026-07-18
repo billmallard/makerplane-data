@@ -14,7 +14,7 @@ on:
 # repo variables once a standalone pyefis-tools package exists.
 env:
   PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
-  PYEFIS_REF:  ${{ vars.PYEFIS_REF  || 'display-changes' }}
+  PYEFIS_REF:  ${{ vars.PYEFIS_REF  || 'dev' }}
 
 jobs:
   build:
