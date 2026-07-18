@@ -15,9 +15,11 @@ so the session cookie applies with no CORS.
 
 ## Where it lives + the two-repo split
 
-- **This code:** `makerplane-data/configurator/`, branch **`feat/accounts-auth`**.
+- **This code:** `makerplane-data/configurator/`, branch **`dev`** (DEV/QA/PROD
+  model since 2026-07-08: `dev` → `qa` → `main`, promotion by merge; each push
+  deploys its environment).
 - **Instrument rendering + editor assets:** the **`makerplane/pyEfis`** repo
-  (branch `display-changes`, off `gpu-required`). Workers can't run Qt, so pyEfis
+  (branch `dev`). Workers can't run Qt, so pyEfis
   generates `schema.json`, palette SVGs, `groups.json`, and SVS images and they're
   uploaded to R2. **If you change instrument options or add an instrument, you
   edit pyEfis (`src/pyefis/editor/schema.py`), regenerate, and re-upload to R2** —
@@ -199,17 +201,18 @@ follows.)
 
 ## Status / next
 
-Done: auth, projects/devices/configs CRUD, and the full editor with live
-device-faithful previews for every instrument. **Next = device deployment (#65):**
-claim-code pairing → scoped device token → compile the design to a pyEfis screen
-YAML → signed `config` pack → device-pull endpoint the on-Pi `pyefis-data`
-updater fetches and atomic-swaps into `~/makerplane/pyefis/config`.
+Done: auth, projects/devices/configs CRUD, the full editor with live
+device-faithful previews, and **device deployment** (claim-code pairing →
+scoped device token → `pyefis-data config-pull` with snapshot + crash
+rollback). Open device-deployment bugs: **#9** (device not pulling), **#10**
+(numeric-string coercion at the source), **#85** (aircraft-symbol drawing,
+WIP). Live thread state: `../../STATE.md`.
 
 ## Conventions
 
 - No emojis in code or commit messages.
 - Prefer a focused commit per change; the user values commit-history granularity.
-- Two repos move together for editor work: pyEfis (`display-changes`, schema/
-  assets) and makerplane-data (`feat/accounts-auth`, this Worker). Note both SHAs
-  when relevant.
+- Two repos move together for editor work: pyEfis (`dev`, schema/assets) and
+  makerplane-data (`dev`, this Worker). Note both SHAs when relevant, and
+  promote them in lockstep through `qa` → prod.
 - Don't commit generated assets here — they live in R2, sourced from pyEfis.

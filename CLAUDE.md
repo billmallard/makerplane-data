@@ -121,7 +121,7 @@ CONTRIBUTING.md); commit with `git commit -s`.
 The FAA-data → sqlite build tools (`build_airport_db.py`, `build_obstacle_db.py`)
 live in **pyEfis**, not here. `packtools/build/` invokes them by path via
 `PYEFIS_TOOLS_DIR`; the `cyclical.yml` workflow checks out
-`billmallard/pyEfis@display-changes` and points at its `tools/`. **Do not copy
+`billmallard/pyEfis@dev` and points at its `tools/`. **Do not copy
 that tool source into this repo** — one implementation. A standalone
 `pyefis-tools` package is a later refactor (`pyproject.toml [tools]` extra is the
 placeholder).
@@ -150,13 +150,14 @@ placeholder).
 - Configurator deploy is separate (`npx wrangler deploy` from `configurator/`);
   see configurator/CLAUDE.md.
 
-## Current state (2026-07-05)
+## Current state (2026-07-18)
 
-- Branch: **`feat/accounts-auth`** (merged to `main` on 2026-07-05 for the
-  accounts/auth work; still the active configurator line). `packtools`/
-  `pyefis_data` Phases A–F are complete and live end-to-end.
-- Package version **0.2.11** (`pyproject.toml`). The **README status line still
-  says 0.1.7 — stale**; trust `pyproject.toml`.
+- Branch model (since 2026-07-08): **`dev`** (active development — work here)
+  → `qa` → `main`, promotion by merge; each push redeploys that environment
+  (Worker + D1 migrations). Old feature branches (`feat/accounts-auth`, …) are
+  parked history. Live thread state: `../STATE.md`.
+- `packtools`/`pyefis_data` Phases A–F are complete and live end-to-end.
+  Package version **0.2.11** (`pyproject.toml`; README agrees).
 - `ssh pyefis` reaches the Pi 5 test bench; mid-flight patching is explicitly OK
   (it's a debug bench, not a certified article).
 
