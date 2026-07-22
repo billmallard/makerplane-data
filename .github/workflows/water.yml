@@ -19,7 +19,7 @@ on:
 
 env:
   PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
-  PYEFIS_REF:  ${{ vars.PYEFIS_REF  || 'gpu-required' }}
+  PYEFIS_REF:  ${{ vars.PYEFIS_REF  || 'dev' }}
 
 jobs:
   build:
