@@ -123,11 +123,22 @@ class Manifest:
         return [p for p in self.packs if p.id == pack_id]
 
     def select(self, pack_id: str, day: _dt.date) -> PackEntry | None:
-        """The entry whose currency window covers ``day`` (else None)."""
-        for p in self.for_id(pack_id):
-            if p.covers(day):
-                return p
-        return None
+        """The current edition of ``pack_id`` for ``day``: among the entries
+        whose currency window covers ``day``, the newest one (else None).
+
+        Calendar packs (airports/navaids) have disjoint windows, so at most
+        one covers a given day and "newest" is moot. No-date packs
+        (water/highways, ``effective is None``) all cover every day, so this
+        is what lets a re-issue (r5 -> r6) win over the edition it replaces
+        while both are still listed in the catalog -- without it the picker
+        returned whichever happened to be first in the list (the older one).
+        Ordering matches ``prune_old_cycles``: latest effective date, then
+        highest cycle.
+        """
+        covering = [p for p in self.for_id(pack_id) if p.covers(day)]
+        if not covering:
+            return None
+        return max(covering, key=lambda p: (p.effective or "", p.cycle))
 
     # --- serialization ---
     def to_obj(self) -> dict:

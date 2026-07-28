@@ -64,6 +64,21 @@ def test_select_by_date_window():
     assert m.select("navdata-conus", D("2030-01-01")) is None
 
 
+def test_select_no_date_pack_prefers_newest_cycle():
+    # No-date packs (water/highways) all "cover" every day, so when a re-issue
+    # leaves two editions in the catalog the picker must choose the newer one
+    # (r6), not whichever is first in the list. Regression for the water-na
+    # r5->r6 re-issue that the device kept ignoring.
+    def water(cycle):
+        return _entry(id="water-na", kind="water", cycle=cycle,
+                      effective=None, expires=None)
+    for order in (["2026q2r5", "2026q2r6"], ["2026q2r6", "2026q2r5"]):
+        m = Manifest.new(GEN)
+        for c in order:
+            m.upsert(water(c))
+        assert m.select("water-na", D("2026-07-28")).cycle == "2026q2r6", order
+
+
 def test_non_cyclical_entry_always_covers():
     e = _entry(id="terrain-na", kind="terrain", cycle="2024ed",
                effective=None, expires=None)
