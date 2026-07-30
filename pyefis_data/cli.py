@@ -431,14 +431,27 @@ def cmd_config_pull(args) -> int:
     if args.no_restart:
         print("(skipped pyEfis restart; --no-restart)")
         return 0
-    if config_pull.restart_and_verify():
+    outcome = config_pull.restart_and_verify(scope=cfg.pyefis_unit_scope)
+    if outcome == config_pull.RESTART_OK:
         print("restarted pyEfis -- panel is up")
         return 0
-    # The new config crashed pyEfis -> roll back to the last working state so the
-    # device is never left on a screen it can't boot.
+    if outcome == config_pull.RESTART_FAILED:
+        # The panel installed fine; only the restart *mechanism* failed (e.g.
+        # pyEfis runs in a systemd scope we couldn't reach). Do NOT roll back a
+        # good panel over that -- keep it and tell the user how to apply it. This
+        # is the #23 bug: a wrong scope used to masquerade as a crashed panel.
+        print(f"installed panel config v{version}, but could not restart pyEfis "
+              f"automatically (its systemd service was unreachable). The panel is "
+              f"installed -- restart pyEfis to apply it (e.g. `sudo systemctl "
+              f"restart pyefis` for a system service, or `systemctl --user restart "
+              f"pyefis` for a user service), or set `pyefis_unit_scope: user|system` "
+              f"in data.yaml.", file=sys.stderr)
+        return 1
+    # RESTART_CRASHED: the new config actually crashed pyEfis -> roll back to the
+    # last working state so the device is never left on a screen it can't boot.
     restored = config_pull.rollback()
     write_config(args.config, {"config_version": old_version})
-    config_pull.restart_pyefis()
+    config_pull.restart_pyefis(scope=cfg.pyefis_unit_scope)
     print(f"new config crashed pyEfis on load; rolled back to {restored} "
           f"(config v{version} left available to retry)", file=sys.stderr)
     return 1
