@@ -16,6 +16,7 @@ in the workspace ledger (`makerplane/STATE.md`, local umbrella dir).
 |---|---|
 | [cloudflare_setup.md](cloudflare_setup.md) | Reproduce-from-nothing Cloudflare runbook (R2, Worker, D1) |
 | [ci_build_pipeline.md](ci_build_pipeline.md) | CI / daily cyclical build pipeline |
+| [release_process.md](release_process.md) | **PROCESS** — versioned `dev→qa→main` releases + tag; the kind-on-main-before-publish rule (adopted 2026-08-01) |
 | [panel_config_format.md](panel_config_format.md) | Panel/screen config format the configurator emits |
 | [device_deployment.md](device_deployment.md) | Device pairing + config-pull deployment path |
 | [on_device_pack_picker.md](on_device_pack_picker.md) | On-device pack picker (shipped) |
@@ -28,6 +29,7 @@ in the workspace ledger (`makerplane/STATE.md`, local umbrella dir).
 | Doc | Status |
 |---|---|
 | [environments.md](environments.md) | SPEC, §9 locked 2026-07-08 — DEV/QA/PROD env split; **implementation not started** |
+| [dev_navdata_environment.md](dev_navdata_environment.md) | DESIGN NOTE 2026-08-01 — a DEV pack origin (`dev.navdata`); fills the "navdata OUT" gap in environments.md; **open decisions for Bill** |
 | [canfix_configurator.md](canfix_configurator.md) | SPEC — V-speed/gauge-band profiles → fixgw init_data; **awaiting Bill's review** |
 | [control_bindings.md](control_bindings.md) | SPEC — control-bindings umbrella (Button shipped) |
 | [knob_encoder_configurator.md](knob_encoder_configurator.md) | SPEC — knob/encoder bindings (awaiting hardware) |
