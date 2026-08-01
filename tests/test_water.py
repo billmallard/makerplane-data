@@ -137,3 +137,33 @@ def test_highways_install(tmp_path):
     st = {r.pack_id: r for r in up.status()}
     assert st["highways-conus"].status == "current"
     assert st["highways-conus"].name == "Roads & Highways"
+
+
+def test_rivers_install(tmp_path):
+    """Rivers is a distinct BULK kind reusing the highways sqlite-pack shape
+    (OSM waterway lines, #92/#39) — separate current symlink + status label."""
+    db = tmp_path / "rivers.sqlite"
+    con = sqlite3.connect(str(db))
+    con.execute("CREATE TABLE highway_lines (id INTEGER, fclass TEXT)")
+    con.execute("INSERT INTO highway_lines VALUES (1, 'river')")
+    con.commit(); con.close()
+    pack = tmp_path / "build" / "packs" / "rivers-conus-2026q2.pack"
+    pack.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(db, pack)
+    meta = PackMeta(id="rivers-conus", kind="rivers", cycle="2026q2",
+                    attribution="OpenStreetMap contributors (ODbL)")
+    embed_sqlite(pack, meta)
+    entry = PackEntry.from_pack(pack, meta, url=f"{ORIGIN}/packs/{pack.name}",
+                                regions=["conus"])
+    store, pub = _publish(tmp_path, [(entry, pack)])
+    cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", regions=("conus",))
+    up = Updater(cfg, pub, remote=LocalDirRemote(store.root), today=TODAY)
+    up.update()
+    f = tmp_path / "pi" / "rivers" / "current" / "rivers.sqlite"
+    assert f.exists()
+    con = sqlite3.connect(str(f))
+    assert con.execute("SELECT COUNT(*) FROM highway_lines").fetchone()[0] == 1
+    con.close()
+    st = {r.pack_id: r for r in up.status()}
+    assert st["rivers-conus"].status == "current"
+    assert st["rivers-conus"].name == "Rivers & Waterways"

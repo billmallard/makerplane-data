@@ -48,6 +48,7 @@ SQLITE_KINDS: dict[str, tuple[str, str]] = {
     "obstacles": ("obstacles", "obstacles.sqlite"),
     "water": ("water", "water.sqlite"),
     "highways": ("highways", "highways.sqlite"),
+    "rivers": ("rivers", "rivers.sqlite"),
     # Supplemental airport providers (Canada/OurAirports, future sources). Many
     # packs share this kind, so each installs under its own pack-id subdir
     # (airports/<pack_id>/current/airports.sqlite) and the SVS merges them.
@@ -70,7 +71,7 @@ def _sqlite_subdir(kind: str, pack_id: str) -> tuple[str, str]:
 # Selection policy (what a Pi tracks):
 #   core navdata kinds  -> tracked by default (small, CONUS-wide)
 #   bulk kinds          -> opt-in by region (large, region-grouped)
-BULK_KINDS = ("water", "terrain", "charts", "highways")
+BULK_KINDS = ("water", "terrain", "charts", "highways", "rivers")
 
 # Zip "tile" packs that are unzipped and merged into a shared tile tree
 # (vs. sqlite packs that are swapped via the current symlink).
@@ -92,6 +93,7 @@ KIND_LABELS = {
     "terrain": "Terrain",
     "charts": "Charts",
     "highways": "Roads & Highways",
+    "rivers": "Rivers & Waterways",
 }
 
 # status -> display severity. Subtle by design: expired/out-of-window is amber,
