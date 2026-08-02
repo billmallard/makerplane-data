@@ -8,6 +8,7 @@ halves of the system."""
 
 import datetime as dt
 import sqlite3
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -258,6 +259,10 @@ def test_offline_uses_cached_manifest(tmp_path):
 def test_import_dir_via_cli_offline(tmp_path, monkeypatch):
     root, pub = build_store(tmp_path)
     monkeypatch.setattr(cli, "PUBLIC_KEY", pub)   # cli embeds the prod key; sub the test one
+    # Pin the updater's clock: the CLI path has no today seam, so without this it
+    # uses the real date and cycle 2606 (expires 2026-07-09) reads as expired ->
+    # select() returns None -> nothing installs. Mirrors make_updater(today=TODAY).
+    monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))
     piroot = tmp_path / "pi"
     rc = cli.main(["--base-url", ORIGIN, "--root", str(piroot),
                    "import", str(root)])
@@ -300,6 +305,7 @@ def test_update_only_persists_and_installs(tmp_path, monkeypatch):
     selection), so the next auto-update tracks the same set."""
     root, pub = build_store(tmp_path)
     monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))  # pin clock (see import test)
     piroot = tmp_path / "pi"
     cfgpath = tmp_path / "data.yaml"
     rc = cli.main(["--config", str(cfgpath), "--base-url", ORIGIN, "--root", str(piroot),
@@ -319,6 +325,7 @@ def test_update_only_persists_root_when_given(tmp_path, monkeypatch):
     persists the new data root to data.yaml."""
     root, pub = build_store(tmp_path)
     monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))  # pin clock (see import test)
     cfgpath = tmp_path / "data.yaml"
     newroot = tmp_path / "usbssd"
     rc = cli.main(["--config", str(cfgpath), "--base-url", ORIGIN,
