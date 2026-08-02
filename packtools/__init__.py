@@ -9,7 +9,7 @@ The manifest is the contract between all three legs of the system
 (builder, distribution, on-Pi updater); keep its schema stable.
 """
 
-__version__ = "0.2.11"
+__version__ = "0.3.0"
 
 # Format version of the catalog manifest. Bump only on breaking changes;
 # the Pi-side reader checks this.

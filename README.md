@@ -14,7 +14,7 @@ flight-data bus; that contract lives in `canfix.json` / FIX-Gateway.
 > website with an on-device pack picker, and the in-EFIS DATA flag, all proven
 > end-to-end against live FAA/OSM data and the production origin
 > (**`navdata.aerocommons.org`**, Cloudflare R2, zero egress). Current release:
-> **0.2.11**. CIFP packs remain deferred (GPL indexer). See
+> **0.3.0**. CIFP packs remain deferred (GPL indexer). See
 > [docs/data_manager_implementation.md](docs/data_manager_implementation.md)
 > for the full phase plan (A–G).
 

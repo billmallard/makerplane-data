@@ -7,4 +7,4 @@ verify-then-atomic-swap install. Shares the signing and manifest
 modules with packtools so the build and consume sides can never drift.
 """
 
-__version__ = "0.2.11"
+__version__ = "0.3.0"
