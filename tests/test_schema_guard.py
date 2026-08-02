@@ -299,6 +299,15 @@ def test_real_contracts_self_consistent():
                 assert col in have, f"{contract.builder}: enum col {fname}.{col} not in snapshot"
 
 
+def test_airports_contract_guards_vgsi_fields():
+    """VG1/CAP-123: build_airport_db now reads VGSI_CODE + VISUAL_GLIDE_PATH_ANGLE
+    from APT_RWY_END, so the guard must require them — a rename upstream should
+    fail the run loudly, not silently drop the data (schema_guard's own invariant:
+    required_columns == every column the builder reads)."""
+    required = CONTRACTS["airports"].required_columns["APT_RWY_END.csv"]
+    assert {"VGSI_CODE", "VISUAL_GLIDE_PATH_ANGLE"} <= set(required)
+
+
 @pytest.mark.parametrize("builder,rel", [
     ("navaids", "work/localwork/navaids-conus/2607/extracted"),
     ("airports", "work/localwork/airports-conus/2607/extracted"),
