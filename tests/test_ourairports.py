@@ -15,6 +15,7 @@ CREATE TABLE runway_ends (site_no TEXT, rwy_id TEXT, end_id TEXT, true_alignment
   lat REAL, lon REAL, elev_ft REAL, displaced_thr_lat REAL, displaced_thr_lon REAL,
   displaced_thr_len_ft REAL, tdz_elev_ft REAL, marking_type TEXT, apch_lgt_code TEXT,
   end_lgts_flag TEXT, cntrln_lgts_flag TEXT, tdz_lgt_flag TEXT,
+  vgsi_code TEXT, visual_gpa REAL,
   PRIMARY KEY (site_no, rwy_id, end_id));
 """
 
@@ -80,6 +81,8 @@ def test_merge_adds_country_and_keeps_us(tmp_path):
     le = con.execute("SELECT * FROM runway_ends WHERE site_no='CYQG' AND end_id='07'").fetchone()
     assert abs(le["lat"] - 42.270) < 1e-6 and le["displaced_thr_len_ft"] == 200
     assert le["marking_type"] == "" and le["apch_lgt_code"] == ""    # NASR-only fields null
+    # VGSI is FAA-only: OurAirports has none, so it stays NULL (VG1/CAP-123).
+    assert le["vgsi_code"] is None and le["visual_gpa"] is None
 
     # synthesized runway has thresholds straddling the airport ref along heading 90
     assert counts["runways_direct"] == 1 and counts["runways_synth"] == 1

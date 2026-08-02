@@ -50,3 +50,25 @@ def test_root_expands_user(tmp_path):
     p.write_text("root: ~/somewhere/data\n")
     cfg = Config.load(p)
     assert "~" not in str(cfg.root)
+
+
+def test_pyefis_unit_scope_defaults_to_none(tmp_path):
+    p = tmp_path / "data.yaml"
+    p.write_text("base_url: https://x\n")
+    assert Config.load(p).pyefis_unit_scope is None   # None => auto-detect
+
+
+def test_pyefis_unit_scope_honours_valid_values(tmp_path):
+    for val in ("user", "system"):
+        p = tmp_path / "data.yaml"
+        p.write_text(f"pyefis_unit_scope: {val}\n")
+        assert Config.load(p).pyefis_unit_scope == val
+
+
+def test_pyefis_unit_scope_ignores_bad_values(tmp_path):
+    """A typo (or wrong type) must fall back to auto-detect, never obeyed -- a
+    bad value can't point the restart at a scope that doesn't exist (#23)."""
+    for bad in ("User", "systemd", "both", "true"):
+        p = tmp_path / "data.yaml"
+        p.write_text(f"pyefis_unit_scope: {bad}\n")
+        assert Config.load(p).pyefis_unit_scope is None
