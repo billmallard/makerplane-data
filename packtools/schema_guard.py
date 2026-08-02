@@ -122,7 +122,9 @@ class Contract:
 
 # --- The contracts -------------------------------------------------------
 # required_columns: every column the pyEfis builder actually reads (verified
-#   against tools/build_airport_db.py / build_navaid_db.py, 2026-07-05).
+#   against tools/build_airport_db.py / build_navaid_db.py, 2026-07-05; VGSI_CODE
+#   + VISUAL_GLIDE_PATH_ANGLE added 2026-08-01 when build_airport_db began
+#   ingesting them, VG1/CAP-123).
 # floors: 50% of the 2607 build, derived 2026-07-05 from the inputs under
 #   work/localwork/. Airports: 19436 / 23208 / 23731. Navaids: 1629 / 70031 /
 #   17307. Do NOT invent or tighten these without re-deriving from a real build.
@@ -143,7 +145,8 @@ CONTRACTS: dict[str, Contract] = {
                 "LAT_DISPLACED_THR_DECIMAL", "LONG_DISPLACED_THR_DECIMAL",
                 "DISPLACED_THR_LEN", "TDZ_ELEV", "RWY_MARKING_TYPE_CODE",
                 "APCH_LGT_SYSTEM_CODE", "RWY_END_LGTS_FLAG",
-                "CNTRLN_LGTS_AVBL_FLAG", "TDZ_LGT_AVBL_FLAG"}),
+                "CNTRLN_LGTS_AVBL_FLAG", "TDZ_LGT_AVBL_FLAG",
+                "VGSI_CODE", "VISUAL_GLIDE_PATH_ANGLE"}),
         },
         structure_snapshots=("APT_structure.csv",),
         floors={"airports": 9700, "runways": 11600, "runway_ends": 11800},

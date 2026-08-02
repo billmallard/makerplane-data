@@ -94,3 +94,10 @@ regions: []
 auto_update: true     # let the systemd timer refresh on the FAA cycle
 stage_next: true      # pre-download the next AIRAC cycle before it takes effect
 # storage_budget_gb: 64   # optional cap; updater skips bulk packs over budget
+
+# Which systemd scope runs pyEfis, so `pyefis-data config-pull` restarts the
+# right service. Leave commented to auto-detect (finds the loaded pyefis unit,
+# preferring a `--user` one -- the Raspberry Pi image default). Set it only if
+# your install runs pyEfis as a *system* service (e.g. an x86 appliance) and
+# auto-detect can't see it -- a wrong value is ignored, not obeyed.
+# pyefis_unit_scope: system   # user | system

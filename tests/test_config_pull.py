@@ -269,3 +269,149 @@ def test_manual_pull_fails_fast_without_wait(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda _s: None)
     assert cli.cmd_config_pull(_cp_args(wait_online=0)) == 2
     assert calls["n"] == 1            # one attempt, no retry loop
+
+
+# --- restart scope detection + no false rollback (#23) -----------------------
+
+def _fake_systemd(scope_with_unit="user", healthy=True, restartable=True):
+    """A fake ``subprocess.run`` standing in for systemd. ``scope_with_unit`` is
+    the scope ('user'/'system'/None) whose pyefis unit is loaded and (if
+    ``restartable``) restartable; ``healthy`` controls whether the running unit
+    verifies as up. Records the scope each restart used in ``.restarts``."""
+    import subprocess as sp
+    log = {"restarts": []}
+
+    def run(argv, **kw):
+        is_user = "--user" in argv
+        scope = "user" if is_user else "system"
+        def done(out=""):
+            return sp.CompletedProcess(argv, 0, stdout=out, stderr="")
+        if "show" in argv and "LoadState" in argv:
+            return done("loaded" if scope == scope_with_unit else "not-found")
+        if "restart" in argv:
+            log["restarts"].append(scope)
+            if scope == scope_with_unit and restartable:
+                return done()
+            raise sp.CalledProcessError(5, argv)   # no unit / unreachable here
+        if "show" in argv and "MainPID" in argv:
+            return done("4242" if healthy else "0")
+        if "show" in argv and "ActiveState" in argv:
+            return done("active" if healthy else "failed")
+        if "status" in argv:
+            return done("pyefis.service: running clean\nno errors here")
+        return done()
+
+    return run, log
+
+
+def test_detect_prefers_user_then_system(monkeypatch):
+    """Scope detection: user unit wins when present; otherwise system; else the
+    historical 'user' default when neither scope answers."""
+    from pyefis_data import config_pull
+    run, _ = _fake_systemd(scope_with_unit="user")
+    monkeypatch.setattr(config_pull.subprocess, "run", run)
+    assert config_pull._detect_scope() == "user"
+
+    run, _ = _fake_systemd(scope_with_unit="system")
+    monkeypatch.setattr(config_pull.subprocess, "run", run)
+    assert config_pull._detect_scope() == "system"
+
+    run, _ = _fake_systemd(scope_with_unit=None)   # loaded nowhere
+    monkeypatch.setattr(config_pull.subprocess, "run", run)
+    assert config_pull._detect_scope() == "user"
+
+
+def test_system_service_verifies_without_false_crash(monkeypatch):
+    """The #23 case: pyEfis is a *system* service. restart_and_verify must detect
+    the system scope, restart THAT unit, and report OK -- never a spurious crash
+    just because `systemctl --user` has no pyefis unit."""
+    from pyefis_data import config_pull
+    run, log = _fake_systemd(scope_with_unit="system", healthy=True)
+    monkeypatch.setattr(config_pull.subprocess, "run", run)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    assert config_pull.restart_and_verify(wait_s=0) == config_pull.RESTART_OK
+    assert log["restarts"] == ["system"]        # detected + restarted the system unit
+
+
+def test_explicit_scope_override_is_honoured(monkeypatch):
+    """An explicit ``pyefis_unit_scope`` skips detection and restarts that scope."""
+    from pyefis_data import config_pull
+    run, log = _fake_systemd(scope_with_unit="system", healthy=True)
+    monkeypatch.setattr(config_pull.subprocess, "run", run)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    assert config_pull.restart_and_verify(wait_s=0, scope="system") == config_pull.RESTART_OK
+    assert log["restarts"] == ["system"]
+
+
+def test_unreachable_service_is_restart_failed_not_crashed(monkeypatch):
+    """A restart command that cannot run in ANY scope is RESTART_FAILED (broken
+    mechanism), never RESTART_CRASHED (broken panel) -- so the caller won't roll
+    back a good panel."""
+    from pyefis_data import config_pull
+    run, _ = _fake_systemd(scope_with_unit=None, restartable=False)
+    monkeypatch.setattr(config_pull.subprocess, "run", run)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    assert config_pull.restart_and_verify(wait_s=0) == config_pull.RESTART_FAILED
+
+
+def test_crashed_panel_still_reports_crashed(monkeypatch):
+    """A restart that runs but leaves pyEfis down (PID 0 / inactive) is still
+    RESTART_CRASHED so the crash-rollback path is preserved."""
+    from pyefis_data import config_pull
+    run, _ = _fake_systemd(scope_with_unit="user", healthy=False)
+    monkeypatch.setattr(config_pull.subprocess, "run", run)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    assert config_pull.restart_and_verify(wait_s=0) == config_pull.RESTART_CRASHED
+
+
+def test_traceback_in_log_reports_crashed(monkeypatch):
+    """A stable, active PID whose log carries a Traceback is a screen-build
+    exception, still RESTART_CRASHED (the lingering-FIX-thread false 'up')."""
+    from pyefis_data import config_pull
+    import subprocess as sp
+
+    def run(argv, **kw):
+        def done(out=""):
+            return sp.CompletedProcess(argv, 0, stdout=out, stderr="")
+        if "show" in argv and "LoadState" in argv:
+            return done("loaded" if "--user" in argv else "not-found")
+        if "restart" in argv:
+            return done()
+        if "show" in argv and "MainPID" in argv:
+            return done("999")
+        if "show" in argv and "ActiveState" in argv:
+            return done("active")
+        if "status" in argv:
+            return done("python[999]: Traceback (most recent call last):\n"
+                        "python[999]:   KeyError: Screen FOO Not Found")
+        return done()
+
+    monkeypatch.setattr(config_pull.subprocess, "run", run)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    assert config_pull.restart_and_verify(wait_s=0) == config_pull.RESTART_CRASHED
+
+
+def test_cli_restart_failed_keeps_panel_and_does_not_roll_back(tmp_path, monkeypatch):
+    """End-to-end #23 regression: install succeeds, the restart MECHANISM fails
+    (unreachable service). The good panel must be KEPT (no rollback), exit 1 with
+    a 'restart it manually' message -- not the old false 'crashed; rolled back'."""
+    import argparse
+    from pyefis_data import cli, config_pull
+
+    cd = _config_dir(tmp_path)
+    doc_text = yaml.safe_dump(_doc("PFD_AI_ONLY"))
+    monkeypatch.setattr(config_pull, "config_dir", lambda: cd)
+    monkeypatch.setattr(config_pull, "fetch_config",
+                        lambda cfg: ("updated", 5, doc_text))
+    monkeypatch.setattr(config_pull, "restart_and_verify",
+                        lambda **kw: config_pull.RESTART_FAILED)
+    rolled = {"called": False}
+    monkeypatch.setattr(config_pull, "rollback",
+                        lambda *a, **k: rolled.__setitem__("called", True) or "x")
+
+    args = argparse.Namespace(config=str(tmp_path / "data.yaml"),
+                              configurator_url=None, no_restart=False, wait_online=0)
+    rc = cli.cmd_config_pull(args)
+    assert rc == 1
+    assert rolled["called"] is False                        # a good panel is kept
+    assert (cd / "screens" / "managed.yaml").exists()       # the install stuck

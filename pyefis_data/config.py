@@ -59,6 +59,11 @@ class Config:
     device_token: str | None = None
     device_id: int | None = None
     config_version: int | None = None   # installed panel-config version (for If-None-Match)
+    # Which systemd scope manages the pyEfis service, so config-pull restarts the
+    # right one. 'user' = `systemctl --user` (the Raspberry Pi image default),
+    # 'system' = a system service (e.g. the x86 appliance). None = auto-detect
+    # whichever scope has a loaded pyefis unit (#23).
+    pyefis_unit_scope: str | None = None
 
     @property
     def manifest_url(self) -> str:
@@ -111,6 +116,11 @@ class Config:
             kw["device_id"] = data["device_id"]
         if isinstance(data.get("config_version"), int):
             kw["config_version"] = data["config_version"]
+        # Only the two known scopes are honoured; anything else (typo, bool,
+        # wrong string) is ignored so it falls back to auto-detect -- a bad value
+        # can never point the restart at a scope that doesn't exist.
+        if data.get("pyefis_unit_scope") in ("user", "system"):
+            kw["pyefis_unit_scope"] = data["pyefis_unit_scope"]
         return replace(cfg, **kw)
 
 

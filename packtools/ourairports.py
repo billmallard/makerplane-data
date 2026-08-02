@@ -11,8 +11,9 @@ it inserts airports/runways for the requested ISO countries (default Canada)
 using the same schema the NASR builder wrote, so ``NASRAirportDB`` reads the
 combined database unchanged. The US/NASR rows are never touched (keys don't
 collide: ICAO idents vs NASR numeric site_no), and the NASR-only fields
-(markings, approach lighting, TDZE) are left null for the foreign records —
-those are FAA-only attributes no free source provides.
+(markings, approach lighting, TDZE, VGSI type + visual glide path angle) are
+left null for the foreign records — those are FAA-only attributes no free source
+provides.
 
 Runway ends without published threshold coordinates are synthesized from the
 airport reference point + true heading + length, so towered/paved fields draw
@@ -47,7 +48,8 @@ CREATE TABLE IF NOT EXISTS runway_ends (site_no TEXT, rwy_id TEXT, end_id TEXT,
   true_alignment_deg REAL, lat REAL, lon REAL, elev_ft REAL, displaced_thr_lat REAL,
   displaced_thr_lon REAL, displaced_thr_len_ft REAL, tdz_elev_ft REAL,
   marking_type TEXT, apch_lgt_code TEXT, end_lgts_flag TEXT, cntrln_lgts_flag TEXT,
-  tdz_lgt_flag TEXT, PRIMARY KEY (site_no, rwy_id, end_id));
+  tdz_lgt_flag TEXT, vgsi_code TEXT, visual_gpa REAL,
+  PRIMARY KEY (site_no, rwy_id, end_id));
 """
 
 
@@ -190,10 +192,10 @@ def merge_countries(sqlite_path: Path | str, countries=("CA",), *,
                     "(site_no, rwy_id, end_id, true_alignment_deg, lat, lon, elev_ft, "
                     "displaced_thr_lat, displaced_thr_lon, displaced_thr_len_ft, "
                     "tdz_elev_ft, marking_type, apch_lgt_code, end_lgts_flag, "
-                    "cntrln_lgts_flag, tdz_lgt_flag) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "cntrln_lgts_flag, tdz_lgt_flag, vgsi_code, visual_gpa) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (ident, rwy_id, end_id, hdg, lat, lon, elev, None, None,
-                     dthr, None, "", "", "", "", ""))
+                     dthr, None, "", "", "", "", "", None, None))
         con.commit()
     finally:
         con.close()

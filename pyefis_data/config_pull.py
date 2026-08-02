@@ -454,18 +454,80 @@ def _install_multi(cd: Path, screens: dict, default_name: str, boot: str) -> dic
             "screen_names": on_names}
 
 
-def restart_pyefis(timeout: int = 120) -> bool:
-    """Restart the pyEfis user service. Returns True on success.
+# The systemd unit that runs pyEfis. The Raspberry Pi image runs it as a
+# `systemctl --user` service; an x86 appliance (the Beelink) or a hand-rolled
+# install may run it as a *system* service. Guessing the scope wrong used to
+# look like a panel crash -- the `--user` restart failed, restart_and_verify
+# returned False, and config-pull rolled back a perfectly good panel (#23). We
+# detect the scope that actually has a loaded pyefis unit, overridable via
+# `pyefis_unit_scope` in data.yaml.
+_UNIT = "pyefis"
+
+# restart_and_verify outcomes -- a tri-state so the caller can tell a broken
+# restart *mechanism* (do not roll back) from a *crashed* panel (roll back).
+RESTART_OK = "ok"
+RESTART_CRASHED = "crashed"
+RESTART_FAILED = "restart-failed"
+
+
+def _systemctl_base(scope: str) -> tuple[list[str], dict]:
+    """The ``systemctl`` argv prefix + environment for ``scope`` ('user' or
+    'system'). A headless/boot user-scope invocation needs ``XDG_RUNTIME_DIR``
+    to reach the per-user bus; a system-scope one does not (and must not assume
+    a uid exists -- ``os.getuid`` is POSIX-only)."""
+    env = dict(os.environ)
+    if scope == "user":
+        if hasattr(os, "getuid"):
+            env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        return (["systemctl", "--user"], env)
+    return (["systemctl"], env)
+
+
+def _unit_loaded(scope: str) -> bool:
+    """True if a pyefis unit is loaded in ``scope`` (LoadState is 'loaded', not
+    'not-found'/empty). Never raises -- a missing systemctl or unreachable bus
+    reads as 'not loaded here'."""
+    base, env = _systemctl_base(scope)
+    try:
+        out = subprocess.run(base + ["show", _UNIT, "-p", "LoadState", "--value"],
+                             env=env, capture_output=True, text=True, timeout=10)
+    except Exception:
+        return False
+    return out.stdout.strip() == "loaded"
+
+
+def _detect_scope() -> str:
+    """The systemctl scope that actually manages pyEfis. Prefer 'user' (the Pi
+    default); fall back to 'user' if neither scope answers so behaviour on a
+    normal Pi is unchanged when systemd probing is unavailable."""
+    for scope in ("user", "system"):
+        if _unit_loaded(scope):
+            return scope
+    return "user"
+
+
+def _resolve_scope(override: str | None = None) -> str:
+    """Honour an explicit ``pyefis_unit_scope`` from data.yaml; otherwise detect."""
+    if override in ("user", "system"):
+        return override
+    return _detect_scope()
+
+
+def restart_pyefis(timeout: int = 120, scope: str | None = None) -> bool:
+    """Restart the pyEfis service in the managing systemd scope. Returns True
+    iff the restart *command* ran successfully (exit 0) -- NOT whether pyEfis
+    then stayed up (that is restart_and_verify's job). A False here means the
+    restart *mechanism* failed (wrong scope, no bus, systemctl missing), which
+    the caller must NOT treat as a crashed panel (#23).
 
     The timeout exceeds systemd's stop timeout: an SVS/GL pyEfis can hang on
     SIGTERM for up to its TimeoutStopSec (~90s) before systemd SIGKILLs it, so a
     restart that has to stop a running GL panel can legitimately take that long.
     A too-short timeout would raise and look like a failed restart (a spurious
     rollback)."""
-    env = dict(os.environ)
-    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    base, env = _systemctl_base(_resolve_scope(scope))
     try:
-        subprocess.run(["systemctl", "--user", "restart", "pyefis"],
+        subprocess.run(base + ["restart", _UNIT],
                        check=True, env=env, timeout=timeout,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
@@ -473,26 +535,24 @@ def restart_pyefis(timeout: int = 120) -> bool:
         return False
 
 
-def _systemctl_show(prop: str) -> str:
-    env = dict(os.environ)
-    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+def _systemctl_show(prop: str, scope: str) -> str:
+    base, env = _systemctl_base(scope)
     try:
-        out = subprocess.run(["systemctl", "--user", "show", "pyefis", "-p", prop, "--value"],
+        out = subprocess.run(base + ["show", _UNIT, "-p", prop, "--value"],
                              env=env, capture_output=True, text=True, timeout=10)
         return out.stdout.strip()
     except Exception:
         return ""
 
 
-def _status_log(pid: str = "") -> str:
+def _status_log(scope: str, pid: str = "") -> str:
     """Recent service log lines (via ``systemctl status`` -- the user journal
     isn't always reachable through ``journalctl`` here, but the manager surfaces
     the tail). Scoped to ``pid`` when given (lines are ``python[PID]: ...``)."""
-    env = dict(os.environ)
-    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    base, env = _systemctl_base(scope)
     try:
         out = subprocess.run(
-            ["systemctl", "--user", "status", "pyefis", "-n", "300", "--no-pager"],
+            base + ["status", _UNIT, "-n", "300", "--no-pager"],
             env=env, capture_output=True, text=True, timeout=10).stdout
     except Exception:
         return ""
@@ -501,32 +561,45 @@ def _status_log(pid: str = "") -> str:
     return out
 
 
-def restart_and_verify(wait_s: int = 16) -> bool:
-    """Restart pyEfis and confirm it actually came up with a working GUI.
+def restart_and_verify(wait_s: int = 16, scope: str | None = None) -> str:
+    """Restart pyEfis and classify the outcome as one of:
+
+    * ``RESTART_OK`` -- restarted and the GUI is up (stable active PID, no
+      traceback in the log).
+    * ``RESTART_CRASHED`` -- the restart command ran, but the new config makes
+      pyEfis exit or throw on load; the caller should roll the panel back.
+    * ``RESTART_FAILED`` -- the restart *command* itself could not run (the
+      pyEfis service is in a systemd scope we can't reach, no bus, or systemctl
+      is missing). The panel installed fine; the caller must NOT roll back on
+      this -- a broken restart mechanism is not a broken panel (#23).
 
     pyEfis is Type=simple + Restart=always, so a config that makes it *exit* on
     load shows up as a CHANGED Main PID (systemd respawns it). But a screen-build
     exception does NOT exit the process -- a non-daemon FIX thread keeps it alive
     with a stable PID while the GUI never shows. So PID stability alone is a false
     positive; we also reject a ``Traceback`` logged by the current PID. Returns
-    True only if the PID is stable, active, AND its log is traceback-free."""
-    if not restart_pyefis():
-        return False
-    p0 = _systemctl_show("MainPID")
+    ``RESTART_OK`` only if the PID is stable, active, AND its log is
+    traceback-free."""
+    scope = _resolve_scope(scope)
+    if not restart_pyefis(scope=scope):
+        return RESTART_FAILED
+    p0 = _systemctl_show("MainPID", scope)
     time.sleep(wait_s)
-    p1 = _systemctl_show("MainPID")
-    if not (p0 and p0 != "0" and p0 == p1 and _systemctl_show("ActiveState") == "active"):
-        return False
+    p1 = _systemctl_show("MainPID", scope)
+    if not (p0 and p0 != "0" and p0 == p1 and _systemctl_show("ActiveState", scope) == "active"):
+        return RESTART_CRASHED
     # A *segfault* kills the process, so a stable PID already rules it out; a
     # *screen-build exception* does not (a non-daemon FIX thread lingers), so also
     # reject any of these crash signatures logged by the current PID.
-    log = _status_log(p1)
-    return not any(sig in log for sig in (
+    log = _status_log(scope, p1)
+    if any(sig in log for sig in (
         "Traceback (most recent call last)",
         "Fatal Python error",
         "Segmentation fault",
         "Unable to load module",
-    ))
+    )):
+        return RESTART_CRASHED
+    return RESTART_OK
 
 
 def rollback(cd: Path | None = None) -> str:
