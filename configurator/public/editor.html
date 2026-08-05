@@ -822,6 +822,18 @@ function buildHSI(inst) {
   const centerSym = o.center_symbol || "aircraft";
   const heading = 87, course = 110, headbug = 50, track = 78;  // sample values
   const cdi = 0.3, gsi = -0.2, tofrom = 1;
+  // Bearing pointers (P5b.2). Source-coloured RMI needles: magenta GPS, green
+  // VOR (vloc_color), generic bearing_color when the source is unknown -- a twin
+  // of the widget's _bearing_color. Sample sources: pointer 1 = GPS, 2 = VOR1.
+  const vlocC = o.vloc_color || "#00ff00";
+  const bearingC = o.bearing_color || "#00ffff";
+  const brg1 = 30, brg2 = 250, brg1src = 2, brg2src = 0;   // sample values
+  const bearingColorTwin = (srcVal) => {
+    const s = Math.round(srcVal);
+    if (s === 2) return courseC;            // GPS
+    if (s === 0 || s === 1) return vlocC;   // VOR1 / VOR2
+    return bearingC;
+  };
 
   // Gutter geometry (mirror of resizeEvent) in the 0..100 viewBox.
   let CX = 50, CY = 50, R = 48, gutter = 0;
@@ -907,6 +919,38 @@ function buildHSI(inst) {
     const tl = _polar(CX, CY, R - t * 1.4, tA - 2.4), tr = _polar(CX, CY, R - t * 1.4, tA + 2.4);
     tdia = `<path d="M${to.x} ${to.y} L${tr.x} ${tr.y} L${tin.x} ${tin.y} L${tl.x} ${tl.y} Z" fill="${trackC}"/>`;
   }
+  // Bearing needles (P5b.2): RMI single-bar (pointer 1) / double-bar (pointer 2),
+  // rotated to (BRGn - heading). Head arrow at the station, centre gap for the
+  // ownship symbol, tail opposite. Geometry mirrors the widget's
+  // _draw_bearing_needle (ho/inner/arr from R and the tick unit t). Drawn UNDER
+  // the course/CDI assembly so it never overrides the deviation bar.
+  const bnW = Math.max(0.5, needleW);
+  const _bearingNeedle = (brg, dbl, color) => {
+    const a = (brg - heading) * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const pp = (lx, ly) => ({ x: CX + lx * ca - ly * sa, y: CY + ly * ca + lx * sa });
+    const ho = R * 0.80, inner = R * 0.24, arr = t;
+    const offs = dbl ? [-arr * 0.35, arr * 0.35] : [0];
+    let g = "";
+    for (const off of offs) {
+      const h1 = pp(off, -inner), h2 = pp(off, -ho + arr);
+      const t1 = pp(off, inner), t2 = pp(off, ho);
+      g += `<line x1="${h1.x}" y1="${h1.y}" x2="${h2.x}" y2="${h2.y}" stroke="${color}" stroke-width="${bnW}" stroke-linecap="round"/>`
+        + `<line x1="${t1.x}" y1="${t1.y}" x2="${t2.x}" y2="${t2.y}" stroke="${color}" stroke-width="${bnW}" stroke-linecap="round"/>`;
+    }
+    const ap = pp(0, -ho), al = pp(arr * 0.55, -ho + arr), ar = pp(-arr * 0.55, -ho + arr);
+    g += `<path d="M${ap.x} ${ap.y} L${al.x} ${al.y} L${ar.x} ${ar.y} Z" fill="${color}"/>`;
+    return g;
+  };
+  let bpointers = "";
+  if (o.bearing1_enabled) bpointers += _bearingNeedle(brg1, false, bearingColorTwin(brg1src));
+  if (o.bearing2_enabled) bpointers += _bearingNeedle(brg2, true, bearingColorTwin(brg2src));
+  // Per-pointer bearing-source labels (bottom-left / bottom-right), source-
+  // coloured, mirroring the widget's tappable annunciation.
+  let blabels = "";
+  if (o.bearing1_enabled)
+    blabels += `<text x="3" y="98" fill="${bearingColorTwin(brg1src)}" font-size="6" font-weight="600">1 GPS</text>`;
+  if (o.bearing2_enabled)
+    blabels += `<text x="97" y="98" text-anchor="end" fill="${bearingColorTwin(brg2src)}" font-size="6" font-weight="600">2 VOR1</text>`;
   // Integral readouts: one sectioned panel (top_panel) or boxes (corners/split).
   const roBox = (x, y, w, h, label, value, color) =>
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.2" fill="rgba(0,0,0,0.6)" stroke="${color}" stroke-width="0.5"/>`
@@ -949,11 +993,13 @@ function buildHSI(inst) {
   ${nums}
   ${lub}
   ${sym}
+  ${bpointers}
   ${course_g}
   ${glide}
   ${hbug}
   ${tdia}
   ${srcLabel}
+  ${blabels}
   ${readouts}
 </svg>`);
 }
