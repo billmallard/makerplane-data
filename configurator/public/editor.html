@@ -802,81 +802,348 @@ function buildHeadingTape(inst) {
 // vloc_color (green). Off, the needles use needle_color. Reflects fg_color,
 // bg_opacity and the cdi/gsi toggles.
 function buildHSI(inst) {
+  // Twin of the pyEfis HSI (P5a redesign). Faithful to the widget: rotating card
+  // (heading-up) with UPRIGHT numerals, tick weight/length hierarchy, a top
+  // lubber triangle (no yellow cardinal marks), a centre aircraft symbol,
+  // optional depth rings (default off), the source-coloured course/CDI/TO-FROM
+  // assembly + glideslope, and layout-selectable integral readouts.
   const o = inst.options || {};
   const fg = o.fg_color || "#ffffff";
-  const font = o.font_family || "DejaVu Sans Condensed";  // HSI uses QFont(self.font_family)
-  const needleC = o.needle_color || "#ffff00";
+  const font = (o.font_family || "DejaVu Sans Condensed").replace(/"/g, '');
   const needleW = (o.needle_width != null ? Number(o.needle_width) : 3) * 0.4;
   const courseC = o.course_color || "#ff00ff";
   const hbC = o.heading_bug_color || "#00ffff";
   const trackC = o.track_color || "#ff00ff";
-  // Source auto-colouring: the preview shows a GPS source, so the source colour
-  // is course_color (magenta). On (default), the course pointer + CDI/GSI use the
-  // source colour; off, the CDI/GSI fall back to needle_color. (vloc_color, for a
-  // VOR/LOC source, is not shown by the static GPS preview.)
   const autoColor = o.source_auto_color !== false;
-  const navColor = autoColor ? courseC : needleC;
+  const navColor = autoColor ? courseC : (o.needle_color || "#ffff00");
+  const layout = o.readout_layout || "top_panel";
+  const numScale = o.numeral_scale != null ? Number(o.numeral_scale) : 1.5;
+  const depthRings = o.depth_rings === true;              // default off
+  const centerSym = o.center_symbol || "aircraft";
   const heading = 87, course = 110, headbug = 50, track = 78;  // sample values
-  const cdi = 0.3, gsi = -0.2, dev = 24;              // dev = r*0.5 (viewBox)
-  let ticks = "";
-  for (let d = 0; d < 360; d += 10) {
-    const maj = d % 30 === 0;
-    const p1 = _polar(50, 50, 47, d), p2 = _polar(50, 50, maj ? 41 : 44, d);
-    ticks += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${fg}" stroke-width="${maj ? 1 : 0.5}"/>`;
-    if (maj) { const lp = _polar(50, 50, 34, d); ticks += `<text x="${lp.x}" y="${lp.y + 2}" fill="${fg}" font-size="6" text-anchor="middle">${headingLabel(d)}</text>`; }
+  const cdi = 0.3, gsi = -0.2, tofrom = 1;
+  // Bearing pointers (P5b.2). Source-coloured RMI needles: magenta GPS, green
+  // VOR (vloc_color), generic bearing_color when the source is unknown -- a twin
+  // of the widget's _bearing_color. Sample sources: pointer 1 = GPS, 2 = VOR1.
+  const vlocC = o.vloc_color || "#00ff00";
+  const bearingC = o.bearing_color || "#00ffff";
+  const brg1 = 30, brg2 = 250, brg1src = 2, brg2src = 0;   // sample values
+  const bearingColorTwin = (srcVal) => {
+    const s = Math.round(srcVal);
+    if (s === 2) return courseC;            // GPS
+    if (s === 0 || s === 1) return vlocC;   // VOR1 / VOR2
+    return bearingC;
+  };
+
+  // --- Arc orientation (P5b.3) -----------------------------------------------
+  // Twin of the widget's _paint_arc: the forward +/-60 heading sector spread
+  // linearly across the width and bowed into an arc, decluttered of the rear
+  // rose. north_up/heading_up/track_up fall through to the full rose below.
+  if (o.orientation === "arc") {
+    const halfDeg = 60, HALFW = 47, SAG = 16, OWNY = 82;
+    // Drop the band below the top-panel/split readouts (gutter = 16 in the
+    // 0..100 box), mirroring _arc_params.
+    const TOPY = (layout === "top_panel" || layout === "split") ? 20 : 9;
+    const tk = 3.4;                                    // arc tick unit
+    const relA = (a) => { let d = (((a - heading) % 360) + 360) % 360; if (d > 180) d -= 360; return d; };
+    const inSec = (a) => Math.abs(relA(a)) <= halfDeg + 1e-9;
+    const band = (a) => { const f = relA(a) / halfDeg; return { x: 50 + f * HALFW, y: TOPY + SAG * f * f }; };
+    const afmt = (v) => String((((Math.round(v)) % 360) + 360) % 360).padStart(3, "0") + "°";
+    const hStart = Math.round(heading) - halfDeg - 5, hEnd = Math.round(heading) + halfDeg + 5;
+    // Ticks (5-deg, weight/length hierarchy), fanned toward ownship.
+    let aticks = "";
+    for (let dd = hStart; dd <= hEnd; dd += 5) {
+      const cnt = ((dd % 360) + 360) % 360;
+      if (!inSec(cnt)) continue;
+      let len, w;
+      if (cnt % 90 === 0) { len = tk * 1.25; w = 0.7; }
+      else if (cnt % 30 === 0) { len = tk * 1.15; w = 0.6; }
+      else if (cnt % 10 === 0) { len = tk; w = 0.42; }
+      else { len = tk * 0.5; w = 0.28; }
+      const b = band(cnt), dx = 50 - b.x, dy = OWNY - b.y, dl = Math.hypot(dx, dy) || 1;
+      aticks += `<line x1="${b.x}" y1="${b.y}" x2="${b.x + dx / dl * len}" y2="${b.y + dy / dl * len}" stroke="${fg}" stroke-width="${w}"/>`;
+    }
+    // Numerals upright (30-deg) / cardinal (90-deg), just inside the band.
+    const anfs = 3.1 * numScale;
+    let anums = "";
+    for (let dd = hStart; dd <= hEnd; dd += 5) {
+      const cnt = ((dd % 360) + 360) % 360;
+      if (cnt % 30 !== 0 || !inSec(cnt)) continue;
+      const b = band(cnt), dx = 50 - b.x, dy = OWNY - b.y, dl = Math.hypot(dx, dy) || 1;
+      const off = tk * 1.4 + anfs * 0.7, lx = b.x + dx / dl * off, ly = b.y + dy / dl * off;
+      anums += `<text x="${lx}" y="${ly + anfs * 0.35}" fill="${fg}" font-size="${anfs}" text-anchor="middle">${headingLabel(cnt)}</text>`;
+    }
+    // Top lubber triangle (points up at the band).
+    const alub = `<path d="M${50 - tk * 0.55} ${TOPY - tk} L${50 + tk * 0.55} ${TOPY - tk} L50 ${TOPY + tk * 0.35} Z" fill="${fg}"/>`;
+    // Ownship symbol (silhouette).
+    let asym = "";
+    if (centerSym !== "none") {
+      const s = 4.2, sw = Math.max(0.6, needleW * 1.1);
+      asym = `<g stroke="${fg}" stroke-width="${sw}" stroke-linecap="round" fill="none">`
+        + `<line x1="50" y1="${OWNY - s}" x2="50" y2="${OWNY + s}"/>`
+        + `<line x1="${50 - s}" y1="${OWNY}" x2="${50 + s}" y2="${OWNY}"/>`
+        + `<line x1="${50 - s * 0.4}" y1="${OWNY + s * 0.7}" x2="${50 + s * 0.4}" y2="${OWNY + s * 0.7}"/></g>`;
+    }
+    // Bearing needles (ownship -> band), forward-clipped.
+    const abn = (brg, dbl, color) => {
+      if (!inSec(brg)) return "";
+      const b = band(brg), dx = b.x - 50, dy = b.y - OWNY, dl = Math.hypot(dx, dy) || 1;
+      const ux = dx / dl, uy = dy / dl, px = -uy, py = ux, arr = tk, gap = Math.min(dl * 0.28, tk * 2);
+      const bnw = Math.max(0.5, needleW), offs = dbl ? [-arr * 0.35, arr * 0.35] : [0];
+      let g = "";
+      for (const of of offs) {
+        const sx = 50 + px * of, sy = OWNY + py * of;
+        g += `<line x1="${sx + ux * gap}" y1="${sy + uy * gap}" x2="${b.x - ux * arr}" y2="${b.y - uy * arr}" stroke="${color}" stroke-width="${bnw}" stroke-linecap="round"/>`;
+      }
+      g += `<path d="M${b.x} ${b.y} L${b.x - ux * arr + px * arr * 0.55} ${b.y - uy * arr + py * arr * 0.55} L${b.x - ux * arr - px * arr * 0.55} ${b.y - uy * arr - py * arr * 0.55} Z" fill="${color}"/>`;
+      return g;
+    };
+    let abp = "";
+    if (o.bearing1_enabled) abp += abn(brg1, false, bearingColorTwin(brg1src));
+    if (o.bearing2_enabled) abp += abn(brg2, true, bearingColorTwin(brg2src));
+    // Course pointer + lateral CDI from ownship (in-sector).
+    let acourse = "";
+    if (o.cdi_enabled !== false && inSec(course)) {
+      const b = band(course), dx = b.x - 50, dy = b.y - OWNY, dl = Math.hypot(dx, dy) || 1;
+      const ux = dx / dl, uy = dy / dl, px = -uy, py = ux, bar = Math.min(HALFW, OWNY - TOPY) * 0.22, arr = tk;
+      for (const dv of [-1, -2 / 3, -1 / 3, 1 / 3, 2 / 3, 1])
+        acourse += `<circle cx="${50 + px * dv * bar}" cy="${OWNY + py * dv * bar}" r="0.6" fill="${fg}"/>`;
+      acourse += `<line x1="${50 + ux * bar}" y1="${OWNY + uy * bar}" x2="${b.x - ux * arr}" y2="${b.y - uy * arr}" stroke="${navColor}" stroke-width="${needleW}"/>`
+        + `<path d="M${b.x} ${b.y} L${b.x - ux * arr + px * arr * 0.55} ${b.y - uy * arr + py * arr * 0.55} L${b.x - ux * arr - px * arr * 0.55} ${b.y - uy * arr - py * arr * 0.55} Z" fill="${navColor}"/>`;
+      const off = cdi * bar;
+      acourse += `<line x1="${50 + px * off - ux * bar}" y1="${OWNY + py * off - uy * bar}" x2="${50 + px * off + ux * bar}" y2="${OWNY + py * off + uy * bar}" stroke="${navColor}" stroke-width="${needleW}"/>`;
+    }
+    // Glideslope scale (right, screen-fixed).
+    let aglide = "";
+    if (o.gsi_enabled !== false) {
+      const gx = 95, gr = 16, gy0 = OWNY;
+      aglide += `<line x1="${gx - tk * 0.55}" y1="${gy0}" x2="${gx + tk * 0.55}" y2="${gy0}" stroke="${fg}" stroke-width="0.4"/>`;
+      for (const dv of [-1, -0.5, 0.5, 1]) aglide += `<circle cx="${gx}" cy="${gy0 - dv * gr}" r="0.6" fill="${fg}"/>`;
+      const gy = gy0 - gsi * gr, ds = tk * 0.6;
+      aglide += `<path d="M${gx} ${gy - ds} L${gx + ds} ${gy} L${gx} ${gy + ds} L${gx - ds} ${gy} Z" fill="${navColor}"/>`;
+    }
+    // Heading bug + track diamond as band markers (in-sector).
+    let abug = "";
+    if (o.heading_bug_enabled && inSec(headbug)) {
+      const b = band(headbug), s = tk * 0.55, w = s * 1.1, h = s * 1.6;
+      abug = `<path d="M${b.x - w} ${b.y + h} L${b.x - w} ${b.y} L${b.x - w * 0.35} ${b.y} L${b.x - w * 0.35} ${b.y + h * 0.5} L${b.x + w * 0.35} ${b.y + h * 0.5} L${b.x + w * 0.35} ${b.y} L${b.x + w} ${b.y} L${b.x + w} ${b.y + h} Z" fill="${hbC}"/>`;
+    }
+    let atd = "";
+    if (o.track_indicator_enabled !== false && inSec(track)) {
+      const b = band(track), s = tk * 0.55;
+      atd = `<path d="M${b.x} ${b.y - s} L${b.x + s} ${b.y} L${b.x} ${b.y + s} L${b.x - s} ${b.y} Z" fill="${trackC}"/>`;
+    }
+    // Integral readouts (same three layouts as the rose path).
+    const aBox = (x, y, w, h, label, value, color) =>
+      `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.2" fill="rgba(0,0,0,0.6)" stroke="${color}" stroke-width="0.5"/>`
+      + `<text x="${x + w / 2}" y="${y + h * 0.36}" fill="${color}" font-size="${h * 0.3}" font-weight="700" text-anchor="middle">${label}</text>`
+      + `<text x="${x + w / 2}" y="${y + h * 0.86}" fill="${fg}" font-size="${h * 0.44}" font-weight="700" text-anchor="middle">${value}</text>`;
+    const HDG = afmt(headbug), MAG = afmt(heading), CRS = afmt(course);
+    let aro = "";
+    if (layout === "top_panel") {
+      const segs = [["HDG", HDG, hbC], ["MAG", MAG, fg], ["CRS", CRS, navColor]];
+      const pw = 44, ph = 12, px = 50 - pw / 2, py = 2;
+      aro = `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="1.4" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
+      segs.forEach((sg, i) => {
+        const sx = px + pw * i / 3, sw = pw / 3;
+        if (i > 0) aro += `<line x1="${sx}" y1="${py + ph * 0.14}" x2="${sx}" y2="${py + ph * 0.86}" stroke="rgba(255,255,255,0.8)" stroke-width="0.4"/>`;
+        aro += `<text x="${sx + sw / 2}" y="${py + ph * 0.36}" fill="${sg[2]}" font-size="${ph * 0.28}" font-weight="700" text-anchor="middle">${sg[0]}</text>`
+          + `<text x="${sx + sw / 2}" y="${py + ph * 0.84}" fill="${fg}" font-size="${ph * 0.44}" font-weight="700" text-anchor="middle">${sg[1]}</text>`;
+      });
+    } else if (layout === "corners") {
+      aro = aBox(2, 2, 15, 9, "HDG", HDG, hbC) + aBox(83, 2, 15, 9, "CRS", CRS, navColor);
+    } else if (layout === "split") {
+      aro = aBox(50 - 7.5, 1, 15, 9, "MAG", MAG, fg) + aBox(2, 89, 15, 9, "CRS", CRS, navColor) + aBox(83, 89, 15, 9, "HDG", HDG, hbC);
+    }
+    // Nav-source annunciation + per-pointer bearing-source labels.
+    const asrc = o.source_label_enabled === false ? ""
+      : `<text x="4" y="${TOPY - 3}" fill="${navColor}" font-size="7" font-weight="600">GPS</text>`;
+    let ablab = "";
+    if (o.bearing1_enabled) ablab += `<text x="3" y="98" fill="${bearingColorTwin(brg1src)}" font-size="6" font-weight="600">1 GPS</text>`;
+    if (o.bearing2_enabled) ablab += `<text x="97" y="98" text-anchor="end" fill="${bearingColorTwin(brg2src)}" font-size="6" font-weight="600">2 VOR1</text>`;
+    return svgFromString(`
+<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}">
+  ${aticks}
+  ${anums}
+  ${alub}
+  ${abp}
+  ${acourse}
+  ${aglide}
+  ${abug}
+  ${atd}
+  ${asym}
+  ${asrc}
+  ${ablab}
+  ${aro}
+</svg>`);
   }
-  // Selected-course pointer (card space): base at the ring, apex inward.
-  const cA = course - heading;
-  const cb1 = _polar(50, 50, 47, cA + 3.5), cb2 = _polar(50, 50, 47, cA - 3.5), cap = _polar(50, 50, 42, cA);
-  let pointers = `<path d="M${cb1.x} ${cb1.y} L${cb2.x} ${cb2.y} L${cap.x} ${cap.y} Z" fill="${courseC}"/>`;
-  // Garmin-style heading bug (cyan, notched), card space, inside the ring.
+
+  // Gutter geometry (mirror of resizeEvent) in the 0..100 viewBox.
+  let CX = 50, CY = 50, R = 48, gutter = 0;
+  if (layout === "top_panel" || layout === "split") {
+    gutter = 16;
+    R = (Math.min(100, 100 - gutter) / 2) - 1;
+    CY = gutter + (100 - gutter) / 2;
+  }
+  const dev = R * 0.5, t = R * 0.05;
+  const fmt = (v) => String((((Math.round(v)) % 360) + 360) % 360).padStart(3, "0") + "°";
+
+  // Rose ticks: weight + length hierarchy (30/10/5 deg). These rotate with the card.
+  let ticks = "";
+  for (let d = 0; d < 360; d += 5) {
+    let len, w;
+    if (d % 90 === 0) { len = t * 1.5; w = 0.7; }
+    else if (d % 30 === 0) { len = t * 1.35; w = 0.6; }
+    else if (d % 10 === 0) { len = t * 1.1; w = 0.42; }
+    else { len = t * 0.6; w = 0.28; }
+    const p1 = _polar(CX, CY, R, d), p2 = _polar(CX, CY, R - len, d);
+    ticks += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${fg}" stroke-width="${w}"/>`;
+  }
+  // Numerals: UPRIGHT, positioned at (d - heading) so they stay horizontal.
+  const nfs = 3.1 * numScale, Rlbl = R - t * 1.5 - nfs * 0.55;
+  let nums = "";
+  for (let d = 0; d < 360; d += 30) {
+    const p = _polar(CX, CY, Rlbl, d - heading);
+    nums += `<text x="${p.x}" y="${p.y + nfs * 0.35}" fill="${fg}" font-size="${nfs}" text-anchor="middle">${headingLabel(d)}</text>`;
+  }
+  // Depth rings (optional, off by default).
+  let rings = "";
+  if (depthRings) for (const [rad, op] of [[R * 0.78, 0.35], [R * 0.52, 0.22]])
+    rings += `<circle cx="${CX}" cy="${CY}" r="${rad}" fill="none" stroke="${rgbaFromColor(fg, op)}" stroke-width="0.3"/>`;
+  // Top lubber triangle (points down at the rose).
+  const lub = `<path d="M${CX - t * 0.9} ${CY - R - t * 1.4} L${CX + t * 0.9} ${CY - R - t * 1.4} L${CX} ${CY - R + t * 0.7} Z" fill="${fg}"/>`;
+  // Centre aircraft symbol (silhouette, not a triangle). Config: center_symbol.
+  let sym = "";
+  if (centerSym !== "none") {
+    const s = R * 0.16, sw = Math.max(0.6, needleW * 1.1);
+    sym = `<g stroke="${fg}" stroke-width="${sw}" stroke-linecap="round" fill="none">`
+      + `<line x1="${CX}" y1="${CY - s}" x2="${CX}" y2="${CY + s}"/>`
+      + `<line x1="${CX - s}" y1="${CY}" x2="${CX + s}" y2="${CY}"/>`
+      + `<line x1="${CX - s * 0.4}" y1="${CY + s * 0.7}" x2="${CX + s * 0.4}" y2="${CY + s * 0.7}"/></g>`;
+  }
+  // Course pointer + CDI + deviation dots + TO/FROM, rotated to the course.
+  const cA = course - heading, bar = dev, ext = R - nfs * 1.3;
+  let course_g = `<g transform="rotate(${cA} ${CX} ${CY})">`;
+  for (const dvv of [-1, -2/3, -1/3, 1/3, 2/3, 1])
+    course_g += `<circle cx="${CX + dvv * bar}" cy="${CY}" r="0.6" fill="${fg}"/>`;
+  course_g += `<line x1="${CX}" y1="${CY + bar}" x2="${CX}" y2="${CY + ext}" stroke="${navColor}" stroke-width="${needleW}"/>`
+    + `<line x1="${CX}" y1="${CY - bar}" x2="${CX}" y2="${CY - ext + t}" stroke="${navColor}" stroke-width="${needleW}"/>`
+    + `<path d="M${CX} ${CY - ext} L${CX + t * 0.9} ${CY - ext + t * 1.5} L${CX - t * 0.9} ${CY - ext + t * 1.5} Z" fill="${navColor}"/>`;
+  if (o.cdi_enabled !== false) {
+    const off = cdi * bar;
+    course_g += `<line x1="${CX + off}" y1="${CY - bar}" x2="${CX + off}" y2="${CY + bar}" stroke="${navColor}" stroke-width="${needleW}"/>`;
+  }
+  if (tofrom === 1) {
+    const rr = R * 0.42, ss = t * 0.6, ln = t * 1.1;
+    course_g += `<path d="M${CX} ${CY - (rr + ln)} L${CX + ss} ${CY - rr} L${CX - ss} ${CY - rr} Z" fill="${navColor}"/>`;
+  }
+  course_g += `</g>`;
+  // Glideslope: vertical deviation scale on the right (viewport space).
+  let glide = "";
+  if (o.gsi_enabled !== false) {
+    const gx = CX + R * 0.72, gr = dev;
+    glide += `<line x1="${gx - t * 0.55}" y1="${CY}" x2="${gx + t * 0.55}" y2="${CY}" stroke="${fg}" stroke-width="0.4"/>`;
+    for (const dvv of [-1, -0.5, 0.5, 1]) glide += `<circle cx="${gx}" cy="${CY - dvv * gr}" r="0.6" fill="${fg}"/>`;
+    const gy = CY - gsi * gr, ds = t * 0.6;
+    glide += `<path d="M${gx} ${gy - ds} L${gx + ds} ${gy} L${gx} ${gy + ds} L${gx - ds} ${gy} Z" fill="${navColor}"/>`;
+  }
+  // Heading bug (cyan) + track diamond (magenta), card space.
+  let hbug = "";
   if (o.heading_bug_enabled) {
     const hA = headbug - heading;
-    const oA = _polar(50, 50, 48, hA + 3.5), oB = _polar(50, 50, 48, hA - 3.5);
-    const iA = _polar(50, 50, 44, hA + 3.5), iB = _polar(50, 50, 44, hA - 3.5);
-    const nA = _polar(50, 50, 48, hA + 1.3), nB = _polar(50, 50, 48, hA - 1.3), nm = _polar(50, 50, 45.5, hA);
-    pointers += `<path d="M${iA.x} ${iA.y} L${oA.x} ${oA.y} L${nA.x} ${nA.y} L${nm.x} ${nm.y} L${nB.x} ${nB.y} L${oB.x} ${oB.y} L${iB.x} ${iB.y} Z" fill="${hbC}"/>`;
+    const oA = _polar(CX, CY, R, hA + 3.2), oB = _polar(CX, CY, R, hA - 3.2);
+    const iA = _polar(CX, CY, R - t * 1.3, hA + 3.2), iB = _polar(CX, CY, R - t * 1.3, hA - 3.2);
+    hbug = `<path d="M${iA.x} ${iA.y} L${oA.x} ${oA.y} L${oB.x} ${oB.y} L${iB.x} ${iB.y} Z" fill="${hbC}"/>`;
   }
-  // GPS ground-track diamond (magenta), card space, on the rose near the edge.
-  // On by default (matches the widget); driven by TRACK above the speed gate.
+  let tdia = "";
   if (o.track_indicator_enabled !== false) {
     const tA = track - heading;
-    const to = _polar(50, 50, 44.5, tA), tiN = _polar(50, 50, 40, tA);
-    const tl = _polar(50, 50, 42.25, tA - 2.7), tr = _polar(50, 50, 42.25, tA + 2.7);
-    pointers += `<path d="M${to.x} ${to.y} L${tr.x} ${tr.y} L${tiN.x} ${tiN.y} L${tl.x} ${tl.y} Z" fill="${trackC}"/>`;
+    const to = _polar(CX, CY, R - t * 0.5, tA), tin = _polar(CX, CY, R - t * 2.3, tA);
+    const tl = _polar(CX, CY, R - t * 1.4, tA - 2.4), tr = _polar(CX, CY, R - t * 1.4, tA + 2.4);
+    tdia = `<path d="M${to.x} ${to.y} L${tr.x} ${tr.y} L${tin.x} ${tin.y} L${tl.x} ${tl.y} Z" fill="${trackC}"/>`;
   }
-  // Fixed lubber index marks (yellow) at the four cardinal viewport positions.
-  let lubber = "";
-  for (const d of [0, 90, 180, 270]) {
-    const a = _polar(50, 50, 48, d), b = _polar(50, 50, 42, d);
-    lubber += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#ffff00" stroke-width="1.5"/>`;
-  }
-  // Centre deviation scale + CDI/GSI cross-pointer needles (viewport space).
-  let nav = "";
-  for (const dv of [-1, -2/3, -1/3, 1/3, 2/3, 1]) {
-    const hx = 50 + dv * dev, vy = 50 + dv * dev;
-    nav += `<line x1="${hx}" y1="48.5" x2="${hx}" y2="51.5" stroke="${fg}" stroke-width="0.4"/>`;
-    nav += `<line x1="48.5" y1="${vy}" x2="51.5" y2="${vy}" stroke="${fg}" stroke-width="0.4"/>`;
-  }
-  if (o.cdi_enabled !== false) {
-    const x = 50 + cdi * dev;
-    nav += `<line x1="${x}" y1="22" x2="${x}" y2="78" stroke="${navColor}" stroke-width="${needleW}"/>`;
-  }
-  if (o.gsi_enabled !== false) {
-    const y = 50 - gsi * dev;
-    nav += `<line x1="22" y1="${y}" x2="78" y2="${y}" stroke="${navColor}" stroke-width="${needleW}"/>`;
+  // Bearing needles (P5b.2): RMI single-bar (pointer 1) / double-bar (pointer 2),
+  // rotated to (BRGn - heading). Head arrow at the station, centre gap for the
+  // ownship symbol, tail opposite. Geometry mirrors the widget's
+  // _draw_bearing_needle (ho/inner/arr from R and the tick unit t). Drawn UNDER
+  // the course/CDI assembly so it never overrides the deviation bar.
+  const bnW = Math.max(0.5, needleW);
+  const _bearingNeedle = (brg, dbl, color) => {
+    const a = (brg - heading) * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const pp = (lx, ly) => ({ x: CX + lx * ca - ly * sa, y: CY + ly * ca + lx * sa });
+    const ho = R * 0.80, inner = R * 0.24, arr = t;
+    const offs = dbl ? [-arr * 0.35, arr * 0.35] : [0];
+    let g = "";
+    for (const off of offs) {
+      const h1 = pp(off, -inner), h2 = pp(off, -ho + arr);
+      const t1 = pp(off, inner), t2 = pp(off, ho);
+      g += `<line x1="${h1.x}" y1="${h1.y}" x2="${h2.x}" y2="${h2.y}" stroke="${color}" stroke-width="${bnW}" stroke-linecap="round"/>`
+        + `<line x1="${t1.x}" y1="${t1.y}" x2="${t2.x}" y2="${t2.y}" stroke="${color}" stroke-width="${bnW}" stroke-linecap="round"/>`;
+    }
+    const ap = pp(0, -ho), al = pp(arr * 0.55, -ho + arr), ar = pp(-arr * 0.55, -ho + arr);
+    g += `<path d="M${ap.x} ${ap.y} L${al.x} ${al.y} L${ar.x} ${ar.y} Z" fill="${color}"/>`;
+    return g;
+  };
+  let bpointers = "";
+  if (o.bearing1_enabled) bpointers += _bearingNeedle(brg1, false, bearingColorTwin(brg1src));
+  if (o.bearing2_enabled) bpointers += _bearingNeedle(brg2, true, bearingColorTwin(brg2src));
+  // Per-pointer bearing-source labels (bottom-left / bottom-right), source-
+  // coloured, mirroring the widget's tappable annunciation.
+  let blabels = "";
+  if (o.bearing1_enabled)
+    blabels += `<text x="3" y="98" fill="${bearingColorTwin(brg1src)}" font-size="6" font-weight="600">1 GPS</text>`;
+  if (o.bearing2_enabled)
+    blabels += `<text x="97" y="98" text-anchor="end" fill="${bearingColorTwin(brg2src)}" font-size="6" font-weight="600">2 VOR1</text>`;
+  // Integral readouts: one sectioned panel (top_panel) or boxes (corners/split).
+  const roBox = (x, y, w, h, label, value, color) =>
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.2" fill="rgba(0,0,0,0.6)" stroke="${color}" stroke-width="0.5"/>`
+    + `<text x="${x + w / 2}" y="${y + h * 0.36}" fill="${color}" font-size="${h * 0.3}" font-weight="700" text-anchor="middle">${label}</text>`
+    + `<text x="${x + w / 2}" y="${y + h * 0.86}" fill="${fg}" font-size="${h * 0.44}" font-weight="700" text-anchor="middle">${value}</text>`;
+  const segPanel = (x, y, w, h, orient, segs) => {
+    let g = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.4" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
+    const n = segs.length;
+    segs.forEach((sg, i) => {
+      const [label, value, color] = sg;
+      let sx, sy, sw, sh;
+      if (orient === "v") { sx = x; sy = y + h * i / n; sw = w; sh = h / n;
+        if (i > 0) g += `<line x1="${x + w * 0.14}" y1="${sy}" x2="${x + w * 0.86}" y2="${sy}" stroke="rgba(255,255,255,0.8)" stroke-width="0.4"/>`; }
+      else { sx = x + w * i / n; sy = y; sw = w / n; sh = h;
+        if (i > 0) g += `<line x1="${sx}" y1="${y + h * 0.14}" x2="${sx}" y2="${y + h * 0.86}" stroke="rgba(255,255,255,0.8)" stroke-width="0.4"/>`; }
+      g += `<text x="${sx + sw / 2}" y="${sy + sh * 0.36}" fill="${color}" font-size="${sh * 0.28}" font-weight="700" text-anchor="middle">${label}</text>`
+        + `<text x="${sx + sw / 2}" y="${sy + sh * 0.84}" fill="${fg}" font-size="${sh * 0.44}" font-weight="700" text-anchor="middle">${value}</text>`;
+    });
+    return g;
+  };
+  const HDG = fmt(headbug), MAG = fmt(heading), CRS = fmt(course);
+  let readouts = "";
+  if (layout === "top_panel") {
+    const ph = gutter * 0.76, pw = 44, px = CX - pw / 2, py = (gutter - ph) / 2;
+    readouts = segPanel(px, py, pw, ph, "h", [["HDG", HDG, hbC], ["MAG", MAG, fg], ["CRS", CRS, navColor]]);
+  } else if (layout === "corners") {
+    readouts = roBox(2, 2, 15, 9, "HDG", HDG, hbC) + roBox(83, 2, 15, 9, "CRS", CRS, navColor);
+  } else if (layout === "split") {
+    readouts = roBox(CX - 7.5, 1, 15, 9, "MAG", MAG, fg)
+      + roBox(2, 89, 15, 9, "CRS", CRS, navColor) + roBox(83, 89, 15, 9, "HDG", HDG, hbC);
   }
   // Nav-source annunciation (top-left), source-coloured. Preview shows GPS.
   const srcLabel = o.source_label_enabled === false ? ""
-    : `<text x="4" y="11" fill="${courseC}" font-size="8" font-weight="600">GPS</text>`;
+    : `<text x="4" y="${CY - R + 1}" fill="${navColor}" font-size="7" font-weight="600">GPS</text>`;
   return svgFromString(`
-<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font.replace(/"/g,'')}">
-  <circle cx="50" cy="50" r="48" fill="${rgbaFromColor(o.bg_color || "#000", bgOpacity(o))}" stroke="${fg}" stroke-width="0.8"/>
-  <g transform="rotate(${-heading} 50 50)">${ticks}</g>
-  ${pointers}
-  ${lubber}
-  ${nav}
+<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}">
+  <circle cx="${CX}" cy="${CY}" r="${R}" fill="${rgbaFromColor(o.bg_color || "#000", bgOpacity(o))}" stroke="${fg}" stroke-width="0.8"/>
+  ${rings}
+  <g transform="rotate(${-heading} ${CX} ${CY})">${ticks}</g>
+  ${nums}
+  ${lub}
+  ${sym}
+  ${bpointers}
+  ${course_g}
+  ${glide}
+  ${hbug}
+  ${tdia}
   ${srcLabel}
+  ${blabels}
+  ${readouts}
 </svg>`);
 }
 
