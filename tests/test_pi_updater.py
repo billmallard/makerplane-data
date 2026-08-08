@@ -375,6 +375,7 @@ def test_update_progress_flag_prints_json(tmp_path, monkeypatch, capsys):
     import json
     root, pub = build_store(tmp_path)
     monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))  # pin clock (see import test)
     capsys.readouterr()
     cli.main(["--base-url", ORIGIN, "--root", str(tmp_path / "pi"),
               "update", "--source", str(root), "--progress"])
