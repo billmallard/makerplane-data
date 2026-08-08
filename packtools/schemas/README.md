@@ -15,6 +15,8 @@ pipeline consumes, kept verbatim (column, max length, data type, nullable).
 
 **Source cycle: AIRAC 2607** (effective 2026-07-09), seeded 2026-07-05 from the
 extracted inputs under `work/localwork/{airports,navaids}-conus/2607/extracted/`.
+`APT_structure.csv` was **refreshed for AIRAC 2609** (effective 2026-09-03) on
+2026-08-08 — see the acknowledgement note below.
 
 The guard normalizes (strips) each field on load, so the FAA's incidental
 whitespace quirks (e.g. `FIX_BASE` ships `COUNTRY_CODE  `) do not read as a
@@ -33,10 +35,22 @@ changed an input schema under us. The refresh is the human acknowledgement:
    file, filtered to the consumed rows (the one-liner the seed used), and
    commit it in a focused PR that references the DPN.
 
-**One firing is already expected:** when the FAA posts the 03 Sep 2026 cycle,
-`APT_RWY` gains a `PAVEMENT CLASSIFICATION` column and its `PCN` widens from
-`(3,0)` to `(4,0)` (NASR 26-01 DPN). The airports structure diff will correctly
-interrupt the build; refresh `APT_structure.csv` then (or earlier from the FAA
-CSV *test* files, if they post first). We read no pavement data, so no builder
-change is needed -- just the snapshot refresh. Treat it as the guard's
-production acceptance test.
+**The expected firing FIRED (AIRAC 2609, refreshed 2026-08-08).** When the FAA
+posted the 03 Sep 2026 cycle, the airports structure diff interrupted the build
+for three consecutive nights (runs on 2026-08-06/-07/-08) with exactly the
+predicted drift in `APT_RWY`:
+
+```
+  - REMOVED  APT_RWY.PCN                     ((3,0) NUMBER Yes)
+  + ADDED    APT_RWY.PAVEMENT_CLASSIFICATION (3 VARCHAR Yes)
+  + ADDED    APT_RWY.PCN_PCR_NUMBER          ((4,0) NUMBER Yes)
+```
+
+`PCN` was renamed to `PCN_PCR_NUMBER` and widened `(3,0)` -> `(4,0)`, and a new
+`PAVEMENT CLASSIFICATION` (PCN-vs-PCR indicator) column was added. None of the
+three is a column the airports builder reads, so this was a **snapshot refresh
+only** — `APT_structure.csv` updated to the 2609 `APT_RWY` structure, no builder
+change. The row values above are verbatim from the guard's diff (which reads the
+downloaded FAA `APT_CSV_DATA_STRUCTURE.csv`); the guard compares by row *set*, so
+the two new rows' position in this file is cosmetic. Tracking: issue #31. This
+was the guard's production acceptance test — it passed.

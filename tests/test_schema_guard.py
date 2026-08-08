@@ -3,7 +3,7 @@
 
 Synthetic fixtures via tmp_path (no network, no FAA data), plus a
 self-consistency check of the REAL committed contracts and an optional smoke
-test against the on-disk 2607 inputs when they are present (gitignored).
+test against the on-disk current-cycle inputs when present (gitignored).
 """
 
 import csv
@@ -310,9 +310,13 @@ def test_airports_contract_guards_vgsi_fields():
 
 @pytest.mark.parametrize("builder,rel", [
     ("navaids", "work/localwork/navaids-conus/2607/extracted"),
-    ("airports", "work/localwork/airports-conus/2607/extracted"),
+    # airports pins to 2609: APT_structure.csv was refreshed for the NASR 26-01
+    # DPN (PCN -> PCN_PCR_NUMBER + PAVEMENT_CLASSIFICATION), so the current-cycle
+    # acceptance input is 2609. The 2607 APT inputs carry the old PCN column and
+    # would now correctly fail the refreshed guard (issue #31).
+    ("airports", "work/localwork/airports-conus/2609/extracted"),
 ])
-def test_real_2607_inputs_pass_the_guard(builder, rel):
+def test_current_cycle_inputs_pass_the_guard(builder, rel):
     """The DEFAULT guard must NOT false-positive on the current real inputs
     (8.6 acceptance). Skipped where the gitignored FAA inputs aren't on disk."""
     idir = REPO / rel
