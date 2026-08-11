@@ -119,10 +119,27 @@
   .bargauge.horiz .g-mark { position: absolute; top: -18%; bottom: -18%; width: 2px; background: #fff; transform: translateX(-50%); }
   .tape { position: relative; box-sizing: border-box; background: rgba(18,22,28,.72); color: #e6edf3; }
   .tape .tk { position: absolute; right: 3px; transform: translateY(-50%); white-space: nowrap; line-height: 1; opacity: .85; }
-  .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: #000; border: 1px solid #9aa4af; text-align: center; font-weight: 600; line-height: 1.2; }
+  /* Readout panel -- twin of pyefis.instruments.helpers READOUT_* (P5c):
+     rounded container over a translucent black fill, border in the foreground
+     colour at .85. The radius/padding track the digit height, as they do in
+     NumericalDisplay (radius .35em, panel 1.2x the digits). */
+  .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.62); border: 1px solid rgba(255,255,255,.85); border-radius: .35em; padding: .1em 0; text-align: center; font-weight: 600; line-height: 1.2; }
   .tape .vbands { position: absolute; left: 0; top: 0; bottom: 0; width: 9%; background: linear-gradient(to top, #22b03a 0 45%, #e8c21a 45% 72%, #e0231f 72% 88%, #fff 88% 100%); }
-  .tape .readout.notch { left: 14%; right: 6%; background: #000; border: 1px solid #fff; }
-  .tape .readout.notch::before { content: ""; position: absolute; left: -6px; top: 50%; transform: translateY(-50%); border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-right: 6px solid #000; }
+  /* Box placement follows the widget: Airspeed_Tape puts its NumericalDisplay
+     in the right half (x = w/2, width w/2) with the notch pointing left at the
+     scale; Altimeter_Tape puts its box at x = 0, width w/1.20, notch pointing
+     right. The twin used to span nearly the full width and point both notches
+     left. */
+  .tape .readout.notch { left: 50%; right: 0; }
+  .tape.alt .readout.notch { left: 0; right: 16.7%; }
+  .tape .readout.notch .rnotch { position: absolute; top: 50%; right: 100%; transform: translateY(-50%); overflow: visible; }
+  .tape.alt .readout.notch .rnotch { right: auto; left: 100%; }
+  /* TAS box: the same panel, one deviation -- it sits ON the scrolling scale
+     rather than beside it, so the fill is knocked back further (.85) or the
+     tick labels read through the value. Matches the widget. */
+  .tape .tasbox { position: absolute; left: 2%; right: 2%; bottom: 2%; background: rgba(0,0,0,.85); border: 1px solid rgba(255,255,255,.85); border-radius: .35em; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+  .tape .tasbox .lbl { font-size: .62em; font-weight: 700; }
+  .tape .tasbox .val { font-weight: 600; }
   .htape { position: relative; box-sizing: border-box; overflow: hidden; background: rgba(18,22,28,.72); color: #e6edf3; }
   .htape .htk { position: absolute; top: 6%; transform: translateX(-50%); text-align: center; line-height: 1; white-space: nowrap; }
   .htape .htk .bar { display: block; width: 1px; height: 6px; margin: 0 auto 1px; background: currentColor; opacity: .55; }
@@ -741,23 +758,52 @@ function buildTape(inst) {
     tk.style.top = top + "%"; tk.textContent = n; wrap.appendChild(tk);
   }
   const ro = document.createElement("div"); ro.className = "readout notch"; ro.textContent = value;
+  // The value fills its box on the device -- NumericalDisplay grows the font
+  // until total_decimals digits span the box interior. Both tapes land on
+  // roughly a quarter of the tape width per digit-height, so one coefficient
+  // covers both (IAS: 3 digits in w/2; ALT: 5 digits in w/1.2).
+  ro.style.fontSize = Math.max(9, r.w * 0.25) + "px";
   if (showTas) ro.style.top = (50 - botPad / 2) + "%";
+  ro.appendChild(readoutNotch(isAlt ? "right" : "left", r.w * 0.25 * 1.2 * 0.42));
   wrap.appendChild(ro);
   if (!isAlt && o.show_trend !== false) {
+    // Anchored just left of the readout box, as the widget draws it (x0 = -2
+    // from numeric_box_pos, i.e. the box's left edge at w/2).
     const tr = pv.trend ?? 6, trh = Math.max(4, Math.min(22, tr * 1.6));
     const trend = document.createElement("div");
-    trend.style.cssText = `position:absolute;left:9.5%;width:3px;background:#34d3ff;top:${50 - botPad / 2 - trh}%;height:${trh}%;`;
+    trend.style.cssText = `position:absolute;left:46%;width:3px;background:#34d3ff;top:${50 - botPad / 2 - trh}%;height:${trh}%;`;
     const head = document.createElement("div");
-    head.style.cssText = `position:absolute;left:8.2%;top:${50 - botPad / 2 - trh}%;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:5px solid #34d3ff;`;
+    head.style.cssText = `position:absolute;left:44.5%;top:${50 - botPad / 2 - trh}%;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:5px solid #34d3ff;`;
     wrap.appendChild(trend); wrap.appendChild(head);
   }
   if (showTas) {
     const tas = document.createElement("div");
-    tas.style.cssText = `position:absolute;left:0;right:0;bottom:0;height:${botPad}%;background:#fff;color:#1e1e1e;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;`;
-    tas.innerHTML = `<div style="font-size:.62em">TAS</div><div style="font-weight:600">${pv.tas ?? 118}</div>`;
+    tas.className = "tasbox";
+    tas.style.height = (botPad - 2) + "%";
+    tas.innerHTML = `<div class="lbl">TAS</div><div class="val">${pv.tas ?? 118}</div>`;
     wrap.appendChild(tas);
   }
   return wrap;
+}
+
+// Read notch on a tape readout box -- twin of
+// pyefis.instruments.helpers.draw_readout_notch. Same translucent fill and
+// .85 border as the panel, and the border runs down the two SLANTED edges
+// only, so the box's own border passes through the base unbroken. SVG rather
+// than the usual CSS border-triangle because a border-triangle cannot be
+// outlined on two sides. Half-height/depth is .42 of the panel height, as the
+// widget derives it from NumericalDisplay.readout_rect.
+function readoutNotch(side, size) {
+  const d = Math.max(3, Math.round(size || 5)), h = 2 * d, sw = 1;
+  const pts = side === "left"
+    ? `${d - sw / 2},${sw / 2} ${sw / 2},${d} ${d - sw / 2},${h - sw / 2}`
+    : `${sw / 2},${sw / 2} ${d - sw / 2},${d} ${sw / 2},${h - sw / 2}`;
+  return svgFromString(
+    `<svg class="rnotch" width="${d}" height="${h}" viewBox="0 0 ${d} ${h}">
+       <polygon points="${pts}" fill="rgba(0,0,0,.62)"/>
+       <polyline points="${pts}" fill="none" stroke="rgba(255,255,255,.85)"
+                 stroke-width="${sw}"/>
+     </svg>`);
 }
 
 function headingLabel(d) {
