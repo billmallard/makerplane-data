@@ -2,23 +2,30 @@
 
 # The tab-section container in the configurator — spec / plan
 
-Status: **AER-172 approved; §4g contract agreed; implementation waits on
-pyEfis#132 merging** (updated 2026-08-16). Companion to
+Status: **Phase A landed; Phase B (drop-target + nested twin) not started**
+(updated 2026-08-16). Companion to
 [pyEfis#131](https://github.com/billmallard/pyEfis/issues/131) (the engine-side
 design; read that first — this doc assumes it) and
 [panel_config_format.md](panel_config_format.md) (the wire format this feature
 extends). Tracked as AER-173, child of AER-172.
 
-Board approval on AER-172 landed, and Bill resolved this doc's open questions
-1–3 directly on pyEfis#131 (comments, 2026-08-16) — see §4g and §7 below,
-updated to match. The engine-side implementation is now a real PR,
-[pyEfis#132](https://github.com/billmallard/pyEfis/pull/132), open for review
-and not yet merged; its own description says explicitly that AVIONICS-DATA
-needs it landed to build against a real schema. This side's exporter reads
-`schema.json` generated from pyEfis's live `REGISTRY`, so starting Phase A
-against an unmerged branch means building against a shape that can still move
-in review. **Implementation remains on hold until pyEfis#132 merges** — that is
-now the only remaining gate.
+Board approval on AER-172 landed, Bill resolved this doc's open questions 1–3
+directly on pyEfis#131 (comments, 2026-08-16) — see §4g and §7 — and
+[pyEfis#132](https://github.com/billmallard/pyEfis/pull/132) (the
+`tab_section` `InstrumentSpec` + recursion) merged 2026-08-16, publishing a
+live `schema.json` with the agreed `containers: list[ContainerSlot]` field.
+**§6 Phase A is implemented** in `configurator/public/editor.html`: palette
+entry (free from the schema, no code needed), a fresh drop initializes one
+default tab per container slot (`ensureContainerSlot`), the properties
+inspector grows a tab-list CRUD section (`buildContainerEditor` —
+add/rename/reorder/delete, always keeps ≥1 tab) for any instrument whose
+schema entry carries `containers`, and `toScreenInstrument`/save recurse each
+tab's `{label, layout, instruments}` through the same expand-and-convert
+pipeline a screen uses, so the tree round-trips through save/load without
+flattening. `renderCanvas()` is untouched, per plan — a tab_section still
+twins as its flat palette SVG placeholder and its tabs render no nested
+content on canvas yet. **Phase B is the next gate**: a container-scoped
+drop-target and the recursive nested twin (§4b, §4f).
 
 ## 1. What this is (and what it isn't)
 
@@ -239,10 +246,13 @@ real to build against until `schema.json` regenerates from a merged
 
 ## 6. Phases (once pyEfis#132 merges)
 
-- **Phase A — Palette + empty container + tab CRUD, no nested rendering.**
-  Container places, tabs can be added/renamed/removed/reordered, saves/loads a
-  `tabs: [{label, instruments: []}]` skeleton. Proves the state model and
-  save/load recursion without touching `renderCanvas()`.
+- **Phase A — Palette + empty container + tab CRUD, no nested rendering. Done
+  (2026-08-16).** Container places, tabs can be added/renamed/removed/reordered,
+  saves/loads a `tabs: [{label, layout, instruments: []}]` skeleton (each tab
+  also carries its own `layout`, confirmed against the merged pyEfis#132 —
+  a tab page *is* a nested `Screen`, same shape as a top-level screen's
+  `layout:`+`instruments:`). Proves the state model and save/load recursion
+  without touching `renderCanvas()`.
 - **Phase B — Drop-target + flat nested twin.** Instruments can be dragged
   into the active tab and render inside the container's box at the fidelity
   the rest of the editor already has for top-level instruments.

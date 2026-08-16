@@ -2082,11 +2082,20 @@ canvas.addEventListener("drop", (e) => {
     const sp = def.defaultSpan || { rows: 40, columns: 50 };
     state.instruments.push({ type: "group", id: def.id, row, column: col, span: { rows: sp.rows, columns: sp.columns } });
   } else if (state.schema.instruments[data]) {
+    const meta = state.schema.instruments[data];
     const options = {};
     // A button needs a backing touchscreen-button FIX key; assign an unused one
     // so the builder never has to hand-pick it (dbkey is a required option).
     if (data === "button") options.dbkey = allocateTsbtn();
-    state.instruments.push({ type: data, row, column: col, span: { rows: 20, columns: 20 }, options });
+    const inst = { type: data, row, column: col, span: { rows: 20, columns: 20 }, options };
+    // Container instruments (e.g. tab_section's "tabs") start with one default
+    // tab rather than zero -- never dropped in an unrenderable state, matching
+    // pyEfis's own empty-tabs fallback (AER-173 design doc §4a).
+    if (meta.containers && meta.containers.length) {
+      for (const slot of meta.containers) ensureContainerSlot(inst, slot);
+      inst.activeTab = 0;
+    }
+    state.instruments.push(inst);
   } else { return; }
   state.selected = state.instruments.length - 1;
   renderCanvas(); renderProps();
@@ -2221,9 +2230,114 @@ function renderProps() {
     for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
   }
 
+  // Container instruments (tab_section's "tabs", per the schema's `containers`
+  // metadata -- AER-173 §4g): CRUD for the tab list, not a drop-target yet
+  // (Phase A; dragging instruments into a tab is Phase B, renderCanvas() is
+  // untouched here).
+  for (const slot of (meta.containers || [])) p.appendChild(buildContainerEditor(inst, slot));
+
   // Soft-controls: a Button's behaviour is a list of conditions, each firing a
   // list of actions. Its own dedicated editor (below the plain options).
   if (inst.type === "button") p.appendChild(renderConditions(inst));
+}
+
+// --- container slots (e.g. tab_section's "tabs") ----------------------------
+// A container slot (schema `containers[]`, AER-173 §4g) holds a subtree, not a
+// scalar option: an ordered list of {label, layout, instruments} tab pages,
+// the same shape pyEfis nests a Screen from (docs/screenbuilder.md#tab_section
+// on the pyEfis side). This section is the tab-list CRUD only -- no drop
+// target and no on-canvas tab strip yet (that's Phase B/C, AER-173 §6).
+
+// A dropped/loaded container instrument should never have zero tabs -- mirrors
+// pyEfis's own empty-tabs fallback in tab_section/__init__.py.
+function ensureContainerSlot(inst, slot) {
+  if (!Array.isArray(inst[slot.name]) || !inst[slot.name].length) {
+    inst[slot.name] = [{ label: "Tab 1", layout: { rows: 110, columns: 200 }, instruments: [] }];
+  }
+  return inst[slot.name];
+}
+
+function uniqueTabLabel(tabs, base, exclude) {
+  let name = String(base || "Tab").trim() || "Tab", k = 2;
+  while (tabs.some((t, i) => i !== exclude && t.label === name)) name = `${base} ${k++}`;
+  return name;
+}
+
+function buildContainerEditor(inst, slot) {
+  const wrap = document.createElement("div");
+  const tabs = ensureContainerSlot(inst, slot);
+  inst.activeTab = clamp(inst.activeTab ?? 0, 0, tabs.length - 1);
+
+  const h = document.createElement("h3"); h.textContent = slot.label || slot.name; wrap.appendChild(h);
+  if (slot.help) {
+    const hint = document.createElement("p"); hint.className = "muted"; hint.style.margin = "0 0 8px";
+    hint.textContent = slot.help; wrap.appendChild(hint);
+  }
+
+  const refresh = () => { syncCode(); renderProps(); };
+
+  const list = document.createElement("ul"); list.className = "layers";
+  tabs.forEach((tab, i) => {
+    const li = document.createElement("li");
+    li.className = "layer" + (i === inst.activeTab ? " sel" : "");
+    li.style.display = "flex"; li.style.alignItems = "center"; li.style.gap = "6px";
+
+    const lbl = document.createElement("span");
+    lbl.textContent = tab.label || `Tab ${i + 1}`;
+    lbl.style.flex = "1"; lbl.style.cursor = "pointer";
+    lbl.title = "Select this tab";
+    lbl.addEventListener("click", () => { inst.activeTab = i; refresh(); });
+    li.appendChild(lbl);
+
+    const mk = (label, title, fn, disabled) => {
+      const b = document.createElement("button");
+      b.textContent = label; b.title = title; b.disabled = !!disabled;
+      b.style.padding = "1px 6px"; b.style.fontSize = "12px";
+      b.addEventListener("click", (e) => { e.stopPropagation(); fn(); });
+      return b;
+    };
+    li.appendChild(mk("✎", "Rename tab", () => {
+      const raw = prompt("Rename tab:", tab.label || `Tab ${i + 1}`);
+      if (raw == null) return;
+      tab.label = uniqueTabLabel(tabs, raw.trim() || tab.label, i);
+      refresh();
+    }));
+    li.appendChild(mk("↑", "Move earlier", () => {
+      if (i === 0) return;
+      [tabs[i - 1], tabs[i]] = [tabs[i], tabs[i - 1]];
+      if (inst.activeTab === i) inst.activeTab = i - 1;
+      else if (inst.activeTab === i - 1) inst.activeTab = i;
+      refresh();
+    }, i === 0));
+    li.appendChild(mk("↓", "Move later", () => {
+      if (i === tabs.length - 1) return;
+      [tabs[i + 1], tabs[i]] = [tabs[i], tabs[i + 1]];
+      if (inst.activeTab === i) inst.activeTab = i + 1;
+      else if (inst.activeTab === i + 1) inst.activeTab = i;
+      refresh();
+    }, i === tabs.length - 1));
+    li.appendChild(mk("✕", "Delete tab", () => {
+      if (tabs.length <= 1) return;   // a container must always keep >=1 tab
+      if (!confirm(`Delete tab '${tab.label || `Tab ${i + 1}`}'?`)) return;
+      tabs.splice(i, 1);
+      if (inst.activeTab >= tabs.length) inst.activeTab = tabs.length - 1;
+      refresh();
+    }, tabs.length <= 1));
+
+    list.appendChild(li);
+  });
+  wrap.appendChild(list);
+
+  const add = document.createElement("button");
+  add.className = "screen-add"; add.textContent = "+ Add tab";
+  add.addEventListener("click", () => {
+    tabs.push({ label: uniqueTabLabel(tabs, `Tab ${tabs.length + 1}`), layout: { rows: 110, columns: 200 }, instruments: [] });
+    inst.activeTab = tabs.length - 1;
+    refresh();
+  });
+  wrap.appendChild(add);
+
+  return wrap;
 }
 
 // Reorder the selected instrument in the array (= change paint order).
@@ -2995,7 +3109,12 @@ function expandGroups(instruments) {
   return out;
 }
 
-// One editor instrument -> one pyEfis screenbuilder instrument.
+// One editor instrument -> one pyEfis screenbuilder instrument. Recurses into
+// any container slots the schema declares for this type (e.g. tab_section's
+// "tabs") -- each tab is its own {label, layout, instruments} nested screen,
+// converted through the exact same expand-and-convert pipeline as a top-level
+// screen (AER-173 §4e), so the tree survives into the saved YAML as-is instead
+// of flattening like an element group does.
 function toScreenInstrument(inst) {
   const out = {
     type: inst.type,
@@ -3006,6 +3125,16 @@ function toScreenInstrument(inst) {
   const opts = { ...(inst.options || {}) };
   delete opts.preview_scene;          // editor-only: which SVS preview image to show
   if (Object.keys(opts).length) out.options = opts;
+  const meta = state.schema.instruments[inst.type];
+  for (const slot of (meta?.containers || [])) {
+    const tabs = inst[slot.name];
+    if (!Array.isArray(tabs)) continue;
+    out[slot.name] = tabs.map((tab) => ({
+      label: tab.label,
+      layout: tab.layout || { rows: 110, columns: 200 },
+      instruments: expandGroups(tab.instruments || []).map(toScreenInstrument),
+    }));
+  }
   return out;
 }
 
