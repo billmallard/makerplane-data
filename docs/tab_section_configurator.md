@@ -2,14 +2,23 @@
 
 # The tab-section container in the configurator — spec / plan
 
-Status: **DRAFT for review** (2026-08-16). Companion to
+Status: **AER-172 approved; §4g contract agreed; implementation waits on
+pyEfis#132 merging** (updated 2026-08-16). Companion to
 [pyEfis#131](https://github.com/billmallard/pyEfis/issues/131) (the engine-side
 design; read that first — this doc assumes it) and
 [panel_config_format.md](panel_config_format.md) (the wire format this feature
-extends). Tracked as AER-173, child of AER-172. **Scoping only — implementation
-is on hold pending board approval on AER-172** (per the issue). Nothing here is
-committed; it is a proposal for what the configurator side would need once the
-pyEfis-side schema lands.
+extends). Tracked as AER-173, child of AER-172.
+
+Board approval on AER-172 landed, and Bill resolved this doc's open questions
+1–3 directly on pyEfis#131 (comments, 2026-08-16) — see §4g and §7 below,
+updated to match. The engine-side implementation is now a real PR,
+[pyEfis#132](https://github.com/billmallard/pyEfis/pull/132), open for review
+and not yet merged; its own description says explicitly that AVIONICS-DATA
+needs it landed to build against a real schema. This side's exporter reads
+`schema.json` generated from pyEfis's live `REGISTRY`, so starting Phase A
+against an unmerged branch means building against a shape that can still move
+in review. **Implementation remains on hold until pyEfis#132 merges** — that is
+now the only remaining gate.
 
 ## 1. What this is (and what it isn't)
 
@@ -74,9 +83,8 @@ saved tab_section config would actually build on a device.
 and (for `enum`) a flat `enum` list. There is no kind for "a property whose
 value is itself a list of instrument records." This is exactly the gap
 pyEfis#131 and the AER-173 issue body both flag for coordination — confirmed
-by reading the dataclass, not inferred. Section 4f below is a concrete
-proposal for that contract, offered for discussion, not a decision (that
-module is pyEfis's).
+by reading the dataclass, not inferred. Section 4g below records the contract
+this gap resolved to, now agreed and implemented in pyEfis#132.
 
 The live schema confirms the same shape from the exporter side: fetched
 `schema.json` (schema_version 3, prod) gives each instrument a flat `options:
@@ -95,7 +103,7 @@ tab_section" as a v1 non-goal (it currently does) — see open question 5.
 
 Mirrors pyEfis#131's v1 boundary — this doc does not expand it:
 
-**In (this round, once schema lands and board approves):**
+**In (this round, once pyEfis#132 merges):**
 - Palette entry for the container.
 - A drop-target scoped to the container's active tab, distinct from the
   screen-tab bar.
@@ -104,13 +112,13 @@ Mirrors pyEfis#131's v1 boundary — this doc does not expand it:
   box.
 - Save/load round-trip of the nested `tabs:` structure (no flattening).
 
-**Out / later (matches pyEfis#131 non-goals):**
+**Out / later (matches pyEfis#131 non-goals, both now confirmed — §7 Q1/Q2):**
 - Nesting a tab_section inside a tab_section.
-- Hardware-button tab switching in the UI — only if pyEfis#131 open question 1
-  resolves to "in scope," and only after the engine side exposes it.
-- Any authored persistence of *last-selected* tab across a device reload
-  (runtime state, not a layout concern) — separate from an authored *default*
-  tab, which is in scope as a plain scalar Prop (§4d, open question 6).
+- Hardware-button tab switching in the UI — resolved out of scope entirely
+  (touch/click only), not deferred; see §6 Phase D.
+- Any authored persistence of *last-selected* tab across a device reload —
+  resolved: none. Separate from an authored *default* tab, which is in scope
+  as a plain scalar Prop (§4d).
 
 ## 4. Design decisions (proposed — none of this is locked)
 
@@ -150,6 +158,13 @@ to this one instrument). Nested instrument records keep the exact same shape
 as top-level ones (`type`/`row`/`column`/`span`/`options`), just positioned
 against the container's box instead of the screen's.
 
+`default_tab` is **resolved as a plain scalar `Prop`** (Bill, pyEfis#131
+comment, 2026-08-16 — see §7 Q2): selects the tab shown on
+load, always resets there on reload/power-up, never remembers the
+last-selected tab. No device-writable persistence needed — `activeTab` above
+stays purely an editor-session UI concern, never round-tripped through
+`default_tab`.
+
 ### 4e. Save/load path — recurse, don't flatten
 
 `toPyefisDoc()`/`toScreenInstrument()` need a tab_section branch that
@@ -175,20 +190,32 @@ single chunk of work here, independent of the exporter question. Per
 `configurator/CLAUDE.md`'s fidelity rule, once pyEfis actually renders nested
 tabs, the twin should be checked against that, not designed freehand.
 
-### 4g. Exporter contract — a proposal, pyEfis's call
+### 4g. Exporter contract — agreed
 
-Rather than forcing a `tabs`-like property into `Prop`/`PROP_KINDS` (deliberately
-scalar-only — §2c), propose a **new `InstrumentSpec` field**, parallel to
-`properties`/`fix_values`/`preview`, e.g. a `containers: list[ContainerSlot]`
-where a `ContainerSlot` describes "this instrument has N named tabs, each
-holding a list of instruments" rather than a leaf value. The schema exporter
-would then emit a `container:` block per such instrument (distinct from its
-flat `options:` block) so the editor gets an explicit signal to render a
-drop-target instead of a properties-panel field. This keeps `Prop`'s
-scalar-default invariant intact instead of special-casing it. Offered for
-discussion with AVIONICS/pyEfis, since `instrument_spec.py` is pyEfis's
-module and its own anti-drift test (`tests/editor/test_schema.py`) would need
-to grow a matching assertion.
+**Resolved** (Bill, [pyEfis#131 comment](https://github.com/billmallard/pyEfis/issues/131),
+2026-08-16), matching this section's original proposal: a new `InstrumentSpec`
+field `containers: list[ContainerSlot]`, parallel to
+`properties`/`fix_values`/`preview` — not a `Prop`/`PROP_KINDS` addition.
+`Prop.__post_init__`'s scalar-default invariant stays intact; a subtree is a
+fourth, distinct input category.
+
+```python
+@dataclass
+class ContainerSlot:
+    name: str            # e.g. "tabs" -- the YAML key
+    label: str = ""
+    help: str = ""
+```
+
+`schema.py`'s `_entry_from_spec`/`_entry_from_curation` both grow a
+`"containers": [...]` key (empty on the curation branch, same uniform-shape
+rule `options`/`fix_values`/`preview` already follow) — this is what
+pyEfis#132 implements. Once that PR merges and `schema.json` regenerates to
+R2, the editor's exporter-consuming code should branch on a non-empty
+`containers` entry to render a drop-target instead of a properties field,
+exactly as this section originally proposed. `tests/editor/test_schema.py`
+grows a matching "every container slot has a name + label" assertion on the
+pyEfis side.
 
 ## 5. Two repos move together
 
@@ -203,13 +230,14 @@ Same split as every prior configurator feature (button, knob, groups):
   Delivery still rides the existing config-pull pipeline unchanged (the nested
   structure lives inside the same screen YAML, nothing new to transport).
 
-Sequencing: this side cannot start real implementation before (a) pyEfis#131's
-`InstrumentSpec`/recursion lands, since there is nothing to build against, and
-(b) the §4g exporter contract is agreed, since it decides whether the editor
-reads a `container:` block or something else. Board approval on AER-172 gates
-both repos starting implementation regardless.
+Sequencing, updated: (b) the §4g exporter contract is now agreed, and board
+approval on AER-172 has landed. The one remaining gate is (a) —
+[pyEfis#132](https://github.com/billmallard/pyEfis/pull/132) (the
+`InstrumentSpec`/recursion implementation) merging, since there is nothing
+real to build against until `schema.json` regenerates from a merged
+`REGISTRY` and ships to R2.
 
-## 6. Phases (once approved)
+## 6. Phases (once pyEfis#132 merges)
 
 - **Phase A — Palette + empty container + tab CRUD, no nested rendering.**
   Container places, tabs can be added/renamed/removed/reordered, saves/loads a
@@ -220,26 +248,31 @@ both repos starting implementation regardless.
   the rest of the editor already has for top-level instruments.
 - **Phase C — Polish.** Element groups inside a tab, layers-panel nesting
   indication, drag an existing top-level instrument into a tab (and back out).
-- **Phase D (later, contingent on pyEfis#131 open question 1)** — hardware-
-  button switching authoring, if the engine adds it.
+- **Phase D — dropped.** Resolved (§7 Q1): touch/click only for v1, hardware-
+  button switching is an explicit non-goal on the pyEfis side, not a deferred
+  phase on this one. Revisit only if pyEfis reopens that decision.
 
 ## 7. Open questions
 
-1. (Carried from pyEfis#131) Hardware-button tab switching — in v1 or later?
-   Determines whether Phase D exists at all.
-2. (Carried from pyEfis#131) Active-tab persistence on reload — reset to a
-   configured default, or remember last-selected? If "remember," is that
-   engine-runtime-only (no editor concern) or does it need a device-writable
-   value? Shapes whether §4d's `activeTab` ever needs to leave the editor.
-3. Is the §4g `containers` field proposal the right shape, or does AVIONICS
-   have a preferred contract already in mind for pyEfis#131's recursion work?
+Questions 1–3 are resolved (Bill, pyEfis#131 comments, 2026-08-16); kept here
+for the record rather than deleted, since they shaped §4d/§4g/§6 above.
+
+1. ~~Hardware-button tab switching — in v1 or later?~~ **Resolved: touch-only
+   for v1**; not a fast-follow phase on the pyEfis side either, so Phase D is
+   dropped rather than deferred.
+2. ~~Active-tab persistence on reload — reset to configured default, or
+   remember last-selected?~~ **Resolved: always resets to `default_tab`.** No
+   runtime persistence, no device-writable value — §4d's `activeTab` stays
+   editor-session-only, confirming the framing that question posed.
+3. ~~Is the §4g `containers` field proposal the right shape?~~ **Resolved:
+   yes**, adopted as proposed — see §4g for the concrete `ContainerSlot`
+   dataclass, implemented in pyEfis#132.
 4. Do element groups genuinely work unmodified when dropped inside a tab once
    the tab's local coordinate space is threaded through, or does
-   `expandGroups()` need a container-aware variant?
+   `expandGroups()` need a container-aware variant? Still open — needs
+   pyEfis#132's actual recursion behavior to check against, not something to
+   resolve freehand.
 5. Should the palette simply suppress the tab_section tile while a tab
    drop-target is focused (reusing the existing `hidden` mechanism, §2d), or
    should the drop-target itself reject a dropped tab_section with a message?
-   Only matters if "no nested tab_section" stays a hard rule.
-6. Should `default_tab` be a plain scalar Prop (fits today's model, independent
-   of the harder recursion questions) so a reload has a predictable landing
-   tab regardless of how question 2 resolves?
+   Still open; only matters given Q1's confirmed "no nested tab_section" rule.
