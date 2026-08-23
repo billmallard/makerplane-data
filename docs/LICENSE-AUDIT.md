@@ -90,6 +90,27 @@ network/CLI/file boundary; (c) fully greenfield.
   AGPL components once outside contributions land — a deliberate,
   eyes-open trade in favour of community trust.
 
+## Sourced third-party pack *data* (tracked separately from repo code)
+
+The classification above is the repo's own code. Packaged **data** carries
+its own terms per source, declared in each pack's `attribution` string
+(`packtools/sources.py`); this section is the running record of what's been
+checked, per AC-IP-001's remit to catch exactly this class of decision.
+
+| Source | Layer | License | Redistribution? |
+|---|---|---|---|
+| FAA NASR/DOF/CIFP | airports, obstacles, navaids, cifp | US Government work — no copyright attaches (not a license grant) | Yes — public domain |
+| Copernicus GLO-30 | terrain | Copernicus open data terms | Yes — redistributable |
+| OpenStreetMap (via Geofabrik) / Natural Earth | water, highways | ODbL / public domain | Yes — ODbL requires attribution, carried in `attribution` |
+| NavCanada VNC | (Canadian charts) | proprietary, user-supplied only | **No** — never redistributed; user-supplied pack slot only |
+| **openAIP** (Garrecht Avionik GmbH) | airspace (evaluated, not yet shipped) | **CC BY-NC 4.0**, confirmed live against openAIP's own API metadata 2026-08-23 | **Evaluated: yes, under its own terms.** Free, no-revenue distribution reads as non-commercial under CC's own NC definition; carry-not-relicense via new per-pack `license`/`license_url` manifest metadata (not yet implemented). Full writeup: [openaip_evaluation.md](openaip_evaluation.md). Awaiting Bill's decision on direction + whether to contact openAIP directly to confirm. |
+
+Manifest today only carries `attribution` (free text); it has no
+machine-readable `license` field, which was fine while every source was
+either public domain or already-decided-compatible. openAIP is the first
+source where the license itself needs to be a checkable fact, not just
+prose — see the manifest metadata design in `openaip_evaluation.md`.
+
 ## Enforcement
 
 * Per-file `SPDX-License-Identifier` headers on all source files in this

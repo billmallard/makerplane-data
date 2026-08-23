@@ -58,7 +58,7 @@ on community datasets — each with a license caveat that matters for us:
 | Source | Covers | License — can we redistribute? |
 |--------|--------|-------------------------------|
 | **OurAirports** | Global airports / runways / freqs | **CC0 / public domain — yes, clean.** Best fit for an open airports pack. |
-| **openAIP** | Europe airports, airspace, navaids, *some obstacles* | Historically **CC BY-NC-SA** — the **non-commercial** clause is a redistribution problem. **Verify current terms before relying on it.** |
+| **openAIP** | Europe airports, airspace, navaids, *some obstacles* | **Re-verified 2026-08-23: plain CC BY-NC 4.0** (not -SA — that was a stale secondary-source read), confirmed against openAIP's own live API metadata. See [openaip_evaluation.md](openaip_evaluation.md) for the full evaluation (#41): the NC clause reads as satisfied by our free, no-revenue distribution model; carry-not-relicense via new manifest license metadata is the proposed path, pending Bill's decision. |
 | **open flightmaps** | Europe VFR charts | Free but **NC / share-alike** — same caveat. |
 | **OpenStreetMap** | Some `aeroway` tagging | ODbL (already used for our water/roads), but not authoritative/complete for aviation. |
 
@@ -75,9 +75,10 @@ on community datasets — each with a license caveat that matters for us:
 
 ## TODO for future Bill, if/when this is picked up
 
-- [ ] Re-verify **openAIP** and **open flightmaps** license terms (they change);
-      confirm whether the NC clause truly blocks our use (we distribute for free,
-      but "non-commercial" can still bite an org-hosted mirror).
+- [x] Re-verify **openAIP** license terms — done 2026-08-23, see
+      [openaip_evaluation.md](openaip_evaluation.md) (#41). Still open:
+      **open flightmaps** license terms (they change); confirm whether the NC
+      clause truly blocks our use there too.
 - [ ] Prototype an **OurAirports**-based global airports source in
       `packtools/sources.py` (CSV download → reuse `tools/build_airport_db.py`
       shape). Decide pack id/scope: a `navdata-world` airports pack vs. keeping
