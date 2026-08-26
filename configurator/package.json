@@ -10,6 +10,7 @@
     "deploy:dev": "wrangler deploy --env dev",
     "deploy:qa": "wrangler deploy --env qa",
     "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs",
     "migrate": "wrangler d1 migrations apply makerplane_configurator --remote",
     "migrate:dev": "wrangler d1 migrations apply makerplane_configurator_dev --env dev --remote",
     "migrate:qa": "wrangler d1 migrations apply makerplane_configurator_qa --env qa --remote",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240909.0",
+    "js-yaml": "^4.1.0",
     "typescript": "^5.6.0",
     "wrangler": "^4.0.0"
   }
