@@ -71,6 +71,9 @@ export async function googleCallback(c: Context<Env>): Promise<Response> {
   // signature here. (Add JWKS verification for defense-in-depth if desired.)
   const claims = decodeJwtClaims<GoogleIdClaims>(token.id_token);
   if (!claims?.email) return c.text("no email in id_token", 502);
+  if (claims.email_verified !== true) {
+    return c.text("email not verified by identity provider", 403);
+  }
 
   const user = await upsertUser(c.env.DB, claims.email, claims.name ?? null);
   await linkIdentity(c.env.DB, user.id, "google", claims.sub);
