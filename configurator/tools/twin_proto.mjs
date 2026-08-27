@@ -18,12 +18,8 @@
 //   msedge --headless --disable-gpu --screenshot=out.png --window-size=160,480 \
 //          file:///tmp/proto.html
 
-import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const EDITOR = resolve(HERE, "..", "public", "editor.html");
+import { writeFileSync } from "node:fs";
+import { editorSource, extractFunction } from "../test/support/extract.mjs";
 
 function arg(name, fallback) {
   const i = process.argv.indexOf("--" + name);
@@ -32,19 +28,7 @@ function arg(name, fallback) {
   return next && !next.startsWith("--") ? next : true;
 }
 
-/** Source text of a top-level `function name(...) { ... }`, by brace matching. */
-function extractFunction(src, name) {
-  const start = src.indexOf(`function ${name}(`);
-  if (start === -1) throw new Error(`function ${name} not found in editor.html`);
-  let depth = 0;
-  for (let i = src.indexOf("{", start); i < src.length; i++) {
-    if (src[i] === "{") depth++;
-    else if (src[i] === "}" && --depth === 0) return src.slice(start, i + 1);
-  }
-  throw new Error(`unbalanced braces in ${name}`);
-}
-
-const src = readFileSync(EDITOR, "utf8");
+const src = editorSource();
 const style = src.slice(src.indexOf("<style>") + 7, src.indexOf("</style>"));
 
 const type = String(arg("type", "airspeed_tape"));

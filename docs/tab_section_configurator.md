@@ -2,12 +2,13 @@
 
 # The tab-section container in the configurator — spec / plan
 
-Status: **Phase A landed; Phase B (drop-target + nested twin) not started**
-(updated 2026-08-16). Companion to
+Status: **Phase A and Phase B landed; Phase C (polish) not started**
+(updated 2026-08-26). Companion to
 [pyEfis#131](https://github.com/billmallard/pyEfis/issues/131) (the engine-side
 design; read that first — this doc assumes it) and
 [panel_config_format.md](panel_config_format.md) (the wire format this feature
-extends). Tracked as AER-173, child of AER-172.
+extends). Tracked as AER-173, child of AER-172; Phase B itself is
+[AER-345](https://github.com/billmallard/makerplane-data/issues/44).
 
 Board approval on AER-172 landed, Bill resolved this doc's open questions 1–3
 directly on pyEfis#131 (comments, 2026-08-16) — see §4g and §7 — and
@@ -22,10 +23,32 @@ add/rename/reorder/delete, always keeps ≥1 tab) for any instrument whose
 schema entry carries `containers`, and `toScreenInstrument`/save recurse each
 tab's `{label, layout, instruments}` through the same expand-and-convert
 pipeline a screen uses, so the tree round-trips through save/load without
-flattening. `renderCanvas()` is untouched, per plan — a tab_section still
-twins as its flat palette SVG placeholder and its tabs render no nested
-content on canvas yet. **Phase B is the next gate**: a container-scoped
-drop-target and the recursive nested twin (§4b, §4f).
+flattening.
+
+**§6 Phase B is implemented** (AER-345): `renderCanvas()`'s per-type dispatch
+is factored into `buildInstrumentTwin()` and reused recursively by
+`buildContainerTwin()`, which renders the tab strip + the active tab's
+instruments inside the container's own box, at the same fidelity a top-level
+instrument gets. `rect()`/`cell()` gained an ambient "current render space"
+(`withSpace()`) so every existing twin builder picks up the container's own
+coordinate frame — the tab's own `layout`, not the screen's — without being
+rewritten. The canvas drop handler is container-scoped (§4b): dropping onto
+the selected tab_section's box inserts into its active tab in tab-local
+coordinates instead of the top-level screen; a dropped `tab_section` is
+rejected (§7 Q5). Nested instruments are selectable/movable/resizable/
+deletable via the same generic properties-panel building blocks top-level
+ones use. `test/tab_section_roundtrip.test.mjs` pins the save/load contract
+(byte-identical YAML whether an instrument reaches a tab via the drop-target
+or hand-authored YAML) as a permanent regression guard. **Note**: as of this
+writing, prod `schema.json` doesn't carry `tab_section` yet — only the `dev`
+environment's asset does — so this feature needs a pyEfis-side R2 republish
+before it's usable in prod (not a configurator-side gap).
+
+**Phase C** (§6) is next: element groups inside a tab (should work unmodified
+per §4e/§7 Q4, now confirmed structurally sound but not yet exercised through
+the drop-target), layers-panel nesting indication, and dragging an *existing*
+top-level instrument into a tab (or back out) — AER-345 covers only dropping a
+*new* instrument from the palette.
 
 ## 1. What this is (and what it isn't)
 
@@ -253,11 +276,18 @@ real to build against until `schema.json` regenerates from a merged
   a tab page *is* a nested `Screen`, same shape as a top-level screen's
   `layout:`+`instruments:`). Proves the state model and save/load recursion
   without touching `renderCanvas()`.
-- **Phase B — Drop-target + flat nested twin.** Instruments can be dragged
-  into the active tab and render inside the container's box at the fidelity
-  the rest of the editor already has for top-level instruments.
-- **Phase C — Polish.** Element groups inside a tab, layers-panel nesting
-  indication, drag an existing top-level instrument into a tab (and back out).
+- **Phase B — Drop-target + flat nested twin. Done (2026-08-26,
+  [AER-345](https://github.com/billmallard/makerplane-data/issues/44)).**
+  Instruments dropped from the palette land in the active tab, in tab-local
+  coordinates, and render inside the container's box at the fidelity the rest
+  of the editor already has for top-level instruments (same per-type dispatch,
+  reused recursively). Selectable/movable/resizable/deletable via the same
+  generic properties-panel building blocks. Save/load unchanged from Phase A —
+  pinned by a byte-identical round-trip test.
+- **Phase C — Polish.** Element groups inside a tab (§4e/§7 Q4 says this
+  should already work through the drop-target — not yet exercised),
+  layers-panel nesting indication, drag an existing top-level instrument into
+  a tab (and back out).
 - **Phase D — dropped.** Resolved (§7 Q1): touch/click only for v1, hardware-
   button switching is an explicit non-goal on the pyEfis side, not a deferred
   phase on this one. Revisit only if pyEfis reopens that decision.
@@ -277,12 +307,19 @@ for the record rather than deleted, since they shaped §4d/§4g/§6 above.
 3. ~~Is the §4g `containers` field proposal the right shape?~~ **Resolved:
    yes**, adopted as proposed — see §4g for the concrete `ContainerSlot`
    dataclass, implemented in pyEfis#132.
-4. Do element groups genuinely work unmodified when dropped inside a tab once
-   the tab's local coordinate space is threaded through, or does
-   `expandGroups()` need a container-aware variant? Still open — needs
-   pyEfis#132's actual recursion behavior to check against, not something to
-   resolve freehand.
-5. Should the palette simply suppress the tab_section tile while a tab
-   drop-target is focused (reusing the existing `hidden` mechanism, §2d), or
-   should the drop-target itself reject a dropped tab_section with a message?
-   Still open; only matters given Q1's confirmed "no nested tab_section" rule.
+4. ~~Do element groups genuinely work unmodified when dropped inside a tab
+   once the tab's local coordinate space is threaded through, or does
+   `expandGroups()` need a container-aware variant?~~ **Resolved: yes,
+   unmodified** (AER-345). The container-scoped drop handler pushes a group
+   placeholder into `tab.instruments` with tab-local `row`/`column`/`span`,
+   same as any other dropped record; `expandGroups()` computes children
+   relative to the *dropped group's own* position, which is already tab-local
+   once it's there, so no container-aware variant was needed. Confirmed by
+   code inspection against the merged pyEfis#132 recursion; not yet exercised
+   by hand on a device.
+5. ~~Should the palette simply suppress the tab_section tile while a tab
+   drop-target is focused, or should the drop-target itself reject a dropped
+   tab_section with a message?~~ **Resolved: reject at drop time** (AER-345).
+   A `tab_section` dropped onto another container's active tab is a no-op
+   (brief red flash on the drop zone) rather than hiding the palette tile —
+   simpler, and doesn't need the `hidden`-toggling machinery §2d flagged.
