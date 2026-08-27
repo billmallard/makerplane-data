@@ -37,7 +37,7 @@ const height = Number(arg("height", 480));
 const sky = Boolean(arg("sky", false));
 const out = String(arg("out", "proto.html"));
 
-const FUNCS = ["buildTape", "readoutNotch"];
+const FUNCS = ["buildTape"];
 const body = FUNCS.map((f) => extractFunction(src, f)).join("\n\n");
 
 writeFileSync(out, `<!doctype html>
