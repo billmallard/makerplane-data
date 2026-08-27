@@ -905,6 +905,24 @@ function buildHSI(inst) {
     return bearingC;
   };
 
+  // Nav-source tab (AER-388/pyEfis#140): a coloured tab hanging off the
+  // HDG|MAG|CRS panel's left edge, in `top_panel` layout only -- twin of
+  // hsi._draw_readouts's tab (px/py/ph/rr in, tab rect out). Height is the
+  // panel height less both corner radii (rr, the same radius the panel's own
+  // rx uses) so the tab reads as a few px shorter than the panel; width fits
+  // the label plus padding, hanging left off the panel's flush right edge.
+  // No stroke of its own -- the panel is painted after (see call sites) so
+  // its own left border draws over the seam instead of doubling it.
+  const navTab = (px, py, ph, rr, color, label) => {
+    const th = ph - 2 * rr, ty = py + rr, r = Math.min(rr, th / 2);
+    const hpad = 1.6, tw = label.length * 4.2 + hpad * 2;
+    const x0 = px - tw, x1 = px, y0 = ty, y1 = ty + th;
+    const d = `M${x0 + r} ${y0} L${x1} ${y0} L${x1} ${y1} L${x0 + r} ${y1} `
+      + `A${r} ${r} 0 0 1 ${x0} ${y1 - r} L${x0} ${y0 + r} A${r} ${r} 0 0 1 ${x0 + r} ${y0} Z`;
+    return `<path d="${d}" fill="${color}"/>`
+      + `<text x="${x0 + tw / 2}" y="${(y0 + y1) / 2 + 2.45}" fill="#fff" font-size="7" font-weight="600" text-anchor="middle">${label}</text>`;
+  };
+
   // --- Arc orientation (P5b.3) -----------------------------------------------
   // Twin of the widget's _paint_arc: the forward +/-60 heading sector spread
   // linearly across the width and bowed into an arc, decluttered of the rear
@@ -1009,11 +1027,13 @@ function buildHSI(inst) {
       + `<text x="${x + w / 2}" y="${y + h * 0.36}" fill="${color}" font-size="${h * 0.3}" font-weight="700" text-anchor="middle">${label}</text>`
       + `<text x="${x + w / 2}" y="${y + h * 0.86}" fill="${fg}" font-size="${h * 0.44}" font-weight="700" text-anchor="middle">${value}</text>`;
     const HDG = afmt(headbug), MAG = afmt(heading), CRS = afmt(course);
-    let aro = "";
+    let aro = "", aPanel = null;
+    const PANEL_RR = 1.4;                    // matches the panel rect's own rx
     if (layout === "top_panel") {
       const segs = [["HDG", HDG, hbC], ["MAG", MAG, fg], ["CRS", CRS, navColor]];
       const pw = 44, ph = 12, px = 50 - pw / 2, py = 2;
-      aro = `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="1.4" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
+      aPanel = { px, py, ph };
+      aro = `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="${PANEL_RR}" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
       segs.forEach((sg, i) => {
         const sx = px + pw * i / 3, sw = pw / 3;
         if (i > 0) aro += `<line x1="${sx}" y1="${py + ph * 0.14}" x2="${sx}" y2="${py + ph * 0.86}" stroke="rgba(255,255,255,0.8)" stroke-width="0.4"/>`;
@@ -1025,8 +1045,11 @@ function buildHSI(inst) {
     } else if (layout === "split") {
       aro = aBox(50 - 7.5, 1, 15, 9, "MAG", MAG, fg) + aBox(2, 89, 15, 9, "CRS", CRS, navColor) + aBox(83, 89, 15, 9, "HDG", HDG, hbC);
     }
-    // Nav-source annunciation + per-pointer bearing-source labels.
+    // Nav-source annunciation: a tab on the panel's left edge in top_panel
+    // layout (AER-388/#140); the old plain corner label elsewhere, since
+    // corners/split/none draw no panel for the tab to hang off of.
     const asrc = o.source_label_enabled === false ? ""
+      : aPanel ? navTab(aPanel.px, aPanel.py, aPanel.ph, PANEL_RR, navColor, "GPS")
       : `<text x="4" y="${TOPY - 3}" fill="${navColor}" font-size="7" font-weight="600">GPS</text>`;
     let ablab = "";
     if (o.bearing1_enabled) ablab += `<text x="3" y="98" fill="${bearingColorTwin(brg1src)}" font-size="6" font-weight="600">1 GPS</text>`;
@@ -1169,8 +1192,9 @@ function buildHSI(inst) {
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.2" fill="rgba(0,0,0,0.6)" stroke="${color}" stroke-width="0.5"/>`
     + `<text x="${x + w / 2}" y="${y + h * 0.36}" fill="${color}" font-size="${h * 0.3}" font-weight="700" text-anchor="middle">${label}</text>`
     + `<text x="${x + w / 2}" y="${y + h * 0.86}" fill="${fg}" font-size="${h * 0.44}" font-weight="700" text-anchor="middle">${value}</text>`;
+  const PANEL_RR = 1.4;                      // matches segPanel's own rx
   const segPanel = (x, y, w, h, orient, segs) => {
-    let g = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.4" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
+    let g = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${PANEL_RR}" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
     const n = segs.length;
     segs.forEach((sg, i) => {
       const [label, value, color] = sg;
@@ -1185,9 +1209,10 @@ function buildHSI(inst) {
     return g;
   };
   const HDG = fmt(headbug), MAG = fmt(heading), CRS = fmt(course);
-  let readouts = "";
+  let readouts = "", rPanel = null;
   if (layout === "top_panel") {
     const ph = gutter * 0.76, pw = 44, px = CX - pw / 2, py = (gutter - ph) / 2;
+    rPanel = { px, py, ph };
     readouts = segPanel(px, py, pw, ph, "h", [["HDG", HDG, hbC], ["MAG", MAG, fg], ["CRS", CRS, navColor]]);
   } else if (layout === "corners") {
     readouts = roBox(2, 2, 15, 9, "HDG", HDG, hbC) + roBox(83, 2, 15, 9, "CRS", CRS, navColor);
@@ -1195,8 +1220,10 @@ function buildHSI(inst) {
     readouts = roBox(CX - 7.5, 1, 15, 9, "MAG", MAG, fg)
       + roBox(2, 89, 15, 9, "CRS", CRS, navColor) + roBox(83, 89, 15, 9, "HDG", HDG, hbC);
   }
-  // Nav-source annunciation (top-left), source-coloured. Preview shows GPS.
+  // Nav-source annunciation: a tab on the panel's left edge in top_panel
+  // layout (AER-388/#140), else the old plain corner label. Preview shows GPS.
   const srcLabel = o.source_label_enabled === false ? ""
+    : rPanel ? navTab(rPanel.px, rPanel.py, rPanel.ph, PANEL_RR, navColor, "GPS")
     : `<text x="4" y="${CY - R + 1}" fill="${navColor}" font-size="7" font-weight="600">GPS</text>`;
   return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}">
