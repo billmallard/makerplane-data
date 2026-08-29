@@ -122,8 +122,14 @@
   /* Readout panel -- twin of pyefis.instruments.helpers READOUT_* (P5c):
      rounded container over a translucent black fill, border in the foreground
      colour at .85. The radius/padding track the digit height, as they do in
-     NumericalDisplay (radius .35em, panel 1.2x the digits). */
-  .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.62); border: 1px solid rgba(255,255,255,.85); border-radius: .35em; padding: .1em 0; text-align: center; font-weight: 600; line-height: 1.2; }
+     NumericalDisplay (panel 1.2x the digits). Radius is
+     TAPE_READOUT_RADIUS_RATIO (AER-386/AER-387): .17em, NOT the HSI's own
+     READOUT_RADIUS_RATIO (.35, see .tasbox below) -- the tape box is much
+     shorter relative to its own font than the HSI panel is to its fontSize,
+     so reusing .35em here over-rounds it to a near-pill. .17em matches the
+     HSI panel's radius by *proportion* against the tape's own font_height;
+     full derivation in pyefis.instruments.helpers.TAPE_READOUT_RADIUS_RATIO. */
+  .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.62); border: 1px solid rgba(255,255,255,.85); border-radius: .17em; padding: .1em 0; text-align: center; font-weight: 600; line-height: 1.2; }
   .tape .vbands { position: absolute; left: 0; top: 0; bottom: 0; width: 9%; background: linear-gradient(to top, #22b03a 0 45%, #e8c21a 45% 72%, #e0231f 72% 88%, #fff 88% 100%); }
   /* Box placement follows the widget: Airspeed_Tape puts its NumericalDisplay
      in the right half (x = w/2, width w/2) with the notch pointing left at the
@@ -132,8 +138,6 @@
      left. */
   .tape .readout.notch { left: 50%; right: 0; }
   .tape.alt .readout.notch { left: 0; right: 16.7%; }
-  .tape .readout.notch .rnotch { position: absolute; top: 50%; right: 100%; transform: translateY(-50%); overflow: visible; }
-  .tape.alt .readout.notch .rnotch { right: auto; left: 100%; }
   /* TAS box: the same panel, one deviation -- it sits ON the scrolling scale
      rather than beside it, so the fill is knocked back further (.85) or the
      tick labels read through the value. Matches the widget. */
@@ -788,7 +792,6 @@ function buildTape(inst) {
   // covers both (IAS: 3 digits in w/2; ALT: 5 digits in w/1.2).
   ro.style.fontSize = Math.max(9, r.w * 0.25) + "px";
   if (showTas) ro.style.top = (50 - botPad / 2) + "%";
-  ro.appendChild(readoutNotch(isAlt ? "right" : "left", r.w * 0.25 * 1.2 * 0.42));
   wrap.appendChild(ro);
   if (!isAlt && o.show_trend !== false) {
     // Anchored just left of the readout box, as the widget draws it (x0 = -2
@@ -808,26 +811,6 @@ function buildTape(inst) {
     wrap.appendChild(tas);
   }
   return wrap;
-}
-
-// Read notch on a tape readout box -- twin of
-// pyefis.instruments.helpers.draw_readout_notch. Same translucent fill and
-// .85 border as the panel, and the border runs down the two SLANTED edges
-// only, so the box's own border passes through the base unbroken. SVG rather
-// than the usual CSS border-triangle because a border-triangle cannot be
-// outlined on two sides. Half-height/depth is .42 of the panel height, as the
-// widget derives it from NumericalDisplay.readout_rect.
-function readoutNotch(side, size) {
-  const d = Math.max(3, Math.round(size || 5)), h = 2 * d, sw = 1;
-  const pts = side === "left"
-    ? `${d - sw / 2},${sw / 2} ${sw / 2},${d} ${d - sw / 2},${h - sw / 2}`
-    : `${sw / 2},${sw / 2} ${d - sw / 2},${d} ${sw / 2},${h - sw / 2}`;
-  return svgFromString(
-    `<svg class="rnotch" width="${d}" height="${h}" viewBox="0 0 ${d} ${h}">
-       <polygon points="${pts}" fill="rgba(0,0,0,.62)"/>
-       <polyline points="${pts}" fill="none" stroke="rgba(255,255,255,.85)"
-                 stroke-width="${sw}"/>
-     </svg>`);
 }
 
 function headingLabel(d) {
