@@ -55,7 +55,7 @@ function panelRect(svg) {
 // Tab: a filled path with a left-side rounded corner (the "A" arc command)
 // immediately followed by the white centred "GPS" text.
 function tabMarkup(svg) {
-  const m = svg.match(/<path d="([^"]*A[^"]*)" fill="(#[0-9a-f]+)"\/><text x="([\d.]+)" y="([\d.]+)" fill="(#[0-9a-f]+)" font-size="7" font-weight="600" text-anchor="middle">GPS<\/text>/);
+  const m = svg.match(/<path d="([^"]*A[^"]*)" fill="(#[0-9a-f]+)"\/><text x="([\d.]+)" y="([\d.]+)" fill="(#[0-9a-f]+)" font-size="7" text-anchor="middle">GPS<\/text>/);
   return m && { d: m[1], fill: m[2], textX: +m[3], textY: +m[4], textFill: m[5] };
 }
 

@@ -915,12 +915,16 @@ function buildHSI(inst) {
   // its own left border draws over the seam instead of doubling it.
   const navTab = (px, py, ph, rr, color, label) => {
     const th = ph - 2 * rr, ty = py + rr, r = Math.min(rr, th / 2);
-    const hpad = 1.6, tw = label.length * 4.2 + hpad * 2;
+    // pad == rr, same identity as the widget's own
+    // `pad = self.fontSize * 0.35 == rr` (both keyed off READOUT_RADIUS_RATIO) --
+    // reconciled against AER-389's shipped constants (pyEfis#143), not a
+    // separate estimate.
+    const hpad = rr, tw = label.length * 4.6 + hpad * 2;
     const x0 = px - tw, x1 = px, y0 = ty, y1 = ty + th;
     const d = `M${x0 + r} ${y0} L${x1} ${y0} L${x1} ${y1} L${x0 + r} ${y1} `
       + `A${r} ${r} 0 0 1 ${x0} ${y1 - r} L${x0} ${y0 + r} A${r} ${r} 0 0 1 ${x0 + r} ${y0} Z`;
     return `<path d="${d}" fill="${color}"/>`
-      + `<text x="${x0 + tw / 2}" y="${(y0 + y1) / 2 + 2.45}" fill="#fff" font-size="7" font-weight="600" text-anchor="middle">${label}</text>`;
+      + `<text x="${x0 + tw / 2}" y="${(y0 + y1) / 2 + 2.45}" fill="#fff" font-size="7" text-anchor="middle">${label}</text>`;
   };
 
   // --- Arc orientation (P5b.3) -----------------------------------------------
