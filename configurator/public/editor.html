@@ -122,14 +122,18 @@
   /* Readout panel -- twin of pyefis.instruments.helpers READOUT_* (P5c):
      rounded container over a translucent black fill, border in the foreground
      colour at .85. The radius/padding track the digit height, as they do in
-     NumericalDisplay (panel 1.2x the digits). Radius is
-     TAPE_READOUT_RADIUS_RATIO (AER-386/AER-387): .17em, NOT the HSI's own
-     READOUT_RADIUS_RATIO (.35, see .tasbox below) -- the tape box is much
-     shorter relative to its own font than the HSI panel is to its fontSize,
-     so reusing .35em here over-rounds it to a near-pill. .17em matches the
-     HSI panel's radius by *proportion* against the tape's own font_height;
-     full derivation in pyefis.instruments.helpers.TAPE_READOUT_RADIUS_RATIO. */
-  .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.62); border: 1px solid rgba(255,255,255,.85); border-radius: .17em; padding: .1em 0; text-align: center; font-weight: 600; line-height: 1.2; }
+     NumericalDisplay (panel 1.2x the digits). Radius is ONE shared token,
+     helpers.READOUT_RADIUS_RATIO = .145 (AER-413, corrects AER-386/pyEfis#141's
+     now-deleted TAPE_READOUT_RADIUS_RATIO), applied against the panel's OWN
+     height -- not against fontSize (see .tasbox below, a different base) and
+     not against font_height directly. NumericalDisplay's panel height is
+     1.20 * font_height, so as a fraction of THIS box's own em (font_height,
+     matching ro.style.fontSize below) that is .145 * 1.20 = .174em. This is
+     the same corner, by proportion, as the HSI panel's -- reusing the HSI's
+     own .35em here would over-round the tape box to a near-pill (the tape box
+     is much shorter relative to its own font than the HSI panel is to its
+     fontSize). Full derivation in helpers.READOUT_RADIUS_RATIO's docstring. */
+  .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.62); border: 1px solid rgba(255,255,255,.85); border-radius: .174em; padding: .1em 0; text-align: center; font-weight: 600; line-height: 1.2; }
   .tape .vbands { position: absolute; left: 0; top: 0; bottom: 0; width: 9%; background: linear-gradient(to top, #22b03a 0 45%, #e8c21a 45% 72%, #e0231f 72% 88%, #fff 88% 100%); }
   /* Box placement follows the widget: Airspeed_Tape puts its NumericalDisplay
      in the right half (x = w/2, width w/2) with the notch pointing left at the
