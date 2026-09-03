@@ -87,3 +87,46 @@ def test_non_cyclical_meta_omits_none_fields():
     d = meta.as_dict()
     assert "effective" not in d and "expires" not in d
     assert d["schema_version"] == packmeta.SCHEMA_VERSION
+
+
+def test_license_fields_default_empty_and_round_trip(tmp_path):
+    # Additive fields: default "" for every existing source, and travel
+    # through embed/read like any other field.
+    default_meta = PackMeta(id="x", kind="navdata", cycle="2606")
+    assert default_meta.license == "" and default_meta.license_url == ""
+
+    db = tmp_path / "airports.sqlite"
+    _make_sqlite(db)
+    meta = PackMeta(id="water-conus", kind="water", cycle="2026q2",
+                    attribution="OpenStreetMap contributors (ODbL)",
+                    license="ODbL-1.0",
+                    license_url="https://opendatacommons.org/licenses/odbl/1-0/")
+    packmeta.embed_sqlite(db, meta)
+    got = packmeta.read_sqlite(db)
+    assert got == meta
+    assert got.license == "ODbL-1.0"
+    assert got.license_url == "https://opendatacommons.org/licenses/odbl/1-0/"
+
+
+def test_pre_existing_dict_without_license_fields_still_loads():
+    # Simulates a pack_meta.json / sqlite row written before this change --
+    # from_dict must not choke on missing keys, and defaults must apply.
+    old_dict = {
+        "id": "terrain-na", "kind": "terrain", "cycle": "2024ed",
+        "attribution": "Copernicus GLO-30", "schema_version": 1,
+    }
+    meta = PackMeta.from_dict(old_dict)
+    assert meta.license == "" and meta.license_url == ""
+
+
+def test_as_dict_emits_license_fields_older_readers_ignore_unknown_keys():
+    # as_dict() always includes license/license_url (default "", not None,
+    # so they are never dropped) -- forward direction of the compatibility
+    # contract. A reader that doesn't know these keys (from_dict, or a raw
+    # dict consumer that only looks up what it recognizes) simply ignores them.
+    meta = PackMeta(id="x", kind="navdata", cycle="2606")
+    d = meta.as_dict()
+    assert d["license"] == "" and d["license_url"] == ""
+    known_only = {"id", "kind", "cycle"}
+    filtered = {k: v for k, v in d.items() if k in known_only}
+    assert filtered == {"id": "x", "kind": "navdata", "cycle": "2606"}

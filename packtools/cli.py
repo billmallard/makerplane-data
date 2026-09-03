@@ -83,7 +83,8 @@ def cmd_build_pack(args) -> int:
 
     meta = PackMeta(id=args.id, kind=args.kind, cycle=cycle,
                     effective=effective, expires=expires,
-                    attribution=args.attribution)
+                    attribution=args.attribution,
+                    license=args.license, license_url=args.license_url)
 
     out_dir = Path(args.out)
     (out_dir / "packs").mkdir(parents=True, exist_ok=True)
@@ -204,6 +205,8 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--effective")
     b.add_argument("--expires")
     b.add_argument("--attribution", default="")
+    b.add_argument("--license", default="", help="machine-checkable license tag, e.g. ODbL-1.0")
+    b.add_argument("--license-url", dest="license_url", default="", help="canonical URL to the license text")
     b.add_argument("--regions", nargs="*", default=[])
     b.add_argument("--min-pyefis", dest="min_pyefis")
     b.add_argument("--out", default="work")

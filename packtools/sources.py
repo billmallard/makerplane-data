@@ -73,6 +73,10 @@ class Source:
     url_for: Callable[[Cycle], "str | tuple[str, ...]"]
     builder: str                    # key into packtools.build.BUILDERS
     attribution: str
+    # license/license_url: additive, machine-checkable counterpart to
+    # attribution (free text) -- see packmeta.PackMeta. "" means unspecified.
+    license: str = ""
+    license_url: str = ""
     regions: tuple[str, ...] = ("conus",)
     # zip member to feed the builder, or "" if the archive is the input dir
     archive_member: str = ""
@@ -81,21 +85,29 @@ class Source:
 
 # The cyclical sources the daily pipeline builds. Pack ids are stable and
 # user-facing (they appear in the manifest and on the Pi).
+# FAA sources are US Government works: no copyright attaches, so "public
+# domain" isn't actually a license grant with text to cite -- license_url is
+# left empty on purpose rather than pointing at something that isn't one.
+_FAA_PUBLIC_DOMAIN = "LicenseRef-us-public-domain"
+
 SOURCES: dict[str, Source] = {
     "airports-conus": Source(
         pack_id="airports-conus", kind="navdata", cadence="airac",
         url_for=nasr_apt_csv_url, builder="airports",
         attribution="FAA NASR (public domain)",
+        license=_FAA_PUBLIC_DOMAIN,
     ),
     "obstacles-conus": Source(
         pack_id="obstacles-conus", kind="obstacles", cadence="dof",
         url_for=dof_url, builder="obstacles",
         attribution="FAA DOF (public domain)",
+        license=_FAA_PUBLIC_DOMAIN,
     ),
     "navaids-conus": Source(
         pack_id="navaids-conus", kind="navaids", cadence="airac",
         url_for=nasr_navaid_csv_urls, builder="navaids",
         attribution="FAA NASR (public domain)",
+        license=_FAA_PUBLIC_DOMAIN,
     ),
     # CIFP is a real source but its indexer lives in pyAvTools (GPL-2.0); we
     # do not vendor GPL into this Apache-2.0 component. Building CIFP packs is deferred
@@ -105,6 +117,7 @@ SOURCES: dict[str, Source] = {
         pack_id="cifp-conus", kind="cifp", cadence="airac",
         url_for=cifp_url, builder="cifp",
         attribution="FAA CIFP (public domain)",
+        license=_FAA_PUBLIC_DOMAIN,
         implemented=False,
     ),
 }

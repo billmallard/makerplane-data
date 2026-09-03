@@ -59,3 +59,21 @@ def test_implemented_sources_exclude_cifp():
     assert "navaids-conus" in impl
     assert "cifp-conus" not in impl                       # deferred (GPL indexer)
     assert "cifp-conus" in {s.pack_id for s in sources.cyclical_sources(include_deferred=True)}
+
+
+def test_source_license_fields_default_empty():
+    # Additive: a Source built without license kwargs (as every call site
+    # predating this field does) still constructs and defaults to "".
+    src = sources.Source(pack_id="x", kind="navdata", cadence="airac",
+                         url_for=sources.nasr_apt_csv_url, builder="airports",
+                         attribution="test")
+    assert src.license == "" and src.license_url == ""
+
+
+def test_faa_sources_carry_explicit_public_domain_license():
+    for pack_id in ("airports-conus", "obstacles-conus", "navaids-conus", "cifp-conus"):
+        src = sources.SOURCES[pack_id]
+        assert src.license == "LicenseRef-us-public-domain"
+        # No copyright attaches to a US Government work, so there is no
+        # license text to cite -- an empty license_url is the honest value.
+        assert src.license_url == ""
