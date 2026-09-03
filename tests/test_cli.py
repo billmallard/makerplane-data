@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from packtools import cli
+from packtools.packmeta import read as read_packmeta
 
 
 def _make_sqlite(path):
@@ -37,6 +38,25 @@ def test_genkey_build_verify_roundtrip(tmp_path, capsys):
     rc = cli.main(["verify", str(out / "manifest.json"),
                    "--pub", str(keys / "minisign.pub")])
     assert rc == 0
+
+
+def test_build_pack_license_flags_embed_in_pack_meta(tmp_path):
+    keys = tmp_path / "keys"
+    cli.main(["genkey", "--out", str(keys)])
+    src = tmp_path / "water.sqlite"
+    _make_sqlite(src)
+    out = tmp_path / "work"
+    rc = cli.main(["build-pack", str(src), "--id", "water-conus",
+                   "--kind", "water", "--cycle", "2026q2",
+                   "--attribution", "OpenStreetMap contributors (ODbL)",
+                   "--license", "ODbL-1.0",
+                   "--license-url", "https://opendatacommons.org/licenses/odbl/1-0/",
+                   "--regions", "conus",
+                   "--sec", str(keys / "minisign.sec"), "--out", str(out)])
+    assert rc == 0
+    meta = read_packmeta(out / "packs" / "water-conus-2026q2.pack")
+    assert meta.license == "ODbL-1.0"
+    assert meta.license_url == "https://opendatacommons.org/licenses/odbl/1-0/"
 
 
 def test_verify_detects_tampering(tmp_path):
