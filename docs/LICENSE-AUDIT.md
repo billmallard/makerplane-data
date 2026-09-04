@@ -103,15 +103,15 @@ checked, per AC-IP-001's remit to catch exactly this class of decision.
 | Copernicus GLO-30 | terrain | Copernicus open data terms | Yes — redistributable |
 | OpenStreetMap (via Geofabrik) / Natural Earth | water, highways | ODbL / public domain | Yes — ODbL requires attribution, carried in `attribution` and explicitly in `license`/`license_url` (`ODbL-1.0`) |
 | NavCanada VNC | (Canadian charts) | proprietary, user-supplied only | **No** — never redistributed; user-supplied pack slot only |
-| **openAIP** (Garrecht Avionik GmbH) | airspace (evaluated, not yet shipped) | **CC BY-NC 4.0**, confirmed live against openAIP's own API metadata 2026-08-23 | **Evaluated: yes, under its own terms.** Free, no-revenue distribution reads as non-commercial under CC's own NC definition; carry-not-relicense via per-pack `license`/`license_url` metadata (AER-546, additive fields on `PackMeta`/`Source`, landed 2026-09-03). Full writeup: [openaip_evaluation.md](openaip_evaluation.md). Awaiting Bill's decision on direction + whether to contact openAIP directly to confirm. |
+| **openAIP** (Garrecht Avionik GmbH) | airspace (`airspace` kind + builder land in AER-547; not yet published to R2 — Bill's explicit go required, see AER-547) | **CC BY-NC 4.0**, confirmed live against openAIP's own API metadata 2026-08-23 | **Evaluated: yes, under its own terms.** Free, no-revenue distribution reads as non-commercial under CC's own NC definition; carry-not-relicense via per-pack `license`/`license_url` metadata (AER-546, additive fields on `PackMeta`/`Source`, landed 2026-09-03). Full writeup: [openaip_evaluation.md](openaip_evaluation.md). |
 
-`PackMeta` (`packtools/packmeta.py`) and `Source` (`packtools/sources.py`) now
-carry additive `license`/`license_url` fields alongside `attribution` (AER-546):
-`attribution` stays presentation text, `license` is a short machine-checkable
-tag (SPDX id, `LicenseRef-*`, or e.g. `ODbL-1.0`), `license_url` the canonical
-link. The catalog manifest (`packtools/manifest.py` `PackEntry`) does not yet
-carry them through to the Pi — that's for the openAIP builder work to add
-alongside the airspace `kind`.
+`PackMeta` (`packtools/packmeta.py`), `Source` (`packtools/sources.py`), and
+`PackEntry` (`packtools/manifest.py`, AER-547) all carry additive
+`license`/`license_url` fields alongside `attribution`: `attribution` stays
+presentation text, `license` is a short machine-checkable tag (SPDX id,
+`LicenseRef-*`, or e.g. `ODbL-1.0`), `license_url` the canonical link. The
+catalog manifest now carries them through to the Pi, so a pack's license is
+checkable without downloading and opening the pack itself.
 
 ## Enforcement
 

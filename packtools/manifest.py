@@ -38,6 +38,11 @@ class PackEntry:
     expires: str | None = None        # ISO date, exclusive; None => never
     regions: list[str] = field(default_factory=list)
     attribution: str = ""
+    # license/license_url: additive, carried through from PackMeta/Source (see
+    # packmeta.PackMeta) so a pack's license is checkable from the manifest
+    # alone -- no need to download and open the pack. "" means unspecified.
+    license: str = ""
+    license_url: str = ""
     min_pyefis: str | None = None
     tiles_bbox: list[float] | None = None   # [lat_min, lon_min, lat_max, lon_max]
 
@@ -76,6 +81,7 @@ class PackEntry:
             id=meta.id, kind=meta.kind, cycle=meta.cycle,
             effective=meta.effective, expires=meta.expires,
             attribution=meta.attribution,
+            license=meta.license, license_url=meta.license_url,
             bytes=path.stat().st_size,
             sha256=sha256_file(path),
             url=url,
