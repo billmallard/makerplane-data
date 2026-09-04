@@ -34,7 +34,10 @@ function makeSandbox() {
       return t;
     },
   };
-  const build = new Function("document", `${body}\nreturn buildHSI;`);
+  // buildHSI reaches out to the module-level `_svgUid` counter (AER-393,
+  // shared with the other builders for unique per-instance def ids) --
+  // stub it the same way this sandbox stubs `document`.
+  const build = new Function("document", `let _svgUid = 0; ${body}\nreturn buildHSI;`);
   return build(doc);
 }
 
