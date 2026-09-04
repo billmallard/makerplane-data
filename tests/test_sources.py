@@ -4,6 +4,8 @@ servers 2026-06-14 (see the Phase B research)."""
 
 import datetime as dt
 
+import pytest
+
 from packtools import sources
 from packtools.cycles import Cycle, airac_cycle, dof_cycle
 
@@ -77,3 +79,45 @@ def test_faa_sources_carry_explicit_public_domain_license():
         # No copyright attaches to a US Government work, so there is no
         # license text to cite -- an empty license_url is the honest value.
         assert src.license_url == ""
+
+
+# --- openAIP airspace (AER-547) -------------------------------------------
+
+def test_airspace_sources_carry_openaip_license():
+    assert sources.AIRSPACE_SOURCES  # a small, non-empty starting set
+    for src in sources.AIRSPACE_SOURCES.values():
+        assert src.kind == "airspace"
+        assert src.builder == "airspace"
+        assert src.attribution == "openAIP (CC BY-NC 4.0)"
+        assert src.license == "CC-BY-NC-4.0"
+        assert src.license_url == "https://creativecommons.org/licenses/by-nc/4.0/"
+
+
+def test_airspace_sources_keyed_and_regioned_by_country():
+    for pack_id, src in sources.AIRSPACE_SOURCES.items():
+        assert pack_id == f"airspace-{src.regions[0]}"
+        assert src.regions[0] in sources.OPENAIP_COUNTRIES
+
+
+def test_airspace_sources_excluded_from_cyclical_pipeline():
+    # 'static' isn't a cadence cycles.current_and_next() understands -- these
+    # must never reach run_cyclical.py's CyclicalRunner, or the nightly cron
+    # crashes on the first cycle lookup (the class of incident CLAUDE.md's
+    # "new kind merges before publish" rule exists to prevent).
+    cyclical_ids = {s.pack_id for s in sources.cyclical_sources(include_deferred=True)}
+    assert cyclical_ids.isdisjoint(sources.AIRSPACE_SOURCES)
+    for src in sources.AIRSPACE_SOURCES.values():
+        assert src.pack_id not in sources.SOURCES
+
+
+def test_airspace_static_export_url_not_fabricated():
+    # The listing page 403s scripted fetches (docs/openaip_evaluation.md);
+    # rather than guess a URL, this must fail loudly until it's verified.
+    with pytest.raises(NotImplementedError):
+        sources.openaip_static_export_url()
+
+
+def test_openaip_airspace_sources_generator_takes_a_custom_country_table():
+    custom = sources.openaip_airspace_sources({"nz": "New Zealand"})
+    assert set(custom) == {"airspace-nz"}
+    assert custom["airspace-nz"].regions == ("nz",)

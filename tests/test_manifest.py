@@ -125,6 +125,34 @@ def test_regions_block_loads():
     assert "conus" in block and "bbox" in block["conus"]
 
 
+def test_pack_entry_license_fields_default_empty():
+    e = _entry()
+    assert e.license == "" and e.license_url == ""
+
+
+def test_from_pack_threads_license_fields_through(tmp_path):
+    db = tmp_path / "airspace-ca.sqlite"
+    con = sqlite3.connect(str(db))
+    con.execute("CREATE TABLE airspaces (id TEXT)")
+    con.commit()
+    con.close()
+    meta = PackMeta(id="airspace-ca", kind="airspace", cycle="r1",
+                    attribution="openAIP (CC BY-NC 4.0)",
+                    license="CC-BY-NC-4.0",
+                    license_url="https://creativecommons.org/licenses/by-nc/4.0/")
+    embed_sqlite(db, meta)
+    entry = PackEntry.from_pack(db, meta, url="https://x/airspace-ca-r1.pack",
+                                regions=["ca"])
+    assert entry.license == "CC-BY-NC-4.0"
+    assert entry.license_url == "https://creativecommons.org/licenses/by-nc/4.0/"
+    # Round-trips through the manifest -- checkable without opening the pack.
+    m = Manifest.new(GEN)
+    m.upsert(entry)
+    reloaded = Manifest.from_bytes(m.to_bytes())
+    assert reloaded.packs[0].license == "CC-BY-NC-4.0"
+    assert reloaded.packs[0].license_url == meta.license_url
+
+
 def test_end_to_end_build_sign_verify(tmp_path):
     """The Phase A acceptance path in miniature: build a pack, embed
     pack_meta, register it in a manifest, sign the manifest, verify."""

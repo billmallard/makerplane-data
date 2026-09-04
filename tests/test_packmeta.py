@@ -119,6 +119,21 @@ def test_pre_existing_dict_without_license_fields_still_loads():
     assert meta.license == "" and meta.license_url == ""
 
 
+def test_airspace_kind_accepted_and_carries_openaip_license(tmp_path):
+    db = tmp_path / "airspace-ca.sqlite"
+    _make_sqlite(db)
+    meta = PackMeta(id="airspace-ca", kind="airspace", cycle="r1",
+                    attribution="openAIP (CC BY-NC 4.0)",
+                    license="CC-BY-NC-4.0",
+                    license_url="https://creativecommons.org/licenses/by-nc/4.0/")
+    packmeta.embed_sqlite(db, meta)
+    got = packmeta.read_sqlite(db)
+    assert got == meta
+    assert got.kind == "airspace"
+    assert got.license == "CC-BY-NC-4.0"
+    assert got.effective is None and got.expires is None   # non-cyclical
+
+
 def test_as_dict_emits_license_fields_older_readers_ignore_unknown_keys():
     # as_dict() always includes license/license_url (default "", not None,
     # so they are never dropped) -- forward direction of the compatibility
