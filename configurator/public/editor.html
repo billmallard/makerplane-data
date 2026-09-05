@@ -144,8 +144,17 @@
   .tape.alt .readout.notch { left: 0; right: 16.7%; }
   /* TAS box: the same panel, one deviation -- it sits ON the scrolling scale
      rather than beside it, so the fill is knocked back further (.85) or the
-     tick labels read through the value. Matches the widget. */
-  .tape .tasbox { position: absolute; left: 2%; right: 2%; bottom: 2%; background: rgba(0,0,0,.85); border: 1px solid rgba(255,255,255,.85); border-radius: .35em; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+     tick labels read through the value. Matches the widget.
+     Corner radius is NOT a fixed em here (unlike .readout above): pyEfis
+     computes it as box_h * helpers.READOUT_RADIUS_RATIO (.145, AER-413)
+     against the TAS box's OWN height, and that height isn't driven by a
+     single font-size the way .readout's is -- it's the botPad-based slice of
+     the tape height this twin already carves out below. So buildTape() sets
+     border-radius inline from the box's actual pixel height (tasH) times the
+     same .145, instead of guessing an em value against an unrelated basis.
+     The old .35em here was a holdover from the HSI's own READOUT_RADIUS_RATIO,
+     left underived pending this fix (flagged in AER-387, closed by AER-480). */
+  .tape .tasbox { position: absolute; left: 2%; right: 2%; bottom: 2%; background: rgba(0,0,0,.85); border: 1px solid rgba(255,255,255,.85); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
   .tape .tasbox .lbl { font-size: .62em; font-weight: 700; }
   .tape .tasbox .val { font-weight: 600; }
   .htape { position: relative; box-sizing: border-box; overflow: hidden; background: rgba(18,22,28,.72); color: #e6edf3; }
@@ -810,7 +819,11 @@ function buildTape(inst) {
   if (showTas) {
     const tas = document.createElement("div");
     tas.className = "tasbox";
+    const tasH = (botPad - 2) / 100 * r.h;
     tas.style.height = (botPad - 2) + "%";
+    // box_h * helpers.READOUT_RADIUS_RATIO (.145, AER-413) -- see the .tasbox
+    // comment above for why this is computed in px rather than a fixed em.
+    tas.style.borderRadius = (tasH * 0.145) + "px";
     tas.innerHTML = `<div class="lbl">TAS</div><div class="val">${pv.tas ?? 118}</div>`;
     wrap.appendChild(tas);
   }
