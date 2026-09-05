@@ -424,6 +424,62 @@ function rgbaFromColor(c, op) {
 function bgOpacity(o) {
   return o.bg_opacity != null ? Math.max(0, Math.min(1, Number(o.bg_opacity) / 100)) : 1;
 }
+// WCAG 2.x contrast + colour-derivation twin of pyefis.instruments.helpers
+// (contrast_ratio / darken_to_contrast / SOURCE_LABEL_MIN_CONTRAST, AER-473 /
+// pyEfis#147). Ported 1:1 -- same sRGB->linear luminance formula, same HSV
+// value walk in `step` increments measured against the color's OWN
+// (undarkened) value -- so the configurator lands on the exact colour the
+// widget paints for both the stock and a custom source colour.
+const SOURCE_LABEL_MIN_CONTRAST = 4.5;
+function _hexToRgb(hex) {
+  const h = normHex(hex) || "#000000";
+  return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+}
+function _rgbToHex([r, g, b]) {
+  const c = (v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0");
+  return "#" + c(r) + c(g) + c(b);
+}
+function _srgbToLinear(channel) {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+function _relativeLuminance([r, g, b]) {
+  return 0.2126 * _srgbToLinear(r) + 0.7152 * _srgbToLinear(g) + 0.0722 * _srgbToLinear(b);
+}
+function contrastRatio(fgHex, bgHex) {
+  let l1 = _relativeLuminance(_hexToRgb(fgHex)), l2 = _relativeLuminance(_hexToRgb(bgHex));
+  if (l1 < l2) [l1, l2] = [l2, l1];
+  return (l1 + 0.05) / (l2 + 0.05);
+}
+function _rgbToHsv([r, g, b]) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return [h, max === 0 ? 0 : d / max, max];
+}
+function _hsvToRgb([h, s, v]) {
+  const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x]
+    : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
+// Darken `hex` (same hue/saturation) until its contrast against its OWN
+// original value clears `targetRatio` -- twin of helpers.darken_to_contrast.
+function darkenToContrast(hex, targetRatio = SOURCE_LABEL_MIN_CONTRAST, step = 0.01) {
+  const [h, s, v] = _rgbToHsv(_hexToRgb(hex));
+  for (let vv = v; vv > 0; vv -= step) {
+    const candidate = _rgbToHex(_hsvToRgb([h, s, vv]));
+    if (contrastRatio(candidate, hex) >= targetRatio) return candidate;
+  }
+  return _rgbToHex(_hsvToRgb([h, s, 0]));
+}
 const _ALIGN_JUSTIFY = { AlignLeft: "flex-start", AlignCenter: "center", AlignRight: "flex-end" };
 function textJustify(inst) {
   if (inst.type === "heading_display") return "center";      // HeadingDisplay centres
@@ -905,26 +961,38 @@ function buildHSI(inst) {
     return bearingC;
   };
 
+  // Every label the widget's nav-source tab can show (GPS, VOR/LOC/VLOC x
+  // NAV1/NAV2) -- twin of hsi._SOURCE_TAB_LABELS (pyEfis#148/AER-473). Width
+  // is measured against the widest of these, not the label actually drawn,
+  // so the tab doesn't breathe as NAVSRC cycles and centring falls out free.
+  const SOURCE_TAB_LABELS = ["GPS", "VOR1", "VOR2", "LOC1", "LOC2", "VLOC1", "VLOC2"];
+
   // Nav-source tab (AER-388/pyEfis#140): a coloured tab hanging off the
   // HDG|MAG|CRS panel's left edge, in `top_panel` layout only -- twin of
   // hsi._draw_readouts's tab (px/py/ph/rr in, tab rect out). Height is the
   // panel height less both corner radii (rr, the same radius the panel's own
-  // rx uses) so the tab reads as a few px shorter than the panel; width fits
-  // the label plus padding, hanging left off the panel's flush right edge.
-  // No stroke of its own -- the panel is painted after (see call sites) so
-  // its own left border draws over the seam instead of doubling it.
+  // rx uses) so the tab reads as a few px shorter than the panel. Width is a
+  // CONSTANT -- the widest of SOURCE_TAB_LABELS at this approximation's own
+  // per-glyph unit, plus padding -- rather than tracking the current label
+  // (pyEfis#148/AER-473); centring falls out of that for free. No stroke of
+  // its own -- the panel is painted after (see call sites) so its own left
+  // border draws over the seam instead of doubling it.
   const navTab = (px, py, ph, rr, color, label) => {
     const th = ph - 2 * rr, ty = py + rr, r = Math.min(rr, th / 2);
     // pad == rr, same identity as the widget's own
     // `pad = self.fontSize * 0.35 == rr` (both keyed off READOUT_RADIUS_RATIO) --
     // reconciled against AER-389's shipped constants (pyEfis#143), not a
     // separate estimate.
-    const hpad = rr, tw = label.length * 4.6 + hpad * 2;
+    const hpad = rr;
+    const tw = Math.max(...SOURCE_TAB_LABELS.map((l) => l.length * 4.6)) + hpad * 2;
     const x0 = px - tw, x1 = px, y0 = ty, y1 = ty + th;
     const d = `M${x0 + r} ${y0} L${x1} ${y0} L${x1} ${y1} L${x0 + r} ${y1} `
       + `A${r} ${r} 0 0 1 ${x0} ${y1 - r} L${x0} ${y0 + r} A${r} ${r} 0 0 1 ${x0 + r} ${y0} Z`;
+    // Label is a darkened tint of the tab's own fill (pyEfis#147/AER-473),
+    // not hardcoded white -- the fill (`color`) is config-selectable and
+    // stays at full brightness (HSI-COLOR-001); only the label darkens.
     return `<path d="${d}" fill="${color}"/>`
-      + `<text x="${x0 + tw / 2}" y="${(y0 + y1) / 2 + 2.45}" fill="#fff" font-size="7" text-anchor="middle">${label}</text>`;
+      + `<text x="${x0 + tw / 2}" y="${(y0 + y1) / 2 + 2.45}" fill="${darkenToContrast(color)}" font-size="7" text-anchor="middle">${label}</text>`;
   };
 
   // Static-element drop shadow (AER-393, lockstep with AER-392's shipped
