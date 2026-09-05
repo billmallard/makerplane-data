@@ -23,6 +23,21 @@ jobs:
       - name: Pipeline dry-run (no network, no secrets)
         run: python -m packtools.run_cyclical --dry-run --date 2026-06-14
 
+  configurator-test:
+    # Node-side tests for the editor (public/editor.html has no build step --
+    # test/*.test.mjs extracts and runs its real functions, brace-matched out
+    # of the source, same as tools/twin_proto.mjs's proto pages).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+        working-directory: configurator
+      - run: npm test
+        working-directory: configurator
+
   dco:
     # Every commit in a PR must carry a Signed-off-by line (Developer
     # Certificate of Origin -- see CONTRIBUTING.md). Push builds skip this.

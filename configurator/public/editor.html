@@ -119,10 +119,35 @@
   .bargauge.horiz .g-mark { position: absolute; top: -18%; bottom: -18%; width: 2px; background: #fff; transform: translateX(-50%); }
   .tape { position: relative; box-sizing: border-box; background: rgba(18,22,28,.72); color: #e6edf3; }
   .tape .tk { position: absolute; right: 3px; transform: translateY(-50%); white-space: nowrap; line-height: 1; opacity: .85; }
-  .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: #000; border: 1px solid #9aa4af; text-align: center; font-weight: 600; line-height: 1.2; }
+  /* Readout panel -- twin of pyefis.instruments.helpers READOUT_* (P5c):
+     rounded container over a translucent black fill, border in the foreground
+     colour at .85. The radius/padding track the digit height, as they do in
+     NumericalDisplay (panel 1.2x the digits). Radius is ONE shared token,
+     helpers.READOUT_RADIUS_RATIO = .145 (AER-413, corrects AER-386/pyEfis#141's
+     now-deleted TAPE_READOUT_RADIUS_RATIO), applied against the panel's OWN
+     height -- not against fontSize (see .tasbox below, a different base) and
+     not against font_height directly. NumericalDisplay's panel height is
+     1.20 * font_height, so as a fraction of THIS box's own em (font_height,
+     matching ro.style.fontSize below) that is .145 * 1.20 = .174em. This is
+     the same corner, by proportion, as the HSI panel's -- reusing the HSI's
+     own .35em here would over-round the tape box to a near-pill (the tape box
+     is much shorter relative to its own font than the HSI panel is to its
+     fontSize). Full derivation in helpers.READOUT_RADIUS_RATIO's docstring. */
+  .tape .readout { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,.62); border: 1px solid rgba(255,255,255,.85); border-radius: .174em; padding: .1em 0; text-align: center; font-weight: 600; line-height: 1.2; }
   .tape .vbands { position: absolute; left: 0; top: 0; bottom: 0; width: 9%; background: linear-gradient(to top, #22b03a 0 45%, #e8c21a 45% 72%, #e0231f 72% 88%, #fff 88% 100%); }
-  .tape .readout.notch { left: 14%; right: 6%; background: #000; border: 1px solid #fff; }
-  .tape .readout.notch::before { content: ""; position: absolute; left: -6px; top: 50%; transform: translateY(-50%); border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-right: 6px solid #000; }
+  /* Box placement follows the widget: Airspeed_Tape puts its NumericalDisplay
+     in the right half (x = w/2, width w/2) with the notch pointing left at the
+     scale; Altimeter_Tape puts its box at x = 0, width w/1.20, notch pointing
+     right. The twin used to span nearly the full width and point both notches
+     left. */
+  .tape .readout.notch { left: 50%; right: 0; }
+  .tape.alt .readout.notch { left: 0; right: 16.7%; }
+  /* TAS box: the same panel, one deviation -- it sits ON the scrolling scale
+     rather than beside it, so the fill is knocked back further (.85) or the
+     tick labels read through the value. Matches the widget. */
+  .tape .tasbox { position: absolute; left: 2%; right: 2%; bottom: 2%; background: rgba(0,0,0,.85); border: 1px solid rgba(255,255,255,.85); border-radius: .35em; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+  .tape .tasbox .lbl { font-size: .62em; font-weight: 700; }
+  .tape .tasbox .val { font-weight: 600; }
   .htape { position: relative; box-sizing: border-box; overflow: hidden; background: rgba(18,22,28,.72); color: #e6edf3; }
   .htape .htk { position: absolute; top: 6%; transform: translateX(-50%); text-align: center; line-height: 1; white-space: nowrap; }
   .htape .htk .bar { display: block; width: 1px; height: 6px; margin: 0 auto 1px; background: currentColor; opacity: .55; }
@@ -153,6 +178,28 @@
     background: #2ea043; border: 1px solid #0d1117; border-radius: 2px; cursor: se-resize;
   }
   .inst.placeholder { outline-color: rgba(210,170,90,.6); }
+  /* tab_section's nested twin (AER-345). A distinct class family from the
+     screen-switcher's .screen-tab/.tabs (the latter predates this feature
+     and isn't reused, AER-173 sec 1/sec 4c) so the two aren't visually
+     conflated. */
+  .tab-twin { position: absolute; inset: 0; }
+  .tab-twin-strip {
+    position: absolute; top: 0; left: 0; right: 0; display: flex; overflow: hidden;
+    background: #161b22; border-bottom: 1px solid #30363d;
+  }
+  .tab-twin-chip {
+    padding: 0 8px; display: flex; align-items: center; font-size: 11px;
+    color: #8b949e; white-space: nowrap; cursor: pointer; border-right: 1px solid #21262d;
+  }
+  .tab-twin-chip.active { color: #e6edf3; background: #0d1117; }
+  .tab-twin-content { position: absolute; left: 0; right: 0; overflow: hidden; }
+  /* Container-scoped drop zone (sec 4b): visible only while the container
+     itself is selected, so it reads as "drop into the active tab here"
+     rather than a permanent decoration. */
+  .inst.sel > .tab-twin > .tab-twin-content {
+    outline: 1px dashed rgba(46,160,67,.6); outline-offset: -1px;
+  }
+  .tab-twin-content.reject-flash { outline: 1px dashed rgba(224,35,31,.85); }
   .field { margin-bottom: 9px; }
   .field label { display: block; font-size: 11px; color: #8b949e; margin-bottom: 2px; }
   .field label .info { display: inline-flex; align-items: center; vertical-align: -2px; margin-left: 5px; color: #6b7785; cursor: help; }
@@ -283,6 +330,7 @@ const state = {
   layout: null,                  // -> screens[active].layout  (pyEfis normalised 110x200 grid)
   instruments: null,             // -> screens[active].instruments
   selected: -1,
+  nestedSel: null,   // {ci, slot, ti, ii} of a selected tab_section child, or null (AER-345)
   canvasW: 0, canvasH: 0,
   snap: false,
   guides: "none",
@@ -299,6 +347,7 @@ function setActive(i) {
   state.layout = state.screens[i].layout;
   state.instruments = state.screens[i].instruments;
   state.selected = -1;
+  state.nestedSel = null;   // scoped to the previous screen's instruments
 }
 
 const SNAP = 10;  // grid cells; "Snap" rounds to this (aligned with the grid majors)
@@ -741,20 +790,28 @@ function buildTape(inst) {
     tk.style.top = top + "%"; tk.textContent = n; wrap.appendChild(tk);
   }
   const ro = document.createElement("div"); ro.className = "readout notch"; ro.textContent = value;
+  // The value fills its box on the device -- NumericalDisplay grows the font
+  // until total_decimals digits span the box interior. Both tapes land on
+  // roughly a quarter of the tape width per digit-height, so one coefficient
+  // covers both (IAS: 3 digits in w/2; ALT: 5 digits in w/1.2).
+  ro.style.fontSize = Math.max(9, r.w * 0.25) + "px";
   if (showTas) ro.style.top = (50 - botPad / 2) + "%";
   wrap.appendChild(ro);
   if (!isAlt && o.show_trend !== false) {
+    // Anchored just left of the readout box, as the widget draws it (x0 = -2
+    // from numeric_box_pos, i.e. the box's left edge at w/2).
     const tr = pv.trend ?? 6, trh = Math.max(4, Math.min(22, tr * 1.6));
     const trend = document.createElement("div");
-    trend.style.cssText = `position:absolute;left:9.5%;width:3px;background:#34d3ff;top:${50 - botPad / 2 - trh}%;height:${trh}%;`;
+    trend.style.cssText = `position:absolute;left:46%;width:3px;background:#34d3ff;top:${50 - botPad / 2 - trh}%;height:${trh}%;`;
     const head = document.createElement("div");
-    head.style.cssText = `position:absolute;left:8.2%;top:${50 - botPad / 2 - trh}%;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:5px solid #34d3ff;`;
+    head.style.cssText = `position:absolute;left:44.5%;top:${50 - botPad / 2 - trh}%;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:5px solid #34d3ff;`;
     wrap.appendChild(trend); wrap.appendChild(head);
   }
   if (showTas) {
     const tas = document.createElement("div");
-    tas.style.cssText = `position:absolute;left:0;right:0;bottom:0;height:${botPad}%;background:#fff;color:#1e1e1e;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;`;
-    tas.innerHTML = `<div style="font-size:.62em">TAS</div><div style="font-weight:600">${pv.tas ?? 118}</div>`;
+    tas.className = "tasbox";
+    tas.style.height = (botPad - 2) + "%";
+    tas.innerHTML = `<div class="lbl">TAS</div><div class="val">${pv.tas ?? 118}</div>`;
     wrap.appendChild(tas);
   }
   return wrap;
@@ -833,6 +890,72 @@ function buildHSI(inst) {
     if (s === 2) return courseC;            // GPS
     if (s === 0 || s === 1) return vlocC;   // VOR1 / VOR2
     return bearingC;
+  };
+
+  // Nav-source tab (AER-388/pyEfis#140): a coloured tab hanging off the
+  // HDG|MAG|CRS panel's left edge, in `top_panel` layout only -- twin of
+  // hsi._draw_readouts's tab (px/py/ph/rr in, tab rect out). Height is the
+  // panel height less both corner radii (rr, the same radius the panel's own
+  // rx uses) so the tab reads as a few px shorter than the panel; width fits
+  // the label plus padding, hanging left off the panel's flush right edge.
+  // No stroke of its own -- the panel is painted after (see call sites) so
+  // its own left border draws over the seam instead of doubling it.
+  const navTab = (px, py, ph, rr, color, label) => {
+    const th = ph - 2 * rr, ty = py + rr, r = Math.min(rr, th / 2);
+    // pad == rr, same identity as the widget's own
+    // `pad = self.fontSize * 0.35 == rr` (both keyed off READOUT_RADIUS_RATIO) --
+    // reconciled against AER-389's shipped constants (pyEfis#143), not a
+    // separate estimate.
+    const hpad = rr, tw = label.length * 4.6 + hpad * 2;
+    const x0 = px - tw, x1 = px, y0 = ty, y1 = ty + th;
+    const d = `M${x0 + r} ${y0} L${x1} ${y0} L${x1} ${y1} L${x0 + r} ${y1} `
+      + `A${r} ${r} 0 0 1 ${x0} ${y1 - r} L${x0} ${y0 + r} A${r} ${r} 0 0 1 ${x0 + r} ${y0} Z`;
+    return `<path d="${d}" fill="${color}"/>`
+      + `<text x="${x0 + tw / 2}" y="${(y0 + y1) / 2 + 2.45}" fill="#fff" font-size="7" text-anchor="middle">${label}</text>`;
+  };
+
+  // Static-element drop shadow (AER-393, lockstep with AER-392's shipped
+  // per-layer decision -- pyEfis#144, pyefis.instruments.helpers.SHADOW_*):
+  // config-gated, default off. Values mirror the widget 1:1 -- black,
+  // alpha 0.6, ZERO offset. The offset is load-bearing, not stylistic: the
+  // rose card rotates with heading, and a drop shadow implies a fixed
+  // light, so any offset would make the light appear to swing as the card
+  // turns (AER-392 gotcha #1, carried over per this issue's "rotation
+  // gotcha" section). Blur is keyed to each shadowed element's own size
+  // (rose radius / panel height) -- this preview has no live font metrics
+  // to key to like the widget's fontSize-based SHADOW_BLUR_RATIO does, so
+  // panel/rose height is the twin's nearest equivalent.
+  const shadowEnabled = o.shadow_enabled === true;           // default off
+  const SHADOW_ALPHA = 0.6;
+  const SHADOW_BLUR_RATIO = 0.12;
+  const id = _svgUid++;
+
+  // Readout-panel shadow (Option 4 twin of AER-392's bake_blurred_silhouette):
+  // a blurred silhouette of the panel's own rect with the panel's own
+  // footprint punched back OUT of the blur (feComposite operator="out"
+  // against the same rect's SourceAlpha). Without the punch, the halo is a
+  // solid filled shape under the whole panel, and blitting that beneath the
+  // panel's own translucent fill (rgba(0,0,0,0.62)) tints the entire
+  // interior instead of just the edge falloff -- AER-415, the exact bug the
+  // widget hit and fixed; this twin reproduces the fix, not the bug.
+  // Blur is capped to the panel's own clearance to the viewBox edge so nothing
+  // hard-clips there (AER-392 gotcha #2) -- this preview's equivalent of the
+  // widget capping to on-screen margin in _readout_shadow_image (the rose,
+  // below, resolves the same gotcha the OTHER way the widget does: by
+  // shrinking itself to reserve clearance up front, not by capping after).
+  const readoutShadow = (x, y, w, h, r) => {
+    if (!shadowEnabled) return "";
+    const margin = Math.min(y, 100 - (y + h), x, 100 - (x + w));
+    const blur = Math.min(h * SHADOW_BLUR_RATIO, Math.max(0, margin) / 3.0);
+    if (blur <= 0) return "";
+    const fid = `hsiPanelShadow${id}`, pad = blur * 3.0;
+    return `<defs><filter id="${fid}" x="${x - pad}" y="${y - pad}" width="${w + 2 * pad}" height="${h + 2 * pad}" filterUnits="userSpaceOnUse">`
+      + `<feGaussianBlur in="SourceAlpha" stdDeviation="${blur.toFixed(3)}" result="blurred"/>`
+      + `<feFlood flood-color="#000" flood-opacity="${SHADOW_ALPHA}" result="color"/>`
+      + `<feComposite in="color" in2="blurred" operator="in" result="shadow"/>`
+      + `<feComposite in="shadow" in2="SourceAlpha" operator="out"/>`
+      + `</filter></defs>`
+      + `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="#000" filter="url(#${fid})"/>`;
   };
 
   // --- Arc orientation (P5b.3) -----------------------------------------------
@@ -939,11 +1062,14 @@ function buildHSI(inst) {
       + `<text x="${x + w / 2}" y="${y + h * 0.36}" fill="${color}" font-size="${h * 0.3}" font-weight="700" text-anchor="middle">${label}</text>`
       + `<text x="${x + w / 2}" y="${y + h * 0.86}" fill="${fg}" font-size="${h * 0.44}" font-weight="700" text-anchor="middle">${value}</text>`;
     const HDG = afmt(headbug), MAG = afmt(heading), CRS = afmt(course);
-    let aro = "";
+    let aro = "", aPanel = null;
+    const PANEL_RR = 1.4;                    // matches the panel rect's own rx
     if (layout === "top_panel") {
       const segs = [["HDG", HDG, hbC], ["MAG", MAG, fg], ["CRS", CRS, navColor]];
       const pw = 44, ph = 12, px = 50 - pw / 2, py = 2;
-      aro = `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="1.4" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
+      aPanel = { px, py, ph };
+      aro = readoutShadow(px, py, pw, ph, PANEL_RR)
+        + `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="${PANEL_RR}" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
       segs.forEach((sg, i) => {
         const sx = px + pw * i / 3, sw = pw / 3;
         if (i > 0) aro += `<line x1="${sx}" y1="${py + ph * 0.14}" x2="${sx}" y2="${py + ph * 0.86}" stroke="rgba(255,255,255,0.8)" stroke-width="0.4"/>`;
@@ -955,8 +1081,11 @@ function buildHSI(inst) {
     } else if (layout === "split") {
       aro = aBox(50 - 7.5, 1, 15, 9, "MAG", MAG, fg) + aBox(2, 89, 15, 9, "CRS", CRS, navColor) + aBox(83, 89, 15, 9, "HDG", HDG, hbC);
     }
-    // Nav-source annunciation + per-pointer bearing-source labels.
+    // Nav-source annunciation: a tab on the panel's left edge in top_panel
+    // layout (AER-388/#140); the old plain corner label elsewhere, since
+    // corners/split/none draw no panel for the tab to hang off of.
     const asrc = o.source_label_enabled === false ? ""
+      : aPanel ? navTab(aPanel.px, aPanel.py, aPanel.ph, PANEL_RR, navColor, "GPS")
       : `<text x="4" y="${TOPY - 3}" fill="${navColor}" font-size="7" font-weight="600">GPS</text>`;
     let ablab = "";
     if (o.bearing1_enabled) ablab += `<text x="3" y="98" fill="${bearingColorTwin(brg1src)}" font-size="6" font-weight="600">1 GPS</text>`;
@@ -984,6 +1113,15 @@ function buildHSI(inst) {
     gutter = 16;
     R = (Math.min(100, 100 - gutter) / 2) - 1;
     CY = gutter + (100 - gutter) / 2;
+  }
+  // Reserve clearance for the rose drop shadow (AER-392 gotcha #2, mirrored
+  // here): shrink the rose the same way resizeEvent does, so the blurred
+  // halo has room to resolve before the SVG's own edge instead of hard-
+  // clipping there. No-op (0) when shadows are off.
+  let roseShadowBlur = 0;
+  if (shadowEnabled) {
+    roseShadowBlur = R * SHADOW_BLUR_RATIO;
+    R -= roseShadowBlur * 3.0;   // SHADOW_CANVAS_PAD_RATIO
   }
   const dev = R * 0.5, t = R * 0.05;
   const fmt = (v) => String((((Math.round(v)) % 360) + 360) % 360).padStart(3, "0") + "°";
@@ -1099,8 +1237,9 @@ function buildHSI(inst) {
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.2" fill="rgba(0,0,0,0.6)" stroke="${color}" stroke-width="0.5"/>`
     + `<text x="${x + w / 2}" y="${y + h * 0.36}" fill="${color}" font-size="${h * 0.3}" font-weight="700" text-anchor="middle">${label}</text>`
     + `<text x="${x + w / 2}" y="${y + h * 0.86}" fill="${fg}" font-size="${h * 0.44}" font-weight="700" text-anchor="middle">${value}</text>`;
+  const PANEL_RR = 1.4;                      // matches segPanel's own rx
   const segPanel = (x, y, w, h, orient, segs) => {
-    let g = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.4" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
+    let g = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${PANEL_RR}" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
     const n = segs.length;
     segs.forEach((sg, i) => {
       const [label, value, color] = sg;
@@ -1115,22 +1254,26 @@ function buildHSI(inst) {
     return g;
   };
   const HDG = fmt(headbug), MAG = fmt(heading), CRS = fmt(course);
-  let readouts = "";
+  let readouts = "", rPanel = null;
   if (layout === "top_panel") {
     const ph = gutter * 0.76, pw = 44, px = CX - pw / 2, py = (gutter - ph) / 2;
-    readouts = segPanel(px, py, pw, ph, "h", [["HDG", HDG, hbC], ["MAG", MAG, fg], ["CRS", CRS, navColor]]);
+    rPanel = { px, py, ph };
+    readouts = readoutShadow(px, py, pw, ph, PANEL_RR)
+      + segPanel(px, py, pw, ph, "h", [["HDG", HDG, hbC], ["MAG", MAG, fg], ["CRS", CRS, navColor]]);
   } else if (layout === "corners") {
     readouts = roBox(2, 2, 15, 9, "HDG", HDG, hbC) + roBox(83, 2, 15, 9, "CRS", CRS, navColor);
   } else if (layout === "split") {
     readouts = roBox(CX - 7.5, 1, 15, 9, "MAG", MAG, fg)
       + roBox(2, 89, 15, 9, "CRS", CRS, navColor) + roBox(83, 89, 15, 9, "HDG", HDG, hbC);
   }
-  // Nav-source annunciation (top-left), source-coloured. Preview shows GPS.
+  // Nav-source annunciation: a tab on the panel's left edge in top_panel
+  // layout (AER-388/#140), else the old plain corner label. Preview shows GPS.
   const srcLabel = o.source_label_enabled === false ? ""
+    : rPanel ? navTab(rPanel.px, rPanel.py, rPanel.ph, PANEL_RR, navColor, "GPS")
     : `<text x="4" y="${CY - R + 1}" fill="${navColor}" font-size="7" font-weight="600">GPS</text>`;
   return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}">
-  <circle cx="${CX}" cy="${CY}" r="${R}" fill="${rgbaFromColor(o.bg_color || "#000", bgOpacity(o))}" stroke="${fg}" stroke-width="0.8"/>
+  <circle cx="${CX}" cy="${CY}" r="${R}" fill="${rgbaFromColor(o.bg_color || "#000", bgOpacity(o))}" stroke="${fg}" stroke-width="0.8"${shadowEnabled ? ` style="filter: drop-shadow(0px 0px ${roseShadowBlur.toFixed(3)}px rgba(0,0,0,${SHADOW_ALPHA}))"` : ""}/>
   ${rings}
   <g transform="rotate(${-heading} ${CX} ${CY})">${ticks}</g>
   ${nums}
@@ -1766,9 +1909,29 @@ function updateReadout() {
 }
 
 // --- grid <-> pixel math (port of screenbuilder_layout, ratio=false) --------
-function cell() { return { gw: state.canvasW / state.layout.columns, gh: state.canvasH / state.layout.rows }; }
-function rect(inst) {
-  const { gw, gh } = cell();
+// `renderSpace`, when set, is the coordinate frame the CURRENT synchronous
+// render pass is using -- {gw, gh} cell size in px. cell()/rect() read it
+// implicitly so every build*() that calls rect(inst) with no extra argument
+// (there are ~15 of them, sizing their own internal geometry, not just their
+// wrapper) picks up a nested frame for free when renderContainerTwin() wraps
+// a tab's contents in withSpace(). It always resolves back to the root canvas
+// frame between render passes (try/finally), so canvas-level interaction code
+// (drag/drop hit-testing, outside any render pass) is unaffected and keeps
+// calling cell()/rect() exactly as before -- AER-345 (tab_section Phase B).
+let renderSpace = null;
+function rootSpace() { return { gw: state.canvasW / state.layout.columns, gh: state.canvasH / state.layout.rows }; }
+function cell() { return renderSpace || rootSpace(); }
+function withSpace(space, fn) {
+  const prev = renderSpace;
+  renderSpace = space;
+  try { fn(); } finally { renderSpace = prev; }
+}
+// `space`, when passed explicitly, overrides the ambient frame -- used by the
+// nested move/resize handlers, which run from mouse events well after the
+// render pass that captured their space has finished (renderSpace is back to
+// root by then).
+function rect(inst, space) {
+  const { gw, gh } = space || cell();
   return {
     x: gw * inst.column, y: gh * inst.row,
     w: gw * (inst.span?.columns ?? 1), h: gh * (inst.span?.rows ?? 1),
@@ -1888,18 +2051,35 @@ function renderCanvas() {
     const meta = state.schema.instruments[inst.type] || {};
     const el = document.createElement("div");
     el.className = "inst" + (meta.offscreen_renderable ? "" : " placeholder") + (meta.keep_aspect ? " lock" : "");
-    if (i === state.selected) el.classList.add("sel");
+    if (i === state.selected) el.classList.add("sel");   // container stays highlighted even with a nested child also selected
     el.dataset.i = i;
     positionEl(el, inst);
-    if (inst.type === "group") {
+    buildInstrumentTwin(el, inst, meta, i, 0);
+    const handle = document.createElement("div"); handle.className = "handle";
+    el.appendChild(handle);
+    el.addEventListener("mousedown", (e) => startMove(e, i, el));
+    handle.addEventListener("mousedown", (e) => startResize(e, i, el));
+    c.appendChild(el);
+  });
+  syncCode();
+}
+
+// Build one instrument's twin content into `el` -- the same per-type dispatch
+// for a top-level canvas instrument (ci = its index, depth 0) and a
+// tab_section's nested content (ci = the CONTAINING top-level container's
+// index, depth 1), so a nested instrument gets the exact fidelity a
+// top-level one has (AER-345 sec 4f). `ci`/`depth` are only consulted by the
+// container branch below; depth caps recursion at 1 (see there).
+function buildInstrumentTwin(el, inst, meta, ci, depth) {
+  if (inst.type === "group") {
       el.classList.add("group");
       const def = state.groupsById[inst.id];
       if (def) for (const ch of def.instruments) {
-        const ci = document.createElement("img"); ci.className = "gchild";
-        ci.src = `${ASSETS}/palette/${ch.type}.svg`;
-        ci.style.left = (ch.column / def.grid.columns * 100) + "%"; ci.style.top = (ch.row / def.grid.rows * 100) + "%";
-        ci.style.width = (ch.span.columns / def.grid.columns * 100) + "%"; ci.style.height = (ch.span.rows / def.grid.rows * 100) + "%";
-        el.appendChild(ci);
+        const gi = document.createElement("img"); gi.className = "gchild";
+        gi.src = `${ASSETS}/palette/${ch.type}.svg`;
+        gi.style.left = (ch.column / def.grid.columns * 100) + "%"; gi.style.top = (ch.row / def.grid.rows * 100) + "%";
+        gi.style.width = (ch.span.columns / def.grid.columns * 100) + "%"; gi.style.height = (ch.span.rows / def.grid.rows * 100) + "%";
+        el.appendChild(gi);
       }
     } else if (inst.type === "atitude_indicator") {
       el.appendChild(buildAttitude(inst));
@@ -1999,22 +2179,22 @@ function renderCanvas() {
         if (inst.type === "value_text" && o.value_color) content.style.color = o.value_color;
       }
       el.appendChild(content);
+    } else if (depth === 0 && meta.containers && meta.containers.length) {
+      // Depth-capped: a container only recurses one level, enforcing "no
+      // tab_section inside a tab_section" (sec 3/sec 7 Q1) at render time even
+      // though a hand-edited YAML could technically nest one. A nested
+      // container at depth 1 falls through to the flat placeholder below
+      // instead, matching Phase A's original treatment of every container.
+      el.appendChild(buildContainerTwin(inst, meta, ci));
     } else {
       const content = document.createElement("img");
       content.src = `${ASSETS}/palette/${inst.type}.svg`; content.alt = inst.type;
       el.appendChild(content);
     }
-    const handle = document.createElement("div"); handle.className = "handle";
-    el.appendChild(handle);
-    el.addEventListener("mousedown", (e) => startMove(e, i, el));
-    handle.addEventListener("mousedown", (e) => startResize(e, i, el));
-    c.appendChild(el);
-  });
-  syncCode();
 }
 
-function positionEl(el, inst) {
-  const r = rect(inst);
+function positionEl(el, inst, space) {
+  const r = rect(inst, space);
   el.style.left = r.x + "px"; el.style.top = r.y + "px";
   el.style.width = r.w + "px"; el.style.height = r.h + "px";
 }
@@ -2023,26 +2203,95 @@ function positionEl(el, inst) {
 const canvas = $("canvas");
 canvas.addEventListener("dragover", (e) => { e.preventDefault(); canvas.classList.add("dragover"); });
 canvas.addEventListener("dragleave", () => canvas.classList.remove("dragover"));
-canvas.addEventListener("drop", (e) => {
-  e.preventDefault(); canvas.classList.remove("dragover");
-  const data = e.dataTransfer.getData("text/plain");
-  const cr = canvas.getBoundingClientRect();
-  const { gw, gh } = cell();
-  const col = clamp(snapTo((e.clientX - cr.left) / gw), 0, state.layout.columns - 1);
-  const row = clamp(snapTo((e.clientY - cr.top) / gh), 0, state.layout.rows - 1);
+
+// Build the instrument (or group placeholder) record for a palette drop --
+// row/column are the caller's to fill in, since the top-level drop and the
+// container-scoped one below resolve them against different frames. Shared
+// so the two don't duplicate the group-vs-instrument-vs-unknown logic.
+function instrumentForDrop(data) {
   if (data.startsWith("group:")) {
     const def = state.groupsById[data.slice(6)];
-    if (!def) return;
+    if (!def) return null;
     const sp = def.defaultSpan || { rows: 40, columns: 50 };
-    state.instruments.push({ type: "group", id: def.id, row, column: col, span: { rows: sp.rows, columns: sp.columns } });
-  } else if (state.schema.instruments[data]) {
+    return { type: "group", id: def.id, span: { rows: sp.rows, columns: sp.columns } };
+  }
+  if (state.schema.instruments[data]) {
+    const meta = state.schema.instruments[data];
     const options = {};
     // A button needs a backing touchscreen-button FIX key; assign an unused one
     // so the builder never has to hand-pick it (dbkey is a required option).
     if (data === "button") options.dbkey = allocateTsbtn();
-    state.instruments.push({ type: data, row, column: col, span: { rows: 20, columns: 20 }, options });
-  } else { return; }
+    const inst = { type: data, span: { rows: 20, columns: 20 }, options };
+    // Container instruments (e.g. tab_section's "tabs") start with one default
+    // tab rather than zero -- never dropped in an unrenderable state, matching
+    // pyEfis's own empty-tabs fallback (AER-173 design doc §4a).
+    if (meta.containers && meta.containers.length) {
+      for (const slot of meta.containers) ensureContainerSlot(inst, slot);
+      inst.activeTab = 0;
+    }
+    return inst;
+  }
+  return null;
+}
+
+// Brief red outline on a container's drop zone -- feedback for a rejected
+// drop (a tab_section dropped into a tab, sec 3/sec 7 Q1) without an
+// intrusive alert().
+function flashReject(el) {
+  el.classList.add("reject-flash");
+  setTimeout(() => el.classList.remove("reject-flash"), 400);
+}
+
+canvas.addEventListener("drop", (e) => {
+  e.preventDefault(); canvas.classList.remove("dragover");
+  const data = e.dataTransfer.getData("text/plain");
+  const cr = canvas.getBoundingClientRect();
+  const mx = e.clientX - cr.left, my = e.clientY - cr.top;
+
+  // Container-scoped drop-target (AER-345 sec 4b): when the SELECTED
+  // instrument is a container and the drop point falls inside its box,
+  // insert into that container's active tab instead of the top-level screen
+  // -- not a new global editor mode, scoped to whatever's already selected.
+  const sel = state.selected >= 0 ? state.instruments[state.selected] : null;
+  const selMeta = sel ? state.schema.instruments[sel.type] : null;
+  if (sel && selMeta?.containers?.length) {
+    const box = rect(sel);   // sel is always top-level -> root space
+    if (mx >= box.x && mx < box.x + box.w && my >= box.y && my < box.y + box.h) {
+      if (data === "tab_section") {
+        const contentEl = document.querySelector(`.inst[data-i="${state.selected}"] .tab-twin-content`);
+        if (contentEl) flashReject(contentEl);
+        return;
+      }
+      const dropped = instrumentForDrop(data);
+      if (!dropped) return;
+      const slot = selMeta.containers[0];
+      const tabs = ensureContainerSlot(sel, slot);
+      const activeIdx = defaultActiveTab(sel, tabs);
+      sel.activeTab = activeIdx;
+      const tab = tabs[activeIdx];
+      const tabLayout = tab.layout || { rows: 110, columns: 200 };
+      // Tab-local coordinates (sec 4b): divide by the TAB's own layout, not
+      // the screen's -- the same nested-space math buildContainerTwin uses.
+      const gw = box.w / (tabLayout.columns || 1);
+      const gh = Math.max(0, box.h - TAB_STRIP_H) / (tabLayout.rows || 1);
+      dropped.column = clamp(snapTo((mx - box.x) / gw), 0, tabLayout.columns - 1);
+      dropped.row = clamp(snapTo((my - box.y - TAB_STRIP_H) / gh), 0, tabLayout.rows - 1);
+      tab.instruments = tab.instruments || [];
+      tab.instruments.push(dropped);
+      renderCanvas(); renderProps();
+      return;
+    }
+  }
+
+  // Top-level drop: the existing screen-scoped behaviour.
+  const { gw, gh } = cell();
+  const dropped = instrumentForDrop(data);
+  if (!dropped) return;
+  dropped.column = clamp(snapTo(mx / gw), 0, state.layout.columns - 1);
+  dropped.row = clamp(snapTo(my / gh), 0, state.layout.rows - 1);
+  state.instruments.push(dropped);
   state.selected = state.instruments.length - 1;
+  state.nestedSel = null;
   renderCanvas(); renderProps();
 });
 
@@ -2082,9 +2331,66 @@ function startResize(e, i, el) {
   document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
 }
 
+// Move/resize for an instrument nested in a tab_section's active tab --
+// mirrors startMove/startResize but bounds against the TAB's own layout and
+// the container's nested pixel space (captured at the render pass that drew
+// it) instead of the screen's, so a dropped instrument can be nudged into
+// place without leaving the properties panel's numeric fields as the only
+// option (AER-345 sec 4b/4f).
+function startMoveNested(e, ci, slot, ti, ii, el, space, tabLayout) {
+  if (e.target.classList.contains("handle")) return;
+  e.preventDefault(); e.stopPropagation();
+  selectNested(ci, slot, ti, ii);
+  const inst = state.instruments[ci][slot][ti].instruments[ii];
+  const { gw, gh } = space;
+  const sx = e.clientX, sy = e.clientY, srow = inst.row, scol = inst.column;
+  const move = (ev) => {
+    inst.column = clamp(snapTo(scol + (ev.clientX - sx) / gw), 0, tabLayout.columns - inst.span.columns);
+    inst.row = clamp(snapTo(srow + (ev.clientY - sy) / gh), 0, tabLayout.rows - inst.span.rows);
+    positionEl(el, inst, space); syncPosFields(inst);
+  };
+  const up = () => { syncCode(); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
+}
+
+function startResizeNested(e, ci, slot, ti, ii, el, space, tabLayout) {
+  e.preventDefault(); e.stopPropagation();
+  selectNested(ci, slot, ti, ii);
+  const inst = state.instruments[ci][slot][ti].instruments[ii];
+  const { gw, gh } = space;
+  const sx = e.clientX, sy = e.clientY, sc = inst.span.columns, sr = inst.span.rows;
+  const move = (ev) => {
+    inst.span.columns = clamp(snapTo(sc + (ev.clientX - sx) / gw), 1, tabLayout.columns);
+    inst.span.rows = clamp(snapTo(sr + (ev.clientY - sy) / gh), 1, tabLayout.rows);
+    positionEl(el, inst, space); syncPosFields(inst);
+  };
+  const up = () => { syncCode(); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up);
+}
+
 function select(i) {
   state.selected = i;
+  state.nestedSel = null;
   document.querySelectorAll(".inst").forEach((el) => el.classList.toggle("sel", Number(el.dataset.i) === i));
+  renderProps();
+}
+
+// Select an instrument nested inside a tab_section's active tab (AER-345):
+// the container itself stays "selected" (its box/strip keep showing, and a
+// click on its own background still falls through to startMove/select as
+// before) while the child's OWN properties show in the inspector. Toggles
+// classes on the existing DOM rather than a full renderCanvas(), matching
+// select()'s pattern.
+function selectNested(ci, slot, ti, ii) {
+  state.selected = ci;
+  state.nestedSel = { ci, slot, ti, ii };
+  document.querySelectorAll(".inst").forEach((el) => {
+    const isContainer = el.dataset.child === undefined && Number(el.dataset.i) === ci;
+    const isTarget = el.dataset.child !== undefined
+      && Number(el.dataset.container) === ci && el.dataset.slot === slot
+      && Number(el.dataset.tab) === ti && Number(el.dataset.child) === ii;
+    el.classList.toggle("sel", isContainer || isTarget);   // both levels highlight
+  });
   renderProps();
 }
 
@@ -2116,6 +2422,23 @@ function renderProps() {
       list.appendChild(li);
     }
     p.appendChild(list);
+  }
+
+  // A nested selection (AER-345) takes over the panel until it's cleared or
+  // stale (its tab/container got deleted out from under it -- tab CRUD
+  // already clears nestedSel on mutation, this is the defensive fallback).
+  if (state.nestedSel) {
+    const ns = state.nestedSel;
+    const container = state.instruments[ns.ci];
+    const tabs = container ? container[ns.slot] : null;
+    const tab = tabs ? tabs[ns.ti] : null;
+    const nestedInst = tab ? tab.instruments[ns.ii] : null;
+    if (container && tab && nestedInst) {
+      p.appendChild(Object.assign(document.createElement("hr"), { className: "sep" }));
+      renderNestedProps(p, container, ns, tab, nestedInst);
+      return;
+    }
+    state.nestedSel = null;
   }
 
   // Per-selection properties
@@ -2175,9 +2498,251 @@ function renderProps() {
     for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
   }
 
+  // Container instruments (tab_section's "tabs", per the schema's `containers`
+  // metadata -- AER-173 §4g): tab-list CRUD. Dropping/selecting/editing an
+  // instrument INTO a tab is the on-canvas drop-target + renderNestedProps()
+  // below (AER-345 Phase B).
+  for (const slot of (meta.containers || [])) p.appendChild(buildContainerEditor(inst, slot));
+
   // Soft-controls: a Button's behaviour is a list of conditions, each firing a
   // list of actions. Its own dedicated editor (below the plain options).
   if (inst.type === "button") p.appendChild(renderConditions(inst));
+}
+
+// Properties panel for an instrument nested inside a tab_section's active tab
+// (AER-345). Same generic building blocks (numGrid, optionField) top-level
+// properties use, just bound to the nested record and reached through a
+// breadcrumb back to the container -- no separate nested-container editor
+// needed since a tab_section can't nest another one (sec 3/sec 7 Q1).
+function renderNestedProps(p, container, ns, tab, inst) {
+  const back = document.createElement("button");
+  back.className = "screen-add";
+  back.textContent = "‹ Back to " + (state.schema.instruments[container.type]?.label || "container");
+  back.addEventListener("click", () => select(ns.ci));
+  p.appendChild(back);
+
+  const meta = state.schema.instruments[inst.type] || {};
+  const title = document.createElement("h3");
+  title.textContent = (meta.label || inst.type) + ` — in "${tab.label || "tab"}"`;
+  p.appendChild(title);
+
+  // Reposition via a full renderCanvas() rather than repositionSelected()'s
+  // single-element fast path: repositionSelected() only knows how to find
+  // state.instruments[state.selected], which is the CONTAINER here, not this
+  // nested child.
+  p.appendChild(numGrid([
+    ["row", inst.row, (v) => inst.row = v],
+    ["column", inst.column, (v) => inst.column = v],
+    ["span rows", inst.span.rows, (v) => inst.span.rows = v],
+    ["span cols", inst.span.columns, (v) => inst.span.columns = v],
+  ], () => renderCanvas()));
+
+  inst.options = inst.options || {};
+  const opts = { ...state.schema.common_options, ...meta.options };
+  if (Object.keys(opts).length) {
+    const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
+    for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
+  }
+
+  const rm = document.createElement("button");
+  rm.textContent = "Remove from tab"; rm.style.marginTop = "8px";
+  rm.addEventListener("click", () => {
+    const idx = tab.instruments.indexOf(inst);
+    if (idx >= 0) tab.instruments.splice(idx, 1);
+    select(ns.ci);
+    renderCanvas();
+  });
+  p.appendChild(rm);
+}
+
+// --- container slots (e.g. tab_section's "tabs") ----------------------------
+// A container slot (schema `containers[]`, AER-173 §4g) holds a subtree, not a
+// scalar option: an ordered list of {label, layout, instruments} tab pages,
+// the same shape pyEfis nests a Screen from (docs/screenbuilder.md#tab_section
+// on the pyEfis side). This section is the tab-list CRUD; the on-canvas drop
+// target + nested twin (buildContainerTwin, below) and dragging an EXISTING
+// top-level instrument into a tab are AER-345 (Phase B) / AER-173 §6 Phase C.
+
+// A dropped/loaded container instrument should never have zero tabs -- mirrors
+// pyEfis's own empty-tabs fallback in tab_section/__init__.py.
+function ensureContainerSlot(inst, slot) {
+  if (!Array.isArray(inst[slot.name]) || !inst[slot.name].length) {
+    inst[slot.name] = [{ label: "Tab 1", layout: { rows: 110, columns: 200 }, instruments: [] }];
+  }
+  return inst[slot.name];
+}
+
+// The tab shown before the user has picked one this session: the configured
+// `default_tab` option (AER-173 §4d -- a plain scalar Prop, resolved once on
+// first render, distinct from `activeTab`'s editor-session-only bookkeeping).
+function defaultActiveTab(inst, tabs) {
+  const seed = inst.activeTab ?? (Number(inst.options?.default_tab) || 0);
+  return clamp(seed, 0, tabs.length - 1);
+}
+
+function uniqueTabLabel(tabs, base, exclude) {
+  let name = String(base || "Tab").trim() || "Tab", k = 2;
+  while (tabs.some((t, i) => i !== exclude && t.label === name)) name = `${base} ${k++}`;
+  return name;
+}
+
+function buildContainerEditor(inst, slot) {
+  const wrap = document.createElement("div");
+  const tabs = ensureContainerSlot(inst, slot);
+  inst.activeTab = defaultActiveTab(inst, tabs);
+
+  const h = document.createElement("h3"); h.textContent = slot.label || slot.name; wrap.appendChild(h);
+  if (slot.help) {
+    const hint = document.createElement("p"); hint.className = "muted"; hint.style.margin = "0 0 8px";
+    hint.textContent = slot.help; wrap.appendChild(hint);
+  }
+
+  // Any tab CRUD below can shift/replace/drop tab indices -- a nested
+  // selection scoped to the old arrangement would be stale or wrong, so
+  // every mutation clears it rather than trying to re-target it.
+  const refresh = () => { state.nestedSel = null; renderCanvas(); syncCode(); renderProps(); };
+
+  const list = document.createElement("ul"); list.className = "layers";
+  tabs.forEach((tab, i) => {
+    const li = document.createElement("li");
+    li.className = "layer" + (i === inst.activeTab ? " sel" : "");
+    li.style.display = "flex"; li.style.alignItems = "center"; li.style.gap = "6px";
+
+    const lbl = document.createElement("span");
+    lbl.textContent = tab.label || `Tab ${i + 1}`;
+    lbl.style.flex = "1"; lbl.style.cursor = "pointer";
+    lbl.title = "Select this tab";
+    lbl.addEventListener("click", () => { inst.activeTab = i; refresh(); });
+    li.appendChild(lbl);
+
+    const mk = (label, title, fn, disabled) => {
+      const b = document.createElement("button");
+      b.textContent = label; b.title = title; b.disabled = !!disabled;
+      b.style.padding = "1px 6px"; b.style.fontSize = "12px";
+      b.addEventListener("click", (e) => { e.stopPropagation(); fn(); });
+      return b;
+    };
+    li.appendChild(mk("✎", "Rename tab", () => {
+      const raw = prompt("Rename tab:", tab.label || `Tab ${i + 1}`);
+      if (raw == null) return;
+      tab.label = uniqueTabLabel(tabs, raw.trim() || tab.label, i);
+      refresh();
+    }));
+    li.appendChild(mk("↑", "Move earlier", () => {
+      if (i === 0) return;
+      [tabs[i - 1], tabs[i]] = [tabs[i], tabs[i - 1]];
+      if (inst.activeTab === i) inst.activeTab = i - 1;
+      else if (inst.activeTab === i - 1) inst.activeTab = i;
+      refresh();
+    }, i === 0));
+    li.appendChild(mk("↓", "Move later", () => {
+      if (i === tabs.length - 1) return;
+      [tabs[i + 1], tabs[i]] = [tabs[i], tabs[i + 1]];
+      if (inst.activeTab === i) inst.activeTab = i + 1;
+      else if (inst.activeTab === i + 1) inst.activeTab = i;
+      refresh();
+    }, i === tabs.length - 1));
+    li.appendChild(mk("✕", "Delete tab", () => {
+      if (tabs.length <= 1) return;   // a container must always keep >=1 tab
+      if (!confirm(`Delete tab '${tab.label || `Tab ${i + 1}`}'?`)) return;
+      tabs.splice(i, 1);
+      if (inst.activeTab >= tabs.length) inst.activeTab = tabs.length - 1;
+      refresh();
+    }, tabs.length <= 1));
+
+    list.appendChild(li);
+  });
+  wrap.appendChild(list);
+
+  const add = document.createElement("button");
+  add.className = "screen-add"; add.textContent = "+ Add tab";
+  add.addEventListener("click", () => {
+    tabs.push({ label: uniqueTabLabel(tabs, `Tab ${tabs.length + 1}`), layout: { rows: 110, columns: 200 }, instruments: [] });
+    inst.activeTab = tabs.length - 1;
+    refresh();
+  });
+  wrap.appendChild(add);
+
+  return wrap;
+}
+
+// Fixed px, not proportional to the container's box: the real widget's
+// QTabBar.sizeHint() height comes from font metrics, not from the container's
+// own size (tab_section/__init__.py _layout_pages -- `bar_height =
+// self.tab_bar.sizeHint().height()`, computed once, independent of the
+// widget's own height). This is the ONE place that assumes the bar sits on
+// top; pyEfis#137 (AVIONICS's, configurable tab-bar edge) becomes a local
+// change here when it lands, not a scattered one.
+const TAB_STRIP_H = 22;
+
+// The recursive nested twin (AER-345 sec 4f): the tab strip + the active
+// tab's instruments, rendered inside the container's own box at the same
+// fidelity buildInstrumentTwin() gives a top-level instrument, via the exact
+// same per-type dispatch. `ci` is the container's own index in
+// state.instruments (nested children are keyed off it for selection/drag).
+function buildContainerTwin(inst, meta, ci) {
+  const wrap = document.createElement("div"); wrap.className = "tab-twin";
+  const slot = meta.containers[0];   // v1: exactly one container slot ("tabs")
+  const tabs = ensureContainerSlot(inst, slot);
+  const activeIdx = defaultActiveTab(inst, tabs);
+  inst.activeTab = activeIdx;
+
+  const strip = document.createElement("div");
+  strip.className = "tab-twin-strip";
+  strip.style.height = TAB_STRIP_H + "px";
+  tabs.forEach((tab, ti) => {
+    const chip = document.createElement("div");
+    chip.className = "tab-twin-chip" + (ti === activeIdx ? " active" : "");
+    chip.textContent = tab.label || `Tab ${ti + 1}`;
+    chip.addEventListener("mousedown", (e) => {
+      e.stopPropagation();   // switching tabs must not start a container move
+      inst.activeTab = ti;
+      state.nestedSel = null;   // the old selection was scoped to the prior tab
+      renderCanvas(); renderProps();
+    });
+    strip.appendChild(chip);
+  });
+  wrap.appendChild(strip);
+
+  const content = document.createElement("div");
+  content.className = "tab-twin-content";
+  content.style.top = TAB_STRIP_H + "px";
+  content.style.height = `calc(100% - ${TAB_STRIP_H}px)`;
+  wrap.appendChild(content);
+
+  // Nested coordinate space (sec 4f's "big lift"): the container's own
+  // content-box pixels divided by the ACTIVE TAB'S OWN layout, never the
+  // screen's -- the exact trap Bill hit hand-authoring YAML (a tab narrower
+  // than the screen makes screen coordinates land off its edge).
+  const box = rect(inst);   // a container is always top-level -> root space
+  const activeTab = tabs[activeIdx];
+  const tabLayout = activeTab.layout || { rows: 110, columns: 200 };
+  const contentH = Math.max(0, box.h - TAB_STRIP_H);
+  const space = {
+    gw: box.w / (tabLayout.columns || 1),
+    gh: contentH / (tabLayout.rows || 1),
+  };
+
+  withSpace(space, () => {
+    (activeTab.instruments || []).forEach((child, ii) => {
+      const childMeta = state.schema.instruments[child.type] || {};
+      const childEl = document.createElement("div");
+      childEl.className = "inst" + (childMeta.offscreen_renderable ? "" : " placeholder") + (childMeta.keep_aspect ? " lock" : "");
+      childEl.dataset.container = ci; childEl.dataset.slot = slot.name;
+      childEl.dataset.tab = activeIdx; childEl.dataset.child = ii;
+      const ns = state.nestedSel;
+      if (ns && ns.ci === ci && ns.slot === slot.name && ns.ti === activeIdx && ns.ii === ii) childEl.classList.add("sel");
+      positionEl(childEl, child);
+      buildInstrumentTwin(childEl, child, childMeta, ci, 1);
+      const handle = document.createElement("div"); handle.className = "handle";
+      childEl.appendChild(handle);
+      childEl.addEventListener("mousedown", (e) => startMoveNested(e, ci, slot.name, activeIdx, ii, childEl, space, tabLayout));
+      handle.addEventListener("mousedown", (e) => startResizeNested(e, ci, slot.name, activeIdx, ii, childEl, space, tabLayout));
+      content.appendChild(childEl);
+    });
+  });
+
+  return wrap;
 }
 
 // Reorder the selected instrument in the array (= change paint order).
@@ -2218,14 +2783,15 @@ function ungroup() {
   renderCanvas(); renderProps();
 }
 
-function numGrid(rows) {
+function numGrid(rows, reposition) {
+  reposition = reposition || repositionSelected;
   const wrap = document.createElement("div"); wrap.className = "grid2";
   for (const [label, value, set] of rows) {
     const f = document.createElement("div"); f.className = "field";
     const l = document.createElement("label"); l.textContent = label;
     const inp = document.createElement("input"); inp.type = "number"; inp.value = value;
     inp.addEventListener("input", () => {
-      const v = parseFloat(inp.value); if (!isNaN(v)) { set(v); repositionSelected(); syncCode(); }
+      const v = parseFloat(inp.value); if (!isNaN(v)) { set(v); reposition(); syncCode(); }
     });
     f.append(l, inp); wrap.appendChild(f);
   }
@@ -2874,6 +3440,16 @@ function repositionSelected() {
 
 // --- delete / save / load ---------------------------------------------------
 $("del").addEventListener("click", () => {
+  // A nested selection deletes the nested child, not the container it lives
+  // in (AER-345) -- the container is still "selected" underneath it.
+  if (state.nestedSel) {
+    const ns = state.nestedSel;
+    const tab = state.instruments[ns.ci]?.[ns.slot]?.[ns.ti];
+    if (tab) tab.instruments.splice(ns.ii, 1);
+    state.nestedSel = null;
+    renderCanvas(); renderProps();
+    return;
+  }
   if (state.selected < 0) return;
   state.instruments.splice(state.selected, 1); state.selected = -1;
   renderCanvas(); renderProps();
@@ -2949,7 +3525,12 @@ function expandGroups(instruments) {
   return out;
 }
 
-// One editor instrument -> one pyEfis screenbuilder instrument.
+// One editor instrument -> one pyEfis screenbuilder instrument. Recurses into
+// any container slots the schema declares for this type (e.g. tab_section's
+// "tabs") -- each tab is its own {label, layout, instruments} nested screen,
+// converted through the exact same expand-and-convert pipeline as a top-level
+// screen (AER-173 §4e), so the tree survives into the saved YAML as-is instead
+// of flattening like an element group does.
 function toScreenInstrument(inst) {
   const out = {
     type: inst.type,
@@ -2960,6 +3541,16 @@ function toScreenInstrument(inst) {
   const opts = { ...(inst.options || {}) };
   delete opts.preview_scene;          // editor-only: which SVS preview image to show
   if (Object.keys(opts).length) out.options = opts;
+  const meta = state.schema.instruments[inst.type];
+  for (const slot of (meta?.containers || [])) {
+    const tabs = inst[slot.name];
+    if (!Array.isArray(tabs)) continue;
+    out[slot.name] = tabs.map((tab) => ({
+      label: tab.label,
+      layout: tab.layout || { rows: 110, columns: 200 },
+      instruments: expandGroups(tab.instruments || []).map(toScreenInstrument),
+    }));
+  }
   return out;
 }
 

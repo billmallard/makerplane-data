@@ -90,6 +90,29 @@ network/CLI/file boundary; (c) fully greenfield.
   AGPL components once outside contributions land — a deliberate,
   eyes-open trade in favour of community trust.
 
+## Sourced third-party pack *data* (tracked separately from repo code)
+
+The classification above is the repo's own code. Packaged **data** carries
+its own terms per source, declared in each pack's `attribution` string
+(`packtools/sources.py`); this section is the running record of what's been
+checked, per AC-IP-001's remit to catch exactly this class of decision.
+
+| Source | Layer | License | Redistribution? |
+|---|---|---|---|
+| FAA NASR/DOF/CIFP | airports, obstacles, navaids, cifp | US Government work — no copyright attaches (not a license grant) | Yes — public domain (`license=LicenseRef-us-public-domain`) |
+| Copernicus GLO-30 | terrain | Copernicus open data terms | Yes — redistributable |
+| OpenStreetMap (via Geofabrik) / Natural Earth | water, highways | ODbL / public domain | Yes — ODbL requires attribution, carried in `attribution` and explicitly in `license`/`license_url` (`ODbL-1.0`) |
+| NavCanada VNC | (Canadian charts) | proprietary, user-supplied only | **No** — never redistributed; user-supplied pack slot only |
+| **openAIP** (Garrecht Avionik GmbH) | airspace (`airspace` kind + builder land in AER-547; not yet published to R2 — Bill's explicit go required, see AER-547) | **CC BY-NC 4.0**, confirmed live against openAIP's own API metadata 2026-08-23 | **Evaluated: yes, under its own terms.** Free, no-revenue distribution reads as non-commercial under CC's own NC definition; carry-not-relicense via per-pack `license`/`license_url` metadata (AER-546, additive fields on `PackMeta`/`Source`, landed 2026-09-03). Full writeup: [openaip_evaluation.md](openaip_evaluation.md). |
+
+`PackMeta` (`packtools/packmeta.py`), `Source` (`packtools/sources.py`), and
+`PackEntry` (`packtools/manifest.py`, AER-547) all carry additive
+`license`/`license_url` fields alongside `attribution`: `attribution` stays
+presentation text, `license` is a short machine-checkable tag (SPDX id,
+`LicenseRef-*`, or e.g. `ODbL-1.0`), `license_url` the canonical link. The
+catalog manifest now carries them through to the Pi, so a pack's license is
+checkable without downloading and opening the pack itself.
+
 ## Enforcement
 
 * Per-file `SPDX-License-Identifier` headers on all source files in this
