@@ -43,3 +43,4 @@ CloudFlare*
 # OS noise
 .DS_Store
 Thumbs.db
+.gstack/

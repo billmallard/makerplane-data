@@ -12,7 +12,9 @@ one **sqlite pack** (`kind: water`), reusing the same install path as navdata.
 - **Coastline / ocean** — OSM `water-polygons-split-4326` (and optionally
   Natural Earth `ne_10m_ocean` / `ne_10m_lakes`).
 - **License:** OSM is **ODbL** — attribution is required and must be carried
-  in the pack (`attribution` in pack_meta). Natural Earth is public domain.
+  in the pack (`attribution` in pack_meta), and set explicitly and
+  machine-readably via `license`/`license_url` (`ODbL-1.0`). Natural Earth is
+  public domain.
 
 ## Build + upload
 
@@ -29,6 +31,7 @@ R2_ENDPOINT=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
 packtool build-pack water.sqlite \
     --id water-conus --kind water --cycle 2026q2 \
     --attribution "OpenStreetMap contributors (ODbL); Natural Earth" \
+    --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
     --regions conus --url-base https://navdata.aerocommons.org/packs \
     --upload --bucket makerplane-data --sec keys/minisign.sec
 ```

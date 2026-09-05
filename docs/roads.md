@@ -23,6 +23,7 @@ R2_ENDPOINT=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
 packtool build-pack highways.sqlite \
     --id highways-conus --kind highways --cycle 2026q2 \
     --attribution "OpenStreetMap contributors (ODbL)" \
+    --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
     --regions conus --url-base https://navdata.aerocommons.org/packs \
     --upload --bucket makerplane-data --sec keys/minisign.sec
 ```

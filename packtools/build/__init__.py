@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from .airspace import build_airspace
+
 Builder = Callable[[Path, Path], Path]
 
 
@@ -92,4 +94,5 @@ BUILDERS: dict[str, Builder] = {
     "obstacles": build_obstacles,
     "navaids": build_navaids,
     "cifp": _build_cifp,
+    "airspace": build_airspace,
 }

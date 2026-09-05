@@ -105,7 +105,8 @@ class CyclicalRunner:
         meta = PackMeta(id=source.pack_id, kind=source.kind, cycle=c.cycle,
                         effective=c.effective.isoformat(),
                         expires=c.expires.isoformat(),
-                        attribution=source.attribution)
+                        attribution=source.attribution,
+                        license=source.license, license_url=source.license_url)
         embed_sqlite(pack_path, meta)
         url = f"{self.url_base}/{pack_path.name}"
         return PackEntry.from_pack(pack_path, meta, url=url,

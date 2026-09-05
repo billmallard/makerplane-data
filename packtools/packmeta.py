@@ -30,7 +30,7 @@ SCHEMA_VERSION = 1
 # Recognised pack kinds. "kind" drives which build tool produced the pack and
 # how the Pi installs it; it is open for extension (charts, etc.).
 KINDS = ("navdata", "obstacles", "cifp", "water", "terrain", "highways",
-         "rivers", "airports", "navaids")
+         "rivers", "airports", "navaids", "airspace")
 
 
 @dataclass
@@ -41,6 +41,13 @@ class PackMeta:
     effective: str | None = None  # ISO date; None => non-cyclical (terrain)
     expires: str | None = None    # ISO date (exclusive); None => never expires
     attribution: str = ""
+    # license/license_url are additive and independent of attribution:
+    # attribution is presentation text (what to show a pilot); license is a
+    # short machine-checkable tag (SPDX id, "LicenseRef-*", or e.g. "ODbL-1.0")
+    # and license_url the canonical link to its full text. "" means
+    # unspecified -- today's implicit default for every existing source.
+    license: str = ""
+    license_url: str = ""
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self):
