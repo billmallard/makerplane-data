@@ -35,7 +35,7 @@ def _config_dir(tmp_path, default_screen="PFD_AI_ONLY", custom=None):
     (cd / "preferences.yaml").write_text(
         "includes:\n  SCREENS_CONFIG: screens/default_list.yaml\n", encoding="utf-8")
     (cd / "screens" / "default_list.yaml").write_text(yaml.safe_dump({"include": [
-        "SCREEN_DATA_STATUS", "SCREEN_SIXPACK", "SCREEN_PFD", "SCREEN_PFD_AI_ONLY",
+        "SCREEN_DATA_STATUS", "SCREEN_PFD", "SCREEN_PFD_AI_ONLY",
         "SCREEN_RADIO", "SCREEN_EMS", "SCREEN_EMS2"]}, sort_keys=False), encoding="utf-8")
     return cd
 
@@ -106,6 +106,23 @@ def test_single_screen_injects_svs_and_db(tmp_path):
     assert "screens/virtualvfr_db.yaml" in screen["include"]
 
 
+def test_stock_screen_tokens_fallback_matches_shipped_default(tmp_path):
+    """_stock_screen_tokens falls back to _STOCK_FALLBACK_TOKENS when the
+    device's screens/default_list.yaml can't be read (corrupt install, or a
+    fresh device before its first successful pull). Nothing else in this suite
+    reaches that except branch, so pin the fallback against the same tokens the
+    fixture mirrors from pyEfis's shipped default_list.yaml -- this is the
+    coverage gap that let the fallback silently drift out of sync (AER-481)."""
+    cd = _config_dir(tmp_path)
+    (cd / "screens" / "default_list.yaml").unlink()
+
+    assert config_pull._stock_screen_tokens(cd) == config_pull._STOCK_FALLBACK_TOKENS
+    assert config_pull._STOCK_FALLBACK_TOKENS == [
+        "SCREEN_DATA_STATUS", "SCREEN_PFD", "SCREEN_PFD_AI_ONLY",
+        "SCREEN_RADIO", "SCREEN_EMS", "SCREEN_EMS2",
+    ]
+
+
 # --- multi screen: clean managed list + switch buttons (#72) ------------------
 
 def test_multi_screen_keeps_stock_list(tmp_path):
@@ -127,10 +144,10 @@ def test_multi_screen_keeps_stock_list(tmp_path):
 
     lst = _read(cd, "screens/managed_list.yaml")["include"]
     # every stock screen is preserved (GL ballast + no broken nav), extra appended
-    assert lst[:7] == ["SCREEN_DATA_STATUS", "SCREEN_SIXPACK", "SCREEN_PFD",
+    assert lst[:6] == ["SCREEN_DATA_STATUS", "SCREEN_PFD",
                        "SCREEN_PFD_AI_ONLY", "SCREEN_RADIO", "SCREEN_EMS", "SCREEN_EMS2"]
     assert lst[-1] == "SCREEN_M_ROUND_DIALS"
-    assert len(lst) >= 7         # never shorter than stock (avoids the GL segfault)
+    assert len(lst) >= 6         # never shorter than stock (avoids the GL segfault)
 
 
 def test_multi_screen_injects_switch_button_on_each(tmp_path):
