@@ -88,6 +88,24 @@ def _build_cifp(input_dir: Path, out_path: Path) -> Path:
         "See packtools/sources.py.")
 
 
+def build_highways(input_dir: Path, out_path: Path, *, overwrite: bool = True) -> Path:
+    """input_dir holds one subdirectory per state, each with its extracted
+    ``gis_osm_roads_free_1.shp`` (packtools.make_roads lays it out this way) --
+    multi-state multi-file input, like build_navaids's NAV+FIX+AWY. Not part
+    of BUILDERS/the cyclical orchestrator: highways is a manually-triggered,
+    non-cyclical rebuild (docs/roads.md), same as terrain/water."""
+    shapefiles = sorted(Path(input_dir).rglob("gis_osm_roads_free_1.shp"))
+    if not shapefiles:
+        raise BuildError(f"no gis_osm_roads_free_1.shp found under {input_dir}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    args = ["--dest", str(out_path)]
+    if overwrite:
+        args.append("--overwrite")
+    args += [str(p) for p in shapefiles]
+    _run_tool("build_highway_db.py", args)
+    return out_path
+
+
 #: builder key (Source.builder) -> callable
 BUILDERS: dict[str, Builder] = {
     "airports": build_airports,

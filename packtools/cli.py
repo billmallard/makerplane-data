@@ -188,6 +188,16 @@ def cmd_make_terrain(args) -> int:
     return 0
 
 
+def cmd_build_roads(args) -> int:
+    from . import make_roads
+    make_roads.build_na_roads(args.states, args.dest, args.cache_dir,
+                              keep_zips=args.keep_zips)
+    print(f"built {args.dest} -- next: packtool build-pack {args.dest} "
+          "--id highways-conus --kind highways --cycle <edition> ... "
+          "(docs/roads.md)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="packtool")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -238,6 +248,16 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--bucket", default="makerplane-data")
     t.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     t.set_defaults(func=cmd_make_terrain)
+
+    r = sub.add_parser("build-roads", help="fetch Geofabrik state road layers "
+                       "+ build highways.sqlite (docs/roads.md)")
+    r.add_argument("--states", default="conus",
+                   help="'conus', or a comma list of Geofabrik state slugs")
+    r.add_argument("--dest", default="highways.sqlite")
+    r.add_argument("--cache-dir", default="work/geofabrik-roads")
+    r.add_argument("--keep-zips", action="store_true",
+                   help="don't delete state zips after extraction")
+    r.set_defaults(func=cmd_build_roads)
 
     return ap
 
