@@ -55,8 +55,15 @@ packtool build-pack highways.sqlite \
 The expensive part is the Geofabrik *download* (each state bundle is
 50 MB–1.5 GB, all layers; `build-roads` keeps only the roads layer and
 deletes the rest); the resulting highways DB is small, and the build itself
-is minutes. This is a workstation job like terrain — not wired into daily
-CI. Don't run it concurrently with another upload (shared manifest).
+is minutes. Don't run it concurrently with another upload (shared manifest).
+
+`.github/workflows/roads.yml` does steps 1-2 in CI (`workflow_dispatch`,
+inputs `states` default `conus` and `cycle` default `2026q3r1`), the same
+pattern as `water.yml`/`cyclical.yml` — no local secrets or workstation
+needed, just the `MINISIGN_SECRET_KEY`/`R2_*` Actions secrets already used
+for the daily cyclical build. Full CONUS is still a long-running dispatch
+(one Geofabrik state bundle at a time); a partial `--states` list (e.g.
+`colorado,texas`) is the cheap way to test the workflow itself.
 
 ## Consume on a prototype
 
