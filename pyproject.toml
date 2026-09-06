@@ -32,7 +32,6 @@ tools = [
 ]
 dev = [
     "pytest>=7.0",
-    "numpy>=1.24",   # fixture .wmask synthesis in tests/test_terrain.py; already a runtime dep of packtools/cloud (Dockerfile)
 ]
 
 [project.scripts]

@@ -6,7 +6,6 @@ import datetime as dt
 import json
 import zipfile
 
-import numpy as np
 import pytest
 
 from packtools import make_terrain, signing
@@ -272,10 +271,17 @@ def _write_wmask(hgt_path, side):
     """Fixture-only stand-in for pyEfis MP10a's build_water_masks.py: a
     row-packed 1-bit-per-pixel bitmask, no header, written as ``<name>.wmask``
     next to its ``.hgt`` sibling. Content is arbitrary here -- this pins that
-    make_terrain rides the file through verbatim, not the mask math itself."""
-    bits = np.zeros((side, side), dtype=np.uint8)
-    bits[side // 2:, side // 2:] = 1
-    content = np.packbits(bits, axis=1).tobytes()
+    make_terrain rides the file through verbatim, not the mask math itself.
+    Built with stdlib int/bytes ops (no numpy): the real mask comes from
+    MP10a's array pipeline, but make_terrain never inspects the bytes, so a
+    deterministic fixture of the right length and packing is enough."""
+    half = side // 2
+    row_bytes = -(-side // 8)                          # ceil(side / 8)
+    pad = row_bytes * 8 - side                          # np.packbits pads each row with trailing zero bits
+    zero_row = bytes(row_bytes)
+    half_bits = "0" * half + "1" * (side - half) + "0" * pad
+    half_row = int(half_bits, 2).to_bytes(row_bytes, "big")
+    content = zero_row * half + half_row * (side - half)
     hgt_path.with_suffix(".wmask").write_bytes(content)
     return content
 
