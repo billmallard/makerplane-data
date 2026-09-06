@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import zipfile
 
+import numpy as np
 import pytest
 
 from packtools import make_terrain, signing
@@ -265,6 +266,133 @@ def test_deselecting_terrain_region_removes_its_tiles(tmp_path):
 
     updater(()).update()                                 # deselect all terrain
     assert not tiles.exists()                            # whole tree reclaimed
+
+
+def _write_wmask(hgt_path, side):
+    """Fixture-only stand-in for pyEfis MP10a's build_water_masks.py: a
+    row-packed 1-bit-per-pixel bitmask, no header, written as ``<name>.wmask``
+    next to its ``.hgt`` sibling. Content is arbitrary here -- this pins that
+    make_terrain rides the file through verbatim, not the mask math itself."""
+    bits = np.zeros((side, side), dtype=np.uint8)
+    bits[side // 2:, side // 2:] = 1
+    content = np.packbits(bits, axis=1).tobytes()
+    hgt_path.with_suffix(".wmask").write_bytes(content)
+    return content
+
+
+def test_region_pack_rides_wmask_siblings_for_native_and_mip_tiles(tmp_path):
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mip_pyramid(src, US_WEST_TILES, levels=2)
+    expected = {}
+    for n in US_WEST_TILES:
+        ns = _ns(n)
+        expected[f"{ns}/{n}.wmask"] = _write_wmask(src / ns / f"{n}.hgt", side=3601)
+        for level in (1, 2):
+            mp = src / ".mip" / str(level) / ns / f"{n}.hgt"
+            expected[f".mip/{level}/{ns}/{n}.wmask"] = _write_wmask(mp, side=3600 // (2 ** level) + 1)
+
+    packs = make_terrain.make_terrain_packs(
+        src_root=src, out_dir=tmp_path / "build", edition="2024ed",
+        url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
+    with zipfile.ZipFile(packs[0].path) as z:
+        names = set(z.namelist())
+        for arcname, content in expected.items():
+            assert arcname in names
+            assert z.read(arcname) == content      # byte-identical, no re-encoding
+
+
+def test_mosaic_pack_rides_wmask_siblings(tmp_path):
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mosaic(src)
+    expected = {}
+    for lv in (4, 5, 6):
+        spd = 225 >> (lv - 4)
+        expected[f".mip/mosaic/L{lv}.wmask"] = _write_wmask(
+            src / ".mip" / "mosaic" / f"L{lv}.hgt", side=2 * spd + 1)
+
+    tp = make_terrain.build_mosaic_pack(
+        src, out_dir=tmp_path / "b", edition="2024ed", url_base=f"{ORIGIN}/packs")
+    with zipfile.ZipFile(tp.path) as z:
+        names = set(z.namelist())
+        for arcname, content in expected.items():
+            assert arcname in names
+            assert z.read(arcname) == content
+
+
+def test_packs_unchanged_when_wmask_absent(tmp_path):
+    """Absent masks are a permanently supported state (an edition built before
+    MP10b, or a level MP10a didn't cover): no .wmask member appears and the
+    rest of the pack is exactly what it was before this channel existed."""
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mip_pyramid(src, US_WEST_TILES, levels=2)
+    packs = make_terrain.make_terrain_packs(
+        src_root=src, out_dir=tmp_path / "build", edition="2024ed",
+        url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
+    with zipfile.ZipFile(packs[0].path) as z:
+        names = set(z.namelist())
+    assert not any(n.endswith(".wmask") for n in names)
+    assert names == {
+        "N32/N32W120.hgt", "N33/N33W121.hgt",
+        ".mip/1/N32/N32W120.hgt", ".mip/1/N33/N33W121.hgt",
+        ".mip/2/N32/N32W120.hgt", ".mip/2/N33/N33W121.hgt",
+        "pack_meta.json",
+    }
+
+    src2 = make_hgt_tree(tmp_path / "hgt2", US_WEST_TILES)
+    _add_mosaic(src2)
+    tp = make_terrain.build_mosaic_pack(
+        src2, out_dir=tmp_path / "b2", edition="2024ed", url_base=f"{ORIGIN}/packs")
+    with zipfile.ZipFile(tp.path) as z:
+        names2 = set(z.namelist())
+    assert not any(n.endswith(".wmask") for n in names2)
+    assert names2 == {
+        ".mip/mosaic/L4.hgt", ".mip/mosaic/L4.json",
+        ".mip/mosaic/L5.hgt", ".mip/mosaic/L5.json",
+        ".mip/mosaic/L6.hgt", ".mip/mosaic/L6.json",
+        "pack_meta.json",
+    }
+
+
+def test_installer_installs_wmask_siblings_alongside_tiles(tmp_path):
+    """End-to-end through the real Pi updater: a .wmask rides into the tile
+    tree exactly like its .hgt sibling (no core.py change -- the installer
+    already extracts every zip member but pack_meta.json)."""
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _write_wmask(src / _ns(US_WEST_TILES[0]) / f"{US_WEST_TILES[0]}.hgt", side=3601)
+    store = LocalStore(tmp_path / "r2")
+    packs = make_terrain.make_terrain_packs(
+        src_root=src, out_dir=tmp_path / "build", edition="2024ed",
+        url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
+    sk, pub = signing.generate_keypair()
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+                                 sign=signing.sign, log=lambda *a: None)
+    up = make_updater(tmp_path, pub, store.root)
+    up.update()
+    assert up.errors == []                              # verify-then-swap raised nothing
+    tiles = tmp_path / "pi" / "terrain" / "tiles"
+    ns = _ns(US_WEST_TILES[0])
+    assert (tiles / ns / f"{US_WEST_TILES[0]}.wmask").exists()
+    assert not (tiles / _ns(US_WEST_TILES[1]) / f"{US_WEST_TILES[1]}.wmask").exists()
+
+
+def test_manifest_signature_verifies_with_and_without_masks(tmp_path):
+    """The signed-manifest contract (docs/data_manager_implementation.md) is
+    untouched by the ride-along channel: `packtool verify`'s check
+    (`signing.verify_file`) passes for a manifest covering a masked pack and
+    one covering an unmasked pack, identically."""
+    for label, add_mask in (("masked", True), ("bare", False)):
+        src = make_hgt_tree(tmp_path / f"hgt-{label}", US_WEST_TILES)
+        if add_mask:
+            _write_wmask(src / _ns(US_WEST_TILES[0]) / f"{US_WEST_TILES[0]}.hgt", side=3601)
+        store = LocalStore(tmp_path / f"r2-{label}")
+        packs = make_terrain.make_terrain_packs(
+            src_root=src, out_dir=tmp_path / f"build-{label}", edition="2024ed",
+            url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
+        sk, pub = signing.generate_keypair()
+        make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+                                     sign=signing.sign, log=lambda *a: None)
+        trusted = signing.verify_file(store.root / "manifest.json", pub)
+        assert trusted   # non-empty trusted comment -> signature verified OK
 
 
 def test_corrupt_terrain_pack_leaves_tree_untouched(tmp_path):

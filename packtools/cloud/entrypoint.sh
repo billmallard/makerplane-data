@@ -47,6 +47,26 @@ PYTHONPATH=/opt/pyEfis/src python /opt/pyEfis/tools/build_terrain_mips.py "$TILE
 echo ">> [2/5] stitching coarse terrain mosaic..."
 PYTHONPATH=/opt/pyEfis/src python /opt/pyEfis/tools/build_terrain_mosaic.py "$TILE_ROOT" --levels 4 5 6
 
+# ---- 2b. water masks (MP10a, pyEfis tools/build_water_masks.py -- mirrors
+#          build_terrain_mips.py): rasterize water.sqlite onto the mip (L1-6)
+#          and mosaic (L4-6) grids and write a `.wmask` sibling beside each
+#          `.hgt`. Runs after both 1 and 2 because it needs both grids built.
+#          Guarded on both sides, deliberately: the tool may not exist yet on
+#          $CODE_REF (MP10a lands separately, after MP5), and even once it
+#          does, a failed or partial mask build must never fail this
+#          pipeline -- an edition with no (or partial) `.wmask` files is a
+#          permanently supported state, packaged by make_terrain.py exactly
+#          like a pre-MP10b edition (docs/terrain.md § Water mask). ----
+WATER_MASK_TOOL="/opt/pyEfis/tools/build_water_masks.py"
+if [ -f "$WATER_MASK_TOOL" ]; then
+  echo ">> [2b/5] building water masks (jobs=$JOBS)..."
+  if ! PYTHONPATH=/opt/pyEfis/src python "$WATER_MASK_TOOL" "$TILE_ROOT" -j "$JOBS"; then
+    echo "!! water mask build failed -- continuing without masks (reader falls back to polygons)"
+  fi
+else
+  echo ">> [2b/5] skipping water masks: $WATER_MASK_TOOL not found on $CODE_REF"
+fi
+
 # ---- 3. build + upload each region pack (re-signs the manifest per region) --
 # Packs ship COMPRESSED (DEFLATE): ~50% smaller on R2 and on the wire, at the
 # cost of build CPU + a one-time Pi decompress on pull. (Flipped from
