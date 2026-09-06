@@ -54,6 +54,18 @@ def _ns_dir(name: str) -> str:
     return f"{'N' if lat >= 0 else 'S'}{abs(lat):02d}"
 
 
+def _write_wmask_sibling(z: zipfile.ZipFile, hgt_path: Path, hgt_arcname: str) -> None:
+    """Ride a ``.wmask`` water-mask bitmask into the pack next to its ``.hgt``
+    sibling, if pyEfis' ``build_water_masks.py`` (MP10a) has produced one --
+    same directory, same basename, pure path convention like the mip pyramid.
+    Absent is a permanently supported state: an edition built before the mask
+    channel existed, or a level the builder didn't cover, just has no file and
+    the reader falls back to the polygon path (docs/terrain.md § Water mask)."""
+    wmask = hgt_path.with_suffix(".wmask")
+    if wmask.is_file():
+        z.write(wmask, hgt_arcname[: -len(".hgt")] + ".wmask")
+
+
 def _bbox(names: list[str]) -> list[int]:
     corners = [tile_sw_corner(n) for n in names]
     lats = [c[0] for c in corners]
@@ -85,6 +97,7 @@ def build_region_pack(region: str, tiles: list[tuple[str, Path]], *,
         for name, src in sorted(tiles):
             ns = _ns_dir(name)
             z.write(src, f"{ns}/{name}.hgt")
+            _write_wmask_sibling(z, src, f"{ns}/{name}.hgt")
             # Ride the pre-built mip pyramid if present (pure path convention --
             # no manifest/pack_meta change): coarse .mip/<L>/<NSdir>/<name>.hgt
             # tiles unzip into the tile tree and the renderer's get_mip() reads
@@ -94,7 +107,9 @@ def build_region_pack(region: str, tiles: list[tuple[str, Path]], *,
             for level in range(1, MIP_LEVELS + 1):
                 mp = mip_root / str(level) / ns / f"{name}.hgt"
                 if mp.is_file():
-                    z.write(mp, f".mip/{level}/{ns}/{name}.hgt")
+                    mp_arcname = f".mip/{level}/{ns}/{name}.hgt"
+                    z.write(mp, mp_arcname)
+                    _write_wmask_sibling(z, mp, mp_arcname)
 
     meta = PackMeta(id=pack_id, kind="terrain", cycle=edition, attribution=attribution)
     packmeta.embed_zip(pack_path, meta)   # adds pack_meta.json into the zip
@@ -158,10 +173,12 @@ def build_mosaic_pack(src_root: str | Path, *, out_dir: str | Path,
 
     with zipfile.ZipFile(pack_path, "w", mode) as z:
         for hgt in hgts:
-            z.write(hgt, f".mip/mosaic/{hgt.name}")
+            arcname = f".mip/mosaic/{hgt.name}"
+            z.write(hgt, arcname)
             meta_json = hgt.with_suffix(".json")   # get_mosaic needs the sidecar
             if meta_json.is_file():
                 z.write(meta_json, f".mip/mosaic/{meta_json.name}")
+            _write_wmask_sibling(z, hgt, arcname)
 
     meta = PackMeta(id=MOSAIC_PACK_ID, kind="terrain", cycle=edition,
                     attribution=attribution)
