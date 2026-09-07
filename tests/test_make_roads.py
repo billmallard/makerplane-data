@@ -166,12 +166,54 @@ def test_fetch_all_lists_every_failed_state_not_just_the_first(tmp_path):
 
     with pytest.raises(BuildError) as exc:
         make_roads.fetch_all(["colorado", "texas", "wyoming"], tmp_path / "cache",
-                             downloader=flaky_download, log=lambda *a: None)
+                             downloader=flaky_download, log=lambda *a: None,
+                             sleep=lambda *a: None)
 
-    # texas failed; colorado/wyoming succeeding must not hide that in a
-    # partial-success pack (makerplane-data#17's whole lesson)
+    # texas failed on both the first pass and the retry pass; colorado/wyoming
+    # succeeding must not hide that in a partial-success pack
+    # (makerplane-data#17's whole lesson)
     assert "texas" in str(exc.value)
     assert "colorado" not in str(exc.value)
+
+
+def test_fetch_all_retries_failed_states_once_after_a_pause(tmp_path):
+    """makerplane-data#60: a state that 502s on the first pass but recovers
+    by the time the rest of the run has finished must not sink the whole
+    build -- fetch_all gives it a second try after retry_pause, not just
+    fetch_state's own same-minute backoff."""
+    attempts = {"colorado": 0}
+
+    def recovers_on_retry(url, dest):
+        if "colorado" in url:
+            attempts["colorado"] += 1
+            if attempts["colorado"] == 1:
+                raise RuntimeError("502 Bad Gateway")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _write_state_zip(dest)
+
+    paused = []
+    shp_paths = make_roads.fetch_all(
+        ["colorado", "texas"], tmp_path / "cache", downloader=recovers_on_retry,
+        log=lambda *a: None, sleep=paused.append)
+
+    assert len(shp_paths) == 2
+    assert attempts["colorado"] == 2
+    assert paused == [make_roads._RETRY_PASS_PAUSE]
+
+
+def test_fetch_all_still_fails_if_retry_pass_also_fails(tmp_path):
+    def always_fails(url, dest):
+        if "colorado" in url:
+            raise RuntimeError("502 Bad Gateway")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _write_state_zip(dest)
+
+    with pytest.raises(BuildError) as exc:
+        make_roads.fetch_all(["colorado", "texas"], tmp_path / "cache",
+                             downloader=always_fails, log=lambda *a: None,
+                             sleep=lambda *a: None)
+
+    assert "colorado" in str(exc.value)
 
 
 def test_fetch_all_deletes_zip_after_extraction_by_default(tmp_path):

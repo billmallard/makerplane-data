@@ -40,7 +40,13 @@ packtool build-roads --states conus --dest highways.sqlite
 #   subregion extracts instead. A state that comes back empty or non-zip is a
 #   hard failure, never a silent skip (makerplane-data#17: the June 2026 build
 #   used a bare 'california' entry and shipped a pack with zero California
-#   roads without anyone noticing until someone flew there).
+#   roads without anyone noticing until someone flew there). A transient
+#   Geofabrik 502/503/timeout on a state is routine over an ~80-minute CONUS
+#   fetch, not exceptional (makerplane-data#60): fetch_state retries a single
+#   state a few times with short backoff, and any state still down after that
+#   gets one more pass once the rest of CONUS has been tried -- long enough
+#   for a clustered mirror hiccup to clear. A state down through both passes
+#   is still the same hard failure above.
 
 # 2. pack + upload (signed), alongside navdata/terrain/water
 R2_ENDPOINT=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
