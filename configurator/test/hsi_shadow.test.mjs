@@ -14,10 +14,17 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { editorSource, extractFunction } from "./support/extract.mjs";
+import { editorSource, extractConst, extractFunction } from "./support/extract.mjs";
 
-const FUNCS = ["svgFromString", "headingLabel", "_polar", "rgbaFromColor", "bgOpacity", "buildHSI"];
-const body = FUNCS.map((f) => extractFunction(editorSource(), f)).join("\n\n");
+// darkenToContrast + its helpers (AER-474, lockstep with AER-473/pyEfis#147):
+// buildHSI's tab draw calls into these for the label colour, so they must be
+// pulled into the sandbox alongside buildHSI itself.
+const CONSTS = ["SOURCE_LABEL_MIN_CONTRAST"];
+const FUNCS = ["svgFromString", "headingLabel", "_polar", "rgbaFromColor", "bgOpacity",
+  "normHex", "_hexToRgb", "_rgbToHex", "_srgbToLinear", "_relativeLuminance", "contrastRatio",
+  "_rgbToHsv", "_hsvToRgb", "darkenToContrast", "buildHSI"];
+const body = CONSTS.map((c) => extractConst(editorSource(), c)).join("\n")
+  + "\n\n" + FUNCS.map((f) => extractFunction(editorSource(), f)).join("\n\n");
 
 function makeSandbox() {
   const doc = {

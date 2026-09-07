@@ -82,6 +82,55 @@ pyramid simply produces native-only packs.
 Manifest entry: `kind: terrain`, `regions: [<region>]`, `tiles_bbox`,
 `effective/expires: null` (non-cyclical), plus the usual sha256/bytes/url.
 
+## Water mask — baked-in water, no runtime rasterization (MP10b)
+
+The moving-map/SVS water overlay used to rasterize `water.sqlite` polygons at
+render time — expensive at range (`map_gesture_perf_plan.md` Track 2: at
+160 NM, building one `QPointF` per vertex and one `QPolygonF` per ring cost
+4.9 s of a 5.7 s render, GIL-held). MP10 bakes water into the terrain pyramid
+as a second co-registered raster channel, so the runtime does one numpy gather
+instead of a rasterization.
+
+**MP10a** (pyEfis `tools/build_water_masks.py`, mirrors
+`build_terrain_mips.py`; not part of this repo) writes, for every
+`.mip/<L>/<NSdir>/<name>.hgt` at L = 1–6 and for each `.mip/mosaic/L{4,5,6}.hgt`,
+a sibling bitmask file:
+
+- **Path:** `<name>.wmask`, same directory, same basename as its `.hgt`.
+- **Packing:** row-packed 1-bit-per-pixel via `np.packbits`, no header.
+- **Side:** implied by the level — `3600/2^L + 1` for a native tile's mip
+  level; a mosaic level's side comes from its own `.json` sidecar
+  (`rows`/`cols`), same as the mosaic `.hgt` it sits beside.
+- **Registration:** pixel-is-point, identical to the elevation grid — the
+  reader (MP10c) indexes both with the same row/col.
+
+**Ride-along, not a manifest field.** Like the mip pyramid, a `.wmask` rides
+into a region pack or the mosaic pack purely by path convention
+(`make_terrain.py`'s region/mosaic pack builders zip it in next to its `.hgt`
+whenever the file exists — see `find_tiles`/`build_region_pack`/
+`build_mosaic_pack`). `manifest.json` is the signed contract and is not
+renegotiated for a ride-along channel: there is no per-pack mask flag, and
+none is planned.
+
+**Absent masks are a permanently supported state**, not a transitional one: a
+pack built before MP10a existed, or a level the builder skipped, simply has no
+`.wmask` file. The reader falls back to the polygon path exactly as it does
+today, unconditionally — nothing marks a "mask edition" and nothing requires
+one. Building or verifying a pack with no masks is byte-for-byte the same
+process as before this channel existed.
+
+**Size:** ≈ 135 KB per native tile across levels 1–6 (**≈ +0.5 %** of pack
+size) — masks are mostly zeros and DEFLATE well. Mosaic masks: ≈ 22 MB (L4),
+5.5 MB (L5), 1.4 MB (L6).
+
+**Build order:** the cloud pipeline's `entrypoint.sh` runs the mask build as
+step 2b, after the mip pyramid (step 1) and the mosaic stitch (step 2) — the
+mask builder needs both grids already on disk. The step is guarded both ways:
+if `build_water_masks.py` isn't present on the checked-out `pyEfis` ref (MP10a
+ships separately, after MP5), or if the build fails or only partially
+completes, the pipeline logs it and continues — packaging and publish must
+never depend on the mask channel existing.
+
 ## Build + upload (workstation)
 
 Requirements on the build host: the HGT tile tree, this package
@@ -113,8 +162,9 @@ packtool make-terrain /path/to/glo30hgt --edition 2024ed --mosaic \
 ```
 
 In practice all of the above runs unattended in the **cloud container**
-(`packtools/cloud/`, `entrypoint.sh` — mips → mosaic → region packs → mosaic
-pack → verify); the manual commands are the same steps for a workstation.
+(`packtools/cloud/`, `entrypoint.sh` — mips → mosaic → water masks (guarded,
+§ Water mask) → region packs → mosaic pack → verify); the manual commands are
+the same steps for a workstation.
 
 Each run builds the region pack, uploads it to R2, and **upserts** the
 terrain entry into the existing manifest (preserving navdata), re-signing.
