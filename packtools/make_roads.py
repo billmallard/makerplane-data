@@ -51,6 +51,17 @@ GEOFABRIK_BASE = "https://download.geofabrik.de/north-america/us"
 _FETCH_RETRIES = 3
 _FETCH_BACKOFF = 5.0
 
+# fetch_state's own retry/backoff rides out a blip on one state (tens of
+# seconds). The 9-state failure above was clustered -- several consecutive
+# states erroring within the same few minutes -- which reads as Geofabrik
+# having a rough patch, not nine independent coin flips; a same-minute
+# per-state retry can't outlast that, but the ~70 remaining minutes of a
+# CONUS run fetching everything else is exactly the cooldown a rough patch
+# needs. So fetch_all gives failed states one more pass *after* the rest of
+# the run finishes, with its own pause first in case failures were clustered
+# at the very end and no time has elapsed at all.
+_RETRY_PASS_PAUSE = 60.0
+
 CONUS_STATES = [
     "alabama", "arizona", "arkansas",
     "california/norcal", "california/socal", "colorado",
@@ -153,34 +164,56 @@ def extract_road_layer(zip_path: Path, dest_dir: Path) -> Path | None:
 
 
 def fetch_all(states: list[str], cache_dir: Path, *, keep_zips: bool = False,
-              downloader=fetch.download, log=print) -> list[Path]:
+              downloader=fetch.download, log=print,
+              retry_pause: float = _RETRY_PASS_PAUSE, sleep=time.sleep) -> list[Path]:
     """Download + extract the roads layer for every state; fail loud and
     list every gap rather than silently building a pack short a state
-    (makerplane-data#17)."""
+    (makerplane-data#17).
+
+    A state still failing after :func:`fetch_state`'s own retries gets one
+    more attempt in a second pass once every other state has been tried --
+    long enough for a clustered run of transient Geofabrik errors
+    (makerplane-data#60) to clear that a same-minute retry can't outlast."""
     cache_dir = Path(cache_dir)
     extracted_dir = cache_dir / "extracted"
+
+    def try_one(state: str) -> Path:
+        cached = extracted_dir / state.replace("/", "-") / f"{ROAD_LAYER}.shp"
+        if cached.exists() and cached.stat().st_size > 0:
+            return cached
+        zip_path = fetch_state(state, cache_dir, downloader=downloader, log=log)
+        shp = extract_road_layer(zip_path, extracted_dir)
+        if shp is None:
+            raise BuildError(f"extract had no {ROAD_LAYER}.shp")
+        if not keep_zips:
+            zip_path.unlink()
+        return shp
+
     shp_paths: list[Path] = []
     failed: list[str] = []
     for i, state in enumerate(states, 1):
         log(f"[{i}/{len(states)}] {state}")
-        cached = extracted_dir / state.replace("/", "-") / f"{ROAD_LAYER}.shp"
-        if cached.exists() and cached.stat().st_size > 0:
-            shp_paths.append(cached)
-            continue
         try:
-            zip_path = fetch_state(state, cache_dir, downloader=downloader, log=log)
-            shp = extract_road_layer(zip_path, extracted_dir)
+            shp_paths.append(try_one(state))
         except Exception as e:
             log(f"  ERROR: {state}: {e}")
             failed.append(state)
-            continue
-        if shp is None:
-            log(f"  ERROR: {state}: extract had no {ROAD_LAYER}.shp")
-            failed.append(state)
-            continue
-        shp_paths.append(shp)
-        if not keep_zips:
-            zip_path.unlink()
+
+    if failed:
+        log(f"{len(failed)} state(s) failed on the first pass "
+            f"({', '.join(failed)}) -- retrying after {retry_pause:.0f}s "
+            "(makerplane-data#60)")
+        sleep(retry_pause)
+        still_failed: list[str] = []
+        for i, state in enumerate(failed, 1):
+            log(f"[retry {i}/{len(failed)}] {state}")
+            try:
+                shp_paths.append(try_one(state))
+            except Exception as e:
+                log(f"  ERROR: {state}: {e}")
+                still_failed.append(state)
+        failed = still_failed
+
     if failed:
         raise BuildError(f"{len(failed)} state(s) failed: {', '.join(failed)}")
     return shp_paths
