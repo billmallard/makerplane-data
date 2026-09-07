@@ -79,6 +79,27 @@ CONUS_STATES = [
 ROAD_LAYER = "gis_osm_roads_free_1"
 ROAD_LAYER_EXTS = (".shp", ".shx", ".dbf", ".prj", ".cpg")
 
+# Geofabrik's own per-state daily generation can wedge: the "latest" alias
+# keeps 200ing but the archive is a README-only stub with no shapefile
+# layers at all (a valid zip, so fetch_state's magic-byte check doesn't catch
+# it -- extract_road_layer's missing-roads-layer check does, correctly
+# failing the state rather than shipping it empty, makerplane-data#17/#60).
+# This differs from the California case above: that bundle is permanently
+# discontinued (302, no working "latest" ever), so norcal/socal is a
+# permanent live substitute. A wedged single-day generation is transient at
+# the source, not discontinued, but the CONUS-wide retry pass in fetch_all
+# can't outlast an outage measured in days rather than minutes -- retrying
+# just re-downloads the same stub. Verified 2026-09-07: Delaware's
+# "*-latest-free.shp.zip" has been the stub for at least two consecutive
+# days while "delaware-260905-free.shp.zip" (the last dated snapshot before
+# the wedge) is a complete, valid archive with all layers. Pinning to that
+# snapshot unblocks the 2026q3r1 build with real, complete data -- a couple
+# of days stale, not empty -- rather than waiting indefinitely on Geofabrik.
+# Remove the entry once "latest" is confirmed healed (makerplane-data#60).
+STATE_SNAPSHOT_OVERRIDES: dict[str, str] = {
+    "delaware": f"{GEOFABRIK_BASE}/delaware-260905-free.shp.zip",
+}
+
 
 def parse_states(spec: str) -> list[str]:
     """``'conus'`` -> the full :data:`CONUS_STATES` list; otherwise a comma
@@ -91,6 +112,9 @@ def parse_states(spec: str) -> list[str]:
 
 
 def state_zip_url(state: str) -> str:
+    override = STATE_SNAPSHOT_OVERRIDES.get(state)
+    if override is not None:
+        return override
     return f"{GEOFABRIK_BASE}/{state}-latest-free.shp.zip"
 
 
