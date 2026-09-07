@@ -44,6 +44,19 @@ writing, prod `schema.json` doesn't carry `tab_section` yet — only the `dev`
 environment's asset does — so this feature needs a pyEfis-side R2 republish
 before it's usable in prod (not a configurator-side gap).
 
+**AER-665** (2026-09-07) extended the Phase B twin to track pyEfis's
+`tab_position` (top/bottom/left/right, pyEfis#177) and per-widget tab-bar
+`fg_color`/`bg_color`. `buildContainerTwin()` no longer hardcodes the bar on
+top — `tabStripGeom()`/`tabContentGeom()` port `tab_section/__init__.py`'s
+`_layout_pages` `bar_geom`/`stack_geom` for all four edges, and left/right
+chips get a rotated-label approximation (`vertical-rl`, flipped for the West
+shape) matching Qt's `RoundedWest`/`RoundedEast`. `fg_color`/`bg_color` apply
+uniformly to every chip, matching the device stylesheet's lack of a
+`:selected` clause. Visually verified in a headless-browser render of all
+four edges (see [docs/images/aer-665](images/aer-665/README.md); the sandbox
+this shipped from had no launchable browser out of the box, and the README
+there documents the no-root workaround used to get one running).
+
 **Phase C** (§6) is next: element groups inside a tab (should work unmodified
 per §4e/§7 Q4, now confirmed structurally sound but not yet exercised through
 the drop-target), layers-panel nesting indication, and dragging an *existing*
