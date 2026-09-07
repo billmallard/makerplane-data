@@ -216,6 +216,34 @@ def test_fetch_all_still_fails_if_retry_pass_also_fails(tmp_path):
     assert "colorado" in str(exc.value)
 
 
+def test_fetch_all_retry_pass_redownloads_a_zip_that_extracted_empty(tmp_path):
+    """A state can 200 with a syntactically valid but content-short zip (no
+    OSError, so fetch_state's own retry never fires) -- Geofabrik serving a
+    placeholder/short-content package for one state while the daily extract
+    batch is mid-regeneration, not a bad slug or a network blip. If that
+    upstream glitch clears before the retry pass runs, the retry must
+    actually re-fetch, not just re-run extraction on the same cached bad
+    zip and fail identically every time."""
+    attempts = {"delaware": 0}
+
+    def bad_then_fixed(url, dest):
+        attempts["delaware"] += 1
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if attempts["delaware"] == 1:
+            with zipfile.ZipFile(dest, "w") as zf:
+                zf.writestr("README", b"placeholder, no data yet")
+        else:
+            _write_state_zip(dest)
+
+    shp_paths = make_roads.fetch_all(
+        ["delaware"], tmp_path / "cache", downloader=bad_then_fixed,
+        log=lambda *a: None, sleep=lambda *a: None)
+
+    assert attempts["delaware"] == 2   # retry pass forced a real re-download
+    assert len(shp_paths) == 1
+    assert shp_paths[0].exists()
+
+
 def test_fetch_all_deletes_zip_after_extraction_by_default(tmp_path):
     def fake_download(url, dest):
         dest.parent.mkdir(parents=True, exist_ok=True)

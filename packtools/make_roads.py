@@ -177,10 +177,19 @@ def fetch_all(states: list[str], cache_dir: Path, *, keep_zips: bool = False,
     cache_dir = Path(cache_dir)
     extracted_dir = cache_dir / "extracted"
 
-    def try_one(state: str) -> Path:
+    def try_one(state: str, *, force_redownload: bool = False) -> Path:
         cached = extracted_dir / state.replace("/", "-") / f"{ROAD_LAYER}.shp"
         if cached.exists() and cached.stat().st_size > 0:
             return cached
+        if force_redownload:
+            # A prior attempt's zip downloaded cleanly (no OSError) but
+            # extraction still failed -- e.g. Geofabrik answered 200 with a
+            # placeholder/short-content zip missing the roads layer, not a
+            # network error fetch_state would have caught. fetch_state treats
+            # any non-empty file at this path as cache-good, so leaving it in
+            # place would make this "retry" re-run extraction on the exact
+            # same bad bytes and fail identically -- not a real retry.
+            (cache_dir / _cache_name(state)).unlink(missing_ok=True)
         zip_path = fetch_state(state, cache_dir, downloader=downloader, log=log)
         shp = extract_road_layer(zip_path, extracted_dir)
         if shp is None:
@@ -208,7 +217,7 @@ def fetch_all(states: list[str], cache_dir: Path, *, keep_zips: bool = False,
         for i, state in enumerate(failed, 1):
             log(f"[retry {i}/{len(failed)}] {state}")
             try:
-                shp_paths.append(try_one(state))
+                shp_paths.append(try_one(state, force_redownload=True))
             except Exception as e:
                 log(f"  ERROR: {state}: {e}")
                 still_failed.append(state)
