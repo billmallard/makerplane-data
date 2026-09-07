@@ -1,0 +1,62 @@
+name: roads-packs
+
+# Build the SVS highways database (OSM motorway/trunk via Geofabrik,
+# flags/ref carried per AER-623/RD3, pyEfis PR #165) and upload it as a
+# signed `highways` sqlite pack. See docs/roads.md for the full recipe;
+# this is that recipe wired to CI so a run needs no local secrets or
+# workstation -- only the MINISIGN_SECRET_KEY / R2_* Actions secrets
+# already used by cyclical.yml.
+#
+# Full CONUS is a multi-state Geofabrik download (docs/roads.md: "minutes"
+# once fetched, but the fetch itself is the expensive part) -- expect a
+# long-running job for `--states conus`. A partial state list is a cheap
+# way to test the workflow itself.
+on:
+  workflow_dispatch:
+    inputs:
+      states:
+        description: "Geofabrik states ('conus', or a comma list like 'colorado,texas')"
+        default: "conus"
+      cycle:
+        description: "Edition tag"
+        default: "2026q3r1"
+
+env:
+  PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
+  PYEFIS_REF:  ${{ vars.PYEFIS_REF  || 'dev' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    concurrency: roads-packs        # never two builds racing the manifest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PYEFIS_REPO }}
+          ref: ${{ env.PYEFIS_REF }}
+          path: pyefis-src
+      - run: pip install -e .[build]
+
+      - name: Fetch + build highways.sqlite (packtool build-roads)
+        env:
+          PYEFIS_TOOLS_DIR: ${{ github.workspace }}/pyefis-src/tools
+        run: |
+          packtool build-roads --states "${{ inputs.states }}" --dest highways.sqlite
+
+      - name: Pack + upload (signed)
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          packtool build-pack highways.sqlite \
+            --id highways-conus --kind highways --cycle "${{ inputs.cycle }}" \
+            --attribution "OpenStreetMap contributors (ODbL)" \
+            --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
+            --regions conus --url-base https://navdata.aerocommons.org/packs \
+            --upload --bucket makerplane-data

@@ -329,7 +329,7 @@ def _install_single(cd: Path, screen_def: dict, boot: str) -> dict:
 _STOCK_SCREEN_LIST = "screens/default_list.yaml"
 # Fallback stock screen list if the device's can't be read (the shipped default).
 _STOCK_FALLBACK_TOKENS = [
-    "SCREEN_DATA_STATUS", "SCREEN_SIXPACK", "SCREEN_PFD", "SCREEN_PFD_AI_ONLY",
+    "SCREEN_DATA_STATUS", "SCREEN_PFD", "SCREEN_PFD_AI_ONLY",
     "SCREEN_RADIO", "SCREEN_EMS", "SCREEN_EMS2",
 ]
 

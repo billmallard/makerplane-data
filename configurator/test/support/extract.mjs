@@ -29,3 +29,10 @@ export function extractFunction(src, name) {
   }
   throw new Error(`unbalanced braces in ${name}`);
 }
+
+/** Source text of a top-level `const NAME = <expr>;` one-liner. */
+export function extractConst(src, name) {
+  const m = src.match(new RegExp(`const ${name} = [^;]+;`));
+  if (!m) throw new Error(`const ${name} not found in editor.html`);
+  return m[0];
+}
