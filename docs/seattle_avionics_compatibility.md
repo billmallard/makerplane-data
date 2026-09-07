@@ -6,7 +6,11 @@
 nothing changed in the pipeline.** Answers AER-700. Public-sources-only
 research, done 2026-09-07; every figure below is dated and sourced. No emails,
 forms, demo requests, downloads, or account creation were used — see
-"Guardrails observed" at the end.
+"Guardrails observed" at the end. **Updated same day** with a Path B
+follow-up answering a direct question from Bill: do the OEMs ChartData
+feeds (Bendix-King, GRT, Aspen) publish their own format requirements? See
+"Path B" for the per-manufacturer answer — it's documented for GRT/Dynon,
+not for Aspen, and probably moot for Bendix-King's Wi-Fi-streamed line.
 
 ## Verdict up front
 
@@ -22,11 +26,21 @@ Nothing in Seattle Avionics' public materials suggests a different posture for
 ChartData, and their whole go-to-market for OEM integration routes through a
 sales conversation with no public developer program to check against.
 
-**Path B (bring-your-own-subscription interoperability) also does not clear
-the bar**, for a narrower reason: no documented data format exists for any of
-ChartData's per-platform outputs, so reading it would require reverse
-engineering — which the issue's guardrails and this brief's author both
-decline to do. Stop there, per instructions.
+**Path B (bring-your-own-subscription interoperability) still does not clear
+the bar, but a same-day follow-up (below) found the first pass overstated
+why.** Bill asked directly whether the OEMs ChartData feeds (Bendix-King,
+GRT, Aspen) publish their own format requirements. They don't each have a
+separate format — GRT and Dynon share one Seattle-Avionics-published folder
+layout built from standard containers (PNG tiles, a SQLite database, plain
+text/XML), documented in an official Seattle Avionics PDF and a GRT
+installation manual. Aspen's is genuinely undocumented — a real customer's
+own account (cited below) is that asking Aspen, Seattle Avionics, and
+Jeppesen support directly produced nothing, and reverse engineering an
+existing card was the only route that worked for them. Either way, the same
+PilotOne-EULA restriction from Path A applies to Seattle Avionics' IP
+regardless of which OEM's folder name sits on top of it, so the documented
+GRT/Dynon case answers the format question without answering the licence
+question — the harder blocker either way. Stop there, per instructions.
 
 **Against CAP-206: this is a distraction, not a complement, for the chart
 case CAP-206 is actually about** (US VFR sectionals + IFR approach plates from
@@ -205,24 +219,93 @@ conversation named below.
 
 ### Is the format documented?
 
-No. Every technical description found describes *inputs to a Windows tool
-and outputs onto vendor-specific media* (a USB stick with a case-sensitive
-folder name for SkyView; `.AFM`/`.dup`-extension files plus an activation key
-for the AF-5000 series — per
+Partially — the first pass of this brief said no across the board; a
+same-day follow-up prompted by a direct question from Bill found that
+overstated the case for two of the three OEM platforms surveyed. The
+original finding stands for one platform and for the licence question
+throughout: every technical description found still describes *inputs to a
+Windows tool and outputs onto vendor-specific media* (a USB stick with a
+case-sensitive folder name for SkyView; `.AFM`/`.dup`-extension files plus an
+activation key for the AF-5000 series — per
 [advancedflightsystems.com/af-5000-data.php](https://www.advancedflightsystems.com/af-5000-data.php),
-checked 2026-09-07). No file-format specification, schema document, or SDK
-was found for any of these outputs. The `.AFM`/`.dup` extensions on the AFS
-page are the closest thing to a format name surfaced anywhere in this
-research, and they're proprietary — Seattle Avionics/APG's own, not a
-published open format like AIXM or the OpenAIR text format this repo already
-knows how to talk about (see `docs/openaip_evaluation.md`'s OpenAIR/GeoJSON
-discussion for the contrast with a source that *does* publish its schema).
+checked 2026-09-07), and no SDK or schema document was found anywhere. But
+"no documented format" and "inspect a folder-naming PDF" turn out to be
+different claims, and the second one has a real, per-manufacturer answer:
 
-**If reverse engineering is the only route, this brief stops there**, per
-the issue's own instruction and this project's general posture (no
-reverse-engineering of any protection or format, ever, in this repo). No
-attempt was made to open, parse, or otherwise inspect any Seattle
-Avionics-produced file as part of this research.
+**GRT and Dynon — the delivery layout is published, by two vendors, in
+standard (non-proprietary) containers.** There is one underlying format
+here, not a distinct schema per OEM: GRT and Dynon both consume the same
+folder tree, differing only in the outer folder name. Seattle Avionics'
+own support site hosts *"Manual ChartData Installation Guide for Mac
+Users"* (`seattleavionics.com/support/ChartDataInstallationGuide.pdf`, dated
+2014-07-21, fetchable with no login — a login is only needed to reach the
+paid download links the guide describes, not the guide itself), written
+explicitly "for their Dynon and GRT system." It documents a top-level
+`ChartData` folder with `SEC`/`LO`/`HI` subfolders (sectional/low/high-altitude
+charts) further subdivided by longitude band (e.g. `W121`, `W074`) containing
+plain **PNG** image tiles, and a `Plates` folder (`FG` for Dynon's Flight
+Guide diagrams) holding per-airport plate files plus seven geo-referencing
+files: `Airports.txt`, `Charts.txt`, `Cities.txt`, `Plates.sqlite`,
+`Plates.txt`, `Plates.xml`, `States.txt` — a **SQLite** database plus plain
+**text/XML**, standard containers, not an undocumented binary blob. GRT
+independently publishes its own manual, *"ChartData™ Geo-Referenced Charts
+for GRT Horizon HX & HXr,"* revision A3, dated 2014-10-10
+(`grtavionics.com/media/ChartData-for-GRT-Horizon-A3.pdf`, still linked from
+GRT's current `grtavionics.com/geo-referenced-charts/` page, checked
+2026-09-07), confirming the outer convention: an exact-case `GRTCHARTS`
+folder at the USB root, filled by the Seattle Avionics Data Manager with the
+same internal structure. A Van's Air Force forum thread independently
+corroborates the same `GRTCHARTS` → `FG`/`HI`/`LO`/`Plates`/`SEC` +
+`ScannedCharts.sqlite` layout from a builder's own card, consistent with
+both vendor documents. This is real documentation of *where files live and
+what generic container type they use* — it is **not** documentation of
+*what the files mean*: neither PDF describes `Plates.sqlite`'s table/column
+schema, the PNG tiles' pixel-to-coordinate georeferencing transform, or
+currency/versioning rules, so a working reader still couldn't be built from
+these two documents alone. Opening a standard SQLite file or a PNG with a
+generic tool is not reverse engineering in the sense this project's
+guardrails care about (no protection or obfuscation to defeat) — but nobody
+involved in this research has done so; only the vendors' installation
+guides were read, no actual ChartData subscription content was downloaded,
+opened, or parsed.
+
+**Aspen — not documented, and a paying customer's own account confirms it.**
+No Aspen- or Seattle-Avionics-published folder/file-layout document was
+found for the Evolution's microSD card, despite the searches that surfaced
+the GRT/Dynon PDFs above. The clearest public evidence is a Pilots of
+America forum thread in which a builder ("Colin G") reports contacting
+**Aspen, Seattle Avionics, and Jeppesen support directly** and getting the
+folder structure from none of them; he found `\ChartData\Plates\US` worked
+only by **examining an existing card himself**
+(`pilotsofamerica.com/community/threads/aspen-evolution-1000-pro-mfd-chart-data.140879/`,
+checked 2026-09-07) — i.e., reverse engineering, performed by a third party,
+not by this research, and not repeated here. Aspen's own official document
+found in this research, Operator Bulletin **OB2010-01** (2010-07-23,
+`seattleavionics.com/Documents/AspenChartUpdate.pdf`), covers the *update
+procedure* (Windows Data Manager, insert the microSD card, reboot) but never
+documents the card's internal folder names or file formats — Aspen's own
+tooling handles that step automatically, so the bulletin doesn't need to
+expose it, and evidently nobody at Aspen volunteers it on request either.
+This is direct, on-point evidence for Bill's question: for Aspen
+specifically, the manufacturer-published answer is no.
+
+**Bendix-King (xVue Touch / AeroVue Touch) — no on-disk artifact to look
+for.** No installation guide analogous to the GRT/Dynon PDF was found.
+BendixKing's own AeroVue Touch product materials instead point to ChartData
+reaching the xVue Touch/AeroVue Touch **streamed over Wi-Fi directly from
+the FlyQ EFB app**, not written to a user-accessible USB/SD card
+(`buildings.honeywell.com/.../aerovue-touch.html`, checked 2026-09-07). If
+that's the only delivery path for this platform, there may be no static
+file for a builder to read at all — interoperability would mean
+intercepting a live app-to-device protocol, a materially higher bar than
+reading a card, and one this brief does not investigate further (protocol
+reverse engineering is exactly the line the guardrails draw).
+
+**If reverse engineering is the only route for a given platform, this brief
+stops there for that platform** — true for Aspen, and possibly true for
+Bendix-King's streamed delivery, per the issue's own instruction and this
+project's general posture (no reverse-engineering of any protection or
+format, ever, in this repo).
 
 ### Would "bring your own subscription" even be allowed?
 
@@ -238,10 +321,23 @@ narrow factual question a direct answer from the vendor would resolve
 cheaply — but nothing here should be taken as green-lighting an attempt in
 the meantime.
 
-**Verdict: Path B does not work today.** No documented format to build a
-reader against, and secondary evidence suggesting the licence wouldn't
-permit it even if a format were available. Both threads point at asking the
-vendor, not at engineering around them.
+**Verdict: Path B still does not work today, for the GRT/Dynon case as much
+as for Aspen or Bendix-King — just not for a uniform reason.** For GRT and
+Dynon, the format-discovery question turns out to already be answered
+(openly, by two vendors, in standard containers), which removes one
+blocker; the licence question — Seattle Avionics/APG's own IP, wrapped
+identically regardless of which OEM's folder name sits on top of it — does
+not budge, and that remains the harder blocker. For Aspen, both blockers
+still apply, now evidenced twice over: no published format, and a real
+customer's own report that asking directly didn't produce one either. For
+Bendix-King's touchscreen line, a Wi-Fi-streamed delivery model may mean
+there's no file to read at all. None of this changes the recommendation not
+to pursue Path B today — it sharpens where the actual blocker sits (licence,
+not format-discovery, for two of the three platforms), and gives a concrete
+technical answer if the licence question ever moves: GRT/Dynon's
+SQLite + PNG + text/XML containers would be the easiest starting point,
+should Path A's licence wall ever be lifted for a narrow, personal-use,
+non-commercial case.
 
 ## Against CAP-206: complement, replace, or distract?
 
@@ -320,6 +416,13 @@ this is the shortest list that would settle it:
    Apache/AGPL-licensed core pipeline)? That's a business-model question
    for Bill, not a research one, and it's a real fork in strategy this brief
    flags but does not resolve.
+5. **Now that the GRT/Dynon delivery format is publicly documented (see Path
+   B), would APG entertain a narrower carve-out** — read-only, personal,
+   non-commercial use of a builder's own already-paid GRT/Dynon ChartData
+   export — as distinct from the broader "may we build and redistribute a
+   signed pack" question in (1)? That's a strictly smaller ask, and this
+   research found nothing in public materials that rules it in or out
+   either way.
 
 ## Proposed pyEfis-side follow-on issues (not started)
 
@@ -336,7 +439,12 @@ actual implementation work:
   reader analogous to the existing SVS/`highway_db_path` pattern** (read a
   vendor-format file from a configured path, same "external DB, internal
   reader" shape as `docs/roads.md`'s `highway_db_path` today) — but that
-  issue should only be opened once Path A actually clears, not before.
+  issue should only be opened once Path A actually clears, not before. If it
+  does, the GRT/Dynon `ChartData` layout (PNG tiles + `Plates.sqlite` +
+  plain text/XML, per Path B's follow-up above) is the concrete, publicly
+  documented container format that reader would target first — Aspen and
+  Bendix-King would need their own resolution first (an undocumented format
+  and a possibly-file-less streamed delivery, respectively).
 
 ## Guardrails observed
 
@@ -344,7 +452,12 @@ actual implementation work:
   account creation, or trial-software downloads.
 - No reverse engineering, decompilation, or circumvention of any protection
   on any data format — none was attempted, and Path B's verdict stops
-  exactly where that line would have to be crossed.
+  exactly where that line would have to be crossed. The follow-up on GRT and
+  Dynon's delivery format (above) read only vendor-published installation
+  PDFs; no actual ChartData subscription content, chart tile, or database
+  file was ever downloaded, opened, or parsed. Aspen's format is described
+  via a third party's own forum account of reverse engineering a card they
+  already owned — cited as evidence, not reproduced or verified here.
 - No pipeline changes, no new pack kinds, no code — this document is the
   entire deliverable.
 - `CAPABILITIES.md` (maos-workspace) is not this repo; no edits attempted
