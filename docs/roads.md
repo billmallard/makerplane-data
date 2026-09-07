@@ -46,7 +46,14 @@ packtool build-roads --states conus --dest highways.sqlite
 #   state a few times with short backoff, and any state still down after that
 #   gets one more pass once the rest of CONUS has been tried -- long enough
 #   for a clustered mirror hiccup to clear. A state down through both passes
-#   is still the same hard failure above.
+#   is still the same hard failure above. A state whose upstream *generation*
+#   is wedged rather than transiently erroring -- Geofabrik's daily build 200s
+#   but the archive is a README-only stub with no layers, verified for
+#   Delaware on 2026-09-07 across multiple consecutive days -- can't be
+#   outlasted by the retry pass either, since a retry just re-downloads the
+#   same stub. `STATE_SNAPSHOT_OVERRIDES` in make_roads.py pins that state to
+#   its last known-good dated snapshot instead of the "latest" alias until
+#   Geofabrik's generation for it is confirmed healed.
 
 # 2. pack + upload (signed), alongside navdata/terrain/water
 R2_ENDPOINT=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \

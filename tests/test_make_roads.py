@@ -24,6 +24,21 @@ def test_parse_states_custom_list_normalizes_separators():
         ["new-york", "rhode-island"]
 
 
+def test_state_zip_url_uses_pinned_snapshot_override():
+    """Delaware's '-latest-free.shp.zip' has been a README-only stub for
+    multiple consecutive days (verified 2026-09-07) -- a wedged upstream
+    generation, not a transient blip the retry pass can outlast. The pinned
+    dated snapshot must win over the usual latest-alias URL."""
+    assert make_roads.state_zip_url("delaware") == \
+        make_roads.STATE_SNAPSHOT_OVERRIDES["delaware"]
+    assert "latest" not in make_roads.state_zip_url("delaware")
+
+
+def test_state_zip_url_unaffected_states_use_latest_alias():
+    assert make_roads.state_zip_url("colorado") == \
+        f"{make_roads.GEOFABRIK_BASE}/colorado-latest-free.shp.zip"
+
+
 def _write_state_zip(path, layers=make_roads.ROAD_LAYER_EXTS, layer=make_roads.ROAD_LAYER):
     with zipfile.ZipFile(path, "w") as zf:
         for ext in layers:
