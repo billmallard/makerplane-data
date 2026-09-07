@@ -31,6 +31,7 @@ and silently shipped a pack with zero California roads.
 
 from __future__ import annotations
 
+import time
 import zipfile
 from pathlib import Path
 
@@ -38,6 +39,17 @@ from . import fetch
 from .build import BuildError, build_highways
 
 GEOFABRIK_BASE = "https://download.geofabrik.de/north-america/us"
+
+# A 50-state sequential fetch runs long enough (~80 minutes for CONUS) that
+# Geofabrik's mirror serving a transient 502/503/read-timeout to one or two
+# states somewhere in the run is routine, not exceptional (makerplane-data#60:
+# 9/50 states failed this way in one CONUS build, none of them a real bad
+# slug). Retrying those a few times with backoff is cheap next to redoing the
+# whole 80-minute job; a state that is still down after retrying is still a
+# hard failure via fetch_all's fail-loud-and-list-every-gap contract
+# (makerplane-data#17) -- this only absorbs the transient case.
+_FETCH_RETRIES = 3
+_FETCH_BACKOFF = 5.0
 
 CONUS_STATES = [
     "alabama", "arizona", "arkansas",
@@ -75,16 +87,31 @@ def _cache_name(state: str) -> str:
     return state.replace("/", "-") + "-latest-free.shp.zip"
 
 
-def fetch_state(state: str, cache_dir: Path, *, downloader=fetch.download) -> Path:
+def fetch_state(state: str, cache_dir: Path, *, downloader=fetch.download,
+                retries: int = _FETCH_RETRIES, backoff: float = _FETCH_BACKOFF,
+                sleep=time.sleep, log=lambda *a: None) -> Path:
     """Download one state's shp.zip (idempotent -- skips a cached non-empty
     file). Validates the result is really a zip: Geofabrik answers an
     unknown state slug with a 302 to its homepage, not a 404, so a bad slug
-    otherwise lands here as a small HTML file (makerplane-data#17)."""
+    otherwise lands here as a small HTML file (makerplane-data#17).
+
+    Retries a transient network failure (``OSError`` -- covers every
+    ``requests`` exception: HTTPError, ConnectionError, Timeout,
+    ChunkedEncodingError) a few times with backoff before giving up; a
+    non-network failure (e.g. the non-zip check below) is never retried."""
     cache_dir = Path(cache_dir)
     dest = cache_dir / _cache_name(state)
     if dest.exists() and dest.stat().st_size > 0:
         return dest
-    downloader(state_zip_url(state), dest)
+    for attempt in range(1, retries + 1):
+        try:
+            downloader(state_zip_url(state), dest)
+            break
+        except OSError as e:
+            if attempt == retries:
+                raise
+            log(f"  WARN: {state}: {e} -- retry {attempt}/{retries - 1}")
+            sleep(backoff * attempt)
     with open(dest, "rb") as fh:
         magic = fh.read(4)
     if not magic.startswith(b"PK"):
@@ -141,7 +168,7 @@ def fetch_all(states: list[str], cache_dir: Path, *, keep_zips: bool = False,
             shp_paths.append(cached)
             continue
         try:
-            zip_path = fetch_state(state, cache_dir, downloader=downloader)
+            zip_path = fetch_state(state, cache_dir, downloader=downloader, log=log)
             shp = extract_road_layer(zip_path, extracted_dir)
         except Exception as e:
             log(f"  ERROR: {state}: {e}")

@@ -64,6 +64,65 @@ def test_fetch_state_rejects_geofabrik_redirect_page(tmp_path):
     assert not (cache_dir / "california-latest-free.shp.zip").exists()
 
 
+def test_fetch_state_retries_transient_network_error(tmp_path):
+    """502/503/read-timeout from Geofabrik mid-CONUS-build (makerplane-data#60)
+    is routine, not a real bad slug -- it must not cost the whole ~80-minute
+    build a hard failure the way test_fetch_state_rejects_geofabrik_redirect_page's
+    bad-slug case correctly does."""
+    cache_dir = tmp_path / "cache"
+    attempts = []
+    sleeps = []
+
+    def flaky_then_ok(url, dest):
+        attempts.append(url)
+        if len(attempts) < 3:
+            raise ConnectionError("502 Server Error: Bad Gateway")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"PK\x03\x04already-here")
+
+    result = make_roads.fetch_state(
+        "colorado", cache_dir, downloader=flaky_then_ok,
+        sleep=lambda s: sleeps.append(s))
+
+    assert result == cache_dir / "colorado-latest-free.shp.zip"
+    assert len(attempts) == 3
+    assert len(sleeps) == 2   # slept between attempts 1->2 and 2->3, not after
+
+
+def test_fetch_state_gives_up_after_exhausting_retries(tmp_path):
+    cache_dir = tmp_path / "cache"
+
+    def always_fails(url, dest):
+        raise ConnectionError("503 Server Error: Service Unavailable")
+
+    with pytest.raises(ConnectionError):
+        make_roads.fetch_state(
+            "idaho", cache_dir, downloader=always_fails, retries=2,
+            sleep=lambda s: None)
+
+    # a failed attempt must not leave a bogus file behind for the next run
+    assert not (cache_dir / "idaho-latest-free.shp.zip").exists()
+
+
+def test_fetch_state_does_not_retry_non_network_failures(tmp_path):
+    """The redirect-page case is a real bad slug, not a transient blip --
+    retrying it would just burn time re-fetching the same wrong page."""
+    cache_dir = tmp_path / "cache"
+    calls = []
+
+    def fake_download(url, dest):
+        calls.append(url)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"<html>not found, redirected to homepage</html>")
+
+    with pytest.raises(BuildError, match="non-zip"):
+        make_roads.fetch_state("california", cache_dir, downloader=fake_download,
+                               sleep=lambda s: (_ for _ in ()).throw(
+                                   AssertionError("should not sleep/retry")))
+
+    assert len(calls) == 1
+
+
 def test_extract_road_layer_pulls_expected_files(tmp_path):
     zip_path = tmp_path / "colorado-latest-free.shp.zip"
     _write_state_zip(zip_path)
