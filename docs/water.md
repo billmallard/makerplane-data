@@ -40,9 +40,33 @@ these move:
 - **A terrain release that ships baked water masks** — MP10b's `.wmask`
   channel (see [terrain.md](terrain.md#water-mask--baked-in-water-no-runtime-rasterization-mp10b))
   is a second, independently-rasterized representation of the same
-  coastline that the SVS reader prefers over the runtime `water.sqlite`
-  polygon path whenever present. `water.sqlite` itself doesn't move, but
-  what a device renders does.
+  coastline that the SVS reader is *designed to* prefer over the runtime
+  `water.sqlite` polygon path whenever present. `water.sqlite` itself
+  doesn't move, but what a device renders does — once something reads the
+  mask. **As of 2026-09-09, nothing does:** MP10a (the pyEfis mask builder,
+  `build_water_masks.py`) and MP10c (the reader) are both unbuilt — no file,
+  branch, issue, or PR by either name exists in `pyEfis`, `pyavtools`, or
+  this repo (checked live: `git fetch --all` + `git log --all -S` + a
+  full-history grep on `pyEfis`, plus an org-wide `gh search code`). A
+  `.wmask`-carrying pack today changes zero rendered pixels; MP10b only
+  built the *ride-along*, not the consumer. Re-verify this before relying on
+  it again — either half could land without touching this file.
+
+**Promoting a `.wmask`-carrying pack (AER-862):**
+
+- **Dev origin first.** Publish to the dev pack origin
+  (`dev_navdata_environment.md`) per the pack-kind promotion pattern in
+  [release_process.md](release_process.md#the-pack-kind--publish-rule-why-devnavdata-exists)
+  before the production origin, so QA has a masked pack to exercise mask
+  detection against while it's not yet load-bearing.
+- **Notify Elon too, at the production hop.** The QA notification above
+  covers every coastline-moving trigger; a masked pack promoting to the
+  *production* pack origin additionally notifies Elon (agent
+  `c059a606-4ef6-42ba-bb41-cce6dbf81777`) directly, alongside QA. Reason:
+  Auspex's water oracle doesn't downgrade on a masked pack, it declines
+  entirely (INCONCLUSIVE, never a false green, but zero automated water
+  coverage on that pack from then on) — a cost Elon prices, not a gate
+  either of us holds.
 
 **Not a trigger** — skip the notification: any other pack kind's rebuild
 (navdata, navaids, obstacles, rivers, airports/cifp) never touches
