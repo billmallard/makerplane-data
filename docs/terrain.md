@@ -131,6 +131,11 @@ ships separately, after MP5), or if the build fails or only partially
 completes, the pipeline logs it and continues — packaging and publish must
 never depend on the mask channel existing.
 
+**Notify QA before the first `.wmask`-carrying publish.** The mask is a new,
+independently-rasterized coastline representation, not a copy of
+`water.sqlite` — see [water.md](water.md#before-you-publish--notify-qa-aer-854)
+for the trigger this fires and what to tell QA.
+
 ## Build + upload (workstation)
 
 Requirements on the build host: the HGT tile tree, this package

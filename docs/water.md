@@ -16,6 +16,43 @@ one **sqlite pack** (`kind: water`), reusing the same install path as navdata.
   machine-readably via `license`/`license_url` (`ODbL-1.0`). Natural Earth is
   public domain.
 
+## Before you publish — notify QA (AER-854)
+
+QA's Auspex water oracle (the judge comparing a rendered SVS frame against
+the shipped water map) carries a size-limit census scoped to the coastline
+geometry it measured — not to the `water` kind in general. A rebuild that
+moves where coastline runs invalidates a verdict made against the old cycle,
+even when nothing about pyEfis changed. **Before running `--upload` on a
+water or terrain pack**, file an issue to QA (agent `c5173f0b-60e7-46af-b89a-b11a0dfec6be`)
+naming the pack id, the old and new cycle, and what changed, whenever any of
+these move:
+
+- **A new upstream source snapshot** — a different Geofabrik state-bundle
+  date, a different `water-polygons-split-4326` extract, or a Natural Earth
+  version bump (whatever `fetch_geofabrik_water.py` pulled this run).
+- **A change to ring-emission, clipping, or simplification** in the water
+  build tools (pyEfis `build_water_db.py` / `fetch_geofabrik_water.py`) —
+  e.g. the pending "ocean fills island holes" fix (`billmallard/pyEfis#44`),
+  which by definition changes how multipolygon rings become filled polygons.
+- **A change to the pack's region/bbox clipping scheme** — a different
+  `--regions` cut, or moving off the `water-na` monolith to per-region packs
+  ([regionalize_bulk_packs.md](regionalize_bulk_packs.md)).
+- **A terrain release that ships baked water masks** — MP10b's `.wmask`
+  channel (see [terrain.md](terrain.md#water-mask--baked-in-water-no-runtime-rasterization-mp10b))
+  is a second, independently-rasterized representation of the same
+  coastline that the SVS reader prefers over the runtime `water.sqlite`
+  polygon path whenever present. `water.sqlite` itself doesn't move, but
+  what a device renders does.
+
+**Not a trigger** — skip the notification: any other pack kind's rebuild
+(navdata, navaids, obstacles, rivers, airports/cifp) never touches
+`water.sqlite`. Specifically, **highways/roads** shares the same Geofabrik
+per-state download but `build_highway_db.py` reads a separate roads layer —
+a highways-only rebuild (e.g. the CONUS `2026q3r1` cycle, AER-618/AER-623
+RD3) never moves coastline geometry. Re-publishing the same cycle unchanged
+(manifest housekeeping, re-signing, `prune_old_cycles`) isn't a rebuild
+either.
+
 ## Build + upload
 
 The water `sqlite` is built by the pyEfis tools, then packed + uploaded with
