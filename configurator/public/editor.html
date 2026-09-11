@@ -192,16 +192,27 @@
      and isn't reused, AER-173 sec 1/sec 4c) so the two aren't visually
      conflated. */
   .tab-twin { position: absolute; inset: 0; }
+  /* Position (top/left/width/height) and the bar-vs-content separator border
+     are edge-dependent (tab_position, AER-665) and set inline per instance --
+     see tabStripGeom()/tabContentGeom(). */
   .tab-twin-strip {
-    position: absolute; top: 0; left: 0; right: 0; display: flex; overflow: hidden;
-    background: #161b22; border-bottom: 1px solid #30363d;
+    position: absolute; display: flex; overflow: hidden; background: #161b22;
   }
   .tab-twin-chip {
-    padding: 0 8px; display: flex; align-items: center; font-size: 11px;
-    color: #8b949e; white-space: nowrap; cursor: pointer; border-right: 1px solid #21262d;
+    padding: 0 8px; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #8b949e; white-space: nowrap; cursor: pointer;
+    border-right: 1px solid #21262d;
   }
   .tab-twin-chip.active { color: #e6edf3; background: #0d1117; }
-  .tab-twin-content { position: absolute; left: 0; right: 0; overflow: hidden; }
+  /* left/right tab_position: QTabBar's RoundedWest/RoundedEast shapes stack
+     tabs down the bar and rotate the labels (tab_section/__init__.py
+     _TAB_BAR_SHAPE) -- vertical-rl approximates the rotated glyphs; a chip
+     separates from its neighbour on the stacking axis, not the side one. */
+  .tab-twin-chip.vertical {
+    writing-mode: vertical-rl; padding: 8px 0;
+    border-right: none; border-bottom: 1px solid #21262d;
+  }
+  .tab-twin-content { position: absolute; overflow: hidden; }
   /* Container-scoped drop zone (sec 4b): visible only while the container
      itself is selected, so it reads as "drop into the active tab here"
      rather than a permanent decoration. */
@@ -2353,10 +2364,13 @@ canvas.addEventListener("drop", (e) => {
       const tabLayout = tab.layout || { rows: 110, columns: 200 };
       // Tab-local coordinates (sec 4b): divide by the TAB's own layout, not
       // the screen's -- the same nested-space math buildContainerTwin uses.
-      const gw = box.w / (tabLayout.columns || 1);
-      const gh = Math.max(0, box.h - TAB_STRIP_H) / (tabLayout.rows || 1);
-      dropped.column = clamp(snapTo((mx - box.x) / gw), 0, tabLayout.columns - 1);
-      dropped.row = clamp(snapTo((my - box.y - TAB_STRIP_H) / gh), 0, tabLayout.rows - 1);
+      // cbox is the content area within box, net of the tab bar on whichever
+      // edge tab_position names (AER-665) -- top-only was the sec-4b original.
+      const cbox = tabContentGeom(box, tabPosition(sel));
+      const gw = cbox.w / (tabLayout.columns || 1);
+      const gh = cbox.h / (tabLayout.rows || 1);
+      dropped.column = clamp(snapTo((mx - box.x - cbox.x) / gw), 0, tabLayout.columns - 1);
+      dropped.row = clamp(snapTo((my - box.y - cbox.y) / gh), 0, tabLayout.rows - 1);
       tab.instruments = tab.instruments || [];
       tab.instruments.push(dropped);
       renderCanvas(); renderProps();
@@ -2748,13 +2762,40 @@ function buildContainerEditor(inst, slot) {
 }
 
 // Fixed px, not proportional to the container's box: the real widget's
-// QTabBar.sizeHint() height comes from font metrics, not from the container's
-// own size (tab_section/__init__.py _layout_pages -- `bar_height =
-// self.tab_bar.sizeHint().height()`, computed once, independent of the
-// widget's own height). This is the ONE place that assumes the bar sits on
-// top; pyEfis#137 (AVIONICS's, configurable tab-bar edge) becomes a local
-// change here when it lands, not a scattered one.
-const TAB_STRIP_H = 22;
+// QTabBar.sizeHint() comes from font metrics, not from the container's own
+// size (tab_section/__init__.py _layout_pages -- `bar_size =
+// self.tab_bar.sizeHint().height()` for top/bottom, `.width()` for the
+// rotated left/right shapes, computed once regardless of the widget's own
+// size). One constant approximates sizeHint on whichever axis it reserves.
+const TAB_BAR_THICKNESS = 22;
+
+// Which edge the tab bar sits on (tab_position option, AER-665; default
+// "top" matches both the schema default and pyEfis's own `_TAB_BAR_SHAPE`
+// fallback for an unrecognised value).
+function tabPosition(inst) {
+  const p = inst.options?.tab_position;
+  return (p === "bottom" || p === "left" || p === "right") ? p : "top";
+}
+
+// The tab bar's own box within the container, box-local px -- mirrors
+// tab_section/__init__.py _layout_pages' `bar_geom` exactly.
+function tabStripGeom(box, position) {
+  const t = TAB_BAR_THICKNESS;
+  if (position === "bottom") return { x: 0, y: Math.max(0, box.h - t), w: box.w, h: t };
+  if (position === "left") return { x: 0, y: 0, w: t, h: box.h };
+  if (position === "right") return { x: Math.max(0, box.w - t), y: 0, w: t, h: box.h };
+  return { x: 0, y: 0, w: box.w, h: t };   // top
+}
+
+// The active tab's own content box, box-local px -- mirrors _layout_pages'
+// `stack_geom`: whatever the strip doesn't occupy.
+function tabContentGeom(box, position) {
+  const t = TAB_BAR_THICKNESS;
+  if (position === "bottom") return { x: 0, y: 0, w: box.w, h: Math.max(0, box.h - t) };
+  if (position === "left") return { x: t, y: 0, w: Math.max(0, box.w - t), h: box.h };
+  if (position === "right") return { x: 0, y: 0, w: Math.max(0, box.w - t), h: box.h };
+  return { x: 0, y: t, w: box.w, h: Math.max(0, box.h - t) };   // top
+}
 
 // The recursive nested twin (AER-345 sec 4f): the tab strip + the active
 // tab's instruments, rendered inside the container's own box at the same
@@ -2768,13 +2809,40 @@ function buildContainerTwin(inst, meta, ci) {
   const activeIdx = defaultActiveTab(inst, tabs);
   inst.activeTab = activeIdx;
 
+  const position = tabPosition(inst);
+  const vertical = position === "left" || position === "right";
+  const box = rect(inst);   // a container is always top-level -> root space
+  const stripGeom = tabStripGeom(box, position);
+  const contentGeom = tabContentGeom(box, position);
+
+  // fg_color/bg_color (AER-665): a fixed override applied uniformly to every
+  // chip, active or not -- matches the device's stylesheet rule, which has
+  // no `:selected` clause (tab_section/__init__.py _apply_tab_bar_style).
+  // Unset (null, the schema default) leaves the inherited .tab-twin-chip /
+  // .active CSS legibility floor untouched.
+  const fg = inst.options?.fg_color, bg = inst.options?.bg_color;
+
   const strip = document.createElement("div");
   strip.className = "tab-twin-strip";
-  strip.style.height = TAB_STRIP_H + "px";
+  strip.style.left = stripGeom.x + "px"; strip.style.top = stripGeom.y + "px";
+  strip.style.width = stripGeom.w + "px"; strip.style.height = stripGeom.h + "px";
+  strip.style.flexDirection = vertical ? "column" : "row";
+  // Separator sits between the bar and the content, so it's on the side
+  // facing the content box, not always "bottom" (that was the top-only
+  // original).
+  strip.style.borderBottom = strip.style.borderTop = strip.style.borderLeft = strip.style.borderRight = "";
+  strip.style[{ top: "borderBottom", bottom: "borderTop", left: "borderRight", right: "borderLeft" }[position]] = "1px solid #30363d";
+  if (bg) strip.style.background = bg;
   tabs.forEach((tab, ti) => {
     const chip = document.createElement("div");
-    chip.className = "tab-twin-chip" + (ti === activeIdx ? " active" : "");
+    chip.className = "tab-twin-chip" + (ti === activeIdx ? " active" : "") + (vertical ? " vertical" : "");
     chip.textContent = tab.label || `Tab ${ti + 1}`;
+    // West (left) reads bottom-to-top, East (right) top-to-bottom -- Qt's
+    // rotation for RoundedWest/RoundedEast (tab_section/__init__.py
+    // _TAB_BAR_SHAPE). vertical-rl alone gives the East reading; West flips it.
+    if (position === "left") chip.style.transform = "rotate(180deg)";
+    if (fg) chip.style.color = fg;
+    if (bg) chip.style.background = bg;
     chip.addEventListener("mousedown", (e) => {
       e.stopPropagation();   // switching tabs must not start a container move
       inst.activeTab = ti;
@@ -2787,21 +2855,19 @@ function buildContainerTwin(inst, meta, ci) {
 
   const content = document.createElement("div");
   content.className = "tab-twin-content";
-  content.style.top = TAB_STRIP_H + "px";
-  content.style.height = `calc(100% - ${TAB_STRIP_H}px)`;
+  content.style.left = contentGeom.x + "px"; content.style.top = contentGeom.y + "px";
+  content.style.width = contentGeom.w + "px"; content.style.height = contentGeom.h + "px";
   wrap.appendChild(content);
 
   // Nested coordinate space (sec 4f's "big lift"): the container's own
   // content-box pixels divided by the ACTIVE TAB'S OWN layout, never the
   // screen's -- the exact trap Bill hit hand-authoring YAML (a tab narrower
   // than the screen makes screen coordinates land off its edge).
-  const box = rect(inst);   // a container is always top-level -> root space
   const activeTab = tabs[activeIdx];
   const tabLayout = activeTab.layout || { rows: 110, columns: 200 };
-  const contentH = Math.max(0, box.h - TAB_STRIP_H);
   const space = {
-    gw: box.w / (tabLayout.columns || 1),
-    gh: contentH / (tabLayout.rows || 1),
+    gw: contentGeom.w / (tabLayout.columns || 1),
+    gh: contentGeom.h / (tabLayout.rows || 1),
   };
 
   withSpace(space, () => {
