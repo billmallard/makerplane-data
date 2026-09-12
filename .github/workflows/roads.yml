@@ -39,7 +39,7 @@ jobs:
           repository: ${{ env.PYEFIS_REPO }}
           ref: ${{ env.PYEFIS_REF }}
           path: pyefis-src
-      - run: pip install -e .[build]
+      - run: pip install -e .[build] pyshp numpy
 
       - name: Fetch + build highways.sqlite (packtool build-roads)
         env:
