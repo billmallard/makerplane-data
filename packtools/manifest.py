@@ -111,6 +111,15 @@ class Manifest:
         self.packs.append(entry)
         self.packs.sort(key=lambda p: (p.id, p.cycle))
 
+    def remove(self, pack_id: str, cycle: str) -> bool:
+        """Drop the (id, cycle) entry if present. Returns whether anything
+        was removed -- for retracting a specific bad publish (e.g. a
+        states-limited test build that was uploaded under the production
+        id by mistake) rather than pruning by recency."""
+        before = len(self.packs)
+        self.packs = [p for p in self.packs if not (p.id == pack_id and p.cycle == cycle)]
+        return len(self.packs) != before
+
     def prune_old_cycles(self, keep: int = 2) -> None:
         """Keep at most ``keep`` most-recent cycles per pack id (current + next,
         plus one extra by default), dropping older ones from the catalog."""

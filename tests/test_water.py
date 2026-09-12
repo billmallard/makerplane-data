@@ -12,7 +12,7 @@ import pytest
 from packtools import signing
 from packtools.manifest import Manifest, PackEntry
 from packtools.packmeta import PackMeta, embed_sqlite, read_sqlite
-from packtools.publish import publish
+from packtools.publish import publish, retract
 from packtools.upload import LocalStore
 from pyefis_data.config import Config
 from pyefis_data.core import Updater, LocalDirRemote
@@ -101,6 +101,52 @@ def test_publish_adds_alongside_existing(tmp_path):
     m = Manifest.from_bytes(store.get_bytes("manifest.json"))
     ids = {p.id for p in m.packs}
     assert {"airports-conus", "water-conus"} <= ids       # both present
+
+
+def test_retract_drops_one_entry_leaves_rest(tmp_path):
+    # Undo path for a bad publish (makerplane-data#60): a states-limited
+    # test build uploaded under the production id must be removable without
+    # disturbing any other pack already in the manifest.
+    store = LocalStore(tmp_path / "r2")
+    sk, pub = signing.generate_keypair()
+    nav = PackEntry(id="airports-conus", kind="navdata", cycle="2606", bytes=1,
+                    sha256="a" * 64, url="u", effective="2026-06-11", expires="2026-07-09")
+    good = PackEntry(id="highways-conus", kind="highways", cycle="2026q3r1", bytes=1,
+                     sha256="b" * 64, url="u", effective=None, expires=None)
+    bad = PackEntry(id="highways-conus", kind="highways", cycle="2026q3r1-smoketest",
+                    bytes=1, sha256="c" * 64, url="u", effective=None, expires=None)
+    publish(store, sk, [(nav, _existing_sqlite(tmp_path))],
+            generated="2026-06-14T00:00:00Z", sign=signing.sign, log=lambda *a: None)
+    pack2 = tmp_path / "good.pack"
+    pack2.write_bytes(b"x")
+    pack3 = tmp_path / "bad.pack"
+    pack3.write_bytes(b"y")
+    publish(store, sk, [(good, pack2), (bad, pack3)],
+            generated="2026-06-14T00:00:00Z", sign=signing.sign, log=lambda *a: None)
+
+    retract(store, sk, "highways-conus", "2026q3r1-smoketest",
+            generated="2026-06-15T00:00:00Z", sign=signing.sign, log=lambda *a: None)
+
+    raw = store.get_bytes("manifest.json")
+    sig = store.get_bytes("manifest.json.minisig").decode("ascii")
+    trusted = signing.verify(raw, sig, pub)
+    assert "retracted highways-conus/2026q3r1-smoketest" in trusted
+    m = Manifest.from_bytes(raw)
+    cycles = {(p.id, p.cycle) for p in m.packs}
+    assert ("highways-conus", "2026q3r1-smoketest") not in cycles
+    assert ("highways-conus", "2026q3r1") in cycles
+    assert ("airports-conus", "2606") in cycles
+
+
+def test_retract_missing_entry_raises(tmp_path):
+    pack, entry = _water_pack(tmp_path)
+    store = LocalStore(tmp_path / "r2")
+    sk, pub = signing.generate_keypair()
+    publish(store, sk, [(entry, pack)], generated="2026-06-14T00:00:00Z",
+            sign=signing.sign, log=lambda *a: None)
+    with pytest.raises(RuntimeError):
+        retract(store, sk, "no-such-id", "no-such-cycle",
+                generated="2026-06-15T00:00:00Z", sign=signing.sign, log=lambda *a: None)
 
 
 def _existing_sqlite(tmp_path):

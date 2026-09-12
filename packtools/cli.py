@@ -137,6 +137,16 @@ def cmd_build_pack(args) -> int:
     return 0
 
 
+def cmd_remove_pack(args) -> int:
+    from .upload import R2Store
+    from .publish import retract
+    date = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
+    store = R2Store.from_env(args.bucket)
+    sk = _load_secret(args)
+    retract(store, sk, args.id, args.cycle, generated=_utc_stamp(date), sign=signing.sign)
+    return 0
+
+
 def cmd_verify(args) -> int:
     pub = Path(args.pub).read_text(encoding="ascii")
     try:
@@ -227,6 +237,15 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--upload", action="store_true", help="upload to R2 + re-sign the live manifest")
     b.add_argument("--bucket", default="makerplane-data")
     b.set_defaults(func=cmd_build_pack)
+
+    rp = sub.add_parser("remove-pack", help="retract one (id, cycle) entry from "
+                        "the live manifest and re-sign (undo a bad publish)")
+    rp.add_argument("--id", required=True)
+    rp.add_argument("--cycle", required=True)
+    rp.add_argument("--bucket", default="makerplane-data")
+    rp.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    rp.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
+    rp.set_defaults(func=cmd_remove_pack)
 
     v = sub.add_parser("verify", help="verify a signed manifest")
     v.add_argument("manifest")

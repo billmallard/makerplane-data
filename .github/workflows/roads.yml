@@ -10,7 +10,14 @@ name: roads-packs
 # Full CONUS is a multi-state Geofabrik download (docs/roads.md: "minutes"
 # once fetched, but the fetch itself is the expensive part) -- expect a
 # long-running job for `--states conus`. A partial state list is a cheap
-# way to test the workflow itself.
+# way to test the workflow itself -- but leave `publish` off for that, since
+# `--upload` always targets the production `highways-conus` id regardless of
+# `states`: a states-limited pack still gets uploaded and manifest-listed
+# under the real id, and a non-cyclical pack's currency is picked by cycle
+# *string*, so even a test cycle can outrank the real edition it was meant
+# to be a cheap stand-in for (makerplane-data#60, 2026-09-12 incident: a
+# Colorado-only "2026q3r1-smoketest" build stayed selected as the live
+# CONUS pack). `packtool remove-pack` retracts a bad entry like that one.
 on:
   workflow_dispatch:
     inputs:
@@ -20,6 +27,10 @@ on:
       cycle:
         description: "Edition tag"
         default: "2026q3r1"
+      publish:
+        description: "Upload to production and re-sign the live manifest -- leave OFF for a states test-run"
+        type: boolean
+        default: true
 
 env:
   PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
@@ -48,6 +59,7 @@ jobs:
           packtool build-roads --states "${{ inputs.states }}" --dest highways.sqlite
 
       - name: Pack + upload (signed)
+        if: ${{ inputs.publish }}
         env:
           R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
