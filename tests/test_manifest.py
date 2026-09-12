@@ -86,6 +86,33 @@ def test_non_cyclical_entry_always_covers():
     assert e.days_until_expiry(D("2026-06-14")) is None
 
 
+def test_remove_drops_matching_id_cycle_only():
+    m = Manifest.new(GEN)
+    m.upsert(_entry(id="highways-conus", kind="highways", cycle="2026q3r1",
+                    effective=None, expires=None))
+    m.upsert(_entry(id="highways-conus", kind="highways", cycle="2026q3r1-smoketest",
+                    effective=None, expires=None))
+    assert m.remove("highways-conus", "2026q3r1-smoketest") is True
+    assert [p.cycle for p in m.packs] == ["2026q3r1"]
+    assert m.remove("highways-conus", "2026q3r1-smoketest") is False   # already gone
+
+
+def test_select_ignores_retracted_test_cycle():
+    # The exact incident this guards against: a states-limited test build's
+    # cycle string ("...{-smoketest") sorts higher than the real edition it
+    # stood in for, so select() picks the test pack as "current" until the
+    # bad entry is retracted.
+    def hwy(cycle):
+        return _entry(id="highways-conus", kind="highways", cycle=cycle,
+                      effective=None, expires=None)
+    m = Manifest.new(GEN)
+    m.upsert(hwy("2026q3r1"))
+    m.upsert(hwy("2026q3r1-smoketest"))
+    assert m.select("highways-conus", D("2026-07-28")).cycle == "2026q3r1-smoketest"
+    m.remove("highways-conus", "2026q3r1-smoketest")
+    assert m.select("highways-conus", D("2026-07-28")).cycle == "2026q3r1"
+
+
 def test_prune_old_cycles_keeps_recent():
     m = Manifest.new(GEN)
     for c, eff, exp in [("2605", "2026-05-14", "2026-06-11"),

@@ -1,0 +1,38 @@
+name: manifest-admin
+
+# Retract one bad (id, cycle) entry from the live manifest and re-sign --
+# `packtool remove-pack` (docs/roads.md). For undoing a publish mistake, e.g.
+# a states-limited test build uploaded under a production pack id (a
+# non-cyclical pack's currency is picked by cycle *string*, so even a
+# test-tagged cycle can outrank the real edition -- makerplane-data#60).
+# Does not touch the pack object itself, only its manifest listing.
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: "Pack id to retract from, e.g. 'highways-conus'"
+        required: true
+      cycle:
+        description: "Exact cycle string to remove, e.g. '2026q3r1-smoketest'"
+        required: true
+
+jobs:
+  retract:
+    runs-on: ubuntu-latest
+    concurrency: roads-packs        # never race a highways publish for the manifest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .[build]
+
+      - name: Retract manifest entry (signed)
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          packtool remove-pack --id "${{ inputs.id }}" --cycle "${{ inputs.cycle }}" \
+            --bucket makerplane-data
