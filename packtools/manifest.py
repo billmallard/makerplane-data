@@ -25,6 +25,20 @@ from .packmeta import PackMeta, KINDS
 from .signing import sha256_file
 
 
+def _rank_key(p: "PackEntry") -> tuple:
+    """Sort key shared by ``select()`` and ``prune_old_cycles()``: latest
+    effective date, then canonical cycles before hyphen-suffixed ones,
+    then plain string compare within each group.
+
+    A hyphenated cycle (``"2026q3r1-smoketest"``) is the test/pre-release
+    convention (docs/roads.md) and must never outrank the canonical cycle
+    it stands in for, however it happens to sort lexically -- a plain
+    ``(effective, cycle)`` compare picked the test build because
+    ``"...smoketest" > "2026q3r1"`` (makerplane-data#60/AER-1109).
+    """
+    return (p.effective or "", "-" not in p.cycle, p.cycle)
+
+
 @dataclass
 class PackEntry:
     """One downloadable pack in the catalog (a superset of its pack_meta)."""
@@ -128,7 +142,7 @@ class Manifest:
             by_id.setdefault(p.id, []).append(p)
         kept: list[PackEntry] = []
         for entries in by_id.values():
-            entries.sort(key=lambda p: (p.effective or "", p.cycle))
+            entries.sort(key=_rank_key)
             kept.extend(entries[-keep:])
         kept.sort(key=lambda p: (p.id, p.cycle))
         self.packs = kept
@@ -148,12 +162,12 @@ class Manifest:
         while both are still listed in the catalog -- without it the picker
         returned whichever happened to be first in the list (the older one).
         Ordering matches ``prune_old_cycles``: latest effective date, then
-        highest cycle.
+        :func:`_rank_key`'s canonical-over-test cycle rank.
         """
         covering = [p for p in self.for_id(pack_id) if p.covers(day)]
         if not covering:
             return None
-        return max(covering, key=lambda p: (p.effective or "", p.cycle))
+        return max(covering, key=_rank_key)
 
     # --- serialization ---
     def to_obj(self) -> dict:
