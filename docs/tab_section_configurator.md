@@ -44,6 +44,37 @@ writing, prod `schema.json` doesn't carry `tab_section` yet — only the `dev`
 environment's asset does — so this feature needs a pyEfis-side R2 republish
 before it's usable in prod (not a configurator-side gap).
 
+**AER-665** (2026-09-07) extended the Phase B twin to track pyEfis's
+`tab_position` (top/bottom/left/right, pyEfis#177) and per-widget tab-bar
+`fg_color`/`bg_color`. `buildContainerTwin()` no longer hardcodes the bar on
+top — `tabStripGeom()`/`tabContentGeom()` port `tab_section/__init__.py`'s
+`_layout_pages` `bar_geom`/`stack_geom` for all four edges, and left/right
+chips get a rotated-label approximation (`vertical-rl`, flipped for the West
+shape) matching Qt's `RoundedWest`/`RoundedEast`. `fg_color`/`bg_color` apply
+uniformly to every chip, matching the device stylesheet's lack of a
+`:selected` clause. Visually verified in a headless-browser render of all
+four edges (see [docs/images/aer-665](images/aer-665/README.md); the sandbox
+this shipped from had no launchable browser out of the box, and the README
+there documents the no-root workaround used to get one running).
+
+**AER-1206** (2026-09-13) closes the one evidence gap AER-665 left open: that
+render stubs `buildInstrumentTwin()` to a no-op (a pure geometry/colour check,
+by its own header comment), so a nested instrument actually rendering inside
+a tab -- the other half of AER-345's scope -- had never been screenshotted,
+only exercised by `tab_section_roundtrip.test.mjs`'s save/load assertions.
+[docs/images/aer-1206](images/aer-1206/README.md) renders a real `value_text`
+dropped into a tab, unstubbed, for `top` and `left`, against the schema
+fetched live from `pyefis-dev.aerocommons.org` at generation time. Also
+confirmed prod `schema.json` (`pyefis.aerocommons.org`) now carries
+`tab_section` — the "needs a pyEfis-side R2 republish before it's usable in
+prod" note above is stale as of this writing.
+
+**Note on promotion**: AER-345 (Phase B itself) is on `main` (promoted
+2026-09-05, before AER-665 existed). AER-665's `tab_position`/colour twin is
+on `dev` only — not yet promoted through `qa` → `main`. Until that promotion
+happens, prod's on-canvas tab bar still hardcodes "bar on top" even though
+prod's `schema.json` now advertises all four `tab_position` values.
+
 **Phase C** (§6) is next: element groups inside a tab (should work unmodified
 per §4e/§7 Q4, now confirmed structurally sound but not yet exercised through
 the drop-target), layers-panel nesting indication, and dragging an *existing*

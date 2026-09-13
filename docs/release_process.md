@@ -53,6 +53,9 @@ device on the current pack format. Cut it as **0.3.0** (from 0.2.11).
    - No WIP / feature-flagged-off / "do not ship" code in the range.
    - New pack kinds are registered in `packmeta.KINDS` + the updater (so the
      post-release cron on `main` can load a manifest that contains them).
+   - A water or terrain publish that moves coastline geometry has notified
+     QA first — see [water.md](water.md#before-you-publish--notify-qa-aer-854)
+     for the trigger conditions.
 4. **Promote by merge, verifying each hop:**
    `dev -> qa` (confirm the qa deploy is healthy), then `qa -> main` (confirm
    the prod Worker deploy + that the **next nightly cron loads the manifest

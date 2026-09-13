@@ -40,6 +40,9 @@ in the workspace ledger (`makerplane/STATE.md`, local umbrella dir).
 | [europe_coverage.md](europe_coverage.md) | Parking lot — "not started, future Bill" |
 | [svs_runway_terrain.md](svs_runway_terrain.md) | Investigation complete; decision DEFERRED to real-flight validation |
 | [aircraft_params_schema_env_prefix_fix.md](aircraft_params_schema_env_prefix_fix.md) | Env-prefix R2 gotcha note (untracked — should be committed) |
+| [do200b_applicability.md](do200b_applicability.md) | RESEARCH BRIEF 2026-09-07 — DO-200B/AC 20-153B applicability; verdict: not legally required, adopt a per-source pedigree label on engineering merit, do nothing else |
+| [route_sync.md](route_sync.md) | DESIGN PASS 2026-09-08 (FP9, AER-811) — configurator route/user-waypoint sync D1 schema, pull/push endpoints, token scope; **awaiting Bill's review, no code until approved** |
+| [seattle_avionics_compatibility.md](seattle_avionics_compatibility.md) | RESEARCH BRIEF 2026-09-07 — licensing/interop evaluation vs. Seattle Avionics ChartData; verdict: distracts from CAP-206, do not pursue |
 
 ## Historical (executed — record only)
 
