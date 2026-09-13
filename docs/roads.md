@@ -78,14 +78,19 @@ for the daily cyclical build. Full CONUS is still a long-running dispatch
 (one Geofabrik state bundle at a time); a partial `--states` list (e.g.
 `colorado,texas`) is the cheap way to test the workflow itself -- **but pass
 `publish: false`** when doing so. `--upload` always targets the production
-`highways-conus` id no matter what `states` was, and a non-cyclical pack's
-currency is picked by comparing cycle *strings* (`Manifest.select`), so a
-states-limited test cycle can still outrank the real edition it was meant
-to stand in for. That happened on 2026-09-12 (makerplane-data#60): a
-Colorado-only `2026q3r1-smoketest` build was uploaded with `publish`
-defaulting to true (the input didn't exist yet) and stayed selected as the
-live CONUS pack even after the real `2026q3r1` build published, because
-`"...smoketest"` sorts after `"2026q3r1"`. Undo a publish like that with
+`highways-conus` id no matter what `states` was. That bit a states-limited
+test build on 2026-09-12 (makerplane-data#60): a Colorado-only
+`2026q3r1-smoketest` build was uploaded with `publish` defaulting to true
+(the input didn't exist yet) and, because a non-cyclical pack's currency was
+picked by comparing cycle *strings* (`Manifest.select`) and `"...smoketest"`
+sorts after `"2026q3r1"`, it stayed selected as the live CONUS pack even
+after the real `2026q3r1` build published. `Manifest.select` and
+`prune_old_cycles` now rank a hyphen-suffixed cycle below every canonical
+one regardless of how it sorts lexically (AER-1109), so a repeat of this
+exact incident no longer needs a manual retract to fix the live selection --
+but a states-limited pack still gets published under the production id and
+still confuses anything reading the manifest by hand, so the `publish:
+false` discipline above still stands. Undo a bad publish like that one with
 `packtool remove-pack --id highways-conus --cycle 2026q3r1-smoketest`, which
 retracts just that manifest entry (not the pack object) and re-signs.
 

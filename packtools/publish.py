@@ -46,10 +46,11 @@ def retract(store, secret, pack_id: str, cycle: str, *,
     """Drop one (id, cycle) entry from the live manifest and re-sign.
 
     For undoing a bad publish -- e.g. a states-limited test build uploaded
-    under the production pack id, which would otherwise outrank the real
-    edition in ``Manifest.select`` (non-cyclical packs compare by cycle
-    string, and a longer test-suffixed cycle sorts higher). Does not touch
-    the pack object itself, only its manifest listing.
+    under the production pack id. ``Manifest.select`` no longer lets a
+    hyphen-suffixed test cycle outrank the canonical edition it stood in for
+    (AER-1109), but the bad entry is still wrong data to leave listed under
+    the production id, so still retract it. Does not touch the pack object
+    itself, only its manifest listing.
     """
     raw = store.get_bytes(MANIFEST_KEY)
     if not raw:
