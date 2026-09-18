@@ -298,6 +298,7 @@
   <label class="tsel">Screen <select id="res"></select></label>
   <span id="custom" class="hidden"><input id="cw" type="number" class="num"> × <input id="ch" type="number" class="num"></span>
   <label class="tsel">Size <select id="inches"></select></label>
+  <span id="inches-custom" class="hidden"><input id="ci" type="number" step="0.1" min="1" max="120" class="num">&#8243;</span>
   <span class="muted" id="readout"></span>
   <label class="tsel"><input type="checkbox" id="gridToggle" checked> Grid</label>
   <label class="tsel"><input type="checkbox" id="snapToggle"> Snap</label>
@@ -1949,7 +1950,20 @@ const RESOLUTIONS = [
   { w: 800, h: 480 }, { w: 1024, h: 600 }, { w: 1280, h: 800 }, { w: 1280, h: 1024 },
   { w: 1920, h: 1080 }, { w: 1920, h: 1200 },
 ];
-const INCHES = [5, 7, 8, 10.1, 11.6, 15.6, 21.5];
+// Panel sizes, keyed on the TRUE viewable diagonal -- that is what the DPI
+// maths needs, and what pyEfis stores as `screenDiagonalInches`.
+//
+// Monitors are sold by a rounded class that is usually LARGER than the panel:
+// a "22-inch" monitor is a 21.5-inch panel, a "24-inch" is 23.8. A builder
+// looking for the number printed on the box could not find it here and
+// reasonably concluded the list was wrong, so `cls` puts that number in the
+// label while the stored value stays the real one. Anything not listed goes
+// through Custom, like the resolution control above.
+const INCHES = [
+  { in: 5 }, { in: 7 }, { in: 8 }, { in: 10.1 }, { in: 11.6 },
+  { in: 15.6 }, { in: 21.5, cls: 22 }, { in: 23.8, cls: 24 }, { in: 27 },
+];
+const inchLabel = (e) => e.cls ? `${e.in}″ (${e.cls}″ class)` : `${e.in}″`;
 
 function gcd(a, b) { return b ? gcd(b, a % b) : a; }
 function aspect(w, h) { const g = gcd(w, h), aw = w / g, ah = h / g; return ah <= 20 ? `${aw}:${ah}` : `${(w / h).toFixed(2)}:1`; }
@@ -1967,9 +1981,31 @@ function buildScreenControls() {
   const inch = $("inches");
   inch.innerHTML = "";
   const none = document.createElement("option"); none.value = ""; none.textContent = "— in"; inch.appendChild(none);
-  for (const i of INCHES) { const o = document.createElement("option"); o.value = i; o.textContent = i + "″"; inch.appendChild(o); }
+  for (const e of INCHES) {
+    const o = document.createElement("option");
+    o.value = e.in; o.textContent = inchLabel(e); inch.appendChild(o);
+  }
+  const inchCustom = document.createElement("option");
+  inchCustom.value = "custom"; inchCustom.textContent = "Custom…"; inch.appendChild(inchCustom);
   res.addEventListener("change", onResChange);
-  inch.addEventListener("change", () => { state.screen.inches = parseFloat($("inches").value) || null; applyScreen(); });
+  inch.addEventListener("change", () => {
+    if ($("inches").value === "custom") {
+      $("inches-custom").classList.remove("hidden");
+      $("ci").value = state.screen.inches || "";
+      $("ci").focus();
+      return;                       // wait for a number before touching state
+    }
+    $("inches-custom").classList.add("hidden");
+    state.screen.inches = parseFloat($("inches").value) || null;
+    applyScreen();
+  });
+  $("ci").addEventListener("input", () => {
+    const v = parseFloat($("ci").value);
+    // Guard the divisor: `inches` feeds dpi() and pyEfis's mm-to-pixel maths,
+    // so a zero or a stray minus must not reach it.
+    state.screen.inches = (v > 0 && v <= 120) ? v : null;
+    applyScreen();
+  });
   $("cw").addEventListener("input", onCustom);
   $("ch").addEventListener("input", onCustom);
   syncScreenControls();
@@ -1990,7 +2026,15 @@ function syncScreenControls() {
   const key = state.screen.width + "x" + state.screen.height;
   if ([...$("res").options].some((o) => o.value === key)) { $("res").value = key; $("custom").classList.add("hidden"); }
   else { $("res").value = "custom"; $("custom").classList.remove("hidden"); $("cw").value = state.screen.width; $("ch").value = state.screen.height; }
-  $("inches").value = state.screen.inches || "";
+  const inches = state.screen.inches;
+  if (inches && !INCHES.some((e) => e.in === inches)) {
+    $("inches").value = "custom";
+    $("inches-custom").classList.remove("hidden");
+    $("ci").value = inches;
+  } else {
+    $("inches").value = inches || "";
+    $("inches-custom").classList.add("hidden");
+  }
 }
 function applyScreen() { sizeCanvas(); renderCanvas(); renderProps(); updateReadout(); }
 function updateReadout() {
