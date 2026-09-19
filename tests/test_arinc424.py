@@ -168,6 +168,38 @@ def test_iter_procedure_legs_rnav_has_rf_legs_with_geometry():
     for leg in rf_legs:
         assert leg.fix_lat is not None and leg.fix_lon is not None
         assert leg.rnp is not None
+        assert leg.centre_fix is not None
+        assert leg.centre_lat is not None and leg.centre_lon is not None
+
+
+def test_iter_procedure_legs_rf_centre_resolves_by_airport():
+    # KABQ H21-Y's RF legs cite centre CFDXH/CFDXG/CFDXF, all "PC" terminal
+    # waypoints -- airport-scoped idents, same as any other terminal fix
+    # (see module docstring). Real coordinates from the cycle-2609 fixture.
+    idx = a.build_fix_index(FIXTURE)
+    legs = {(l.transition, l.seq): l for l in a.iter_procedure_legs(FIXTURE, idx)
+            if l.airport == "KABQ" and l.proc_ident == "H21-Y"}
+    leg = legs[("FOXRR", 30)]
+    assert leg.path_term == "RF"
+    assert leg.centre_fix == "CFDXH"
+    assert leg.centre_lat == pytest.approx(35.08599722, abs=1e-6)
+    assert leg.centre_lon == pytest.approx(-106.62291667, abs=1e-6)
+
+
+def test_iter_procedure_legs_af_legs_unchanged_by_centre_fix():
+    # AF (DME arc) legs carry recd_navaid/theta/rho, not a Center Fix --
+    # cols 107-116 are blank on a real AF record, and must stay unresolved
+    # rather than accidentally picking up a neighbouring field.
+    idx = a.build_fix_index(FIXTURE)
+    legs = [l for l in a.iter_procedure_legs(FIXTURE, idx)
+            if l.airport == "09J" and l.proc_ident == "VOR-A"]
+    af_legs = [l for l in legs if l.path_term == "AF"]
+    assert len(af_legs) >= 1
+    for leg in af_legs:
+        assert leg.recd_navaid is not None
+        assert leg.theta is not None and leg.rho is not None
+        assert leg.centre_fix is None
+        assert leg.centre_lat is None and leg.centre_lon is None
 
 
 def test_iter_procedure_legs_vor_has_procedure_turn_and_arc():
