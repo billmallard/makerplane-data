@@ -17,6 +17,22 @@ reader falls back to `flags=0, ref=None` rather than raising — nothing new
 is required by the manifest, and old packs keep working right up until
 they're rebuilt.
 
+**`schema_version` tracks the `highway_lines` columns** (AER-1715):
+`build-pack --kind highways` no longer just stamps the package-wide default
+— it opens the built sqlite and looks at what's actually there
+(`packmeta.detect_highways_schema_version`), so `1` means no `flags`/`ref`
+columns and `2` means they're present. Raises rather than guessing if it
+sees a column set it doesn't recognise (add the new shape to
+`HIGHWAYS_TABLE_SCHEMAS` first). This is forward-only: packs already
+published before this change keep whatever `schema_version` they were
+built with (`1`, regardless of their real columns) rather than being
+retroactively relabeled — `HighwayDB` still probes `PRAGMA table_info`
+itself rather than trusting the field, so nothing reads it as authoritative
+yet, and relabeling a live pack means re-signing and republishing it for a
+field nothing currently gates on. A future reader that wants to gate on
+`schema_version` instead of probing needs to know only packs built from
+this point on carry an accurate value.
+
 ## Build + upload
 
 Roads and water come from the *same* Geofabrik per-state bundles
