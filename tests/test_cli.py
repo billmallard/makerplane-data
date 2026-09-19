@@ -60,6 +60,47 @@ def test_build_pack_license_flags_embed_in_pack_meta(tmp_path):
     assert meta.license_url == "https://opendatacommons.org/licenses/odbl/1-0/"
 
 
+def _make_highway_lines_sqlite(path, *, flags_ref: bool):
+    con = sqlite3.connect(str(path))
+    cols = ("id INTEGER, fclass TEXT, min_lat REAL, max_lat REAL, "
+            "min_lon REAL, max_lon REAL, verts BLOB")
+    if flags_ref:
+        cols += ", flags INTEGER, ref TEXT"
+    con.execute(f"CREATE TABLE highway_lines ({cols})")
+    con.commit()
+    con.close()
+
+
+def test_build_pack_highways_schema_version_reflects_on_disk_columns(tmp_path):
+    # AER-1715: schema_version must speak for the actual highway_lines
+    # columns, not just default to the package-wide constant regardless of
+    # what changed on disk.
+    keys = tmp_path / "keys"
+    cli.main(["genkey", "--out", str(keys)])
+
+    old = tmp_path / "highways-old.sqlite"
+    _make_highway_lines_sqlite(old, flags_ref=False)
+    out_old = tmp_path / "old"
+    rc = cli.main(["build-pack", str(old), "--id", "highways-conus",
+                   "--kind", "highways", "--cycle", "2026q2r2",
+                   "--attribution", "OpenStreetMap contributors (ODbL)",
+                   "--regions", "conus",
+                   "--sec", str(keys / "minisign.sec"), "--out", str(out_old)])
+    assert rc == 0
+    assert read_packmeta(out_old / "packs" / "highways-conus-2026q2r2.pack").schema_version == 1
+
+    new = tmp_path / "highways-new.sqlite"
+    _make_highway_lines_sqlite(new, flags_ref=True)
+    out_new = tmp_path / "new"
+    rc = cli.main(["build-pack", str(new), "--id", "highways-conus",
+                   "--kind", "highways", "--cycle", "2026q3r1",
+                   "--attribution", "OpenStreetMap contributors (ODbL)",
+                   "--regions", "conus",
+                   "--sec", str(keys / "minisign.sec"), "--out", str(out_new)])
+    assert rc == 0
+    assert read_packmeta(out_new / "packs" / "highways-conus-2026q3r1.pack").schema_version == 2
+
+
 def test_build_airspace_pack_end_to_end(tmp_path):
     # AER-547 acceptance: build_airspace() -> build-pack --kind airspace
     # carries openAIP's license through PackMeta and the manifest's
