@@ -24,10 +24,13 @@ decision 2.
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from pathlib import Path
 
 from .. import arinc424
+
+_EARTH_RADIUS_NM = 3440.065
 
 _SCHEMA = """
 CREATE TABLE airways (
@@ -86,7 +89,11 @@ CREATE TABLE legs (
     speed_kt        INTEGER,
     turn_dir        TEXT,
     rnp             REAL,
-    flags           INTEGER NOT NULL
+    flags           INTEGER NOT NULL,
+    centre_fix      TEXT,       -- RF (radius-to-fix) arc centre; NULL for every other leg type
+    centre_lat      REAL,
+    centre_lon      REAL,
+    arc_radius_nm   REAL        -- derived: great_circle(centre, fix); convenience for the renderer
 );
 CREATE INDEX idx_proc_airport ON procedures(airport, kind);
 CREATE INDEX idx_trans_proc ON transitions(proc_id);
@@ -136,6 +143,13 @@ def _approach_type_and_runway(proc_ident: str) -> tuple[str | None, str | None]:
         if len(digits) > 2 and digits[2] in ("L", "R", "C"):
             runway += digits[2]
     return (kind, runway)
+
+
+def _great_circle_nm(p1: tuple[float, float], p2: tuple[float, float]) -> float:
+    lat1, lon1, lat2, lon2 = (math.radians(v) for v in (*p1, *p2))
+    a = (math.sin((lat2 - lat1) / 2) ** 2
+         + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2)
+    return _EARTH_RADIUS_NM * 2 * math.asin(min(1.0, math.sqrt(a)))
 
 
 def _build_airways(con: sqlite3.Connection, path: Path,
@@ -204,15 +218,21 @@ def _build_procedures(con: sqlite3.Connection, path: Path,
             trans_id = cur.lastrowid
             trans_ids[trans_key] = trans_id
 
+        arc_radius_nm = None
+        if leg.centre_lat is not None and leg.fix_lat is not None:
+            arc_radius_nm = _great_circle_nm(
+                (leg.centre_lat, leg.centre_lon), (leg.fix_lat, leg.fix_lon))
         con.execute(
             "INSERT INTO legs (transition_id, seq, path_term, fix_id, fix_lat, "
             "fix_lon, fix_type, recd_navaid, theta, rho, course, dist_nm, "
             "time_min, alt_desc, alt1_ft, alt2_ft, speed_kt, turn_dir, rnp, "
-            "flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "flags, centre_fix, centre_lat, centre_lon, arc_radius_nm) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (trans_id, leg.seq, leg.path_term, leg.fix_id, leg.fix_lat, leg.fix_lon,
              leg.fix_type, leg.recd_navaid, leg.theta, leg.rho, leg.course,
              leg.dist_nm, leg.time_min, leg.alt_desc, leg.alt1_ft, leg.alt2_ft,
-             leg.speed_kt, leg.turn_dir, leg.rnp, leg.flags))
+             leg.speed_kt, leg.turn_dir, leg.rnp, leg.flags,
+             leg.centre_fix, leg.centre_lat, leg.centre_lon, arc_radius_nm))
         n += 1
     con.commit()
     return n

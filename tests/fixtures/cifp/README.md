@@ -1,11 +1,14 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 # `FAACIFP18` test fixture (AER-1600 / PA1)
 
-153 real records extracted verbatim (no fields altered) from the live FAA
+156 real records extracted verbatim (no fields altered) from the live FAA
 CIFP cycle **2609** (effective 2026-09-03), downloaded from
 `https://aeronav.faa.gov/Upload_313-d/cifp/CIFP_260903.zip` on 2026-09-19.
 FAA CIFP data is a US Government work (public domain); see
 `docs/LICENSE-AUDIT.md`.
+
+Three more records (`CFDXF`/`CFDXG`/`CFDXH`) were added on 2026-09-19
+(AER-1700) from the same cycle -- see "What is in it" below.
 
 This is the brief's "golden-procedure fixture set" (`procedures_and_airways_plan.md`
 Sec. 7): a handful of real procedures with a known-correct parsed form that
@@ -23,6 +26,7 @@ every downstream PA item can test against, so nobody re-derives them.
 | `09J` `VOR-A` approach | 11 | `PI` (procedure turn) and `AF` (DME arc) legs |
 | `A315`, `A509` airways (USA only) | 17 | Enroute Airways (`ER`), one with a foreign-region (Bahamas) fix |
 | Resolving fix records | 54 | every VOR/NDB/waypoint/runway the above legs reference, so every fix resolves (`fix_lat`/`fix_lon` verified non-NULL for all 76 procedure legs and all 17 airway legs) |
+| `CFDXF`/`CFDXG`/`CFDXH` centre-fix waypoints | 3 | AER-1700: the RF legs' *Center Fix* (cols 107-116) references these idents but never defines them -- without these records every RF arc's centre silently resolves to `(None, None)`; added so the golden RF-arc radius test has a real centre to resolve against |
 
 KSBA (Santa Barbara) was chosen because it is also PA14's planned bench-validation
 airport (SID -> airway -> STAR -> approach against X-Plane); reusing it here

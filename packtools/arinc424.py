@@ -124,6 +124,10 @@ _PROC = dict(
     alt2=slice(89, 94),
     speed=slice(99, 102),
     vertical_angle=slice(102, 106),
+    centre_fix=slice(106, 111),        # RF (radius-to-fix) arc centre (5.20)
+    centre_icao=slice(112, 114),
+    centre_section=slice(114, 115),
+    centre_subsection=slice(115, 116),
 )
 
 _KIND_BY_SUBSECTION = {"D": "sid", "E": "star", "F": "approach"}
@@ -423,6 +427,9 @@ class ProcedureLegRecord:
     turn_dir: str | None
     rnp: float | None
     flags: int
+    centre_fix: str | None
+    centre_lat: float | None
+    centre_lon: float | None
 
 
 def iter_procedure_legs(path: str | Path,
@@ -452,6 +459,12 @@ def iter_procedure_legs(path: str | Path,
         fix_section = _strip(line[f["fix_section"]])
         fix_subsection = _strip(line[f["fix_subsection"]])
         lat, lon = _resolve(fix_index, airport, fix_id, fix_icao, fix_section, fix_subsection)
+        centre_fix = _strip(line[f["centre_fix"]])
+        centre_icao = _strip(line[f["centre_icao"]])
+        centre_section = _strip(line[f["centre_section"]])
+        centre_subsection = _strip(line[f["centre_subsection"]])
+        centre_lat, centre_lon = _resolve(
+            fix_index, airport, centre_fix, centre_icao, centre_section, centre_subsection)
         dist_nm, time_min = _decode_dist_or_time(line[f["dist"]])
         yield ProcedureLegRecord(
             airport=airport,
@@ -478,6 +491,9 @@ def iter_procedure_legs(path: str | Path,
             turn_dir=_strip(line[f["turn_dir"]]),
             rnp=_decode_rnp(line[f["rnp"]]),
             flags=_decode_wdc_flags(line[f["wdc"]], path_term),
+            centre_fix=centre_fix,
+            centre_lat=centre_lat,
+            centre_lon=centre_lon,
         )
 
 

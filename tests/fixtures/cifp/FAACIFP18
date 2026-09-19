@@ -41,6 +41,9 @@ SUSAP KABQK2CKAGNE K20    W     N35053720W106340055                       E0078 
 SUSAP KABQK2CKEIFR K20    W     N35073243W106353428                       E0078     NAR           KEIFR                    136162605
 SUSAP KABQK2CTEENR K20    W     N35035853W106343885                       E0078     NAR           TEENR                    136632605
 SUSAP KABQK2CWAPMA K20    W     N35001315W106470170                       E0079     NAR           WAPMA                    136732605
+SUSAP KABQK2CCFDXF K20    A     N35022000W106430998                       E0079     NAR           CFDXF(CNF)               135442605
+SUSAP KABQK2CCFDXG K20    A     N35051857W106361687                       E0078     NAR           CFDXG(CNF)               135452605
+SUSAP KABQK2CCFDXH K20    A     N35050959W106372250                       E0078     NAR           CFDXH(CNF)               135462605
 SUSAP KABQK2GRW21    0100002140 N35023027W106362546         +1599205316000055150R                                          142011711
 SUSAP KSBAK2CFLOUT K20    C     N34152732W119571153                       E0117     NAR           FLOUT                    096482605
 SUSAP KSBAK2CFRIRR K20    W     N34300042W118224252                       E0115     NAR           FRIRR                    096492605
