@@ -124,6 +124,29 @@ SOURCES: dict[str, Source] = {
         license=_FAA_PUBLIC_DOMAIN,
         implemented=False,
     ),
+    # A different pack kind from cifp-conus above, not a replacement for it
+    # -- "cifp" names the pyAvTools spatial-index shape VirtualVfr consumes
+    # (airports/runways/navaids only, no procedures); "procedures" is
+    # SIDs/STARs/approaches/airways from a permissive parser written for
+    # this repo (packtools/arinc424.py, AER-1600/PA1). Same source file as
+    # cifp-conus (same cifp_url) since both read the same CIFP zip.
+    #
+    # implemented=False -- deliberately, unlike a normal "ready to publish"
+    # source: this is the first safety-relevant pack kind built by a new,
+    # from-scratch parser to ship through the *unattended* nightly cron
+    # (CLAUDE.md: a new kind must merge before its first publish; this is
+    # the publish decision itself, which is Bill's, not a default). The
+    # parser is validated field-by-field against a live cycle (2609) --
+    # see the AER-1600 PR -- but no human has yet spot-checked a built
+    # pack's procedures against real published charts. Flip this once that
+    # sign-off happens; nothing else about the pipeline needs to change.
+    "procedures-conus": Source(
+        pack_id="procedures-conus", kind="procedures", cadence="airac",
+        url_for=cifp_url, builder="procedures",
+        attribution="FAA CIFP (public domain)",
+        license=_FAA_PUBLIC_DOMAIN,
+        implemented=False,
+    ),
 }
 
 
