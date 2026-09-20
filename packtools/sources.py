@@ -131,21 +131,23 @@ SOURCES: dict[str, Source] = {
     # this repo (packtools/arinc424.py, AER-1600/PA1). Same source file as
     # cifp-conus (same cifp_url) since both read the same CIFP zip.
     #
-    # implemented=False -- deliberately, unlike a normal "ready to publish"
-    # source: this is the first safety-relevant pack kind built by a new,
-    # from-scratch parser to ship through the *unattended* nightly cron
-    # (CLAUDE.md: a new kind must merge before its first publish; this is
-    # the publish decision itself, which is Bill's, not a default). The
-    # parser is validated field-by-field against a live cycle (2609) --
-    # see the AER-1600 PR -- but no human has yet spot-checked a built
-    # pack's procedures against real published charts. Flip this once that
-    # sign-off happens; nothing else about the pipeline needs to change.
+    # implemented=True (AER-1702) -- published, but not yet verified. The
+    # original gate here asked for a human to spot-check a built pack's
+    # procedures against real published charts without saying how, which
+    # wasn't actionable. It is replaced by a better check: Bill flying this
+    # pack against ForeFlight's data (which he pays for) as an independent
+    # authoritative source -- a real differential on fixes, sequence,
+    # altitude constraints, and airway legs, not eyeballing charts.
+    # Publishing early is what makes that check possible; the pack itself
+    # is still unverified until he reports back, and nothing consumes it
+    # yet (PA5/AER-1604 and PA7/AER-1606, procedure lookup and selection,
+    # are both backlog) so a wrong pack can't mislead anyone in the
+    # meantime. Do not read this flip as "verified" -- it isn't.
     "procedures-conus": Source(
         pack_id="procedures-conus", kind="procedures", cadence="airac",
         url_for=cifp_url, builder="procedures",
         attribution="FAA CIFP (public domain)",
         license=_FAA_PUBLIC_DOMAIN,
-        implemented=False,
     ),
 }
 

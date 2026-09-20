@@ -53,6 +53,7 @@ SQLITE_KINDS: dict[str, tuple[str, str]] = {
     # packs share this kind, so each installs under its own pack-id subdir
     # (airports/<pack_id>/current/airports.sqlite) and the SVS merges them.
     "airports": ("airports", "airports.sqlite"),
+    "procedures": ("procedures", "procedures.sqlite"),
 }
 
 # Kinds where multiple packs coexist, so the install path is keyed by pack id
@@ -89,6 +90,7 @@ KIND_LABELS = {
     "navaids": "Navaids & Airways",
     "obstacles": "Obstacles",
     "cifp": "Procedures & Waypoints",
+    "procedures": "SIDs, STARs & Approaches",
     "water": "Water",
     "terrain": "Terrain",
     "charts": "Charts",
