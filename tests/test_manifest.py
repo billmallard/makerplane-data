@@ -87,6 +87,40 @@ def test_non_cyclical_entry_always_covers():
     assert e.days_until_expiry(D("2026-06-14")) is None
 
 
+def test_remove_drops_matching_id_cycle_only():
+    m = Manifest.new(GEN)
+    m.upsert(_entry(id="highways-conus", kind="highways", cycle="2026q3r1",
+                    effective=None, expires=None))
+    m.upsert(_entry(id="highways-conus", kind="highways", cycle="2026q3r1-smoketest",
+                    effective=None, expires=None))
+    assert m.remove("highways-conus", "2026q3r1-smoketest") is True
+    assert [p.cycle for p in m.packs] == ["2026q3r1"]
+    assert m.remove("highways-conus", "2026q3r1-smoketest") is False   # already gone
+
+
+def test_select_prefers_canonical_cycle_over_test_suffixed():
+    # The exact incident this guards against: a states-limited test build's
+    # cycle string ("...-smoketest") used to sort higher than the real
+    # edition it stood in for, so select() picked the test pack as "current"
+    # until the bad entry was manually retracted (makerplane-data#60,
+    # AER-1109). A hyphen-suffixed cycle is the test/pre-release convention
+    # (docs/roads.md) and must never outrank a canonical one, in either
+    # insertion order -- so select() no longer depends on retract() having
+    # already run.
+    def hwy(cycle):
+        return _entry(id="highways-conus", kind="highways", cycle=cycle,
+                      effective=None, expires=None)
+    for order in (["2026q3r1", "2026q3r1-smoketest"], ["2026q3r1-smoketest", "2026q3r1"]):
+        m = Manifest.new(GEN)
+        for c in order:
+            m.upsert(hwy(c))
+        assert m.select("highways-conus", D("2026-07-28")).cycle == "2026q3r1", order
+    # retract() still fully drops the bad entry, e.g. to reclaim bucket
+    # listing hygiene once select() is no longer relying on it for safety.
+    m.remove("highways-conus", "2026q3r1-smoketest")
+    assert [p.cycle for p in m.packs] == ["2026q3r1"]
+
+
 def test_prune_old_cycles_keeps_recent():
     m = Manifest.new(GEN)
     for c, eff, exp in [("2605", "2026-05-14", "2026-06-11"),
@@ -95,6 +129,16 @@ def test_prune_old_cycles_keeps_recent():
         m.upsert(_entry(cycle=c, effective=eff, expires=exp))
     m.prune_old_cycles(keep=2)
     assert sorted(p.cycle for p in m.packs) == ["2606", "2607"]
+
+
+def test_prune_old_cycles_prefers_canonical_over_test_suffixed():
+    m = Manifest.new(GEN)
+    m.upsert(_entry(id="highways-conus", kind="highways", cycle="2026q3r1",
+                    effective=None, expires=None))
+    m.upsert(_entry(id="highways-conus", kind="highways", cycle="2026q3r1-smoketest",
+                    effective=None, expires=None))
+    m.prune_old_cycles(keep=1)
+    assert [p.cycle for p in m.packs] == ["2026q3r1"]
 
 
 def test_validate_rejects_bad_manifests():

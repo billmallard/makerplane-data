@@ -17,6 +17,22 @@ reader falls back to `flags=0, ref=None` rather than raising — nothing new
 is required by the manifest, and old packs keep working right up until
 they're rebuilt.
 
+**`schema_version` tracks the `highway_lines` columns** (AER-1715):
+`build-pack --kind highways` no longer just stamps the package-wide default
+— it opens the built sqlite and looks at what's actually there
+(`packmeta.detect_highways_schema_version`), so `1` means no `flags`/`ref`
+columns and `2` means they're present. Raises rather than guessing if it
+sees a column set it doesn't recognise (add the new shape to
+`HIGHWAYS_TABLE_SCHEMAS` first). This is forward-only: packs already
+published before this change keep whatever `schema_version` they were
+built with (`1`, regardless of their real columns) rather than being
+retroactively relabeled — `HighwayDB` still probes `PRAGMA table_info`
+itself rather than trusting the field, so nothing reads it as authoritative
+yet, and relabeling a live pack means re-signing and republishing it for a
+field nothing currently gates on. A future reader that wants to gate on
+`schema_version` instead of probing needs to know only packs built from
+this point on carry an accurate value.
+
 ## Build + upload
 
 Roads and water come from the *same* Geofabrik per-state bundles
@@ -40,7 +56,20 @@ packtool build-roads --states conus --dest highways.sqlite
 #   subregion extracts instead. A state that comes back empty or non-zip is a
 #   hard failure, never a silent skip (makerplane-data#17: the June 2026 build
 #   used a bare 'california' entry and shipped a pack with zero California
-#   roads without anyone noticing until someone flew there).
+#   roads without anyone noticing until someone flew there). A transient
+#   Geofabrik 502/503/timeout on a state is routine over an ~80-minute CONUS
+#   fetch, not exceptional (makerplane-data#60): fetch_state retries a single
+#   state a few times with short backoff, and any state still down after that
+#   gets one more pass once the rest of CONUS has been tried -- long enough
+#   for a clustered mirror hiccup to clear. A state down through both passes
+#   is still the same hard failure above. A state whose upstream *generation*
+#   is wedged rather than transiently erroring -- Geofabrik's daily build 200s
+#   but the archive is a README-only stub with no layers, verified for
+#   Delaware on 2026-09-07 across multiple consecutive days -- can't be
+#   outlasted by the retry pass either, since a retry just re-downloads the
+#   same stub. `STATE_SNAPSHOT_OVERRIDES` in make_roads.py pins that state to
+#   its last known-good dated snapshot instead of the "latest" alias until
+#   Geofabrik's generation for it is confirmed healed.
 
 # 2. pack + upload (signed), alongside navdata/terrain/water
 R2_ENDPOINT=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
@@ -63,7 +92,23 @@ pattern as `water.yml`/`cyclical.yml` — no local secrets or workstation
 needed, just the `MINISIGN_SECRET_KEY`/`R2_*` Actions secrets already used
 for the daily cyclical build. Full CONUS is still a long-running dispatch
 (one Geofabrik state bundle at a time); a partial `--states` list (e.g.
-`colorado,texas`) is the cheap way to test the workflow itself.
+`colorado,texas`) is the cheap way to test the workflow itself -- **but pass
+`publish: false`** when doing so. `--upload` always targets the production
+`highways-conus` id no matter what `states` was. That bit a states-limited
+test build on 2026-09-12 (makerplane-data#60): a Colorado-only
+`2026q3r1-smoketest` build was uploaded with `publish` defaulting to true
+(the input didn't exist yet) and, because a non-cyclical pack's currency was
+picked by comparing cycle *strings* (`Manifest.select`) and `"...smoketest"`
+sorts after `"2026q3r1"`, it stayed selected as the live CONUS pack even
+after the real `2026q3r1` build published. `Manifest.select` and
+`prune_old_cycles` now rank a hyphen-suffixed cycle below every canonical
+one regardless of how it sorts lexically (AER-1109), so a repeat of this
+exact incident no longer needs a manual retract to fix the live selection --
+but a states-limited pack still gets published under the production id and
+still confuses anything reading the manifest by hand, so the `publish:
+false` discipline above still stands. Undo a bad publish like that one with
+`packtool remove-pack --id highways-conus --cycle 2026q3r1-smoketest`, which
+retracts just that manifest entry (not the pack object) and re-signs.
 
 ## Consume on a prototype
 
