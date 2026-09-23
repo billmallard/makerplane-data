@@ -143,10 +143,18 @@ placeholder).
 - The daily pipeline is **live and unattended**: `cyclical.yml` builds + signs +
   uploads to R2, served at `https://navdata.aerocommons.org` (manifest at
   `/manifest.json`). Reproduce-from-nothing runbook: `docs/cloudflare_setup.md`.
-- **Rule (from prior incident):** a new pack `kind` must be merged to `main`
-  **before** its first R2 publish — an unknown kind in a published manifest
-  crashed the nightly cron. New kinds land in `packmeta.KINDS` + the updater
-  first, then publish.
+- **Rule (from prior incident, reworded after AER-1935):** a new pack `kind`
+  must be merged to **`dev`** — the branch devices actually track (see the
+  branch model below) — **before** its first R2 publish. The original wording
+  named `main`; AER-1702 followed it to the letter (the kind landed on `main`)
+  and devices tracking `dev` still lost every pack in the manifest, not just
+  the new one, because `main` was 15 commits ahead of `dev` on exactly the
+  files that mattered. Merging to `main` alone proves nothing about what a
+  device tracking `dev` will see. New kinds land in `packmeta.KINDS` + the
+  updater on `dev` first, then promote to `qa`/`main`, then publish. AER-1935
+  also hardened the client itself as defense-in-depth — an unrecognized kind
+  is now dropped, not fatal, and can no longer poison the manifest cache — but
+  that is a safety net, not a reason to skip the merge-order rule.
 - Configurator deploy is separate (`npx wrangler deploy` from `configurator/`);
   see configurator/CLAUDE.md.
 
