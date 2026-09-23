@@ -3,6 +3,7 @@
 end-to-end build+sign+verify path with a real (tiny) sqlite pack."""
 
 import datetime as dt
+import json
 import sqlite3
 
 import pytest
@@ -117,6 +118,44 @@ def test_validate_rejects_expires_without_effective():
         validate({"manifest_version": 1, "generated": GEN, "packs": [{
             "id": "x", "kind": "navdata", "cycle": "1", "bytes": 1,
             "sha256": "a" * 64, "url": "u", "expires": "2026-07-09"}]})
+
+
+def test_from_obj_strict_rejects_unknown_kind():
+    obj = {"manifest_version": 1, "generated": GEN, "packs": [{
+        "id": "x", "kind": "procedures", "cycle": "1", "bytes": 1,
+        "sha256": "a" * 64, "url": "u"}]}
+    with pytest.raises(ManifestError):
+        Manifest.from_obj(obj)
+
+
+def test_from_obj_lenient_drops_unknown_kind_keeps_rest():
+    """A manifest built by a newer packtools than this client's -- one that
+    knows a pack kind this client doesn't yet -- must not lose every OTHER
+    pack too (AER-1935)."""
+    good = _entry(id="navdata-conus", kind="navdata", cycle="2606")
+    obj = {
+        "manifest_version": 1, "generated": GEN,
+        "packs": [good.as_dict(), {
+            "id": "procedures-conus", "kind": "procedures", "cycle": "2609",
+            "bytes": 5, "sha256": "b" * 64, "url": "https://x/p.pack"}],
+        "regions": {},
+    }
+    m = Manifest.from_obj(obj, lenient=True)
+    assert [p.id for p in m.packs] == ["navdata-conus"]
+    assert m.dropped_kinds == ["procedures"]
+
+
+def test_from_bytes_lenient_roundtrips_through_json():
+    obj = {"manifest_version": 1, "generated": GEN, "packs": [{
+        "id": "x", "kind": "BOGUS", "cycle": "1", "bytes": 1,
+        "sha256": "a" * 64, "url": "u"}]}
+    m = Manifest.from_bytes(json.dumps(obj).encode(), lenient=True)
+    assert m.packs == []
+    assert m.dropped_kinds == ["BOGUS"]
+    # strict path on the same bytes still raises -- the build side must
+    # never silently forgive a bogus kind before it publishes anything.
+    with pytest.raises(ManifestError):
+        Manifest.from_bytes(json.dumps(obj).encode())
 
 
 def test_regions_block_loads():

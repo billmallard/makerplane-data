@@ -7,6 +7,7 @@ these tests exercise the real sign->verify and manifest contract across both
 halves of the system."""
 
 import datetime as dt
+import json
 import sqlite3
 from functools import partial
 from pathlib import Path
@@ -254,6 +255,79 @@ def test_offline_uses_cached_manifest(tmp_path):
     up.remote = Dead()
     rows = up.status()                            # must fall back to cache
     assert any(r.status == CURRENT for r in rows)
+
+
+def _sign_manifest_dir(tmp_path, obj, sk):
+    """A hand-built signed manifest served from a directory, for exercising
+    fetch_manifest() without running the full pack-build pipeline."""
+    remote_dir = tmp_path / "remote"
+    remote_dir.mkdir(exist_ok=True)
+    raw = (json.dumps(obj, indent=2, sort_keys=True) + "\n").encode()
+    (remote_dir / "manifest.json").write_bytes(raw)
+    signing.sign_file(remote_dir / "manifest.json", sk)
+    return remote_dir
+
+
+def test_unknown_pack_kind_is_skipped_not_fatal(tmp_path):
+    """A manifest published by a newer packtools that knows a pack kind this
+    client predates must not lose every OTHER pack too (AER-1935) -- an
+    older device tracking an older branch will see this the moment a new
+    kind's first pack is published anywhere upstream of it."""
+    sk, pub = signing.generate_keypair()
+    obj = {
+        "manifest_version": 1, "generated": "2026-06-14T00:00:00Z",
+        "packs": [
+            {"id": "navdata-conus", "kind": "navdata", "cycle": "2606",
+             "bytes": 1, "sha256": "a" * 64, "url": f"{ORIGIN}/p.pack",
+             "effective": "2026-06-11", "expires": "2026-07-09"},
+            {"id": "procedures-conus", "kind": "procedures", "cycle": "2609",
+             "bytes": 1, "sha256": "b" * 64, "url": f"{ORIGIN}/q.pack"},
+        ],
+        "regions": {},
+    }
+    remote_dir = _sign_manifest_dir(tmp_path, obj, sk)
+    cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", packs=("navdata-conus",))
+    up = Updater(cfg, pub, remote=LocalDirRemote(remote_dir), today=TODAY)
+    m = up.fetch_manifest()
+    assert [p.id for p in m.packs] == ["navdata-conus"]
+    assert m.dropped_kinds == ["procedures"]
+
+
+def test_catalog_rejected_manifest_is_not_reported_as_offline(tmp_path):
+    """A manifest that fetches and verifies fine but fails to parse is a
+    broken catalog, not a network problem -- it must be reported as itself
+    (ManifestError), never silently swapped for a stale cache under an
+    'offline' label, and it must never overwrite the last good cache."""
+    sk, pub = signing.generate_keypair()
+    good_obj = {
+        "manifest_version": 1, "generated": "2026-06-14T00:00:00Z",
+        "packs": [{"id": "navdata-conus", "kind": "navdata", "cycle": "2606",
+                   "bytes": 1, "sha256": "a" * 64, "url": f"{ORIGIN}/p.pack",
+                   "effective": "2026-06-11", "expires": "2026-07-09"}],
+        "regions": {},
+    }
+    remote_dir = _sign_manifest_dir(tmp_path, good_obj, sk)
+    cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", packs=("navdata-conus",))
+    up = Updater(cfg, pub, remote=LocalDirRemote(remote_dir), today=TODAY)
+    up.fetch_manifest()                              # populates a good cache
+    cached_raw = (tmp_path / "pi" / "manifest.json").read_bytes()
+
+    # Replace with a manifest that is genuinely structurally broken (not just
+    # an unrecognized kind, which is now tolerated) -- missing a required field.
+    bad_obj = {
+        "manifest_version": 1, "generated": "2026-06-15T00:00:00Z",
+        "packs": [{"id": "navdata-conus", "kind": "navdata", "cycle": "2607"}],
+        "regions": {},
+    }
+    _sign_manifest_dir(tmp_path, bad_obj, sk)
+
+    logs = []
+    up.log = logs.append
+    with pytest.raises(core.ManifestError):
+        up.fetch_manifest()
+    assert not any("offline" in line for line in logs)
+    # the bad manifest must not have clobbered the last good cache
+    assert (tmp_path / "pi" / "manifest.json").read_bytes() == cached_raw
 
 
 def test_import_dir_via_cli_offline(tmp_path, monkeypatch):

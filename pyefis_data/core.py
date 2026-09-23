@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from packtools import signing
-from packtools.manifest import Manifest, PackEntry
+from packtools.manifest import Manifest, ManifestError, PackEntry
 
 from .config import Config
 
@@ -404,7 +404,16 @@ class Updater:
     def fetch_manifest(self, remote=None) -> Manifest:
         """Fetch + verify the manifest. Falls back to the last good cache when
         offline; the cache is itself re-verified, so stale-but-signed is OK and
-        unsigned is never trusted."""
+        unsigned is never trusted.
+
+        A manifest that fetches fine and verifies fine but fails to *parse*
+        (``ManifestError``) is not an offline condition -- the network and the
+        signature are both proven good, the catalog itself is bad. Treating
+        that as "offline" hides a permanent problem behind a label that says
+        "try again later", and re-fetching never helps (AER-1935). So it is
+        parsed -- and only on success cached -- before anything is written to
+        disk: a bad manifest must never overwrite the last good cache.
+        """
         remote = remote or self.remote
         cache = self.config.root / "manifest.json"
         cache_sig = self.config.root / "manifest.json.minisig"
@@ -412,11 +421,12 @@ class Updater:
             raw = remote.get_bytes(self.config.manifest_url)
             sig = remote.get_bytes(self.config.sig_url).decode("ascii")
             self._verify(raw, sig)                       # before trust/cache
+            m = self._loaded(raw)                         # before caching
             self.config.root.mkdir(parents=True, exist_ok=True)
             cache.write_bytes(raw)
             cache_sig.write_text(sig, encoding="ascii")
-            return self._loaded(raw)
-        except VerificationError:
+            return m
+        except (VerificationError, ManifestError):
             raise
         except Exception as e:
             if cache.exists() and cache_sig.exists():
@@ -427,7 +437,11 @@ class Updater:
             raise
 
     def _loaded(self, raw: bytes) -> Manifest:
-        m = Manifest.from_bytes(raw)
+        m = Manifest.from_bytes(raw, lenient=True)
+        if m.dropped_kinds:
+            self.log("catalog: ignoring pack kind(s) this client doesn't "
+                      f"recognize yet: {', '.join(m.dropped_kinds)} "
+                      "(update pyefis-data to track them)")
         self.manifest_generated = m.generated
         return m
 

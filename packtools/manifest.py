@@ -97,6 +97,9 @@ class Manifest:
     manifest_version: int = MANIFEST_VERSION
     packs: list[PackEntry] = field(default_factory=list)
     regions: dict[str, dict] = field(default_factory=dict)
+    # Pack kinds a lenient (client-side) parse dropped as unrecognized. Never
+    # serialized (to_obj/to_bytes list fields explicitly); diagnostic only.
+    dropped_kinds: list[str] = field(default_factory=list)
 
     # --- construction ---
     @staticmethod
@@ -167,22 +170,54 @@ class Manifest:
         return path
 
     @classmethod
-    def from_bytes(cls, raw: bytes) -> "Manifest":
-        return cls.from_obj(json.loads(raw))
+    def from_bytes(cls, raw: bytes, *, lenient: bool = False) -> "Manifest":
+        return cls.from_obj(json.loads(raw), lenient=lenient)
 
     @classmethod
-    def from_obj(cls, obj: dict) -> "Manifest":
+    def from_obj(cls, obj: dict, *, lenient: bool = False) -> "Manifest":
+        """``lenient=True`` is the client-parsing path: a pack kind this
+        client doesn't recognize yet (an older device fetching a manifest
+        published after a newer kind landed) is dropped rather than failing
+        the whole catalog -- see ``drop_unknown_kinds``. The build side
+        (publish/verify) leaves this False so a genuinely malformed manifest
+        still fails loudly (``test_validate_rejects_bad_manifests``)."""
+        dropped: list[dict] = []
+        if lenient:
+            obj, dropped = drop_unknown_kinds(obj)
         validate(obj)
         return cls(
             generated=obj["generated"],
             manifest_version=obj.get("manifest_version", MANIFEST_VERSION),
             packs=[PackEntry.from_dict(p) for p in obj.get("packs", [])],
             regions=obj.get("regions", {}),
+            dropped_kinds=sorted({p.get("kind") for p in dropped}),
         )
 
     @classmethod
     def read(cls, path: str | Path) -> "Manifest":
         return cls.from_bytes(Path(path).read_bytes())
+
+
+def drop_unknown_kinds(obj: dict) -> tuple[dict, list[dict]]:
+    """Split a raw manifest object's packs by whether this client's ``KINDS``
+    recognizes them. Used only by the lenient (client) parse path.
+
+    A published manifest can legitimately contain a pack kind this build of
+    packtools/pyefis_data predates -- a new kind lands on one branch before
+    every device has taken the client release that knows about it. That is
+    forward-incompatibility, not corruption: the fix is to ignore the pack
+    this client can't use yet, not to reject the entire signed catalog and
+    lose every *other* pack too (makerplane-data AER-1935).
+    """
+    packs = obj.get("packs", [])
+    if not isinstance(packs, list):
+        return obj, []
+    kept, dropped = [], []
+    for p in packs:
+        (kept if isinstance(p, dict) and p.get("kind") in KINDS else dropped).append(p)
+    if not dropped:
+        return obj, []
+    return {**obj, "packs": kept}, dropped
 
 
 class ManifestError(ValueError):
