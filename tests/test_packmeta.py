@@ -134,6 +134,22 @@ def test_airspace_kind_accepted_and_carries_openaip_license(tmp_path):
     assert got.effective is None and got.expires is None   # non-cyclical
 
 
+def test_plates_kind_accepted_and_carries_faa_public_domain_license(tmp_path):
+    # Plate packs are sqlite (BLOB payload), like navdata/water -- not zip;
+    # see packtools/build/plates.py for why.
+    db = tmp_path / "plates-us-east.sqlite"
+    _make_sqlite(db)
+    meta = PackMeta(id="plates-us-east", kind="plates", cycle="2609",
+                    effective="2026-09-03", expires="2026-10-01",
+                    attribution="FAA Digital Terminal Procedures Publication "
+                                 "(d-TPP), AeroNav Products",
+                    license="LicenseRef-us-public-domain")
+    packmeta.embed_sqlite(db, meta)
+    got = packmeta.read_sqlite(db)
+    assert got == meta
+    assert got.kind == "plates"
+
+
 def _make_highway_lines(path, *, flags_ref: bool):
     con = sqlite3.connect(str(path))
     if flags_ref:
