@@ -172,11 +172,11 @@ def derive_plate_georef(word_positions: dict[str, list[tuple[float, float]]],
                         control_fixes: dict[str, tuple[float, float]]) -> GeoResult:
     """Attempt the CIFP-cross-reference derivation for one plate page.
 
-    ``word_positions``: fix ident (as printed) -> list of (x_center,
-    y_center) pixel occurrences on the page (from a PDF text-layer extract,
-    e.g. pymupdf's ``page.get_text("words")``; the caller reduces each word
-    bbox to its centre and groups by text -- kept out of this function so it
-    carries no pymupdf/fitz dependency and stays trivially testable).
+    ``word_positions``: fix ident (as printed) -> list of (x, y) occurrences
+    on the page (from a PDF text-layer extract, e.g. pypdf's
+    ``page.extract_text(visitor_text=...)``; the caller groups by text --
+    kept out of this function so it carries no PDF-library dependency and
+    stays trivially testable).
     ``control_fixes``: fix ident -> (lat, lon), from the CIFP-built
     procedures pack, for every fix this procedure's legs reference.
 

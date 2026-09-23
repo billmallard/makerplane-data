@@ -88,26 +88,35 @@ class PlatesBuildError(RuntimeError):
     pass
 
 
-def _extract_words_pymupdf(pdf_path: Path) -> dict[str, list[tuple[float, float]]]:
+def _extract_words_pypdf(pdf_path: Path) -> dict[str, list[tuple[float, float]]]:
     """Real word-position extraction. Lazy import -- like ``requests`` in
-    ``fetch.py``, only the real build path needs pymupdf installed; tests
-    inject a fake extractor and never hit this."""
-    import pymupdf  # optional dependency; see pyproject.toml [plates] extra
+    ``fetch.py``, only the real build path needs pypdf installed; tests
+    inject a fake extractor and never hit this. pypdf (BSD) over pymupdf
+    (dual-licensed AGPL-3.0/commercial) -- see docs/LICENSE-AUDIT.md."""
+    import pypdf  # optional dependency; see pyproject.toml [plates] extra
 
     out: dict[str, list[tuple[float, float]]] = {}
-    doc = pymupdf.open(str(pdf_path))
-    try:
-        page = doc[0]
-        for x0, y0, x1, y1, text, *_ in page.get_text("words"):
-            out.setdefault(text, []).append(((x0 + x1) / 2, (y0 + y1) / 2))
-    finally:
-        doc.close()
+    reader = pypdf.PdfReader(str(pdf_path))
+    page = reader.pages[0]
+
+    def visitor(text: str, cm, tm, font_dict, font_size) -> None:
+        # pypdf hands the whole string rendered by one text-show operator,
+        # not one word at a time like pymupdf's get_text("words") -- split
+        # on whitespace and give every resulting word the run's text origin.
+        # Coarser than a per-word bbox centre, but the fix idents this feeds
+        # (packtools/build/georef.py) print as their own standalone runs on
+        # every real plate checked so far (tests/test_georef.py).
+        x, y = tm[4], tm[5]
+        for word in text.split():
+            out.setdefault(word, []).append((x, y))
+
+    page.extract_text(visitor_text=visitor)
     return out
 
 
 def build_plates(records: list[PlateRecord], pdf_dir: str | Path, out_path: str | Path, *,
                  cycle: str, fix_index: dict[str, dict[str, tuple[float, float]]] | None = None,
-                 extract_words=_extract_words_pymupdf, log=lambda *a: None) -> Path:
+                 extract_words=_extract_words_pypdf, log=lambda *a: None) -> Path:
     """Build one region's plates pack from parsed catalog records and their
     already-downloaded PDFs.
 

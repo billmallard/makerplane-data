@@ -30,7 +30,13 @@ Y RWY 23" record names, downloaded verbatim from
 `packtools/build/plates.py`'s build test to prove the PDF-embedding path
 against a real file, not a synthetic one. `tests/test_georef.py`'s ADK case
 does *not* open this PDF (its word positions are pinned as literals so that
-test needs neither pymupdf nor network) -- regenerate them with:
+test needs neither a PDF library nor network) -- these particular literals
+were captured with pymupdf during the original spike. The production
+extractor (`packtools/build/plates.py`) is pypdf (BSD -- see
+`docs/LICENSE-AUDIT.md`), whose own real-extraction test
+(`tests/test_build_plates.py`) reads different raw positions off this same
+PDF but derives the same status/control-point outcome -- see that test's
+docstring. Regenerate the pymupdf-flavoured literals with:
 
 ```python
 import pymupdf

@@ -107,7 +107,7 @@ def test_build_plates_georef_uses_the_real_pdf_and_real_fix_coordinates(pdf_dir,
     """End-to-end with a fake (injected) word extractor pinned to the real
     values tests/test_georef.py captured from this exact PDF -- proves the
     wiring (which records get attempted, how the result lands in
-    plate_georef) without needing pymupdf installed to run this test."""
+    plate_georef) without needing pypdf installed to run this test."""
     records = parse_metafile(FIXTURE_XML)
     out = build_plates(
         records, pdf_dir, tmp_path / "out.pack", cycle="2609",
@@ -140,10 +140,14 @@ def test_build_plates_georef_skips_airports_outside_fix_index(pdf_dir, tmp_path)
 
 
 @pytest.mark.parametrize("kind", ["real"])
-def test_build_plates_real_pymupdf_extraction_matches_pinned_positions(pdf_dir, tmp_path, kind):
-    """Uses the real default extractor (real pymupdf, real PDF) end to end
-    -- skipped if pymupdf isn't installed (packtools[plates] extra)."""
-    pytest.importorskip("pymupdf")
+def test_build_plates_real_pypdf_extraction_matches_pinned_positions(pdf_dir, tmp_path, kind):
+    """Uses the real default extractor (real pypdf, real PDF) end to end
+    -- skipped if pypdf isn't installed (packtools[plates] extra). The
+    resulting positions differ from tests/test_georef.py's pymupdf-derived
+    pins (text origin vs. word-bbox centre, opposite y convention) but the
+    ambiguity outcome -- which fix idents print exactly once -- is the same
+    on this real plate, so the status/control_points assertion is unchanged."""
+    pytest.importorskip("pypdf")
     records = [r for r in parse_metafile(FIXTURE_XML) if r.pdf_name == "01244IYLY23.PDF"]
     out = build_plates(records, pdf_dir, tmp_path / "out.pack", cycle="2609",
                        fix_index=_ADK_FIX_INDEX)
