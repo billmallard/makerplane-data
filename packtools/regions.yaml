@@ -31,9 +31,27 @@ regions:
   us-south:
     name: US South
     bbox: [24, -107, 37, -75]
+  # lon_min -177 (not the old -170): AER-1990 measured that -170 cuts off
+  # five real FAA airports with published d-TPP plates in the central
+  # Aleutians / Bering Sea -- Adak (PADK), Atka (PAAK), Gambell (PAGM),
+  # Savoonga (PASA), St. Paul Island (PASN), westmost at PADK's real
+  # -176.643. -177 catches all five for a measured +3.3-4.1% growth on the
+  # live terrain-alaska pack (356 MB of real Copernicus GLO-30 source
+  # added, docs/aer-1990-alaska-region-gap.md).
+  #
+  # Deliberately NOT widened all the way to the -180 dateline: at this
+  # latitude band, -178 through -180 is mostly Chukotka Peninsula (Russia),
+  # not Alaska -- widening that far roughly doubles the added cost (to
+  # +5.4-6.0%) for tiles that are foreign land, not US coverage. See the
+  # doc above for the tile-by-tile breakdown.
+  #
+  # Eareckson Air Station (PASY, Shemya) has real d-TPP plates too but sits
+  # at +174.1 E -- across the antimeridian, which this bbox shape (a single
+  # lon_min/lon_max pair) cannot represent regardless of how far west it
+  # is widened. Still an open gap; see the doc.
   alaska:
     name: Alaska
-    bbox: [51, -170, 72, -129]
+    bbox: [51, -177, 72, -129]
   canada-west:
     name: Canada West
     bbox: [48, -140, 72, -100]
