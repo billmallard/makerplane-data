@@ -35,15 +35,16 @@ regions:
   # five real FAA airports with published d-TPP plates in the central
   # Aleutians / Bering Sea -- Adak (PADK), Atka (PAAK), Gambell (PAGM),
   # Savoonga (PASA), St. Paul Island (PASN), westmost at PADK's real
-  # -176.643. -177 catches all five for a measured +3.3-4.1% growth on the
-  # live terrain-alaska pack (356 MB of real Copernicus GLO-30 source
-  # added, docs/aer-1990-alaska-region-gap.md).
+  # -176.643. -177 adds 41 real Copernicus GLO-30 tiles (346 MB raw source);
+  # built and compressed the same way the pipeline ships, that's ~210 MB
+  # added to the live terrain-alaska pack, a measured +4.4% growth
+  # (docs/aer-1990-alaska-region-gap.md).
   #
   # Deliberately NOT widened all the way to the -180 dateline: at this
   # latitude band, -178 through -180 is mostly Chukotka Peninsula (Russia),
-  # not Alaska -- widening that far roughly doubles the added cost (to
-  # +5.4-6.0%) for tiles that are foreign land, not US coverage. See the
-  # doc above for the tile-by-tile breakdown.
+  # not Alaska -- widening that far adds 20 more tiles (~328 MB compressed,
+  # +6.8%) for tiles that are foreign land, not US coverage. See the doc
+  # above for the tile-by-tile breakdown.
   #
   # Eareckson Air Station (PASY, Shemya) has real d-TPP plates too but sits
   # at +174.1 E -- across the antimeridian, which this bbox shape (a single

@@ -17,6 +17,16 @@ worldwide airport table, the real Copernicus GLO-30 S3 bucket (object sizes,
 not modeled), and the real production manifest at
 `https://navdata.aerocommons.org/manifest.json`.
 
+**Correction (2026-09-23, post-review):** INTEGRATOR flagged on PR #100 that
+this doc's tile count/size and this doc's airport count did not visibly
+reconcile against PR #99's independent measurement of the same widen
+(`docs/regions_alaska_hawaii_gap.md`, merged to `dev`). Both are resolved
+below (§1's discrepancy note, §2's table and methodology) by re-measuring
+against the live bucket a second time rather than re-deriving from either
+document's numbers. The original figures this doc shipped with (50 tiles /
+356.0 MB for the `-177` widen) were an overcount; corrected to 41 tiles /
+346.3 MB, which matches PR #99's independently-counted tile total exactly.
+
 ## 1. How many airports are affected
 
 Parsed the live cycle-2609 `d-tpp_Metafile.xml` (3,197 distinct airport
@@ -39,7 +49,27 @@ the discrepancy rather than silently overriding the older doc. My join has a
 100% OurAirports coordinate-match rate on today's cycle; I don't have
 visibility into PA10's exact join method to explain the gap, but 45 is what a
 live rerun produces today and every one of the 45 idents below is a real,
-resolved coordinate, not a join failure.
+resolved coordinate, not a join failure. PR #99's own doc measured the same
+live cycle-2609 data and found **834 of 3,197** (26%) unmatched by ident
+against OurAirports at all, mostly (788) a `local_code`-vs-`ident` matching
+gap unrelated to `regions.yaml` geometry — a separate, bigger anomaly than
+either count here, already recommended there as its own follow-up issue.
+
+**Reconciled against PR #99's 21 (not 268, and not a contradiction):**
+PR #99's §1a counts real d-TPP airports matching no region box, filtered to
+`iso_country == "US"` — 15 Hawaii + 6 Aleutian = **21**. This doc's 45 applies
+no country-code filter: it counts every real d-TPP airport matching no region
+box, full stop. The extra 24 are all real US-territory/COFA airports that
+carry their own ISO 3166-1 country code rather than `"US"` in live
+OurAirports data (checked directly: TJSJ → `PR`, TIST → `VI`, PGUM → `GU`,
+PTKK → `FM`, NSTU → `AS`, PMDY → `UM`) — 8 Puerto Rico/USVI + 14 Guam/N.
+Mariana/Palau/Marshall Is./Micronesia + 1 Midway + 1 American Samoa = 24.
+**21 + 24 = 45, exactly.** Both counts are correct measurements of different
+populations: 21 is "unmatched and coded `US`," 45 is "unmatched, regardless
+of ISO country code, if the FAA publishes a d-TPP plate for it." PR #99's
+separate §1b figure of 38 is a third, still-different population (every real
+OurAirports-type US airport, not gated on having a d-TPP plate at all) and
+isn't directly comparable to either d-TPP-gated count.
 
 ### The 45 split cleanly into "reachable by widening `alaska`" and "not"
 
@@ -87,14 +117,32 @@ from) for every 1-degree cell in the newly-added longitude band, `lat`
 
 | Widen | New tiles | Raw COG bytes added | vs. live `terrain-alaska` pack (4,814,888,751 B) |
 |---|---:|---:|---:|
-| `lon_min` -170 → **-177** (reaches all 5 airports above) | 50 | 356.0 MB | **≈ +3.3–4.1%** (compressed estimate, see below) |
-| `lon_min` -170 → -180 (all the way to the dateline) | 70 | 577.6 MB | ≈ +5.4–6.0% |
+| `lon_min` -170 → **-177** (reaches all 5 airports above) | 41 | 346.3 MB | **≈ +4.4%** (measured compressed, see below) |
+| `lon_min` -170 → -180 (all the way to the dateline) | 61 | 567.9 MB | ≈ +6.8% |
 
-The compressed-pack estimate applies `docs/terrain.md`'s own already-measured
-DEFLATE-6 compression range on real GLO-30 tiles from this tree (45–71%
-reduction, "blended NA ≈ ~50% smaller") to the raw byte counts above — not a
-fresh guess, the repo's own prior real measurement applied to today's real
-source bytes.
+**These tile counts and raw byte totals are a corrected re-measurement**
+(direct HEAD sweep of the live bucket over the same 1°×1° cells `regions.py`
+would check: lat 51–71 × lon -171..-177 for the first row, +178..+180 for
+the second) — they match PR #99's independently-counted tile totals (41 and
+61) exactly. This doc originally reported 50 and 70 tiles here; that was an
+overcount, corrected in place rather than left standing.
+
+**The percentage column uses PR #99's measured compressed pack-delta, not a
+heuristic applied to the raw bytes above.** PR #99 ran the actual build
+pipeline end to end (resample to the pipeline's 3601×3601 big-endian `int16`
+`.hgt`, `ZIP_DEFLATED` level 6, plus the measured mip-pyramid overhead) and
+got 96.4 MB native-compressed + 114 MB mip pyramid = **~210 MB** total added
+for the 41-tile `-177` widen (~328 MB for the 61-tile `-180` widen). That is
+a real measurement of what a device downloads; this doc's earlier "blended
+~50% smaller" estimate applied to raw COG bytes was a heuristic standing in
+for it and is superseded here. ~210 MB / 328 MB against the live pack's
+actual current size (4,814,888,751 B) is where +4.4% / +6.8% above come from
+— a different denominator than PR #99's own "~1.4%-4%" (which divides the
+same ~210-328 MB against `regions.yaml`'s header-comment design estimate of
+"~8-15 GB" for the eventual full region, not the smaller pack that exists
+today). Both percentages are correct; they answer "cost against the design
+ceiling" and "cost against what a device downloads right now," respectively.
+The absolute MB figures are the same measurement in both docs.
 
 **Going all the way to -180 is not just bigger, it's wrong.** Of the extra
 221.6 MB (-180 vs -177), the overwhelming majority is **20 tiles at lat
@@ -134,9 +182,9 @@ fix it here.
 **Widen `alaska`'s `lon_min` from `-170` to `-177`.** Reasoning:
 
 - Catches all 5 real, named FAA airports with published plates that the old
-  box missed, for a measured, small terrain cost (+3.3–4.1% on one existing
-  pack) and a real zero cost on water/highways (neither builds Alaska at
-  all today).
+  box missed, for a measured, small terrain cost (~210 MB, +4.4% on the live
+  `terrain-alaska` pack) and a real zero cost on water/highways (neither
+  builds Alaska at all today).
 - Explicitly **not** widened to `-180` — the extra reach is proportionally
   larger (nearly double the added cost) and a meaningful fraction of it is
   land in Russian territory, not Alaska. `-177` is the point where "widen
