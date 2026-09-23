@@ -30,6 +30,15 @@ build = [
 tools = [
     # "pyefis-tools @ git+https://github.com/makerplane/pyEfis@<branch>",
 ]
+# d-TPP plate builder (AER-1610/PA11): PDF text-layer extraction for the
+# georeferencing derivation (packtools/build/georef.py). Only the real build
+# path needs this -- tests inject a fake extractor, and packtools/build/plates.py
+# imports pypdf lazily so the rest of the package works without it installed.
+# pypdf (BSD) over pymupdf (dual-licensed AGPL-3.0/Artifex commercial) --
+# see docs/LICENSE-AUDIT.md; packtools stays Apache-2.0 clean.
+plates = [
+    "pypdf>=4.0",
+]
 dev = [
     "pytest>=7.0",
 ]
