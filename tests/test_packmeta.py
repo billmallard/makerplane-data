@@ -134,6 +134,43 @@ def test_airspace_kind_accepted_and_carries_openaip_license(tmp_path):
     assert got.effective is None and got.expires is None   # non-cyclical
 
 
+def _make_highway_lines(path, *, flags_ref: bool):
+    con = sqlite3.connect(str(path))
+    if flags_ref:
+        con.execute(
+            "CREATE TABLE highway_lines (id INTEGER, fclass TEXT, min_lat REAL, "
+            "max_lat REAL, min_lon REAL, max_lon REAL, verts BLOB, "
+            "flags INTEGER, ref TEXT)")
+    else:
+        con.execute(
+            "CREATE TABLE highway_lines (id INTEGER, fclass TEXT, min_lat REAL, "
+            "max_lat REAL, min_lon REAL, max_lon REAL, verts BLOB)")
+    con.commit()
+    con.close()
+
+
+def test_detect_highways_schema_version_pre_rd3a(tmp_path):
+    db = tmp_path / "highways.sqlite"
+    _make_highway_lines(db, flags_ref=False)
+    assert packmeta.detect_highways_schema_version(db) == 1
+
+
+def test_detect_highways_schema_version_post_rd3a(tmp_path):
+    db = tmp_path / "highways.sqlite"
+    _make_highway_lines(db, flags_ref=True)
+    assert packmeta.detect_highways_schema_version(db) == 2
+
+
+def test_detect_highways_schema_version_rejects_unknown_shape(tmp_path):
+    db = tmp_path / "highways.sqlite"
+    con = sqlite3.connect(str(db))
+    con.execute("CREATE TABLE highway_lines (id INTEGER, fclass TEXT, lanes INTEGER)")
+    con.commit()
+    con.close()
+    with pytest.raises(ValueError, match="unrecognised highway_lines schema"):
+        packmeta.detect_highways_schema_version(db)
+
+
 def test_as_dict_emits_license_fields_older_readers_ignore_unknown_keys():
     # as_dict() always includes license/license_url (default "", not None,
     # so they are never dropped) -- forward direction of the compatibility

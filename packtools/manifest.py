@@ -25,6 +25,20 @@ from .packmeta import PackMeta, KINDS
 from .signing import sha256_file
 
 
+def _rank_key(p: "PackEntry") -> tuple:
+    """Sort key shared by ``select()`` and ``prune_old_cycles()``: latest
+    effective date, then canonical cycles before hyphen-suffixed ones,
+    then plain string compare within each group.
+
+    A hyphenated cycle (``"2026q3r1-smoketest"``) is the test/pre-release
+    convention (docs/roads.md) and must never outrank the canonical cycle
+    it stands in for, however it happens to sort lexically -- a plain
+    ``(effective, cycle)`` compare picked the test build because
+    ``"...smoketest" > "2026q3r1"`` (makerplane-data#60/AER-1109).
+    """
+    return (p.effective or "", "-" not in p.cycle, p.cycle)
+
+
 @dataclass
 class PackEntry:
     """One downloadable pack in the catalog (a superset of its pack_meta)."""
@@ -97,6 +111,9 @@ class Manifest:
     manifest_version: int = MANIFEST_VERSION
     packs: list[PackEntry] = field(default_factory=list)
     regions: dict[str, dict] = field(default_factory=dict)
+    # Pack kinds a lenient (client-side) parse dropped as unrecognized. Never
+    # serialized (to_obj/to_bytes list fields explicitly); diagnostic only.
+    dropped_kinds: list[str] = field(default_factory=list)
 
     # --- construction ---
     @staticmethod
@@ -111,6 +128,15 @@ class Manifest:
         self.packs.append(entry)
         self.packs.sort(key=lambda p: (p.id, p.cycle))
 
+    def remove(self, pack_id: str, cycle: str) -> bool:
+        """Drop the (id, cycle) entry if present. Returns whether anything
+        was removed -- for retracting a specific bad publish (e.g. a
+        states-limited test build that was uploaded under the production
+        id by mistake) rather than pruning by recency."""
+        before = len(self.packs)
+        self.packs = [p for p in self.packs if not (p.id == pack_id and p.cycle == cycle)]
+        return len(self.packs) != before
+
     def prune_old_cycles(self, keep: int = 2) -> None:
         """Keep at most ``keep`` most-recent cycles per pack id (current + next,
         plus one extra by default), dropping older ones from the catalog."""
@@ -119,7 +145,7 @@ class Manifest:
             by_id.setdefault(p.id, []).append(p)
         kept: list[PackEntry] = []
         for entries in by_id.values():
-            entries.sort(key=lambda p: (p.effective or "", p.cycle))
+            entries.sort(key=_rank_key)
             kept.extend(entries[-keep:])
         kept.sort(key=lambda p: (p.id, p.cycle))
         self.packs = kept
@@ -139,12 +165,12 @@ class Manifest:
         while both are still listed in the catalog -- without it the picker
         returned whichever happened to be first in the list (the older one).
         Ordering matches ``prune_old_cycles``: latest effective date, then
-        highest cycle.
+        :func:`_rank_key`'s canonical-over-test cycle rank.
         """
         covering = [p for p in self.for_id(pack_id) if p.covers(day)]
         if not covering:
             return None
-        return max(covering, key=lambda p: (p.effective or "", p.cycle))
+        return max(covering, key=_rank_key)
 
     # --- serialization ---
     def to_obj(self) -> dict:
@@ -167,22 +193,54 @@ class Manifest:
         return path
 
     @classmethod
-    def from_bytes(cls, raw: bytes) -> "Manifest":
-        return cls.from_obj(json.loads(raw))
+    def from_bytes(cls, raw: bytes, *, lenient: bool = False) -> "Manifest":
+        return cls.from_obj(json.loads(raw), lenient=lenient)
 
     @classmethod
-    def from_obj(cls, obj: dict) -> "Manifest":
+    def from_obj(cls, obj: dict, *, lenient: bool = False) -> "Manifest":
+        """``lenient=True`` is the client-parsing path: a pack kind this
+        client doesn't recognize yet (an older device fetching a manifest
+        published after a newer kind landed) is dropped rather than failing
+        the whole catalog -- see ``drop_unknown_kinds``. The build side
+        (publish/verify) leaves this False so a genuinely malformed manifest
+        still fails loudly (``test_validate_rejects_bad_manifests``)."""
+        dropped: list[dict] = []
+        if lenient:
+            obj, dropped = drop_unknown_kinds(obj)
         validate(obj)
         return cls(
             generated=obj["generated"],
             manifest_version=obj.get("manifest_version", MANIFEST_VERSION),
             packs=[PackEntry.from_dict(p) for p in obj.get("packs", [])],
             regions=obj.get("regions", {}),
+            dropped_kinds=sorted({p.get("kind") for p in dropped}),
         )
 
     @classmethod
     def read(cls, path: str | Path) -> "Manifest":
         return cls.from_bytes(Path(path).read_bytes())
+
+
+def drop_unknown_kinds(obj: dict) -> tuple[dict, list[dict]]:
+    """Split a raw manifest object's packs by whether this client's ``KINDS``
+    recognizes them. Used only by the lenient (client) parse path.
+
+    A published manifest can legitimately contain a pack kind this build of
+    packtools/pyefis_data predates -- a new kind lands on one branch before
+    every device has taken the client release that knows about it. That is
+    forward-incompatibility, not corruption: the fix is to ignore the pack
+    this client can't use yet, not to reject the entire signed catalog and
+    lose every *other* pack too (makerplane-data AER-1935).
+    """
+    packs = obj.get("packs", [])
+    if not isinstance(packs, list):
+        return obj, []
+    kept, dropped = [], []
+    for p in packs:
+        (kept if isinstance(p, dict) and p.get("kind") in KINDS else dropped).append(p)
+    if not dropped:
+        return obj, []
+    return {**obj, "packs": kept}, dropped
 
 
 class ManifestError(ValueError):

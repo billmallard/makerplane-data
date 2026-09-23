@@ -39,3 +39,29 @@ def publish(store, secret, pairs: list[tuple[PackEntry, str | Path]], *,
     store.put_bytes(SIG_KEY, sig.encode("ascii"), content_type="text/plain")
     log(f"manifest: {len(m.packs)} pack(s), +{len(pairs)} new, signed + uploaded")
     return m
+
+
+def retract(store, secret, pack_id: str, cycle: str, *,
+            generated: str, sign, comment: str | None = None, log=print) -> Manifest:
+    """Drop one (id, cycle) entry from the live manifest and re-sign.
+
+    For undoing a bad publish -- e.g. a states-limited test build uploaded
+    under the production pack id. ``Manifest.select`` no longer lets a
+    hyphen-suffixed test cycle outrank the canonical edition it stood in for
+    (AER-1109), but the bad entry is still wrong data to leave listed under
+    the production id, so still retract it. Does not touch the pack object
+    itself, only its manifest listing.
+    """
+    raw = store.get_bytes(MANIFEST_KEY)
+    if not raw:
+        raise RuntimeError("no manifest to modify")
+    m = Manifest.from_bytes(raw)
+    if not m.remove(pack_id, cycle):
+        raise RuntimeError(f"no entry {pack_id}/{cycle} in manifest")
+    m.generated = generated
+    raw = m.to_bytes()
+    sig = sign(raw, secret, trusted_comment=comment or f"retracted {pack_id}/{cycle} at {generated}")
+    store.put_bytes(MANIFEST_KEY, raw, content_type="application/json")
+    store.put_bytes(SIG_KEY, sig.encode("ascii"), content_type="text/plain")
+    log(f"manifest: retracted {pack_id}/{cycle}, {len(m.packs)} pack(s) remain, signed + uploaded")
+    return m

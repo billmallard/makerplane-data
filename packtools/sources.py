@@ -124,6 +124,31 @@ SOURCES: dict[str, Source] = {
         license=_FAA_PUBLIC_DOMAIN,
         implemented=False,
     ),
+    # A different pack kind from cifp-conus above, not a replacement for it
+    # -- "cifp" names the pyAvTools spatial-index shape VirtualVfr consumes
+    # (airports/runways/navaids only, no procedures); "procedures" is
+    # SIDs/STARs/approaches/airways from a permissive parser written for
+    # this repo (packtools/arinc424.py, AER-1600/PA1). Same source file as
+    # cifp-conus (same cifp_url) since both read the same CIFP zip.
+    #
+    # implemented=True (AER-1702) -- published, but not yet verified. The
+    # original gate here asked for a human to spot-check a built pack's
+    # procedures against real published charts without saying how, which
+    # wasn't actionable. It is replaced by a better check: Bill flying this
+    # pack against ForeFlight's data (which he pays for) as an independent
+    # authoritative source -- a real differential on fixes, sequence,
+    # altitude constraints, and airway legs, not eyeballing charts.
+    # Publishing early is what makes that check possible; the pack itself
+    # is still unverified until he reports back, and nothing consumes it
+    # yet (PA5/AER-1604 and PA7/AER-1606, procedure lookup and selection,
+    # are both backlog) so a wrong pack can't mislead anyone in the
+    # meantime. Do not read this flip as "verified" -- it isn't.
+    "procedures-conus": Source(
+        pack_id="procedures-conus", kind="procedures", cadence="airac",
+        url_for=cifp_url, builder="procedures",
+        attribution="FAA CIFP (public domain)",
+        license=_FAA_PUBLIC_DOMAIN,
+    ),
 }
 
 

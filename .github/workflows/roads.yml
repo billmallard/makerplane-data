@@ -10,7 +10,15 @@ name: roads-packs
 # Full CONUS is a multi-state Geofabrik download (docs/roads.md: "minutes"
 # once fetched, but the fetch itself is the expensive part) -- expect a
 # long-running job for `--states conus`. A partial state list is a cheap
-# way to test the workflow itself.
+# way to test the workflow itself -- but leave `publish` off for that, since
+# `--upload` always targets the production `highways-conus` id regardless of
+# `states`: a states-limited pack still gets uploaded and manifest-listed
+# under the real id (makerplane-data#60, 2026-09-12 incident: a Colorado-only
+# "2026q3r1-smoketest" build stayed selected as the live CONUS pack --
+# `Manifest.select` now ranks any hyphen-suffixed test cycle below the
+# canonical one it stood in for, AER-1109, but a states-limited pack under
+# the production id is still wrong data to have live). `packtool
+# remove-pack` retracts a bad entry like that one.
 on:
   workflow_dispatch:
     inputs:
@@ -20,6 +28,10 @@ on:
       cycle:
         description: "Edition tag"
         default: "2026q3r1"
+      publish:
+        description: "Upload to production and re-sign the live manifest -- leave OFF for a states test-run"
+        type: boolean
+        default: true
 
 env:
   PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
@@ -39,7 +51,7 @@ jobs:
           repository: ${{ env.PYEFIS_REPO }}
           ref: ${{ env.PYEFIS_REF }}
           path: pyefis-src
-      - run: pip install -e .[build]
+      - run: pip install -e .[build] pyshp numpy
 
       - name: Fetch + build highways.sqlite (packtool build-roads)
         env:
@@ -48,6 +60,7 @@ jobs:
           packtool build-roads --states "${{ inputs.states }}" --dest highways.sqlite
 
       - name: Pack + upload (signed)
+        if: ${{ inputs.publish }}
         env:
           R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
