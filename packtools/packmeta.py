@@ -30,7 +30,7 @@ SCHEMA_VERSION = 1
 # Recognised pack kinds. "kind" drives which build tool produced the pack and
 # how the Pi installs it; it is open for extension (charts, etc.).
 KINDS = ("navdata", "obstacles", "cifp", "water", "terrain", "highways",
-         "rivers", "airports", "navaids", "airspace")
+         "rivers", "airports", "navaids", "airspace", "procedures")
 
 
 @dataclass
@@ -125,3 +125,60 @@ def read(path: str | Path) -> PackMeta:
     if zipfile.is_zipfile(path):
         return read_zip(path)
     return read_sqlite(path)
+
+
+# --- per-kind on-disk schema detection -------------------------------------
+#
+# ``PackMeta.schema_version`` above tracks the *meta header's* own fields.
+# For the "highways" kind that field also has to speak for the on-disk
+# highway_lines table -- the pack's actual payload schema -- because
+# pyEfis's HighwayDB reads that table directly. That table's columns changed
+# once already (AER-623/RD3a added flags+ref) without the embedded
+# schema_version ever moving, since build-pack always defaulted to the
+# package-wide SCHEMA_VERSION constant regardless of kind (AER-1715): two
+# published highways packs with different highway_lines columns both
+# declared schema_version 1. HighwayDB copes today by probing
+# PRAGMA table_info at open time rather than trusting the field, so nothing
+# is broken by the drift, but the field can't be gated on until it actually
+# moves with the schema. HIGHWAYS_TABLE_SCHEMAS maps the highway_lines
+# *column set* that tools/build_highway_db.py (pyEfis) is known to have
+# produced to the schema_version that shape should carry.
+#
+# Deliberately column-based, not row-content-based: which fclass values a
+# given build happens to contain (e.g. a state-limited build with no
+# primary/secondary roads in it) is a data-completeness question, not a
+# schema one, and gating on it would make an ordinary partial build fail to
+# pack. Column presence is also exactly what HighwayDB._has_flags_ref
+# already probes, so this mirrors the one signal a reader can actually gate
+# on today. Keyed on the full column set (not just flags/ref) so a future
+# column addition this map doesn't yet know about fails loud instead of
+# silently reusing the wrong version.
+HIGHWAYS_TABLE_SCHEMAS: dict[frozenset[str], int] = {
+    frozenset({"id", "fclass", "min_lat", "max_lat", "min_lon", "max_lon",
+               "verts"}): 1,   # AER-623-era shape: no flags/ref columns
+    frozenset({"id", "fclass", "min_lat", "max_lat", "min_lon", "max_lon",
+               "verts", "flags", "ref"}): 2,  # RD3a, pyEfis PR #165
+}
+
+
+def detect_highways_schema_version(path: str | Path) -> int:
+    """Introspect a built highways sqlite's ``highway_lines`` columns and
+    return the schema_version that shape corresponds to (AER-1715).
+
+    Raises on a column set we don't recognise -- silently labeling an
+    unknown shape would just move the drift this exists to close, rather
+    than close it; add the new shape to HIGHWAYS_TABLE_SCHEMAS (with the
+    next version number) before packing."""
+    con = sqlite3.connect(str(path))
+    try:
+        cols = frozenset(row[1] for row in con.execute("PRAGMA table_info(highway_lines)"))
+    finally:
+        con.close()
+    try:
+        return HIGHWAYS_TABLE_SCHEMAS[cols]
+    except KeyError:
+        raise ValueError(
+            f"unrecognised highway_lines schema in {path} (columns: "
+            f"{sorted(cols)}) -- add this shape to HIGHWAYS_TABLE_SCHEMAS "
+            "(packtools/packmeta.py) with the next schema_version before "
+            "packing (AER-1715)")

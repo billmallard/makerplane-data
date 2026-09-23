@@ -280,7 +280,7 @@ def test_unknown_pack_kind_is_skipped_not_fatal(tmp_path):
             {"id": "navdata-conus", "kind": "navdata", "cycle": "2606",
              "bytes": 1, "sha256": "a" * 64, "url": f"{ORIGIN}/p.pack",
              "effective": "2026-06-11", "expires": "2026-07-09"},
-            {"id": "procedures-conus", "kind": "procedures", "cycle": "2609",
+            {"id": "bogus-conus", "kind": "BOGUS", "cycle": "2609",
              "bytes": 1, "sha256": "b" * 64, "url": f"{ORIGIN}/q.pack"},
         ],
         "regions": {},
@@ -290,7 +290,7 @@ def test_unknown_pack_kind_is_skipped_not_fatal(tmp_path):
     up = Updater(cfg, pub, remote=LocalDirRemote(remote_dir), today=TODAY)
     m = up.fetch_manifest()
     assert [p.id for p in m.packs] == ["navdata-conus"]
-    assert m.dropped_kinds == ["procedures"]
+    assert m.dropped_kinds == ["BOGUS"]
 
 
 def test_catalog_rejected_manifest_is_not_reported_as_offline(tmp_path):
@@ -345,7 +345,7 @@ def test_offline_self_heals_a_cache_poisoned_before_the_fix(tmp_path):
             {"id": "navdata-conus", "kind": "navdata", "cycle": "2606",
              "bytes": 1, "sha256": "a" * 64, "url": f"{ORIGIN}/p.pack",
              "effective": "2026-06-11", "expires": "2026-07-09"},
-            {"id": "procedures-conus", "kind": "procedures", "cycle": "2609",
+            {"id": "bogus-conus", "kind": "BOGUS", "cycle": "2609",
              "bytes": 1, "sha256": "b" * 64, "url": f"{ORIGIN}/q.pack"},
         ],
         "regions": {},
@@ -373,7 +373,7 @@ def test_offline_self_heals_a_cache_poisoned_before_the_fix(tmp_path):
     up.log = logs.append
     m = up.fetch_manifest()
     assert [p.id for p in m.packs] == ["navdata-conus"]
-    assert m.dropped_kinds == ["procedures"]
+    assert m.dropped_kinds == ["BOGUS"]
     assert any("offline" in line for line in logs)
 
 
