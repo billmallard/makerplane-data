@@ -4,7 +4,10 @@
 Builds five tables from one FAACIFP18-format file: ``airways`` +
 ``airway_legs`` (Enroute Airways, ``ER``) and ``procedures`` +
 ``transitions`` + ``legs`` (SID/STAR/Approach, ``PD``/``PE``/``PF``).
-Schema is brief section 3.3/3.4's, unchanged.
+Schema is brief section 3.3/3.4's, with one addition: ``idx_awy_ident`` is a
+UNIQUE index (AER-1979) so a route ident colliding across areas fails the
+build loudly instead of silently merging two airways into one row -- see
+``_AREA`` below for the area-filtering policy that is the primary fix.
 
 Airways are built and committed first, deliberately -- brief section 3.4:
 "PA1's definition of done is staged so the airway table ships before
@@ -47,7 +50,7 @@ CREATE TABLE airway_legs (
     max_alt_ft  INTEGER,
     direction   TEXT
 );
-CREATE INDEX idx_awy_ident ON airways(ident);
+CREATE UNIQUE INDEX idx_awy_ident ON airways(ident);
 CREATE INDEX idx_awyleg_awy ON airway_legs(airway_id, seq);
 CREATE INDEX idx_awyleg_fix ON airway_legs(fix_id);
 
@@ -143,11 +146,29 @@ def _approach_type_and_runway(proc_ident: str) -> tuple[str | None, str | None]:
     return (kind, runway)
 
 
+#: AER-1979: the ER stream in one CIFP file interleaves airway legs from
+#: every Customer/Area Code the file covers (USA, CAN, PAC, LAM), and a
+#: route ident is only unique *within* an area -- 73 of 1,504 idents in a
+#: live cycle recur under a second area with an unrelated set of legs
+#: (e.g. J501 is 11 US legs and, separately, 13 Canadian ones). This pack
+#: is named/published "-conus" like every other FAA-sourced pack in this
+#: repo (airports-conus, navaids-conus, obstacles-conus); it carries no
+#: foreign data today by design, so the build-time policy is to filter to
+#: USA rather than to key ``airways`` on ``(ident, area)`` and ship all
+#: four -- a "-conus" pack advertising foreign-only airways is its own
+#: defect. Going past the US border is a real, but separate, coverage
+#: decision (see sources.py's OPENAIP_COUNTRIES note on the same tradeoff
+#: for airspace).
+_AREA = "USA"
+
+
 def _build_airways(con: sqlite3.Connection, path: Path,
                     fix_index, cycle: str) -> int:
     airway_ids: dict[str, int] = {}
     n = 0
     for leg in arinc424.iter_airway_legs(path, fix_index):
+        if leg.area != _AREA:
+            continue
         airway_id = airway_ids.get(leg.route_ident)
         if airway_id is None:
             cur = con.execute(

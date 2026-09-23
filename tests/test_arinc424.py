@@ -132,6 +132,15 @@ def test_iter_airway_legs_all_fixes_resolve():
     assert all(l.fix_lat is not None and l.fix_lon is not None for l in legs)
 
 
+def test_iter_airway_legs_carries_area_code():
+    # AER-1979: the ER stream carries US, Canadian, Pacific and Latin
+    # American legs in one interleaved sequence, distinguished only by
+    # Customer/Area Code -- the parser must not drop it.
+    idx = a.build_fix_index(FIXTURE)
+    legs = [l for l in a.iter_airway_legs(FIXTURE, idx) if l.route_ident == "A315"]
+    assert legs and all(l.area == "USA" for l in legs)
+
+
 # --- golden fixture: procedures ---------------------------------------------
 
 def test_iter_procedure_legs_sid_has_vector_legs():

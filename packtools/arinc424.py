@@ -79,6 +79,7 @@ _FIX_OWNING_AIRPORT = slice(6, 10)         # terminal waypoints, runways
 
 # --- ER: Enroute Airways primary record (ARINC 424-17 Sec. 4.1.6.1) ------
 _ER = dict(
+    area=slice(1, 4),                  # Customer/Area Code -- USA/CAN/PAC/LAM
     route_ident=slice(13, 18),
     seq=slice(25, 29),
     fix_id=slice(29, 34),
@@ -356,6 +357,7 @@ def _resolve(index: dict[FixKey, tuple[float, float]], current_airport: str | No
 @dataclass
 class AirwayLegRecord:
     route_ident: str
+    area: str | None
     seq: int
     fix_id: str
     fix_lat: float | None
@@ -371,8 +373,10 @@ def iter_airway_legs(path: str | Path,
                       ) -> Iterator[AirwayLegRecord]:
     """Every Enroute Airways (``ER``) leg in the file, in source order, from
     every Customer/Area Code CIFP carries (US, Canada, Pacific, Latin
-    America) -- see module docstring. Filtering to one area is a build-time
-    policy choice, not this iterator's job."""
+    America) -- see module docstring. Each leg carries its own ``area`` so a
+    route ident that recurs under more than one area (confirmed live: 73 of
+    1,504 idents do) can be told apart downstream -- filtering or re-keying
+    by area is a build-time policy choice, not this iterator's job."""
     f = _ER
     for line in read_records(path):
         if not (line[4:5] == "E" and line[5:6] == "R"):
@@ -390,6 +394,7 @@ def iter_airway_legs(path: str | Path,
         lat, lon = _resolve(fix_index, None, fix_id, fix_icao, fix_section, fix_subsection)
         yield AirwayLegRecord(
             route_ident=route_ident,
+            area=_strip(line[f["area"]]),
             seq=int(seq_raw),
             fix_id=fix_id,
             fix_lat=lat,
