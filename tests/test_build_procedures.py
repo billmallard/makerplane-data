@@ -150,6 +150,53 @@ def test_build_procedures_no_leg_left_unresolved(input_dir, tmp_path):
     assert (n_bad_legs, n_bad_awy, n_bad_rf) == (0, 0, 0)
 
 
+def _er_line(area, ident, seq, fix):
+    """A synthetic Enroute Airways (``ER``) record, byte-exact except for
+    the fields under test -- built from a real A315 record (see
+    tests/fixtures/cifp/README.md) so the continuation flag, altitudes and
+    every other column stay valid ARINC 424, and only area/ident/seq/fix
+    vary."""
+    template = list(
+        "SUSAER       A315        0100ZBV  MYD 0V    O                         "
+        "13540185     05000     60000                         557332605")
+    template[1:4] = area.ljust(3)
+    template[13:18] = ident.ljust(5)
+    template[25:29] = seq.rjust(4, "0")
+    template[29:34] = fix.ljust(5)
+    line = "".join(template)
+    assert len(line) == 132
+    return line
+
+
+def test_build_airways_does_not_merge_across_areas(input_dir, tmp_path):
+    """AER-1979: the ER stream carries every Customer/Area Code (USA, CAN,
+    PAC, LAM) in one interleaved sequence, and a route ident is only unique
+    *within* an area -- 73 of 1,504 idents in a live cycle recur under a
+    second area with an unrelated set of legs, each area numbering its own
+    legs 10, 20, 30 ... . Pin a synthetic ident under USA and CAN, mirroring
+    that shape, and assert the two areas' legs never land under one
+    airway_id -- a naive ident-only key merges them, which is exactly this
+    bug."""
+    cifp = input_dir / "FAACIFP18"
+    with cifp.open("a", encoding="latin-1") as f:
+        f.write(_er_line("USA", "Z999", "0100", "AAAAA") + "\n")
+        f.write(_er_line("USA", "Z999", "0200", "BBBBB") + "\n")
+        f.write(_er_line("CAN", "Z999", "0100", "CCCCC") + "\n")
+        f.write(_er_line("CAN", "Z999", "0200", "DDDDD") + "\n")
+
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    rows = con.execute("SELECT id FROM airways WHERE ident = 'Z999'").fetchall()
+    assert len(rows) == 1, "one ident under two areas produced more than one airways row"
+    airway_id = rows[0][0]
+    fixes = {r[0] for r in con.execute(
+        "SELECT fix_id FROM airway_legs WHERE airway_id = ?", (airway_id,))}
+    con.close()
+    # USA-only build policy: the CAN legs are filtered out, not blended in
+    # with the USA ones under a shared seq space.
+    assert fixes == {"AAAAA", "BBBBB"}
+
+
 def test_build_procedures_raises_when_no_cifp_file(tmp_path):
     empty = tmp_path / "empty"
     empty.mkdir()
