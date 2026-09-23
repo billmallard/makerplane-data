@@ -166,7 +166,7 @@ def test_validate_rejects_expires_without_effective():
 
 def test_from_obj_strict_rejects_unknown_kind():
     obj = {"manifest_version": 1, "generated": GEN, "packs": [{
-        "id": "x", "kind": "procedures", "cycle": "1", "bytes": 1,
+        "id": "x", "kind": "BOGUS", "cycle": "1", "bytes": 1,
         "sha256": "a" * 64, "url": "u"}]}
     with pytest.raises(ManifestError):
         Manifest.from_obj(obj)
@@ -180,13 +180,13 @@ def test_from_obj_lenient_drops_unknown_kind_keeps_rest():
     obj = {
         "manifest_version": 1, "generated": GEN,
         "packs": [good.as_dict(), {
-            "id": "procedures-conus", "kind": "procedures", "cycle": "2609",
+            "id": "bogus-conus", "kind": "BOGUS", "cycle": "2609",
             "bytes": 5, "sha256": "b" * 64, "url": "https://x/p.pack"}],
         "regions": {},
     }
     m = Manifest.from_obj(obj, lenient=True)
     assert [p.id for p in m.packs] == ["navdata-conus"]
-    assert m.dropped_kinds == ["procedures"]
+    assert m.dropped_kinds == ["BOGUS"]
 
 
 def test_from_bytes_lenient_roundtrips_through_json():
