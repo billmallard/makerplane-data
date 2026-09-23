@@ -119,12 +119,15 @@ region's `lon_min` of `-170`. It matches **no** plate region today,
 alongside the 268 Canada/Mexico/Caribbean airports PA10 already flagged as
 out of scope (§6) -- except Adak is a US airport, not a foreign-coverage
 question. `tests/test_make_plates.py`'s
-`test_airport_region_map_real_adak_falls_outside_the_alaska_region` pins
-this with Adak's real coordinates.
+`test_airport_region_map_real_adak_falls_outside_the_alaska_region` pinned
+this with Adak's real coordinates (this pass deliberately left the gap
+unpatched; AER-1990 later widened `alaska` and replaced that pin with
+`test_airport_region_map_real_adak_now_maps_to_alaska`).
 
 Not fixed here: `regions.yaml` is shared by terrain and water, so widening
 the `alaska` bbox is a bigger cross-cutting call than this pass should make
 unilaterally -- flagging it as a finding for the board, not a silent patch.
+See `docs/aer-1990-alaska-region-gap.md` for the measurement and fix.
 
 ## Build + upload
 

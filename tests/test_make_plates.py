@@ -67,15 +67,16 @@ def test_airport_region_map_skips_rows_with_no_coordinates():
     assert make_plates.airport_region_map(airports, regions) == {}
 
 
-def test_airport_region_map_real_adak_falls_outside_the_alaska_region():
-    """A real, measured finding, not a hypothetical: Adak Island (PADK) is
-    west of regions.yaml's "alaska" region lon_min (-170 vs PADK's real
-    -176.676), so a real FAA airport with real d-TPP plates maps to no
-    plate region today. See docs/plates.md and the unmapped-record log line
-    in make_plate_packs()."""
+def test_airport_region_map_real_adak_now_maps_to_alaska():
+    """AER-1990 widened regions.yaml's "alaska" lon_min from -170 to -177 so
+    that Adak Island (PADK, real -176.676) -- a real FAA airport with real
+    d-TPP plates -- joins to a plate region instead of being silently
+    dropped. This test used to pin the opposite (unmapped) result as
+    test_airport_region_map_real_adak_falls_outside_the_alaska_region; see
+    docs/aer-1990-alaska-region-gap.md for the measured cost of the widen."""
     regions = load_regions()
     airports = [{"ident": "PADK", "latitude_deg": "51.87187778", "longitude_deg": "-176.67598889"}]
-    assert make_plates.airport_region_map(airports, regions) == {}
+    assert make_plates.airport_region_map(airports, regions) == {"PADK": ["alaska"]}
 
 
 # --- load_fix_index ---------------------------------------------------------
@@ -182,10 +183,11 @@ def test_run_end_to_end_with_pre_seeded_work_dir(tmp_path):
     def fail_if_called(url, path):
         raise AssertionError(f"unexpected network fetch: {url}")
 
-    # PADK/PAEI/PAED/PAFB placed inside the "alaska" region box on purpose
-    # (unlike their real coordinates -- see
-    # test_airport_region_map_real_adak_falls_outside_the_alaska_region)
-    # so this test exercises the orchestration wiring, not the real gap.
+    # PADK/PAEI/PAED/PAFB placed inside the "alaska" region box with
+    # synthetic coordinates so this test exercises the orchestration wiring
+    # in isolation from real region-boundary correctness (covered by
+    # test_airport_region_map_real_adak_now_maps_to_alaska and
+    # tests/test_regions.py).
     ourairports_rows = [
         {"ident": ident, "latitude_deg": "60.0", "longitude_deg": "-150.0"}
         for ident in ("PADK", "PAEI", "PAED", "PAFB")
