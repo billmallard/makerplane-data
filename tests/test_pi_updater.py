@@ -330,6 +330,53 @@ def test_catalog_rejected_manifest_is_not_reported_as_offline(tmp_path):
     assert (tmp_path / "pi" / "manifest.json").read_bytes() == cached_raw
 
 
+def test_offline_self_heals_a_cache_poisoned_before_the_fix(tmp_path):
+    """Before AER-1935, fetch_manifest() wrote the raw bytes to cache *before*
+    parsing them, so a device that ever received a manifest with an
+    unrecognized kind was left with that manifest on disk permanently. A
+    device upgraded to the fix does not get that stale cache cleaned up for
+    it -- nothing deletes or rewrites it. The fix must still work on exactly
+    that leftover file, with no network, or the upgrade alone doesn't clear
+    the symptom."""
+    sk, pub = signing.generate_keypair()
+    poisoned_obj = {
+        "manifest_version": 1, "generated": "2026-06-14T00:00:00Z",
+        "packs": [
+            {"id": "navdata-conus", "kind": "navdata", "cycle": "2606",
+             "bytes": 1, "sha256": "a" * 64, "url": f"{ORIGIN}/p.pack",
+             "effective": "2026-06-11", "expires": "2026-07-09"},
+            {"id": "procedures-conus", "kind": "procedures", "cycle": "2609",
+             "bytes": 1, "sha256": "b" * 64, "url": f"{ORIGIN}/q.pack"},
+        ],
+        "regions": {},
+    }
+    raw = (json.dumps(poisoned_obj, indent=2, sort_keys=True) + "\n").encode()
+    sig = signing.sign(raw, sk)
+    root = tmp_path / "pi"
+    root.mkdir(parents=True)
+    # Written directly, not via fetch_manifest(): this is what the pre-fix
+    # write-before-parse left behind, not a state this test can reach by
+    # calling the (now fixed) updater against a live remote.
+    (root / "manifest.json").write_bytes(raw)
+    (root / "manifest.json.minisig").write_text(sig, encoding="ascii")
+
+    class Dead:
+        def get_bytes(self, url, timeout=30):
+            raise ConnectionError("no network")
+
+        def download(self, url, dest):
+            raise ConnectionError("no network")
+
+    cfg = Config(base_url=ORIGIN, root=root, packs=("navdata-conus",))
+    up = Updater(cfg, pub, remote=Dead(), today=TODAY)
+    logs = []
+    up.log = logs.append
+    m = up.fetch_manifest()
+    assert [p.id for p in m.packs] == ["navdata-conus"]
+    assert m.dropped_kinds == ["procedures"]
+    assert any("offline" in line for line in logs)
+
+
 def test_import_dir_via_cli_offline(tmp_path, monkeypatch):
     root, pub = build_store(tmp_path)
     monkeypatch.setattr(cli, "PUBLIC_KEY", pub)   # cli embeds the prod key; sub the test one
