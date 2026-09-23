@@ -204,6 +204,39 @@ def cmd_make_terrain(args) -> int:
     return 0
 
 
+def cmd_make_plates(args) -> int:
+    from . import make_plates
+
+    if args.cycle:
+        if not (args.effective and args.expires):
+            raise SystemExit("--cycle requires --effective and --expires too")
+        cycle_obj = cycles.Cycle(cycle=args.cycle,
+                                 effective=_dt.date.fromisoformat(args.effective),
+                                 expires=_dt.date.fromisoformat(args.expires))
+    else:
+        date = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
+        cycle_obj, _nxt = cycles.current_and_next("airac", today=date)
+
+    packs = make_plates.run(
+        out_dir=args.out, cycle=cycle_obj, url_base=args.url_base, work_dir=args.work,
+        only_regions=args.only or None, procedures_db=args.procedures_db,
+        ourairports_cache_dir=args.ourairports_cache)
+    if not packs:
+        print("no plate packs built (no region matched any airport -- check --only / region coverage)")
+        return 1
+    if args.upload:
+        from .upload import R2Store
+        store = R2Store.from_env(args.bucket)
+        secret = _load_secret(args)
+        make_plates.update_manifest(store, secret, packs,
+                                    generated=_utc_stamp(_dt.date.today()), sign=signing.sign)
+        print(f"uploaded {len(packs)} plate pack(s) -> R2, manifest re-signed")
+    else:
+        print(f"built {len(packs)} plate pack(s) under {args.out}/packs "
+              f"(not uploaded; pass --upload with R2_* env + a key)")
+    return 0
+
+
 def cmd_build_roads(args) -> int:
     from . import make_roads
     make_roads.build_na_roads(args.states, args.dest, args.cache_dir,
@@ -273,6 +306,26 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--bucket", default="makerplane-data")
     t.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     t.set_defaults(func=cmd_make_terrain)
+
+    p = sub.add_parser("make-plates", help="fetch+build per-region d-TPP plate packs")
+    p.add_argument("--cycle", help="explicit AIRAC cycle (e.g. 2609); requires --effective/--expires")
+    p.add_argument("--effective", help="ISO date, with --cycle")
+    p.add_argument("--expires", help="ISO date, with --cycle")
+    p.add_argument("--date", help="treat this ISO date as 'today' when auto-computing the cycle")
+    p.add_argument("--work", default="work/plates", help="working dir for the metafile + PDF fetch")
+    p.add_argument("--only", nargs="*", help="limit to these region keys")
+    p.add_argument("--procedures-db", dest="procedures_db",
+                   help="path to an already-built procedures-conus pack -- enables the "
+                        "IAP georeferencing attempt (packtools/build/georef.py); omit to "
+                        "skip it (every plate ships with no geo tag)")
+    p.add_argument("--ourairports-cache", dest="ourairports_cache",
+                   help="cache dir for the OurAirports region-join CSVs")
+    p.add_argument("--out", default="work")
+    p.add_argument("--url-base", default=_DEFAULT_URL_BASE)
+    p.add_argument("--upload", action="store_true", help="upload to R2 + update the manifest")
+    p.add_argument("--bucket", default="makerplane-data")
+    p.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    p.set_defaults(func=cmd_make_plates)
 
     r = sub.add_parser("build-roads", help="fetch Geofabrik state road layers "
                        "+ build highways.sqlite (docs/roads.md)")
