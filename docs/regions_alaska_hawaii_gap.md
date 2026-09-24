@@ -187,3 +187,15 @@ smaller follow-up than either number above; flagged, not sized here.
    else in this document combined.
 4. **This document does not change `regions.yaml`.** Per the issue: the
    sizes are now on the table; the region-set decision is the board's.
+
+## Decision (2026-09-23)
+
+Bill chose **widen `alaska` in place** over this document's opt-in
+`aleutians` recommendation, via AER-1988's decision card. `regions.yaml` was
+already being independently widened to `lon_min: -177` under a
+near-duplicate issue, AER-1990 (filed separately by Elon off the same PA11
+finding) — see `docs/aer-1990-alaska-region-gap.md` and PR
+https://github.com/billmallard/makerplane-data/pull/100 for the
+implementation, test, and full write-up of the chosen approach. No further
+`regions.yaml` change is tracked under AER-1988; §3.1's `aleutians`-region
+option was not taken.
