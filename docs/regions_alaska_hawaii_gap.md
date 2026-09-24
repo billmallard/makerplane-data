@@ -2,6 +2,13 @@
 
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
+**Adak-class gap resolved by AER-1990** (`docs/aer-1990-alaska-region-gap.md`):
+`alaska`'s `lon_min` is now -177, so Adak and 4 other Aleutian/Bering-Sea
+airports match. The regression that pinned the unmapped state was
+`test_airport_region_map_real_adak_falls_outside_the_alaska_region`; it is now
+`tests/test_make_plates.py::test_airport_region_map_real_adak_now_maps_to_alaska`,
+asserting the opposite. The Hawaii gap below is unaffected and still open.
+
 Answers `billmallard/makerplane-data` issue AER-1988, filed against PA11's
 d-TPP plate work (`AER-1610`, `docs/dtpp_plates_spike.md`,
 `packtools/make_plates.py`'s `airport_region_map`): **Adak Island (PADK)**
@@ -13,6 +20,10 @@ water — widening a box has a size consequence those packs pay for, which is a
 board call, not a build fix. This document supplies the three things AER-1988
 asked for, in order: a live count, a measured size cost, and a recommendation.
 It does not change `regions.yaml`.
+
+**Historical note:** the rest of this document describes the gap as measured
+before AER-1990's fix landed; figures and "today"/"currently" framing below
+reflect that pre-fix state, kept as the historical record of the measurement.
 
 **Everything below is measured against live data on 2026-09-23** — the real
 d-TPP metafile for the currently-effective AIRAC cycle (2609, fetched from
