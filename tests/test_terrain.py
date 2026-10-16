@@ -410,3 +410,53 @@ def test_corrupt_terrain_pack_leaves_tree_untouched(tmp_path):
     up.update()
     assert up.errors                                    # sha mismatch recorded
     assert not (tmp_path / "pi" / "terrain" / "tiles" / "N32").exists()
+
+
+# --- --require-wmask: the publish gate for a mask-carrying edition (AER-2287) ---
+
+def test_missing_wmask_members_reports_masked_levels_only(tmp_path):
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mip_pyramid(src, US_WEST_TILES, levels=2)
+    n0, n1 = US_WEST_TILES
+    _write_wmask(src / ".mip" / "1" / _ns(n0) / f"{n0}.hgt", side=1801)   # one of four
+    packs = make_terrain.make_terrain_packs(
+        src_root=src, out_dir=tmp_path / "build", edition="2024ed",
+        url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
+    missing = make_terrain.missing_wmask_members(packs[0].path)
+    assert missing == sorted([f".mip/2/{_ns(n0)}/{n0}.hgt",
+                              f".mip/1/{_ns(n1)}/{n1}.hgt",
+                              f".mip/2/{_ns(n1)}/{n1}.hgt"])
+    assert not any(not m.startswith(".mip/") for m in missing)   # native L0 never required
+
+
+def test_missing_wmask_members_mosaic(tmp_path):
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mosaic(src)
+    out = tmp_path / "b"
+    tp = make_terrain.build_mosaic_pack(src, out_dir=out, edition="2024ed",
+                                        url_base=f"{ORIGIN}/packs")
+    assert make_terrain.missing_wmask_members(tp.path) == [
+        ".mip/mosaic/L4.hgt", ".mip/mosaic/L5.hgt", ".mip/mosaic/L6.hgt"]
+    for lv in (4, 5, 6):
+        _write_wmask(src / ".mip" / "mosaic" / f"L{lv}.hgt", side=2 * (225 >> (lv - 4)) + 1)
+    tp = make_terrain.build_mosaic_pack(src, out_dir=out, edition="2024ed",
+                                        url_base=f"{ORIGIN}/packs")
+    assert make_terrain.missing_wmask_members(tp.path) == []
+
+
+def test_cli_require_wmask_refuses_before_upload(tmp_path, monkeypatch):
+    from packtools import cli
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mosaic(src)
+    uploads = []
+    monkeypatch.setattr(make_terrain, "update_manifest",
+                        lambda *a, **k: uploads.append(a))
+    argv = ["make-terrain", str(src), "--edition", "2024ed", "--mosaic",
+            "--out", str(tmp_path / "b"), "--require-wmask"]
+    # --upload would reach R2Store.from_env before update_manifest; the gate
+    # must return first, so no R2 env is needed for the refusal.
+    assert cli.main(argv + ["--upload"]) == 1
+    assert uploads == []
+    for lv in (4, 5, 6):
+        _write_wmask(src / ".mip" / "mosaic" / f"L{lv}.hgt", side=2 * (225 >> (lv - 4)) + 1)
+    assert cli.main(argv) == 0                            # masks present: gate passes

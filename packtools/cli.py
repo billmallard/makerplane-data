@@ -192,6 +192,23 @@ def cmd_make_terrain(args) -> int:
             only_regions=args.only or None, compress=compress)
         if not packs:
             return 1
+    if args.require_wmask:
+        # Gate BEFORE upload/sign: an edition meant to carry water masks must
+        # not publish maskless because the mask build quietly wrote nothing.
+        bad = 0
+        for tp in packs:
+            missing = make_terrain.missing_wmask_members(tp.path)
+            if missing:
+                bad += 1
+                print(f"!! {tp.path.name}: {len(missing)} masked-level .hgt "
+                      f"member(s) without a .wmask sibling, e.g. {missing[:3]}",
+                      file=sys.stderr)
+        if bad:
+            print(f"--require-wmask: {bad} pack(s) missing water masks; "
+                  "not uploading", file=sys.stderr)
+            return 1
+        print(f"--require-wmask: .wmask present beside every masked-level "
+              f".hgt in {len(packs)} pack(s)")
     if args.upload:
         from .upload import R2Store
         store = R2Store.from_env(args.bucket)
@@ -201,6 +218,32 @@ def cmd_make_terrain(args) -> int:
     else:
         print(f"built {len(packs)} pack(s) under {args.out}/packs "
               f"(not uploaded; pass --upload with R2_* env + a key)")
+    return 0
+
+
+def cmd_fetch_pack(args) -> int:
+    """Download one published pack, verified through the signed manifest;
+    the local path is the last line on stdout (for shell capture)."""
+    import urllib.request
+    from . import fetch_pack
+
+    def _get(url: str) -> bytes:
+        req = urllib.request.Request(url, headers={"User-Agent": "makerplane-data packtool"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.read()
+
+    day = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
+    pub = Path(args.pub).read_text(encoding="ascii")
+    try:
+        entry = fetch_pack.resolve_entry(
+            _get(args.manifest_url), _get(args.manifest_url + ".minisig").decode("ascii"),
+            pub, args.id, day)
+        log = lambda msg: print(msg, file=sys.stderr)
+        path = fetch_pack.fetch_verified_pack(entry, args.dest, log=log)
+    except Exception as e:
+        print(f"fetch-pack {args.id}: {e}", file=sys.stderr)
+        return 2
+    print(path)
     return 0
 
 
@@ -270,9 +313,21 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--url-base", default=_DEFAULT_URL_BASE)
     t.add_argument("--no-compress", action="store_true", help="store uncompressed (faster)")
     t.add_argument("--upload", action="store_true", help="upload to R2 + update the manifest")
+    t.add_argument("--require-wmask", action="store_true",
+                   help="refuse to upload unless every mip/mosaic .hgt member "
+                        "carries a .wmask sibling (pyEfis build_water_masks.py)")
     t.add_argument("--bucket", default="makerplane-data")
     t.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     t.set_defaults(func=cmd_make_terrain)
+
+    f = sub.add_parser("fetch-pack", help="download one published pack, verified "
+                       "against the signed manifest (sha256 + signature)")
+    f.add_argument("id", help="pack id, e.g. water-na")
+    f.add_argument("--dest", required=True, help="cache dir; a matching copy is reused")
+    f.add_argument("--manifest-url", default=_DEFAULT_URL_BASE.rsplit("/", 1)[0] + "/manifest.json")
+    f.add_argument("--pub", default="keys/minisign.pub")
+    f.add_argument("--date", help="select the edition current on this ISO date")
+    f.set_defaults(func=cmd_fetch_pack)
 
     r = sub.add_parser("build-roads", help="fetch Geofabrik state road layers "
                        "+ build highways.sqlite (docs/roads.md)")
