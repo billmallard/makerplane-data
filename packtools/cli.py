@@ -192,6 +192,23 @@ def cmd_make_terrain(args) -> int:
             only_regions=args.only or None, compress=compress)
         if not packs:
             return 1
+    if args.require_wmask:
+        # Gate BEFORE upload/sign: an edition meant to carry water masks must
+        # not publish maskless because the mask build quietly wrote nothing.
+        bad = 0
+        for tp in packs:
+            missing = make_terrain.missing_wmask_members(tp.path)
+            if missing:
+                bad += 1
+                print(f"!! {tp.path.name}: {len(missing)} masked-level .hgt "
+                      f"member(s) without a .wmask sibling, e.g. {missing[:3]}",
+                      file=sys.stderr)
+        if bad:
+            print(f"--require-wmask: {bad} pack(s) missing water masks; "
+                  "not uploading", file=sys.stderr)
+            return 1
+        print(f"--require-wmask: .wmask present beside every masked-level "
+              f".hgt in {len(packs)} pack(s)")
     if args.upload:
         from .upload import R2Store
         store = R2Store.from_env(args.bucket)
@@ -270,6 +287,9 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--url-base", default=_DEFAULT_URL_BASE)
     t.add_argument("--no-compress", action="store_true", help="store uncompressed (faster)")
     t.add_argument("--upload", action="store_true", help="upload to R2 + update the manifest")
+    t.add_argument("--require-wmask", action="store_true",
+                   help="refuse to upload unless every mip/mosaic .hgt member "
+                        "carries a .wmask sibling (pyEfis build_water_masks.py)")
     t.add_argument("--bucket", default="makerplane-data")
     t.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     t.set_defaults(func=cmd_make_terrain)
