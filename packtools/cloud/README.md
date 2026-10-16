@@ -65,7 +65,10 @@ silently**, and the container aborts with the "TILE_ROOT missing/empty" guard.
 | `PACK_OUT` | `/data/pack-scratch` | region packs stage here, deleted after each upload |
 | `REGIONS` | all 8 NA | space-separated subset to (re)publish just some |
 | `JOBS` | `0` (all cores) | mip build workers; `8` set in compose for the V1500B |
-| `CODE_REF` | `dev` | branch/tag of pyEfis + makerplane-data to run |
+| `CODE_REF` | `dev` | branch/tag of makerplane-data to clone (and of pyEfis unless `PYEFIS_REF` is set). Ignored for makerplane-data when `entrypoint.sh` runs from inside a checkout -- that checkout is used |
+| `PYEFIS_REF` | `CODE_REF` (`dev` when run from a checkout) | branch/tag of pyEfis to clone |
+| `WATER_PACK_ID` | `water-na` | published water pack whose water.sqlite step 2b rasterizes into `.wmask` masks |
+| `WATER_CACHE` | `/data/water-cache` | where that pack is cached (sha-checked, reused across runs) |
 
 ## Portability
 

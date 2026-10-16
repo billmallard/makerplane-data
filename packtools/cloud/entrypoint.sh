@@ -33,18 +33,33 @@ if [ ! -d "$TILE_ROOT" ] || [ -z "$(ls -A "$TILE_ROOT" 2>/dev/null)" ]; then
   exit 2
 fi
 
-# ---- code: fresh clone each run so map iterations are always current ----
-for repo in pyEfis makerplane-data; do
-  rm -rf "/opt/$repo"
-  git clone --depth 1 -b "$CODE_REF" "https://github.com/billmallard/$repo.git" "/opt/$repo"
-done
+# ---- code: pyEfis is cloned fresh each run so map iterations are always
+#      current. makerplane-data: when this script runs from inside a checkout
+#      (the self-hosted runner path), use THAT checkout, so the packtools code
+#      is the same revision as this script. In the Docker image the script is
+#      copied alone, so clone it at $CODE_REF as before. --
+DATA_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+if [ -f "$DATA_DIR/packtools/cli.py" ] && [ -f "$DATA_DIR/keys/minisign.pub" ]; then
+  echo "   makerplane-data: using this checkout ($DATA_DIR, $(git -C "$DATA_DIR" rev-parse --short HEAD 2>/dev/null || echo '?'))"
+  # CODE_REF here names the makerplane-data ref the caller checked out;
+  # pyEfis has no `main`, so it takes its own ref.
+  PYEFIS_REF="${PYEFIS_REF:-dev}"
+else
+  DATA_DIR=/opt/makerplane-data
+  PYEFIS_REF="${PYEFIS_REF:-$CODE_REF}"
+  rm -rf "$DATA_DIR"
+  git clone --depth 1 -b "$CODE_REF" https://github.com/billmallard/makerplane-data.git "$DATA_DIR"
+fi
+rm -rf /opt/pyEfis
+git clone --depth 1 -b "$PYEFIS_REF" https://github.com/billmallard/pyEfis.git /opt/pyEfis
+echo "   pyEfis: $PYEFIS_REF @ $(git -C /opt/pyEfis rev-parse --short HEAD 2>/dev/null || echo '?')"
 
 # ---- 0. water.sqlite for step 2b: the published water pack IS the sqlite
 #         file. Fetched through the signed manifest (signature + sha256) and
 #         cached on the mount. Up front so a missing source fails in seconds,
 #         not after the pyramid build. --
 echo ">> [0/5] fetching $WATER_PACK_ID (water.sqlite source for masks)..."
-WATER_DB="$(cd /opt/makerplane-data && PYTHONPATH=. python -m packtools.cli fetch-pack \
+WATER_DB="$(cd "$DATA_DIR" && PYTHONPATH=. python -m packtools.cli fetch-pack \
   "$WATER_PACK_ID" --dest "$WATER_CACHE" --manifest-url "$MANIFEST_URL" \
   --pub keys/minisign.pub | tail -n 1)"
 [ -s "$WATER_DB" ] || { echo "ERROR: fetch-pack gave no water_db path"; exit 1; }
@@ -73,7 +88,7 @@ PYTHONPATH=/opt/pyEfis/src python /opt/pyEfis/tools/build_terrain_mosaic.py "$TI
 #          Existing masks are skipped (no --force), so only the first run
 #          pays the full cost; re-runs just fill gaps. --
 WATER_MASK_TOOL="/opt/pyEfis/tools/build_water_masks.py"
-[ -f "$WATER_MASK_TOOL" ] || { echo "ERROR: $WATER_MASK_TOOL not found on $CODE_REF"; exit 1; }
+[ -f "$WATER_MASK_TOOL" ] || { echo "ERROR: $WATER_MASK_TOOL not found on pyEfis $PYEFIS_REF"; exit 1; }
 echo ">> [2b/5] building water masks (jobs=$JOBS)..."
 PYTHONPATH=/opt/pyEfis/src python "$WATER_MASK_TOOL" "$TILE_ROOT" "$WATER_DB" -j "$JOBS"
 
@@ -81,7 +96,7 @@ PYTHONPATH=/opt/pyEfis/src python "$WATER_MASK_TOOL" "$TILE_ROOT" "$WATER_DB" -j
 # Packs ship COMPRESSED (DEFLATE): ~50% smaller on R2 and on the wire, at the
 # cost of build CPU + a one-time Pi decompress on pull. (Flipped from
 # --no-compress per docs/terrain.md's pre-release footprint decision.)
-cd /opt/makerplane-data
+cd "$DATA_DIR"
 mkdir -p "$PACK_OUT"
 fail=0
 for r in $REGIONS; do
