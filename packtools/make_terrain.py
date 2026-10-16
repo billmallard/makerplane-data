@@ -66,6 +66,25 @@ def _write_wmask_sibling(z: zipfile.ZipFile, hgt_path: Path, hgt_arcname: str) -
         z.write(wmask, hgt_arcname[: -len(".hgt")] + ".wmask")
 
 
+def missing_wmask_members(pack_path: str | Path) -> list[str]:
+    """The ``.hgt`` members of a built pack that pyEfis ``build_water_masks.py``
+    covers -- mip levels ``.mip/<L>/...`` (L >= 1) and ``.mip/mosaic/L*`` --
+    but that carry no ``.wmask`` sibling. Native (L0) tiles are not masked by
+    that tool, so they are never reported.
+
+    Packaging itself treats an absent mask as supported (see
+    ``_write_wmask_sibling``); this is the opt-in publish gate for an edition
+    that is *meant* to carry masks (``make-terrain --require-wmask``), so a
+    mask build that silently produced nothing cannot ship as a maskless
+    signed edition (AER-2287)."""
+    with zipfile.ZipFile(pack_path) as z:
+        names = set(z.namelist())
+    return sorted(n for n in names
+                  if n.startswith(".mip/") and n.endswith(".hgt")
+                  and not n.startswith(".mip/0/")
+                  and n[: -len(".hgt")] + ".wmask" not in names)
+
+
 def _bbox(names: list[str]) -> list[int]:
     corners = [tile_sw_corner(n) for n in names]
     lats = [c[0] for c in corners]
