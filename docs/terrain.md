@@ -115,12 +115,14 @@ whenever the file exists — see `find_tiles`/`build_region_pack`/
 renegotiated for a ride-along channel: there is no per-pack mask flag, and
 none is planned.
 
-**Absent masks are a permanently supported state**, not a transitional one: a
-pack built before MP10a existed, or a level the builder skipped, simply has no
-`.wmask` file. The reader falls back to the polygon path exactly as it does
-today, unconditionally — nothing marks a "mask edition" and nothing requires
-one. Building or verifying a pack with no masks is byte-for-byte the same
-process as before this channel existed.
+**Absent masks stay readable**: a pack built before MP10a existed, or a level
+the builder skipped, simply has no `.wmask` file, and the reader falls back to
+the polygon path exactly as before. `make-terrain` packages a maskless tree the
+same as it always did. What changed (AER-2287) is the *publish* side: an
+edition meant to carry masks is built with `make-terrain --require-wmask`,
+which refuses to upload a pack in which any mip (`.mip/<L>/`, L >= 1) or
+mosaic `.hgt` lacks its `.wmask` sibling. Native L0 tiles are not masked, so
+they are not checked.
 
 **Size:** ≈ 135 KB per native tile across levels 1–6 (**≈ +0.5 %** of pack
 size) — masks are mostly zeros and DEFLATE well. Mosaic masks: ≈ 22 MB (L4),
@@ -128,11 +130,19 @@ size) — masks are mostly zeros and DEFLATE well. Mosaic masks: ≈ 22 MB (L4),
 
 **Build order:** the cloud pipeline's `entrypoint.sh` runs the mask build as
 step 2b, after the mip pyramid (step 1) and the mosaic stitch (step 2) — the
-mask builder needs both grids already on disk. The step is guarded both ways:
-if `build_water_masks.py` isn't present on the checked-out `pyEfis` ref (MP10a
-ships separately, after MP5), or if the build fails or only partially
-completes, the pipeline logs it and continues — packaging and publish must
-never depend on the mask channel existing.
+mask builder needs both grids already on disk. Its `water.sqlite` comes from
+the published `water-na` pack (the pack file *is* the sqlite), fetched in step
+0 by `packtool fetch-pack water-na --dest <cache>`, which verifies the
+manifest signature, selects the current edition, and checks the sha256 (a
+matching cached copy is reused). The step is **required**: a missing tool or
+a failed build fails the run, and both pack steps pass `--require-wmask`.
+It used to be best-effort, and that let a run with no `water_db` argument
+publish a full, signed, maskless edition (AER-2287).
+
+The mask build always covers the whole tile tree, even when `REGIONS` limits
+which packs are built: `build_water_masks.py`'s closing `pack_check` scans
+every tile and ignores `--only`. Existing masks are skipped, so only the first
+run pays for the full continent.
 
 **Notify QA before the first `.wmask`-carrying publish, dev origin first, and
 tell Elon too at the production hop.** The mask is a new,
@@ -172,8 +182,8 @@ packtool make-terrain /path/to/glo30hgt --edition 2024ed --mosaic \
 ```
 
 In practice all of the above runs unattended in the **cloud container**
-(`packtools/cloud/`, `entrypoint.sh` — mips → mosaic → water masks (guarded,
-§ Water mask) → region packs → mosaic pack → verify); the manual commands are
+(`packtools/cloud/`, `entrypoint.sh` — water.sqlite fetch → mips → mosaic → water masks
+(required, § Water mask) → region packs → mosaic pack → verify); the manual commands are
 the same steps for a workstation.
 
 Each run builds the region pack, uploads it to R2, and **upserts** the

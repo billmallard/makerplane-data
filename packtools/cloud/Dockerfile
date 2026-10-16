@@ -14,7 +14,7 @@ FROM python:3.13-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir numpy boto3 "PyNaCl>=1.5" "PyYAML>=6.0"
+RUN pip install --no-cache-dir numpy boto3 "PyNaCl>=1.5" "PyYAML>=6.0" "requests>=2.28"
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
