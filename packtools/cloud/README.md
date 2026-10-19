@@ -60,7 +60,7 @@ silently**, and the container aborts with the "TILE_ROOT missing/empty" guard.
 
 | var | default | notes |
 |---|---|---|
-| `EDITION` | `2024ed` | reuse the cycle tag → in-place manifest upsert (see docs/terrain.md) |
+| `EDITION` | `2024edr1` | reuse the cycle tag → in-place manifest upsert (see docs/terrain.md) |
 | `TILE_ROOT` | `/data/glo30hgt` | native tiles (container path; `/data` is the NAS mount) |
 | `PACK_OUT` | `/data/pack-scratch` | region packs stage here, deleted after each upload |
 | `REGIONS` | all 8 NA | space-separated subset to (re)publish just some |

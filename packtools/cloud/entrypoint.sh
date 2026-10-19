@@ -12,7 +12,7 @@ set -euo pipefail
 : "${MINISIGN_SECRET_KEY:?set MINISIGN_SECRET_KEY (base64 signing blob = contents of keys/minisign.sec)}"
 
 # ---- optional (defaults) ----
-EDITION="${EDITION:-2024ed}"
+EDITION="${EDITION:-2024edr1}"
 TILE_ROOT="${TILE_ROOT:-/data/glo30hgt}"
 PACK_OUT="${PACK_OUT:-/data/pack-scratch}"
 REGIONS="${REGIONS:-us-west us-central us-east us-south alaska canada-west canada-east mexico-central-america}"
