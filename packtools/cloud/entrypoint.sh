@@ -10,9 +10,12 @@ set -euo pipefail
 : "${R2_ACCESS_KEY_ID:?set R2_ACCESS_KEY_ID}"
 : "${R2_SECRET_ACCESS_KEY:?set R2_SECRET_ACCESS_KEY}"
 : "${MINISIGN_SECRET_KEY:?set MINISIGN_SECRET_KEY (base64 signing blob = contents of keys/minisign.sec)}"
+# No default: an edition id is published to the live manifest, so the caller
+# names it every run. A default goes stale -- it pointed at 2024ed after that
+# edition was retracted (AER-3350, AER-3528).
+: "${EDITION:?set EDITION (terrain edition id to build + publish, e.g. 2024edr1)}"
 
 # ---- optional (defaults) ----
-EDITION="${EDITION:-2024ed}"
 TILE_ROOT="${TILE_ROOT:-/data/glo30hgt}"
 PACK_OUT="${PACK_OUT:-/data/pack-scratch}"
 REGIONS="${REGIONS:-us-west us-central us-east us-south alaska canada-west canada-east mexico-central-america}"
