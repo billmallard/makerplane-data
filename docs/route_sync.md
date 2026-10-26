@@ -16,8 +16,9 @@ project's cloud-authored routes on `config_pull` (no restart needed — the
 change). A device pushes its own device-authored routes and user waypoints
 back — the **first device-authenticated write** this Worker will have. The
 device-side and cloud-side namespaces never overlap (`managed_*` vs
-everything else), so there is no merge policy to design. Six sections below,
-each ending in a decision list; §8 has the sequence diagrams the DoD asks for.
+everything else), so there is no merge policy to design. Routes travel as
+pyEfis's `mp-route/2`, with `mp-route/1` still accepted (§1a). The sections
+below each end in a decision list; §8 has the sequence diagrams the DoD asks for.
 
 ## 1. What exists today (reuse audit)
 
@@ -28,8 +29,99 @@ each ending in a decision list; §8 has the sequence diagrams the DoD asks for.
 | Device-authed **read**: `GET /device/config` (Bearer token, ETag/304) | `configurator/src/index.ts:221-244`, `docs/device_deployment.md:100-109` | Pattern reused for `GET /device/routes`; **no** device-authed **write** exists yet |
 | Snapshot / atomic-install / rollback discipline | `pyefis_data/config_pull.py:232-253` (`_snapshot`), `:564-626` (`rollback`, `restart_and_verify`) | Yes for the pull side, minus the restart step (see §3) |
 | `managed*` naming convention marking Worker-owned files | `pyefis_data/config_pull.py` `_managed_rel_paths` (`screens/managed*.yaml`, `buttons/managed-next*.yaml`) | Directly extends to `routes/managed_<slug>.json` |
-| Route JSON schema `mp-route/1` / `mp-userwpt/1` | brief Appendix B | **Frozen already** — written so FP9 needs no format change once FP4 lands it in pyEfis; this doc treats it as given, not something to re-derive |
+| Route JSON schema `mp-route/2` (reads `mp-route/1` too) / `mp-userwpt/1` | pyEfis `FlightPlan.to_json`/`from_json`, `src/pyefis/flightplan/model.py` (RS2, pyEfis#314); brief Appendix B for `mp-userwpt/1` | **Not frozen.** Appendix B's `mp-route/1` was superseded by `mp-route/2` when airways became route segments (`makerplane/briefs/route_segments_plan.md` §4). See §1a for what FP9 accepts and why the Worker stays mostly format-blind |
 | No-signing-on-device-channel precedent | `docs/device_deployment.md:111-115` ("no authenticity chain worth protecting... token-authorised over TLS") | Cited, **not** carried over unmodified — see §5, the calculus changes for a write |
+
+## 1a. Route format: `mp-route/2`, with `mp-route/1` still accepted
+
+The first version of this doc treated `mp-route/1` as frozen. It is not.
+pyEfis RS2 (pyEfis#314, AER-3791) stores routes as `mp-route/2`, following
+Bill's 2026-10-24 ruling that airways are first-class route segments
+(`makerplane/briefs/route_segments_plan.md` §4). The authoritative format is
+`FlightPlan.to_json`/`from_json` (and `Segment`/`Waypoint` beside them) in
+pyEfis `src/pyefis/flightplan/model.py`. This section was read against
+#314's head `74903d9`. **#314 was still open on 2026-10-26**, so check this
+section against the merged model before any FP9 code is written.
+
+**What v2 changes**
+- The top-level `waypoints` list is replaced by `segments`, an ordered list.
+  Each segment has a `kind` (`waypoint`, `airway`, `departure`, `arrival`,
+  `approach` or `missed`) and `legs`. A leg has the same shape as a v1
+  waypoint entry.
+- A `waypoint` segment holds exactly one leg and has no ident. Every other
+  kind also carries `ident` (at most 24 characters, no `;`), `entry` and
+  `exit` (the first and last legs' `id`), and `cycle`, the AIRAC cycle the
+  legs were expanded from (empty when unknown). `entry`/`exit` are derived:
+  pyEfis writes them but recomputes them from the legs on read. An `airway`
+  segment needs an ident and at least two legs.
+- Legs gain the optional PA3 fields `pt`, `crs`, `dst`, `alt`, `spd`, `flags`,
+  `ctr_lat`, `ctr_lon` and `turn`. Each is omitted when at its default (a
+  plain TF leg with no constraints).
+- No change to the top-level `name`, `comment`, `created`, `modified` or
+  `source` fields, or to the 100-leg cap (`MAX_WAYPOINTS`, which counts legs
+  across all segments). Unknown keys at the plan, segment and leg level are
+  kept and written back.
+- `mp-userwpt/1` is untouched by RS2.
+
+**How pyEfis handles each version**
+- RS2 and later read both versions and write only v2. A v1 file loads as one
+  waypoint segment per waypoint, and its next save rewrites it as v2. That
+  migration is one-way. The display-only `airway` tag PA6 put on v1
+  waypoints is dropped on read.
+- Pre-RS2 pyEfis reads only v1. It rejects a v2 file
+  (`unsupported route schema`), and the catalog skips any file it can't
+  parse, so a v2 route on an old device silently doesn't appear.
+- `managed_*` routes are read-only on the device (`catalog.py`
+  `_check_writable`). A cloud route delivered as v1 therefore stays v1 on
+  disk. It isn't rewritten as v2 until the cloud re-delivers it.
+- When a stored airway's `cycle` differs from the installed procedures pack,
+  pyEfis re-expands it on load and reports any change in
+  `FlightPlan.notices` (`catalog.py` `refresh_airways`). So a cloud route
+  with an old `cycle` isn't stale data the Worker has to refresh; the
+  device handles it.
+
+**What FP9 does with this**
+- **Push** accepts both versions. An RS2 device uploads v2; a pre-RS2
+  device, or a v1 file nobody has re-saved yet, uploads v1.
+- **Storage** keeps the `json` column verbatim, whatever its version. The
+  Worker doesn't migrate v1 to v2 on insert. pyEfis owns the format, and a
+  second migration written in TypeScript is a second implementation to keep
+  in step.
+- **Pull** returns each row exactly as it was stored.
+- **The web editor (§6) always saves v2.** Opening a v1 row in the editor
+  converts it the same way pyEfis does (one waypoint segment per waypoint,
+  `airway` tag dropped), and the save is a new version, so the conversion
+  happens once, in one place, and is visible in the version history.
+- **Validation is structural, not semantic.** On push and on web-editor
+  save, the Worker rejects with 400:
+  - a non-object body or a `schema` other than `mp-route/1`/`mp-route/2`;
+  - for v2, `segments` that is not an array, or a segment whose `kind` is
+    not one of the six, whose `legs` is empty or not an array, or whose
+    `ident` is over 24 characters or contains `;`;
+  - for v1, `waypoints` that is not an array;
+  - more than 100 legs in total, so the cloud never accepts a route every
+    device would refuse;
+  - a leg without a string `id` and `type` or numeric `lat`/`lon`.
+
+  The Worker does not check airway membership against navdata, re-derive
+  `entry`/`exit`, or enforce pyEfis's per-kind and FAF/MAP rules. A route
+  that passes here but fails pyEfis's own checks just doesn't appear in the
+  device catalog (§3), which is already the failure mode for a bad file.
+
+**Decisions for Bill**
+13. **Pre-RS2 devices.** A v2 route pulled onto a pre-RS2 device won't load.
+    Options: (a) FP9 requires RS2 pyEfis and nothing is converted for older
+    devices; (b) the Worker serves a flattened v1 copy when a device reports
+    an older pyEfis. Recommend (a): FP9 isn't built yet, the fleet is the
+    bench, and flattening loses the segment structure (airway ident, cycle)
+    that RS2 exists to carry. (b) would also need devices to report their
+    pyEfis version on pull, which they don't do today.
+14. **Validation depth.** (a) structural checks as listed above
+    (recommended); (b) port pyEfis's full model rules to TypeScript, which
+    catches more at the Worker but drifts the first time pyEfis changes a
+    rule; (c) publish a JSON Schema for `mp-route/2` from pyEfis and have
+    the Worker validate against it. (c) is the coherent long-term answer but
+    is a new cross-repo artifact. It belongs to AVIONICS/pyEfis, not FP9.
 
 ## 2. D1 schema
 
@@ -37,8 +129,9 @@ each ending in a decision list; §8 has the sequence diagrams the DoD asks for.
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Routes + user waypoints (docs/route_sync.md). Modelled on aircraft_profiles:
 -- append-only versions, one active per (project, source, slug). json carries
--- the mp-route/1 / mp-userwpt/1 payload verbatim (brief Appendix B) so this
--- table never needs to understand the route format.
+-- the mp-route/2 (or legacy mp-route/1) / mp-userwpt/1 payload verbatim
+-- (route_sync.md section 1a) so this table never needs to understand the
+-- route format.
 
 CREATE TABLE IF NOT EXISTS routes (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,7 +141,7 @@ CREATE TABLE IF NOT EXISTS routes (
                                     -- picked in the web UI, device slugs come
                                     -- from the uploaded route's "name" (slugified)
   version     INTEGER NOT NULL,
-  json        TEXT NOT NULL,       -- mp-route/1
+  json        TEXT NOT NULL,       -- mp-route/2 or mp-route/1, verbatim
   active      INTEGER NOT NULL DEFAULT 1,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (project_id, source, slug, version)
@@ -107,7 +200,7 @@ Content-Type: application/json
 
 {
   "routes": [
-    { "slug": "ksba-ksmx", "version": 3, "route": { "schema": "mp-route/1", ... } },
+    { "slug": "ksba-ksmx", "version": 3, "route": { "schema": "mp-route/2", ... } },
     ...
   ],
   "user_waypoints": { "version": 5, "waypoints": { "schema": "mp-userwpt/1", ... } }
@@ -127,7 +220,9 @@ since routes are a list, not a single blob.
 module — same reasoning as `docs/device_deployment.md:116-118`, "extend
 `pyefis_data`, don't add a sibling"):
 - Each cloud route becomes `<userdir>/routes/managed_<slug>.json` (verbatim
-  `mp-route/1` content) — same `managed*` convention as `screens/managed*.yaml`.
+  route content, `mp-route/2` or `mp-route/1` as stored — §1a) — same
+  `managed*` convention as `screens/managed*.yaml`. `config_pull` doesn't
+  parse the route; pyEfis does when the catalog is read.
 - Cloud user waypoints get merged into `user_waypoints.json` under a `managed`
   section, distinct from the device's own entries, so a device-side edit to a
   local waypoint is never clobbered by a cloud pull and a cloud waypoint is
@@ -170,12 +265,13 @@ Authorization: Bearer <device_token>
 Content-Type: application/json
 
 {
-  "routes": [ { "slug": "my-x-country", "route": { "schema": "mp-route/1", ... } } ],
+  "routes": [ { "slug": "my-x-country", "route": { "schema": "mp-route/2", ... } } ],
   "user_waypoints": { "waypoints": { "schema": "mp-userwpt/1", ... } }
 }
 
 200 OK  { "routes": [{ "slug": "my-x-country", "version": 1 }], "user_waypoints": { "version": 1 } }
-4xx on: unknown token (401), malformed schema/oversize payload (400),
+4xx on: unknown token (401), malformed route or unknown schema per §1a /
+        oversize payload (400),
         slug collision with a cloud-authored slug (409 — see below)
 ```
 
@@ -219,7 +315,9 @@ still make, which is §5's concern, not this one's.
    misbehaving or compromised device. Proposing 64 KiB per route / 256 KiB
    per request / one push accepted per device per 60 s as a starting point —
    these are guesses, not measurements; flag if you want different numbers or
-   want them measured against real route sizes first.
+   want them measured against real route sizes first. `mp-route/2` makes
+   routes bigger: up to 100 legs, each possibly carrying the PA3 fields. That
+   is still estimated at well under 64 KiB, but it is the case to measure.
 6. Push trigger: timer-only (matches pull), device-initiated only (a "sync"
    button/command, so nothing uploads without the pilot asking), or both.
    No recommendation — this is a product-feel call (silent background sync
@@ -274,9 +372,12 @@ A new per-project page (alongside the existing devices/aircraft-profile
 pages), listing all `active` rows for the project split into two sections —
 cloud-authored (editable, versioned, "activate this version") and
 from-device (read-only origin badge, but see §4 on "Save as cloud route").
-Route editing targets the `mp-route/1` schema directly (Appendix B): an
-ordered waypoint list, each entry an ident (airport/VOR/NDB/fix) or a
-lat/lon user point, `type`/`role` per the brief's enum. Ident entry reuses
+Route editing targets the `mp-route/2` schema directly (§1a): an ordered
+segment list, where a waypoint segment is one ident (airport/VOR/NDB/fix) or
+a lat/lon user point, `type`/`role` per the brief's enum, and an airway
+segment is an airway ident with its entry and exit fix, expanded to its legs
+and stamped with the AIRAC `cycle` it was expanded from. A v1 row opened in
+the editor is converted on load and saved as v2 (§1a). Ident entry reuses
 pyEfis's FastFind matching rule (FP3, `flightplan/waypoints.py`) so typing an
 ident in the web editor and on the panel behave the same way — not because
 the Worker imports pyEfis code, but because the *rule* (prefix match, nearest
@@ -292,7 +393,13 @@ disambiguation) is re-specified against whatever data source the Worker uses.
     pull (no — routes must be editable before a device is even paired).
     Recommend (b); it mirrors how `schema.json`/`groups.json` are already
     small CI-built artifacts the Worker reads from R2, and keeps route
-    editing possible with zero device involvement.
+    editing possible with zero device involvement. With airway segments
+    (§1a), the same index also has to carry each airway's ordered fix list
+    and its AIRAC cycle, or the web editor can only author waypoint
+    segments. That makes it larger than "kilobytes", so measure it before
+    committing to (b). Authoring waypoint-only routes in the first cut is
+    also acceptable: pyEfis loads those, and the pilot can add airways on
+    the panel.
 11. Invert / copy / delete / activate-a-version are named in the spec as
     required verbs — confirm no additional verbs needed (e.g. "duplicate to
     another project" for a multi-aircraft owner) before build.
@@ -379,12 +486,13 @@ explicitly.
   for Bill**: recover it onto `dev` (either merge that branch's version or
   re-derive it), independent of FP9 — noted here so it isn't lost, not fixed
   in this PR (out of scope: docs-recovery, not route sync).
-- FP4 (pyEfis#183, the route model + catalog storage that names the
-  `mp-route/1`/`mp-userwpt/1` schema authoritatively) is still open at the
-  time of this doc. This design pass treats the brief's Appendix B as frozen
-  per the plan's own claim ("the JSON schema in Appendix B is written so FP9
-  needs no format change") — flagging the dependency is still live in case
-  FP4's implementation surfaces a field this doc didn't anticipate.
+- The route format is owned by pyEfis, not by this doc or the brief's
+  Appendix B. The plan's original claim ("the JSON schema in Appendix B is
+  written so FP9 needs no format change") stopped being true with RS2's
+  `mp-route/2` (§1a, AER-3955). Before FP9 build starts, re-read
+  `FlightPlan.to_json`/`from_json` on pyEfis `dev` and update §1a if the
+  schema string or the segment/leg fields have moved again. RS2 itself
+  (pyEfis#314) was still open when §1a was written.
 
 ## Decision list (roll-up, for a single Bill pass)
 
@@ -400,3 +508,5 @@ explicitly.
 10. Ident-lookup source for the web route editor.
 11. Confirm the verb list (invert/copy/delete/activate) is complete.
 12. Confirm no environment-specific exception (e.g. QA seed data) is wanted.
+13. Pre-RS2 devices: require RS2 pyEfis, or serve a flattened v1 copy.
+14. Route validation depth at the Worker: structural, full port, or shared JSON Schema.
