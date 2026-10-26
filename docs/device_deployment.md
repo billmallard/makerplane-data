@@ -102,7 +102,8 @@ files (includes, preferences) are left untouched by the overlay.
 |---|---|---|---|---|
 | POST | `/api/devices/:id/pair` | session | mint a claim code (KV, 15-min TTL) | **built (P1)** |
 | POST | `/device/pair` | claim code | redeem code → device token | **built (P1)** |
-| GET | `/device/config` | device token | latest panel config YAML; ETag/304; stamps `last_pull_at` | **built (P2)** |
+| GET | `/device/config` | device token | latest panel config YAML (+ aircraft `preferences:` block, #108); ETag/304; stamps `last_pull_at` | **built (P2)** |
+| GET | `/api/devices/:id/preferences` | session | the `preferences` block the device would be served (editor preview) | **built (#108)** |
 
 The config is served **inline as YAML** (the artifact is a small native pyEfis
 fragment — [panel_config_format.md](panel_config_format.md)); there's no separate
