@@ -127,11 +127,51 @@ by the paired device:
 
 ```
 GET /device/config            Authorization: Bearer <device token>
-  -> 200  application/x-yaml   + ETag: "v<n>"  + X-Config-Version: <n>
-  -> 304  (when If-None-Match matches the current version — a cheap poll)
+  -> 200  application/x-yaml   + ETag: "v<n>" | "v<n>-p<hash>"  + X-Config-Version: <n>
+  -> 304  (when If-None-Match matches the current ETag — a cheap poll)
   -> 404  no config yet
   -> 401  missing / unknown token
 ```
+
+### Aircraft preferences block (#108)
+
+A few aircraft-profile settings must reach the device itself, not just the
+panel. Today that is only the **altimeter setting units** (aircraft settings ->
+Configuration, stored as `profile.meta.baro_unit`, `inHg` default or `hPa`).
+The aircraft profile is per project and the panel per device, so the server
+joins them at pull time: when the project's active profile sets a unit, the
+served YAML gets a top-level block appended after the panel text:
+
+```yaml
+preferences:
+  units:
+    Pressure: hPa       # pyEfis unit group -> unit
+```
+
+- The stored panel YAML is not changed and the editor never sees this block;
+  it is added to the device response only (`src/device_prefs.ts`). The panel
+  text is appended to, not re-serialised, so it reaches the device verbatim.
+- **ETag** is `"v<n>"` when the profile sets nothing (unchanged from before) and
+  `"v<n>-p<hash>"` otherwise, the hash over the block's content. So changing the
+  unit is a new config (no 304), but editing an unrelated profile value is not
+  (no needless pyEfis restart). The device stores the ETag it got and sends it
+  back as `If-None-Match`.
+- On the device, `pyefis-data config-pull` merges `units` into
+  `preferences.yaml.custom` (pyEfis reads a top-level `units:` there and starts
+  every unit-switching instrument in that group's unit). Other keys in that file
+  are left alone, and the merge is covered by the panel snapshot, so a crashed
+  install rolls it back too.
+- **Unset:** config-pull records which groups it wrote in
+  `<config>/.panel_prefs.yaml`. If the profile stops setting a unit (an older
+  profile version activated, say), the block is absent and only a group in that
+  record is removed, returning pyEfis to its inHg default. A unit set in
+  `preferences.yaml.custom` by hand is never touched. A malformed block changes
+  nothing.
+- `pressure: true` is pyEfis's whole **Pressure** unit group, so `hPa` applies to
+  every instrument configured with it, not only the baro box.
+- The editor preview reads the same derived block from
+  `GET /api/devices/:id/preferences` and shows a `pressure: true`
+  `numeric_display` in that unit.
 
 Each pull stamps `last_pull_at`. The on-Pi updater then atomic-swaps the screen +
 `main` into the device's config (see [device_deployment.md](device_deployment.md),

@@ -95,7 +95,9 @@ Mirror the instrument-schema pattern (pyEfis generates
   `created_at`, `created_by`, `active` flag. Append-only versions;
   one active per project. JSON = `{schema_version, values: {"IAS.Vne":
   160, ...}, meta: {engines: 1, cylinders: 4, tanks: 2, electrical:
-  "12V"}}`.
+  "12V"}}`. `meta.baro_unit` (`inHg` | `hPa`, #108) is the one meta key
+  delivered to the device today, as `preferences.units.Pressure` on the
+  served panel config (see panel_config_format.md).
 - API: `GET/PUT /api/projects/:id/aircraft` (active profile),
   `GET .../aircraft/versions`, `POST .../aircraft/activate/:v`.
   Ownership-scoped through user_id like everything else.
