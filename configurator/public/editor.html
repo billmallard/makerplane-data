@@ -341,6 +341,9 @@ const deviceId = params.get("device");
 
 const state = {
   schema: null,
+  // Altimeter-setting unit from the project's aircraft profile (#108), as the
+  // device will receive it in preferences units.Pressure. inHg = pyEfis default.
+  baroUnit: "inHg",
   screen: { width: 1280, height: 800, inches: 10.1 },  // device physical display (shared by all screens)
   // A device can hold several screens (PFD / EMS / RADIO ...) the pilot switches
   // between. Each: { name, layout, instruments }. `layout` + `instruments` below
@@ -400,12 +403,23 @@ function sampleText(inst) {
   switch (inst.type) {
     case "static_text": return o.text || "Text";
     case "heading_display": return "360°";  // HeadingDisplay shows "NNN°"
-    case "numeric_display": return "123";
+    case "numeric_display": return o.pressure === true ? baroSample(o) : "123";
     // With a number format set, preview a formatted sample so the mask is
     // visible; otherwise fall back to the bound key name.
     case "value_text": return o.number_format ? formatValue(88.8, o.number_format) : (o.dbkey || "ABC");
     default: return inst.type;
   }
+}
+
+// A pressure numeric_display (e.g. the BARO box) previews the standard
+// altimeter setting in the aircraft's unit, converted and formatted the way
+// pyEfis does: funcPressHpa (screenbuilder_options) then
+// '{:.{decimal_places}f}', decimal_places defaulting to 1 (gauges.AbstractGauge).
+const BARO_STD_INHG = 29.92;
+const INHG_TO_HPA = 33.863889532610884;
+function baroSample(o) {
+  const v = state.baroUnit === "hPa" ? BARO_STD_INHG * INHG_TO_HPA : BARO_STD_INHG;
+  return v.toFixed(o.decimal_places ?? 1);
 }
 
 // pyEfis text-widget defaults, matched class-by-class so an unset font / size /
@@ -2313,6 +2327,16 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       } else {
         content.textContent = sampleText(inst);
         if (inst.type === "value_text" && o.value_color) content.style.color = o.value_color;
+        // numeric_display show_units: the unit in the small font (0.4 of the
+        // value font, NumericDisplay.small_font_percent), right-aligned.
+        if (inst.type === "numeric_display" && o.pressure === true && o.show_units) {
+          const u = document.createElement("span");
+          u.textContent = state.baroUnit;
+          u.style.fontSize = "0.4em";
+          u.style.marginLeft = "auto";
+          u.style.alignSelf = "flex-start";
+          content.appendChild(u);
+        }
       }
       el.appendChild(content);
     } else if (depth === 0 && meta.containers && meta.containers.length) {
@@ -3919,6 +3943,14 @@ async function boot() {
     state.groups = gj.groups || [];
     state.groups.forEach((g) => { state.groupsById[g.id] = g; });
   } catch (_) { /* no groups catalog */ }
+  if (deviceId) {
+    try {
+      const pr = await (await fetch(`/api/devices/${deviceId}/preferences`,
+        { credentials: "same-origin" })).json();
+      const u = pr && pr.preferences && pr.preferences.units && pr.preferences.units.Pressure;
+      if (u === "hPa" || u === "inHg") state.baroUnit = u;
+    } catch (_) { /* no profile preferences -- preview the inHg default */ }
+  }
   await load();
   buildScreenControls();
   $("gridToggle").addEventListener("change", (e) => $("canvas").classList.toggle("grid", e.target.checked));

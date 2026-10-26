@@ -84,6 +84,11 @@
           <option value="mph">mph</option>
           <option value="kph">km/h</option>
         </select></div>
+      <div class="field"><label>Altimeter setting units</label>
+        <select id="barounit">
+          <option value="inHg">inHg (default)</option>
+          <option value="hPa">hPa / mb</option>
+        </select></div>
       <div class="field"><label>Twin / turbine speeds</label>
         <select id="twinspeeds"><option value="0">Hide Vmc/V1/V2</option>
           <option value="1">Show Vmc/V1/V2</option></select></div>
@@ -95,7 +100,9 @@
     <code>aircraft.ini</code> into the aircraft's
     <code>~/makerplane/fixgw/config/init_data/</code> and listing it last under
     <code>initialization files</code>; device push arrives with config
-    delivery (Phase C).</p>
+    delivery (Phase C). The altimeter setting units are the exception: they
+    reach every paired display of this aircraft with its next
+    <code>pyefis-data config-pull</code>, and every screen starts in them.</p>
 </main>
 <input type="file" id="inifile" accept=".ini,text/plain" style="display:none">
 <script>
@@ -114,9 +121,23 @@ const KT = {kt:1, mph:1.15078, kph:1.852};   // 1 kt = X unit
 let schema = null;
 let profile = { schema_version: 1,
                 meta: { engines:1, cylinders:4, tanks:2, speed_unit:"kt",
-                        engine_type:"piston", twin_speeds:false },
+                        baro_unit:"inHg", engine_type:"piston", twin_speeds:false },
                 values: {} };
 let savedVersion = null;
+
+// Altimeter-setting units (#108): delivered to the device as preferences
+// units.Pressure with every config pull, so every screen starts in it.
+const BARO_UNITS = ["inHg", "hPa"];
+
+// Fill defaults a profile saved before a setting existed, so it loads as the
+// device default (inHg) and the next save writes the choice explicitly.
+function normalizeProfile(p) {
+  if (!p || typeof p !== "object") p = {};
+  if (!p.meta || typeof p.meta !== "object") p.meta = {};
+  if (!p.values || typeof p.values !== "object") p.values = {};
+  if (!BARO_UNITS.includes(p.meta.baro_unit)) p.meta.baro_unit = "inHg";
+  return p;
+}
 
 // ---- templates (STARTING POINTS -- verify against the POH) ----------------
 // Engine templates fill engine/cylinder groups only; c170b is a full example
@@ -183,6 +204,7 @@ function fillCounts() {
   opt("cylinders", 28, profile.meta.cylinders);
   opt("tanks", 8, profile.meta.tanks);
   $("speedunit").value = profile.meta.speed_unit;
+  $("barounit").value = profile.meta.baro_unit;
   $("twinspeeds").value = profile.meta.twin_speeds ? "1" : "0";
 }
 
@@ -388,7 +410,7 @@ async function boot() {
     if (res.ok) {
       const doc = await res.json();
       if (doc.profile) {
-        profile = doc.profile; savedVersion = doc.version;
+        profile = normalizeProfile(doc.profile); savedVersion = doc.version;
         $("ver-label").textContent = "v" + doc.version + " active";
       }
     }
@@ -435,6 +457,7 @@ for (const [id, key, num] of [["engines","engines",1],["cylinders","cylinders",1
                               ["tanks","tanks",1]])
   $(id).addEventListener("change", e => { profile.meta[key] = Number(e.target.value); render(); });
 $("speedunit").addEventListener("change", e => { profile.meta.speed_unit = e.target.value; render(); });
+$("barounit").addEventListener("change", e => { profile.meta.baro_unit = e.target.value; });
 $("twinspeeds").addEventListener("change", e => { profile.meta.twin_speeds = e.target.value === "1"; render(); });
 
 boot();

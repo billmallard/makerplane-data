@@ -213,7 +213,9 @@ export async function claimDevice(
 }
 
 // Look up a device by its token hash (for the device-token-authed config pull),
-// joined to its latest config version + R2 key (null if it has no config yet).
+// joined to its latest config version + R2 key (null if it has no config yet)
+// and its project's active aircraft profile JSON (null if none) -- the device
+// preferences (#108) ride on the served config.
 export async function deviceByTokenHash(
   db: D1Database,
   tokenHash: string,
@@ -222,7 +224,10 @@ export async function deviceByTokenHash(
     .prepare(
       `SELECT d.id,
               c.version    AS version,
-              c.yaml_r2_key AS yaml_r2_key
+              c.yaml_r2_key AS yaml_r2_key,
+              (SELECT a.json FROM aircraft_profiles a
+                WHERE a.project_id = d.project_id AND a.active = 1
+                ORDER BY a.version DESC LIMIT 1) AS profile_json
          FROM devices d
          LEFT JOIN configs c
                 ON c.device_id = d.id
