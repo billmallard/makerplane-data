@@ -432,3 +432,148 @@ def test_cli_restart_failed_keeps_panel_and_does_not_roll_back(tmp_path, monkeyp
     assert rc == 1
     assert rolled["called"] is False                        # a good panel is kept
     assert (cd / "screens" / "managed.yaml").exists()       # the install stuck
+
+
+# --- aircraft preferences: units (#108, AER-3917) ----------------------------
+
+# Exactly what GET /device/config appends for a profile with baro_unit hPa
+# (configurator/src/device_prefs.ts serveDeviceConfig).
+_SERVED_HPA = (
+    "# Aircraft preferences from the configurator's aircraft profile (not part\n"
+    "# of the panel design); pyefis-data config-pull merges these into\n"
+    "# preferences.yaml.custom.\n"
+    "preferences:\n  units:\n    Pressure: hPa\n")
+
+
+def _served(*screens, prefs=_SERVED_HPA):
+    return yaml.safe_dump(_doc(*screens), sort_keys=False) + (prefs or "")
+
+
+def test_served_units_merge_into_custom_and_leave_the_rest(tmp_path):
+    cd = _config_dir(tmp_path, custom={
+        "style": {"basic": True},
+        "includes": {"SCREEN_PFD_AI_ONLY": "screens/stock.yaml"},
+        "units": {"Temperature": "°C"},          # set by hand; must survive
+    })
+    summary = config_pull.install_config(_served("PFD_AI_ONLY"), cd=cd)
+    custom = _read(cd, "preferences.yaml.custom")
+    assert custom["units"] == {"Temperature": "°C", "Pressure": "hPa"}
+    assert custom["style"] == {"basic": True}
+    assert custom["includes"]["SCREEN_PFD_AI_ONLY"] == "screens/managed.yaml"
+    assert summary["units"] == {"Pressure": "hPa"}
+    assert _read(cd, ".panel_prefs.yaml") == {"units": ["Pressure"]}
+
+
+def test_served_units_multi_screen_path(tmp_path):
+    cd = _config_dir(tmp_path)
+    summary = config_pull.install_config(_served("PFD", "EMS"), cd=cd)
+    assert summary["mode"] == "multi"
+    assert _read(cd, "preferences.yaml.custom")["units"] == {"Pressure": "hPa"}
+
+
+def test_unit_change_and_profile_unset_remove_only_what_we_wrote(tmp_path):
+    cd = _config_dir(tmp_path)
+    config_pull.install_config(_served("PFD_AI_ONLY"), cd=cd)
+    config_pull.install_config(_served("PFD_AI_ONLY",
+        prefs="preferences:\n  units:\n    Pressure: inHg\n"), cd=cd)
+    assert _read(cd, "preferences.yaml.custom")["units"] == {"Pressure": "inHg"}
+    # Profile no longer sets a unit -> the block is absent -> our key goes,
+    # and an empty units: is not left behind.
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=None), cd=cd)
+    custom = _read(cd, "preferences.yaml.custom")
+    assert "units" not in custom
+    assert custom["style"] == {"basic": True}
+    assert _read(cd, ".panel_prefs.yaml") == {"units": []}
+
+
+def test_absent_block_never_touches_a_hand_set_unit(tmp_path):
+    cd = _config_dir(tmp_path, custom={"units": {"Pressure": "hPa"}})
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=None), cd=cd)
+    assert _read(cd, "preferences.yaml.custom")["units"] == {"Pressure": "hPa"}
+    assert not (cd / ".panel_prefs.yaml").exists()
+
+
+def test_malformed_block_changes_nothing(tmp_path):
+    cd = _config_dir(tmp_path)
+    config_pull.install_config(_served("PFD_AI_ONLY"), cd=cd)     # managed hPa
+    for bad in ("preferences: hPa\n",
+                "preferences:\n  units: hPa\n",
+                "preferences:\n  units:\n    Pressure: 1013\n",
+                "preferences:\n  units:\n    Pressure: ''\n",
+                "preferences:\n  units:\n    - Pressure\n"):
+        summary = config_pull.install_config(_served("PFD_AI_ONLY", prefs=bad), cd=cd)
+        assert _read(cd, "preferences.yaml.custom")["units"] == {"Pressure": "hPa"}, bad
+        assert _read(cd, ".panel_prefs.yaml") == {"units": ["Pressure"]}, bad
+        assert summary["units"] == {}
+
+
+def test_rollback_restores_previous_units_and_drops_a_new_record(tmp_path):
+    cd = _config_dir(tmp_path, custom={"units": {"Pressure": "inHg"}})
+    before = (cd / "preferences.yaml.custom").read_text("utf-8")
+    config_pull.install_config(_served("PFD_AI_ONLY"), cd=cd)
+    assert _read(cd, "preferences.yaml.custom")["units"] == {"Pressure": "hPa"}
+    assert config_pull.rollback(cd=cd) == "previous panel"
+    assert (cd / "preferences.yaml.custom").read_text("utf-8") == before
+    assert not (cd / ".panel_prefs.yaml").exists()
+
+
+class _FakeResp:
+    def __init__(self, body, headers):
+        self._body, self.headers = body, headers
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_fetch_sends_stored_etag_and_returns_the_new_one(monkeypatch):
+    from dataclasses import replace
+    from pyefis_data.config import Config
+    seen = {}
+
+    def fake_urlopen(req, timeout=0):
+        seen["inm"] = req.get_header("If-none-match")
+        return _FakeResp(b"main: {}\n", {"X-Config-Version": "7",
+                                        "ETag": '"v7-pabcdef012345"'})
+
+    monkeypatch.setattr(config_pull.urllib.request, "urlopen", fake_urlopen)
+    cfg = replace(Config(), device_token="t", config_version=7,
+                  config_etag='"v7-p000000000000"')
+    assert config_pull.fetch_config(cfg) == (
+        "updated", 7, "main: {}\n", '"v7-pabcdef012345"')
+    assert seen["inm"] == '"v7-p000000000000"'
+    # A device installed before ETags were stored still sends "v<n>".
+    config_pull.fetch_config(replace(cfg, config_etag=None))
+    assert seen["inm"] == '"v7"'
+
+
+def test_cli_stores_etag_and_rollback_restores_the_old_one(tmp_path, monkeypatch):
+    import argparse
+    from pyefis_data import cli
+    from pyefis_data.config import Config, write_config
+    cd = _config_dir(tmp_path)
+    data = tmp_path / "data.yaml"
+    write_config(data, {"device_token": "t", "config_version": 4, "config_etag": '"v4"'})
+    monkeypatch.setattr(config_pull, "config_dir", lambda: cd)
+    monkeypatch.setattr(config_pull, "fetch_config",
+                        lambda cfg: ("updated", 5, _served("PFD_AI_ONLY"), '"v5-pabc"'))
+    args = argparse.Namespace(config=str(data), configurator_url=None,
+                              no_restart=True, wait_online=0)
+    assert cli.cmd_config_pull(args) == 0
+    cfg = Config.load(data)
+    assert (cfg.config_version, cfg.config_etag) == (5, '"v5-pabc"')
+
+    monkeypatch.setattr(config_pull, "restart_and_verify",
+                        lambda **kw: config_pull.RESTART_CRASHED)
+    monkeypatch.setattr(config_pull, "restart_pyefis", lambda **kw: True)
+    monkeypatch.setattr(config_pull, "fetch_config",
+                        lambda cfg: ("updated", 6, _served("PFD_AI_ONLY"), '"v6-pdef"'))
+    args.no_restart = False
+    assert cli.cmd_config_pull(args) == 1
+    cfg = Config.load(data)
+    assert (cfg.config_version, cfg.config_etag) == (5, '"v5-pabc"')

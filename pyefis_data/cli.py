@@ -379,7 +379,9 @@ def cmd_config_pull(args) -> int:
     deadline = time.monotonic() + wait_online
     waited = False
     while True:
-        status, version, text = config_pull.fetch_config(cfg)
+        res = config_pull.fetch_config(cfg)
+        status, version, text = res[:3]
+        etag = res[3] if len(res) > 3 else None
         if not status.startswith("error") or time.monotonic() >= deadline:
             break
         if not waited:
@@ -410,6 +412,7 @@ def cmd_config_pull(args) -> int:
         return 2
 
     old_version = cfg.config_version          # to revert to if the new config crashes
+    old_etag = cfg.config_etag
     try:
         summary = config_pull.install_config(text)
     except ValueError as e:
@@ -420,7 +423,10 @@ def cmd_config_pull(args) -> int:
         return 2
 
     from .config import write_config
-    write_config(args.config, {"config_version": version})
+    write_config(args.config, {"config_version": version, "config_etag": etag})
+    if summary.get("units"):
+        print("aircraft units: " + ", ".join(
+            f"{g} {u}" for g, u in summary["units"].items()))
     n = summary.get("screens", 1)
     if n > 1:
         print(f"installed panel config v{version} -- {n} screens "
@@ -450,7 +456,7 @@ def cmd_config_pull(args) -> int:
     # RESTART_CRASHED: the new config actually crashed pyEfis -> roll back to the
     # last working state so the device is never left on a screen it can't boot.
     restored = config_pull.rollback()
-    write_config(args.config, {"config_version": old_version})
+    write_config(args.config, {"config_version": old_version, "config_etag": old_etag})
     config_pull.restart_pyefis(scope=cfg.pyefis_unit_scope)
     print(f"new config crashed pyEfis on load; rolled back to {restored} "
           f"(config v{version} left available to retry)", file=sys.stderr)

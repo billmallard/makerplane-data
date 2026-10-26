@@ -59,6 +59,7 @@ class Config:
     device_token: str | None = None
     device_id: int | None = None
     config_version: int | None = None   # installed panel-config version (for If-None-Match)
+    config_etag: str | None = None      # server ETag of that install (#108: covers preferences too)
     # Which systemd scope manages the pyEfis service, so config-pull restarts the
     # right one. 'user' = `systemctl --user` (the Raspberry Pi image default),
     # 'system' = a system service (e.g. the x86 appliance). None = auto-detect
@@ -116,6 +117,8 @@ class Config:
             kw["device_id"] = data["device_id"]
         if isinstance(data.get("config_version"), int):
             kw["config_version"] = data["config_version"]
+        if isinstance(data.get("config_etag"), str) and data["config_etag"]:
+            kw["config_etag"] = data["config_etag"]
         # Only the two known scopes are honoured; anything else (typo, bool,
         # wrong string) is ignored so it falls back to auto-detect -- a bad value
         # can never point the restart at a scope that doesn't exist.
