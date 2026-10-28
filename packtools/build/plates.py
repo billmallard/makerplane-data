@@ -39,6 +39,7 @@ from pathlib import Path
 
 from ..dtpp import PlateRecord, distinct_pdf_names
 from .georef import GeoResult, derive_plate_georef
+from .errors import BuildError
 
 _SCHEMA = """
 CREATE TABLE plate_files (
@@ -84,8 +85,9 @@ CREATE TABLE plate_georef (
 _GEOREF_CHART_CODES = ("IAP",)
 
 
-class PlatesBuildError(RuntimeError):
-    pass
+class PlatesBuildError(BuildError):
+    """A refusal (bad or empty input). A BuildError, so run_cyclical
+    fails the run rather than logging it as a benign WARN."""
 
 
 def _extract_words_pypdf(pdf_path: Path) -> dict[str, list[tuple[float, float]]]:
