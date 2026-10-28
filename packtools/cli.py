@@ -177,6 +177,21 @@ def cmd_backfill_licenses(args) -> int:
     return 0
 
 
+def cmd_job_summary(args) -> int:
+    """Append a dispatch build's check table to $GITHUB_STEP_SUMMARY (and
+    print it). Never fails the job: it runs under `if: always()` to describe
+    whatever happened, including a failed build."""
+    from . import summary
+    inputs = dict(kv.split("=", 1) for kv in args.input)
+    checks = [(c.split("|", 2) + ["", ""])[:3] for c in args.check]
+    first, *rest = args.file
+    md = "\n".join([summary.artifact_report(args.title, first, checks=checks, inputs=inputs)]
+                    + [summary.artifact_report(Path(f).name, f, level=3) for f in rest])
+    print(md)
+    summary.write(md)
+    return 0
+
+
 def cmd_verify(args) -> int:
     pub = Path(args.pub).read_text(encoding="ascii")
     try:
@@ -362,6 +377,15 @@ def build_parser() -> argparse.ArgumentParser:
     bl.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     bl.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
     bl.set_defaults(func=cmd_backfill_licenses)
+
+    js = sub.add_parser("job-summary", help="write a dispatch build's check table "
+                        "to the GitHub Actions job summary")
+    js.add_argument("--title", required=True)
+    js.add_argument("--file", action="append", default=[], required=True,
+                    help="built artifact to describe (repeatable; first gets the tables)")
+    js.add_argument("--input", action="append", default=[], metavar="KEY=VALUE")
+    js.add_argument("--check", action="append", default=[], metavar="CHECK|RESULT|DETAIL")
+    js.set_defaults(func=cmd_job_summary)
 
     v = sub.add_parser("verify", help="verify a signed manifest")
     v.add_argument("manifest")

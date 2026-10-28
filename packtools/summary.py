@@ -63,14 +63,16 @@ def _sha256(path: Path) -> str:
 
 
 def artifact_report(title: str, path: str | os.PathLike, *,
-                    checks: list[list[str]], inputs: dict[str, str] | None = None) -> str:
+                    checks: list[list[str]] | None = None,
+                    inputs: dict[str, str] | None = None, level: int = 2) -> str:
     """Markdown for a one-off (dispatch) build: its inputs, the checks that
     did or did not run, and what the built file contains. ``checks`` rows are
     [check, result, detail]; state "none" plainly rather than omit a layer."""
-    md = [f"## {title}\n"]
+    md = [f"{'#' * level} {title}\n"]
     if inputs:
         md.append(table(["input", "value"], [[k, v] for k, v in inputs.items()]))
-    md.append(table(["check", "result", "detail"], checks))
+    if checks:
+        md.append(table(["check", "result", "detail"], checks))
     p = Path(path)
     if not p.exists():
         md.append(f"**Built file:** `{p}` -- not produced.\n")
