@@ -213,8 +213,8 @@ class CyclicalRunner:
     def summary_markdown(self, *, dry_run: bool = False) -> str:
         """The check table for ``$GITHUB_STEP_SUMMARY``: per (pack, cycle), the
         decision, which schema-guard layers ran, the output floors, and the
-        result. A blank guard cell is never shown -- "no contract" and "not
-        reached" are stated."""
+        result. A blank guard cell is never shown -- "no contract", "not run"
+        and "FAILED" are stated."""
         def guard(v):
             if v is None or isinstance(v, str):
                 return v or "not run"
