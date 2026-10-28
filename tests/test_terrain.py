@@ -10,6 +10,7 @@ import pytest
 
 from packtools import make_terrain, signing
 from packtools.manifest import Manifest
+from packtools.sources import COPERNICUS_DEM_LICENSE, COPERNICUS_DEM_LICENSE_URL
 from packtools.upload import LocalStore
 from pyefis_data.config import Config
 from pyefis_data.core import Updater, LocalDirRemote, VerificationError
@@ -60,6 +61,8 @@ def test_build_region_pack_shape(tmp_path):
     assert tp.entry.kind == "terrain"
     assert tp.entry.effective is None and tp.entry.expires is None   # non-cyclical
     assert tp.entry.regions == ["us-west"]
+    assert tp.entry.license == COPERNICUS_DEM_LICENSE                # AER-4098: not blank
+    assert tp.entry.license_url == COPERNICUS_DEM_LICENSE_URL
     assert tp.entry.tiles_bbox == [32, -121, 34, -119]               # SW corners +1deg
     with zipfile.ZipFile(tp.path) as z:
         names = set(z.namelist())
@@ -126,6 +129,7 @@ def test_build_mosaic_pack_shape(tmp_path):
     assert tp is not None
     assert tp.entry.id == "terrain-mosaic" and tp.entry.kind == "terrain"
     assert tp.entry.regions == ["mosaic"]                  # synthetic region, isolates provenance
+    assert tp.entry.license == COPERNICUS_DEM_LICENSE      # AER-4098: not blank
     assert tp.entry.effective is None and tp.entry.expires is None
     assert tp.entry.tiles_bbox == [32, -121, 34, -119]     # derived from the L*.json sidecar
     with zipfile.ZipFile(tp.path) as z:
