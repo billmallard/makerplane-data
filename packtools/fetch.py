@@ -10,7 +10,7 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-_UA = "makerplane-data/0.1 (+https://github.com/makerplane/makerplane-data)"
+_UA = "makerplane-data/0.1 (+https://github.com/billmallard/makerplane-data)"
 _CHUNK = 1 << 20  # 1 MiB
 
 
