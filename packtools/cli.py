@@ -153,6 +153,30 @@ def cmd_remove_pack(args) -> int:
     return 0
 
 
+def cmd_backfill_licenses(args) -> int:
+    from .publish import backfill_licenses
+    date = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
+    if args.manifest_url:
+        # Read-only preview against the public manifest: no credentials needed.
+        import requests
+
+        class _ReadOnly:
+            def get_bytes(self, key):
+                r = requests.get(args.manifest_url, timeout=60)
+                r.raise_for_status()
+                return r.content
+        if not args.dry_run:
+            raise SystemExit("--manifest-url is read-only; pass --dry-run")
+        store, sk = _ReadOnly(), None
+    else:
+        from .upload import R2Store
+        store = R2Store.from_env(args.bucket)
+        sk = None if args.dry_run else _load_secret(args)
+    backfill_licenses(store, sk, generated=_utc_stamp(date), sign=signing.sign,
+                      dry_run=args.dry_run)
+    return 0
+
+
 def cmd_verify(args) -> int:
     pub = Path(args.pub).read_text(encoding="ascii")
     try:
@@ -328,6 +352,16 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     rp.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
     rp.set_defaults(func=cmd_remove_pack)
+
+    bl = sub.add_parser("backfill-licenses", help="fill blank license/license_url "
+                        "on live manifest entries from their attribution, and re-sign")
+    bl.add_argument("--dry-run", action="store_true", help="report the fills; write nothing")
+    bl.add_argument("--manifest-url", help="preview against this public manifest "
+                    "instead of R2 (requires --dry-run)")
+    bl.add_argument("--bucket", default="makerplane-data")
+    bl.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    bl.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
+    bl.set_defaults(func=cmd_backfill_licenses)
 
     v = sub.add_parser("verify", help="verify a signed manifest")
     v.add_argument("manifest")
