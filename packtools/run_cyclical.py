@@ -26,7 +26,7 @@ import tempfile
 from pathlib import Path
 
 from . import build as _build
-from . import cycles, fetch, schema_guard, signing
+from . import cycles, fetch, schema_guard, signing, summary
 from .manifest import Manifest
 from .packmeta import PackMeta, embed_sqlite
 from .manifest import PackEntry
@@ -67,6 +67,9 @@ class CyclicalRunner:
         self.guard = guard
         self.today = today or _dt.date.today()
         self.log = print
+        # One row per (source, cycle) decision, for the job summary.
+        self.checks: list[dict] = []
+        self._cur: dict = {}
 
     def _cycles_for(self, source: Source) -> list[cycles.Cycle]:
         cur, nxt = cycles.current_and_next(source.cadence, today=self.today)
@@ -95,13 +98,15 @@ class CyclicalRunner:
             extracted = self.fetcher(url, cycle_work,
                                      member=(source.archive_member or None))
         # Contract check 1-3, against the live download, before we build.
-        self.guard.check_inputs(source, Path(extracted))
+        self._cur["guard"] = "FAILED"          # overwritten if the checks pass
+        self._cur["guard"] = self.guard.check_inputs(source, Path(extracted))
         pack_path = cycle_work / f"{source.pack_id}-{c.cycle}.pack"
         self.log(f"  build {source.builder} -> {pack_path.name}")
         builder(Path(extracted), pack_path)
         # Contract check 4, against the built sqlite, before it is embedded /
         # uploaded -- a below-floor or empty pack must not ship.
-        self.guard.check_output(source, pack_path)
+        self._cur["floors"] = "FAILED"
+        self._cur["floors"] = self.guard.check_output(source, pack_path)
         meta = PackMeta(id=source.pack_id, kind=source.kind, cycle=c.cycle,
                         effective=c.effective.isoformat(),
                         expires=c.expires.isoformat(),
@@ -123,6 +128,20 @@ class CyclicalRunner:
         # packs that are skipped (already present) and never rebuilt.
         for p in m.packs:
             p.url = f"{self.url_base}/{p.id}-{p.cycle}.pack"
+        self.checks = []
+        try:
+            return self._run(sources, m, dry_run=dry_run)
+        finally:
+            summary.write(self.summary_markdown(dry_run=dry_run))
+
+    def _record(self, source: Source, c: cycles.Cycle, decision: str, detail: str = "") -> None:
+        self.checks.append({"pack": source.pack_id, "cycle": c.cycle,
+                            "decision": decision, "detail": detail,
+                            "guard": self._cur.get("guard"),
+                            "floors": self._cur.get("floors")})
+        self._cur = {}
+
+    def _run(self, sources: list[Source], m: Manifest, *, dry_run: bool) -> Manifest:
         built = 0
         failures: list[str] = []
 
@@ -134,11 +153,15 @@ class CyclicalRunner:
                                   for p in m.packs)
                 if in_store and in_manifest:
                     self.log(f"skip {source.pack_id} {c.cycle} (present)")
+                    self._record(source, c, "skip (present)")
                     continue
                 if dry_run:
                     self.log(f"WOULD build+upload {source.pack_id} {c.cycle} "
                              f"({c.effective}..{c.expires})")
+                    self._record(source, c, "would build",
+                                 f"in store: {in_store}, in manifest: {in_manifest}")
                     continue
+                self._cur = {}
                 try:
                     entry, pack_path = self._build_one(source, c)
                 except (SchemaGuardError, _build.BuildError) as e:
@@ -149,17 +172,21 @@ class CyclicalRunner:
                     # so its previously published packs keep serving.
                     self.log(f"FAIL {source.pack_id} {c.cycle}: {e}")
                     failures.append(f"{source.pack_id} {c.cycle}: {e}")
+                    self._record(source, c, f"FAIL ({type(e).__name__})", str(e))
                     continue
                 except Exception as e:
                     # A not-yet-published next cycle, or a transient upstream
                     # error, must not abort the whole run and is NOT a failure.
                     self.log(f"WARN {source.pack_id} {c.cycle}: {e}")
+                    self._record(source, c, "WARN (not fatal)", str(e))
                     continue
                 self.store.put_file(key, pack_path, content_type="application/octet-stream")
                 m.upsert(entry)
                 built += 1
                 self.log(f"built+uploaded {source.pack_id} {c.cycle} "
                          f"sha256={entry.sha256[:12]}… {entry.bytes:,} B")
+                self._record(source, c, "built + uploaded",
+                             f"sha256 {entry.sha256[:12]}, {entry.bytes:,} B")
 
         m.prune_old_cycles(keep=2)
 
@@ -182,6 +209,35 @@ class CyclicalRunner:
                 f"healthy sources were still published:\n  - "
                 + "\n  - ".join(failures))
         return m
+
+    def summary_markdown(self, *, dry_run: bool = False) -> str:
+        """The check table for ``$GITHUB_STEP_SUMMARY``: per (pack, cycle), the
+        decision, which schema-guard layers ran, the output floors, and the
+        result. A blank guard cell is never shown -- "no contract" and "not
+        reached" are stated."""
+        def guard(v):
+            if v is None or isinstance(v, str):
+                return v or "not run"
+            return ", ".join(v) + ": pass" if v else "no contract"
+
+        def floors(v):
+            if v is None or isinstance(v, str):
+                return v or "not run"
+            return "; ".join(f"{t} {n:,} >= {f:,}" for t, n, f in v) if v else "no floors"
+
+        rows = []
+        for r in self.checks:
+            skipped = r["decision"] in ("skip (present)", "would build")
+            rows.append([r["pack"], r["cycle"], r["decision"],
+                         "-" if skipped else guard(r["guard"]),
+                         "-" if skipped else floors(r["floors"]), r["detail"]])
+        title = f"cyclical packs {self.today.isoformat()}" + (" (dry run)" if dry_run else "")
+        n_fail = sum(r["decision"].startswith("FAIL") for r in self.checks)
+        verdict = (f"**{n_fail} hard failure(s): this run is red.**" if n_fail
+                   else "No hard failures.")
+        return (f"## {title}\n\n{verdict}\n\n"
+                + summary.table(["pack", "cycle", "decision", "schema guard (input)",
+                                 "output floors", "detail"], rows))
 
 
 # --------------------------------------------------------------------------

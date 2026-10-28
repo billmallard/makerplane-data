@@ -260,20 +260,28 @@ class SchemaGuard:
                         f"If this is a real new category, handle it (as the SP "
                         f"filter handles SP) then add it here.")
 
-    def check_inputs(self, source, input_dir) -> None:
+    def check_inputs(self, source, input_dir) -> list[str]:
+        """Run checks 1-3. Returns the layers that ran and passed (for the job
+        summary); ``[]`` means this builder has no contract."""
         contract = self._contract(source)
         if contract is None:
-            return
+            return []
         input_dir = Path(input_dir)
         self._check_structure(contract, input_dir)
         self._check_headers(contract, input_dir)
-        self._check_enums(contract, input_dir)
+        passed = ["structure", "headers"]
+        if contract.enum_columns:
+            self._check_enums(contract, input_dir)
+            passed.append("enums")
+        return passed
 
     # -- check 4 -----------------------------------------------------------
-    def check_output(self, source, pack_path) -> None:
+    def check_output(self, source, pack_path) -> list[tuple[str, int, int]]:
+        """Run check 4. Returns (table, rows, floor) for each floored table
+        (for the job summary); ``[]`` means this builder has no contract."""
         contract = self._contract(source)
         if contract is None:
-            return
+            return []
         name = Path(pack_path).name
         con = sqlite3.connect(str(pack_path))
         try:
@@ -302,6 +310,7 @@ class SchemaGuard:
                         f"truncated upstream file or a parse break.")
         finally:
             con.close()
+        return [(t, counts[t], f) for t, f in contract.floors.items()]
 
 
 class _NullGuard:
@@ -309,10 +318,10 @@ class _NullGuard:
     (e.g. the orchestrator tests, which inject fake builders + fake inputs)."""
 
     def check_inputs(self, source, input_dir) -> None:
-        pass
+        return None              # None, not []: "not run", not "no contract"
 
     def check_output(self, source, pack_path) -> None:
-        pass
+        return None
 
 
 #: the guard the pipeline uses by default (real contracts + committed snapshots)

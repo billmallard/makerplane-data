@@ -87,7 +87,9 @@ def _sqlite(path, tables):
 # --- check 1: structure snapshot diff --------------------------------------
 
 def test_structure_identical_passes(tmp_path):
-    _guard(tmp_path).check_inputs(DEMO_SRC, _input(tmp_path))
+    # returns the layers that ran, for the job summary (AER-4098)
+    assert _guard(tmp_path).check_inputs(DEMO_SRC, _input(tmp_path)) == [
+        "structure", "headers", "enums"]
 
 
 def test_structure_added_column_fails(tmp_path):
@@ -173,7 +175,8 @@ def test_enum_unknown_value_fails(tmp_path):
 
 def test_floor_met_passes(tmp_path):
     DEMO_SRC_OK = SimpleNamespace(builder="demo")
-    _guard(tmp_path).check_output(DEMO_SRC_OK, _sqlite(tmp_path / "p.sqlite", {"widgets": 5}))
+    assert _guard(tmp_path).check_output(
+        DEMO_SRC_OK, _sqlite(tmp_path / "p.sqlite", {"widgets": 5})) == [("widgets", 5, 3)]
 
 
 def test_below_floor_fails(tmp_path):
@@ -206,8 +209,8 @@ def test_missing_floored_table_fails(tmp_path):
 def test_no_contract_is_noop(tmp_path):
     src = SimpleNamespace(builder="obstacles")
     guard = _guard(tmp_path)
-    guard.check_inputs(src, tmp_path)                              # no raise
-    guard.check_output(src, _sqlite(tmp_path / "p.sqlite", {"t": 0}))
+    assert guard.check_inputs(src, tmp_path) == []                 # no raise
+    assert guard.check_output(src, _sqlite(tmp_path / "p.sqlite", {"t": 0})) == []
 
 
 # --- orchestrator integration ----------------------------------------------
@@ -276,6 +279,66 @@ def test_null_guard_run_is_unchanged(tmp_path):
     m = runner.run([SOURCES["airports-conus"], SOURCES["obstacles-conus"]])   # no raise
     ids = {p.id for p in m.packs}
     assert {"airports-conus", "obstacles-conus"} <= ids
+
+
+def test_job_summary_shows_layers_floors_failures_and_skips(tmp_path, monkeypatch):
+    # AER-4098: the public run page must show what was checked. airports runs
+    # the DEMO contract end to end (all three input layers + a floor);
+    # obstacles has no contract; the next airports cycle fails its floor.
+    import dataclasses
+    summary_file = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+    sdir = tmp_path / "schemas"
+    sdir.mkdir()
+    _write_structure(sdir / "DEMO_structure.csv", DEMO_ROWS)
+    guard = SchemaGuard(contracts={"airports": dataclasses.replace(DEMO, builder="airports")},
+                        schemas_dir=sdir)
+
+    def fetch(url, work_dir, member=None):
+        d = Path(work_dir) / "in"
+        if not d.exists():
+            d.mkdir(parents=True)
+            _write_structure(d / "DEMO_CSV_DATA_STRUCTURE.csv", DEMO_ROWS)
+            _write_csv(d / "DEMO_BASE.csv", ["ID", "CODE", "LAT"], [["1", "A", "34.0"]])
+        return d
+
+    def build(input_dir, out_path):
+        rows = 2 if "2607" in Path(out_path).name else 5        # 2607 is below the floor
+        Path(out_path).unlink(missing_ok=True)
+        return _sqlite(out_path, {"widgets": rows})
+
+    runner, store = _runner(tmp_path, guard)
+    runner.fetcher = fetch
+    runner.builders = {"airports": build, "obstacles": _fake_build}
+    with pytest.raises(PipelineFailure):
+        runner.run([SOURCES["airports-conus"], SOURCES["obstacles-conus"]])
+
+    rows = {tuple(c.strip() for c in line.strip("|").split("|")[:5])
+            for line in summary_file.read_text().splitlines() if line.startswith("| a")
+            or line.startswith("| o")}
+    assert ("airports-conus", "2606", "built + uploaded",
+            "structure, headers, enums: pass", "widgets 5 >= 3") in rows
+    assert ("airports-conus", "2607", "FAIL (SchemaGuardError)",
+            "structure, headers, enums: pass", "FAILED") in rows
+    assert ("obstacles-conus", "260611", "built + uploaded",
+            "no contract", "no floors") in rows
+    assert "this run is red" in summary_file.read_text()
+
+    # A re-run records the skip-if-present decisions too.
+    summary_file.unlink()
+    with pytest.raises(PipelineFailure):
+        runner.run([SOURCES["airports-conus"], SOURCES["obstacles-conus"]])
+    text = summary_file.read_text()
+    assert "| airports-conus | 2606 | skip (present) |" in text
+    assert "| obstacles-conus | 260611 | skip (present) |" in text
+
+
+def test_no_summary_written_off_actions(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    runner, store = _runner(tmp_path, NULL_GUARD)
+    runner.run([SOURCES["obstacles-conus"]])
+    assert "not run" in runner.summary_markdown()       # null guard is stated, not hidden
+    assert not list(tmp_path.glob("*.md"))
 
 
 # --- the real committed contracts ------------------------------------------
