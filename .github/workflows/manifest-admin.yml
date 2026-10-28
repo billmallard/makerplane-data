@@ -1,23 +1,36 @@
 name: manifest-admin
 
-# Retract one bad (id, cycle) entry from the live manifest and re-sign --
-# `packtool remove-pack` (docs/roads.md). For undoing a publish mistake, e.g.
-# a states-limited test build uploaded under a production pack id (a
-# non-cyclical pack's currency is picked by cycle *string*, so even a
-# test-tagged cycle can outrank the real edition -- makerplane-data#60).
-# Does not touch the pack object itself, only its manifest listing.
+# Signed edits to the live manifest's listings, never to pack bytes:
+#
+#   retract            -- `packtool remove-pack`: drop one bad (id, cycle) entry
+#                         (docs/roads.md). For undoing a publish mistake, e.g.
+#                         a states-limited test build uploaded under a
+#                         production pack id (makerplane-data#60).
+#   backfill-licenses  -- `packtool backfill-licenses`: fill blank license /
+#                         license_url from each entry's attribution (AER-4098).
+#                         Never overwrites a set license. `dry_run` (default on)
+#                         prints the fills and writes nothing.
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: "What to do to the live manifest"
+        type: choice
+        options: [retract, backfill-licenses]
+        default: retract
       id:
-        description: "Pack id to retract from, e.g. 'highways-conus'"
-        required: true
+        description: "retract: pack id, e.g. 'highways-conus'"
+        default: ""
       cycle:
-        description: "Exact cycle string to remove, e.g. '2026q3r1-smoketest'"
-        required: true
+        description: "retract: exact cycle string, e.g. '2026q3r1-smoketest'"
+        default: ""
+      dry_run:
+        description: "backfill-licenses: report the fills, write nothing"
+        type: boolean
+        default: true
 
 jobs:
-  retract:
+  admin:
     runs-on: ubuntu-latest
     concurrency: roads-packs        # never race a highways publish for the manifest
     steps:
@@ -28,11 +41,33 @@ jobs:
       - run: pip install -e .[build]
 
       - name: Retract manifest entry (signed)
+        if: ${{ inputs.action == 'retract' }}
         env:
           R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
         run: |
+          test -n "${{ inputs.id }}" && test -n "${{ inputs.cycle }}" \
+            || { echo "retract needs id and cycle" >&2; exit 1; }
           packtool remove-pack --id "${{ inputs.id }}" --cycle "${{ inputs.cycle }}" \
             --bucket makerplane-data
+
+      - name: Backfill blank licenses (signed unless dry_run)
+        if: ${{ inputs.action == 'backfill-licenses' }}
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          set -o pipefail
+          packtool backfill-licenses --bucket makerplane-data \
+            ${{ inputs.dry_run && '--dry-run' || '' }} | tee backfill.log
+          {
+            echo "## backfill-licenses (dry_run=${{ inputs.dry_run }})"
+            echo
+            echo '```'
+            cat backfill.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
