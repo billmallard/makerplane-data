@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import packmeta
+from . import device_probe, packmeta
 from .manifest import NOTICE, ORIGINS
 from .packmeta import KINDS
 from .regions import load_regions, tile_sw_corner
@@ -46,7 +46,12 @@ RECORDS = ("build", "retro", "rejected")
 STATUSES = ("pass", "warn", "fail", "not-run")
 REPO = "billmallard/makerplane-data"
 
-# --- Thresholds: proposed, pending QA review (AER-4102) ---------------------
+# --- Thresholds --------------------------------------------------------------
+# ROW_DELTA_WARN, the GEO-002 allowance and OSM_REGION_DROP_WARN are accepted
+# by QA only as provisional warn levels (AER-4102 C7); the record says so.
+PROVISIONAL = ("no edition-to-edition baseline yet (one published pair per kind when "
+               "set); a warn level for a person to look at, to be re-set once enough "
+               "records exist (AER-4102)")
 #: ROW-002: a table whose row count moves more than this against the previous
 #: edition is a warn that needs a build note.
 ROW_DELTA_WARN = 0.10
@@ -76,11 +81,32 @@ ORIGIN_BY_KIND = {
     "rivers": "community", "airspace": "community",
 }
 
+#: Kinds whose catalogue QA has not accepted as a gate (AER-4102). A record
+#: is still written for them, but it says it is ungated and a build record
+#: never clears the publish gate on its own.
+UNGATED = {
+    "rivers": "OSM checks only and no device probe; it needs IDX-001 and an ACC-001 "
+              "probe before it can gate",
+    "cifp": "no content check beyond the common and SQLite ones, and no device probe "
+            "(the CIFP build itself is deferred)",
+    "airspace": "no content check beyond the common and SQLite ones, and no device probe",
+    "plates": "a zip pack: only PACK-001..004 and a not-run ACC-001; no content check and "
+              "no device probe",
+}
+
 _FEDERAL_SQLITE = ("navdata", "navaids", "obstacles", "procedures")
 _OSM = ("water", "highways", "rivers")
 
-# Which schema_guard contract speaks for which pack kind.
-_GUARD_BUILDER = {"navdata": "airports", "navaids": "navaids", "obstacles": "obstacles"}
+# Which schema_guard contract speaks for which pack kind. Obstacles (FAA
+# DOF) has no contract, so its SG checks could never run; OBS-001 is its
+# floor instead.
+_GUARD_BUILDER = {"navdata": "airports", "navaids": "navaids"}
+
+#: OBS-001: row floors for kinds with no schema_guard contract, by the
+#: SG-004 convention (50% of an observed build, rounded down to the
+#: hundred). obstacles: 50% of the 657,181 rows in obstacles-conus 261001
+#: (260806 had 652,407).
+_ROW_FLOORS = {"obstacles": {"obstacles": 328_500}}
 
 # Coordinate columns per kind, for GEO-001/GEO-002. Missing tables or
 # columns are skipped, not failed: the schema is ACC-001's and SG-004's job.
@@ -93,6 +119,11 @@ _COORDS = {
     "procedures": [("legs", "fix_lat", "fix_lon"), ("legs", "centre_lat", "centre_lon"),
                    ("airway_legs", "fix_lat", "fix_lon")],
 }
+
+# Tables whose NULL coordinates GEO-001 tolerates: a procedure or airway
+# leg may name no fix, and PROC-FIX-001 counts the legs whose fix the build
+# could not place. On every other (point) table a NULL position is bad.
+_NULL_COORDS_OK = ("legs", "airway_legs")
 
 # Where FAA data is expected: CONUS, Alaska (both sides of the antimeridian),
 # Hawaii, Puerto Rico / USVI, Guam / CNMI, American Samoa, Wake, Midway.
@@ -117,6 +148,20 @@ _REUSED = {
     "navaids": [("navaids", ("id", "type")), ("awy_segments", ("awy_id", "seq"))],
 }
 
+# ROW-001: tables a kind's builder creates empty by design, declared here so
+# the record says so. water: pyEfis tools/build_water_db.py creates
+# waterway_lines (and its R-tree) in every build and fills it only with
+# --waterway, which the Geofabrik orchestrator never passes; river lines are
+# the rivers kind (AER-4137).
+_DECLARED_EMPTY = {"water": ("waterway_lines",)}
+
+# The R-trees each kind's pyEfis builder writes, and the table each one
+# indexes (pyEfis tools/build_highway_db.py, tools/build_water_db.py).
+_RTREES = {
+    "highways": (("highway_rtree", "highway_lines"),),
+    "water": (("water_rtree", "water_polygons"), ("waterway_rtree", "waterway_lines")),
+}
+
 
 class ReportError(RuntimeError):
     """The pack cannot be reported on at all (not a pack, unknown kind)."""
@@ -134,6 +179,14 @@ class Check:
     cannot_catch: str
     run: Callable[["Ctx"], tuple]
     since: str = ""
+    #: The only reasons this check may be ``not-run`` in a build record
+    #: without blocking the publish: ``(reason, why)`` pairs, declared here
+    #: and never at run time (AER-4102 C1). A blocking check with any other
+    #: not-run reason blocks.
+    exempt: tuple = ()
+    #: Set when the threshold has no measured baseline yet; carried into the
+    #: record so a reader knows the number is a placeholder (AER-4102 C7).
+    provisional: str = ""
 
 
 @dataclass
@@ -148,6 +201,8 @@ class Ctx:
     pyefis_src: Path | None
     probe: bool
     sources: list
+    first_edition: bool = False
+    origin_given: bool = False
     metrics: dict = field(default_factory=dict)
     _con: sqlite3.Connection | None = None
     _tables: dict | None = None
@@ -173,11 +228,23 @@ class Ctx:
             self._con = None
 
 
-def _not_run(note: str) -> tuple:
-    return ("not-run", None, note)
+def _not_run(note: str, reason: str = "") -> tuple:
+    return ("not-run", None, note, reason)
 
 
-_NO_PREVIOUS = "No previous edition was supplied to compare against (--previous)."
+#: Declared exemption for a delta check: the caller said this is the id's
+#: first edition (``--first-edition``), so there is nothing to compare.
+FIRST_EDITION = ("first-edition", "first edition, no previous record")
+
+
+def _no_previous(ctx, extra: str = "") -> tuple:
+    """not-run for a delta check with no previous record. Only a first
+    edition the caller declared is exemptable; a missing ``--previous`` is not."""
+    if ctx.first_edition:
+        return _not_run("First edition (--first-edition): there is no previous record to "
+                        "compare against." + extra, FIRST_EDITION[0])
+    return _not_run("No previous edition was supplied to compare against (--previous), and "
+                    "--first-edition was not declared." + extra, "no-previous")
 
 
 # --- sqlite helpers ---------------------------------------------------------
@@ -218,16 +285,38 @@ def _c_meta_fields(ctx):
     return ("pass", "attribution and license present", "")
 
 
+#: PACK-003's measured text when the label was passed rather than defaulted.
+ORIGIN_PASSED = "passed with --origin"
+
+
 def _c_origin(ctx):
-    if ctx.origin in ORIGINS:
-        return ("pass", ctx.origin, "")
-    return ("fail", ctx.origin or "(unset)", "")
+    if ctx.origin_given:
+        how = ORIGIN_PASSED
+    elif ctx.kind in ORIGIN_BY_KIND:
+        how = f"defaulted by kind {ctx.kind}, not read from the pack"
+    else:
+        how = f"kind {ctx.kind} has no default; pass --origin"
+    measured = f"{ctx.origin or '(unset)'} ({how})"
+    return ("pass" if ctx.origin in ORIGINS else "fail", measured, "")
+
+
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _c_sources(ctx):
-    if ctx.sources:
-        return ("pass", f"{len(ctx.sources)} source(s)", "")
-    return _not_run("No upstream sources were supplied to the report (--sources).")
+    if not ctx.sources:
+        return _not_run("No upstream sources were supplied to the report (--sources).")
+    bad = []
+    for src in ctx.sources:
+        gaps = [g for g, ok in (("no edition", (src.get("edition") or "").strip()),
+                                ("no 64-hex sha256", _HEX64.match(src.get("sha256") or "")))
+                if not ok]
+        if gaps:
+            bad.append(f"{src.get('name') or '(unnamed)'} ({', '.join(gaps)})")
+    n = len(ctx.sources)
+    if bad:
+        return ("fail", f"{n} source(s); incomplete: " + "; ".join(bad), "")
+    return ("pass", f"{n} source(s), each with edition and sha256", "")
 
 
 def _c_device(ctx):
@@ -265,18 +354,22 @@ def _c_quick_check(ctx):
 
 
 def _c_empty(ctx):
-    empty = sorted(t for t, n in ctx.tables.items() if n == 0)
     if not ctx.tables:
         return ("fail", "no data tables", "")
+    declared = _DECLARED_EMPTY.get(ctx.kind, ())
+    empty = sorted(t for t, n in ctx.tables.items() if n == 0)
+    undeclared = [t for t in empty if t not in declared]
+    if undeclared:
+        return ("fail", "empty: " + ", ".join(undeclared), "")
     if empty:
-        return ("fail", "empty: " + ", ".join(empty), "")
+        return ("pass", "0 empty tables; empty by declaration: " + ", ".join(empty), "")
     return ("pass", 0, "")
 
 
 def _c_row_delta(ctx):
     prev = (ctx.previous or {}).get("tables")
     if not prev:
-        return _not_run(_NO_PREVIOUS)
+        return _no_previous(ctx)
     worst = None
     for t in sorted(set(prev) | set(ctx.tables)):
         old = (prev.get(t) or {}).get("rows")
@@ -291,6 +384,50 @@ def _c_row_delta(ctx):
     frac, t, old, new = worst
     measured = f"largest change: {t} {_pct(new, old)} ({old:,} -> {new:,})"
     return ("warn" if abs(frac) > ROW_DELTA_WARN else "pass", measured, "")
+
+
+def _c_rtree(ctx):
+    names = {r[0] for r in ctx.con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND upper(sql) LIKE 'CREATE VIRTUAL TABLE%USING RTREE%'")}
+    declared = _RTREES.get(ctx.kind, ())
+    parts, bad = [], False
+    for rt, base in declared:
+        if rt not in names:
+            parts.append(f"{rt} missing")
+            bad = True
+            continue
+        n_rt = ctx.con.execute(f'SELECT COUNT(*) FROM "{rt}"').fetchone()[0]
+        n_base = ctx.tables.get(base)
+        if n_base is None:
+            parts.append(f"{rt} {n_rt:,}, base table {base} missing")
+            bad = True
+            continue
+        chk = ctx.con.execute("SELECT rtreecheck(?)", (rt,)).fetchone()[0]
+        ok = n_rt == n_base and chk == "ok"
+        bad = bad or not ok
+        rel = "=" if n_rt == n_base else "!="
+        part = f"{rt} {n_rt:,} {rel} {base} {n_base:,}, rtreecheck "
+        part += "ok" if chk == "ok" else chk.replace("\n", "; ")[:200]
+        parts.append(part)
+    for rt in sorted(names - {r for r, _ in declared}):
+        parts.append(f"{rt} is not declared for kind {ctx.kind}")
+        bad = True
+    return ("fail" if bad else "pass", "; ".join(parts), "")
+
+
+def _c_tables_kept(ctx):
+    if ctx.previous is None:
+        return _no_previous(ctx)
+    prev = ctx.previous.get("tables") or {}
+    gone = sorted(t for t in prev if t not in ctx.tables)
+    if not gone:
+        return ("pass", f"{len(gone)} of {len(prev)} tables gone", "")
+    old = str((ctx.previous.get("pack") or {}).get("schema_version", ""))
+    new = str(ctx.meta.schema_version)
+    if old != new:
+        return ("pass", f"gone: {', '.join(gone)}; schema_version {old} -> {new}", "")
+    return ("fail", f"gone: {', '.join(gone)} (schema_version unchanged at {new})", "")
 
 
 # --- checks: federal --------------------------------------------------------
@@ -324,6 +461,14 @@ def _guard_layer(layer: int):
     return run
 
 
+def _c_row_floor(ctx):
+    floors = _ROW_FLOORS.get(ctx.kind, {})
+    low = [t for t, f in floors.items() if ctx.tables.get(t, 0) < f]
+    measured = "; ".join(f"{t} {ctx.tables.get(t, 0):,} (floor {f:,})"
+                         for t, f in sorted(floors.items()))
+    return ("fail" if low else "pass", measured, "")
+
+
 def _coord_columns(ctx):
     out = []
     for t, la, lo in _COORDS.get(ctx.kind, []):
@@ -338,10 +483,11 @@ def _c_coords_valid(ctx):
         return _not_run("This pack has none of the coordinate columns the check knows.")
     bad = 0
     for t, la, lo in cols:
+        scope = f"{la} IS NOT NULL AND " if t in _NULL_COORDS_OK else ""
         bad += ctx.con.execute(
-            f'SELECT COUNT(*) FROM "{t}" WHERE {la} IS NOT NULL AND ('
-            f'{lo} IS NULL OR {la} < -90 OR {la} > 90 OR {lo} < -180 OR {lo} > 180 '
-            f'OR ({la} = 0 AND {lo} = 0))').fetchone()[0]
+            f'SELECT COUNT(*) FROM "{t}" WHERE {scope}('
+            f'{la} IS NULL OR {lo} IS NULL OR {la} < -90 OR {la} > 90 OR {lo} < -180 '
+            f'OR {lo} > 180 OR ({la} = 0 AND {lo} = 0))').fetchone()[0]
     return ("fail" if bad else "pass", bad, "")
 
 
@@ -363,8 +509,8 @@ def _c_envelope(ctx):
     total = sum(counts.values())
     prev = ctx.prev_metric("GEO-002")
     if prev is None:
-        return _not_run(_NO_PREVIOUS + f" This edition has {total:,} such points; "
-                        "the next edition compares against that.")
+        return _no_previous(ctx, f" This edition has {total:,} such points; "
+                            "the next edition compares against that.")
     old = sum(prev.values())
     allowed = old + max(GEO_OUTSIDE_GROWTH_ROWS, int(old * GEO_OUTSIDE_GROWTH_FRACTION))
     return ("warn" if total > allowed else "pass", f"{total:,} (previous {old:,})", "")
@@ -400,7 +546,7 @@ def _c_reused(ctx):
     prev = ctx.prev_metric("UNQ-002")
     measured = "; ".join(f"{k} {n}" for k, n in counts.items())
     if prev is None:
-        return _not_run(_NO_PREVIOUS + f" This edition: {measured}.")
+        return _no_previous(ctx, f" This edition: {measured}.")
     grew = [k for k, n in counts.items() if n > prev.get(k, 0)]
     prev_s = "; ".join(f"{k} {prev.get(k, 0)}" for k in counts)
     return ("warn" if grew else "pass", f"{measured} (previous {prev_s})", "")
@@ -513,7 +659,7 @@ def _c_ter_bbox(ctx):
               and not n.startswith(".mip/mosaic/"))
     ctx.metrics["TER-002"] = {"native_tiles": len(native), "mip_tiles": mip}
     if not native:
-        return _not_run("This pack carries no native tiles (a mosaic pack).")
+        return _not_run("This pack carries no native tiles (a mosaic pack).", "mosaic-pack")
     region = load_regions().get(ctx.meta.id.removeprefix("terrain-"))
     if region is None:
         return _not_run(f"Pack id {ctx.meta.id!r} names no region in regions.yaml.")
@@ -522,6 +668,25 @@ def _c_ter_bbox(ctx):
     vs = f" (previous {prev['native_tiles']:,})" if prev else ""
     measured = f"{len(native):,} native tiles{vs}, {len(outside)} outside {region.key}"
     return ("fail" if outside else "pass", measured, "")
+
+
+def _c_ter_tileset(ctx):
+    tiles = sorted(Path(n).stem for n in _native_tiles(_terrain_members(ctx)))
+    ctx.metrics["TER-006"] = tiles
+    if ctx.previous is None:
+        return _no_previous(ctx, f" This edition has {len(tiles):,} native tiles; the next "
+                            "edition compares against them.")
+    prev = ctx.prev_metric("TER-006")
+    if prev is None:
+        return _not_run("The previous record lists no native tile set (metrics TER-006); "
+                        "pass the previous pack instead of its report.", "no-previous-tiles")
+    lost = sorted(set(prev) - set(tiles))
+    gained = len(set(tiles) - set(prev))
+    cycle = ((ctx.previous.get("pack") or {}).get("cycle")) or "?"
+    measured = (f"{len(tiles):,} native tiles (previous edition {cycle}: {len(prev):,}); "
+                f"lost {len(lost)}{': ' + ', '.join(lost[:10]) if lost else ''}"
+                f"{' ...' if len(lost) > 10 else ''}; gained {gained}")
+    return ("fail" if lost else "pass", measured, "")
 
 
 def _c_ter_wmask(ctx):
@@ -605,8 +770,8 @@ def _c_osm_regions(ctx):
     ctx.metrics["OSM-001"] = counts
     prev = ctx.prev_metric("OSM-001")
     if prev is None:
-        return _not_run(_NO_PREVIOUS + " This edition's per-region counts are recorded "
-                        "for the next one.")
+        return _no_previous(ctx, " This edition's per-region counts are recorded "
+                            "for the next one.")
     worst, emptied = None, False
     for t, by_region in counts.items():
         for k, new in by_region.items():
@@ -620,7 +785,8 @@ def _c_osm_regions(ctx):
     if worst is None:
         return _not_run(f"No region had {OSM_REGION_MIN} or more features in the previous edition.")
     frac, t, k, old, new = worst
-    measured = f"largest drop: {t} {k} {_pct(new, old)} ({old:,} -> {new:,})"
+    lead = "largest drop" if frac < 0 else "no region dropped; smallest growth"
+    measured = f"{lead}: {t} {k} {_pct(new, old)} ({old:,} -> {new:,})"
     if emptied:
         return ("fail", measured, "")
     return ("warn" if -frac > OSM_REGION_DROP_WARN else "pass", measured, "")
@@ -655,6 +821,20 @@ def _fixed_not_run(note: str):
     return lambda ctx: _not_run(note)
 
 
+def _names(points) -> str:
+    names = [p[0] for p in points]
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _probe_coverage() -> str:
+    d = device_probe
+    return (f"US kinds, {len(d._US_POINTS)} CONUS metros ({_names(d._US_POINTS)}); "
+            f"airports (Canada), {_names(d._CA_POINTS)}; water, {_names(d._WATER_POINTS)}; "
+            f"navaids, idents {', '.join(d._NAVAID_IDENTS)}; procedures, airways "
+            f"{', '.join(d._AIRWAY_IDENTS)}; terrain, one native tile or the coarsest "
+            "mosaic level")
+
+
 _COMMON = [
     Check("PACK-001", "pack_meta is readable and names a known kind", True,
           "pack_meta present; kind is one the device knows",
@@ -666,28 +846,49 @@ _COMMON = [
           _c_meta_fields),
     Check("PACK-003", "Origin label is federal, community or user-supplied", True,
           "one of federal / community / user-supplied",
-          "Whether the label matches where the data really came from: the builder "
-          "sets it, the check only reads it.", _c_origin, "AER-699"),
+          "Whether the label matches where the data really came from. For a kind with "
+          "a default label (ORIGIN_BY_KIND in packtools/report.py) the label comes from "
+          "that table, not from the builder or the pack, so the check is tautological "
+          "and always passes; measured says which. With --origin it shows only that the "
+          "label given is one of the three.", _c_origin, "AER-699"),
     Check("PACK-004", "Upstream sources are recorded", False,
-          "at least one source with its edition and sha256",
-          "A recorded source that is not the one the build actually used.",
+          "at least one source, each with a non-empty edition and a 64-hex sha256",
+          "A recorded source that is not the one the build actually used, and an "
+          "edition or sha256 that is well formed but wrong.",
           _c_sources),
     Check("ACC-001", "Device acceptance: pyEfis's own reader opens the pack and "
           "answers a fixed query set", True,
           "the reader opens the pack and every query returns data",
           "Wrong values the reader accepts. It shows the device can open and query "
-          "these bytes, not that what it returns is right.", _c_device),
+          "these bytes, not that what it returns is right. The queries cover fixed "
+          "points only: " + _probe_coverage() + ". So it cannot catch a missing Alaska, "
+          "Hawaii or Puerto Rico, or any state or province that holds none of those "
+          "points.", _c_device),
 ]
 
 _SQLITE = [
     Check("SQL-001", "SQLite structure is sound (PRAGMA quick_check)", True, "ok",
-          "Wrong data in a structurally sound file.", _c_quick_check),
-    Check("ROW-001", "No data table is empty", True, "0 empty tables",
+          "Wrong data in a structurally sound file, and an index whose contents do not "
+          "match its table: quick_check does not verify index contents, which is "
+          "SQLite's documented difference from integrity_check. IDX-001 covers the "
+          "R-trees.", _c_quick_check),
+    Check("ROW-001", "No data table is empty", True,
+          "0 empty tables, apart from those declared empty by design for the kind "
+          "(water: waterway_lines)",
           "A table that has rows but is missing most of them.", _c_empty),
     Check("ROW-002", "Row counts against the previous edition", False,
-          f"no table moves more than {ROW_DELTA_WARN:.0%}; a larger move needs a build note",
-          "A change that keeps counts steady (rows replaced by wrong rows), and any "
-          "defect already present in the previous edition.", _c_row_delta),
+          f"Provisional threshold: no table moves more than {ROW_DELTA_WARN:.0%}; a larger "
+          "move needs a build note",
+          "A change that keeps counts steady (rows replaced by wrong rows), any defect "
+          "already present in the previous edition, and a loss under the threshold (for "
+          "obstacles at 10%, about 65,000 rows).", _c_row_delta,
+          provisional=PROVISIONAL),
+    Check("ROW-003", "No table of the previous edition has disappeared", True,
+          "every table in the previous edition is still present, unless schema_version "
+          "changed",
+          "A table dropped together with a schema_version bump that should not have "
+          "been; the bump is taken as the declaration that the drop is intended.",
+          _c_tables_kept, "AER-4102", exempt=(FIRST_EDITION,)),
 ]
 
 _FEDERAL = [
@@ -710,9 +911,12 @@ _FEDERAL = [
 ]
 
 _COORD_CHECKS = [
-    Check("GEO-001", "Coordinates are valid and not at 0,0", True, "0 bad coordinates",
+    Check("GEO-001", "Coordinates are present, valid and not at 0,0", True,
+          "0 bad coordinates. On point tables a NULL latitude or longitude is bad; on "
+          "procedure and airway legs a leg with no fix position is left to PROC-FIX-001",
           "A plausible coordinate in the wrong place, such as a transposed digit that "
-          "still lands on land.", _c_coords_valid),
+          "still lands on land. On airway_legs, a leg with a NULL fix position (no "
+          "check counts those).", _c_coords_valid),
     Check("UNQ-001", "Identifiers that must be unique are unique", True, "0 duplicates",
           "Two different things given the same correct-looking identifier in "
           "different tables, and a wrong identifier that happens to be unique.",
@@ -722,14 +926,22 @@ _COORD_CHECKS = [
 _FEDERAL_GEO = [
     Check("GEO-002", "Points outside the US coverage envelope, against the previous edition",
           False,
-          f"no growth beyond {GEO_OUTSIDE_GROWTH_ROWS} points or "
+          f"Provisional threshold: no growth beyond {GEO_OUTSIDE_GROWTH_ROWS} points or "
           f"{GEO_OUTSIDE_GROWTH_FRACTION:.0%}, whichever is larger. FAA files carry real "
           "oceanic and foreign points, so the count is tracked, not forbidden",
           "A point moved to the wrong place inside the envelope; the envelope is a "
-          "handful of boxes, not a coastline.", _c_envelope),
+          "handful of boxes, not a coastline.", _c_envelope, provisional=PROVISIONAL),
 ]
 
 _KIND_CHECKS: dict[str, list[Check]] = {
+    "obstacles": [
+        Check("OBS-001", "The obstacles table clears its row floor", True,
+              "at or above the floor: half an observed build (half of the 657,181 "
+              "obstacles in 261001)",
+              "A loss smaller than half an observed build (ROW-002 tracks that against "
+              "the previous edition, as a warn), and rows that are present but wrong.",
+              _c_row_floor, "AER-4102"),
+    ],
     "navaids": [
         Check("UNQ-002", "Identifiers the FAA reuses, against the previous edition", False,
               "no more reused navaid idents or airway sequence numbers than the previous "
@@ -739,8 +951,10 @@ _KIND_CHECKS: dict[str, list[Check]] = {
     "procedures": [
         Check("PROC-FIX-001", "Procedure legs that name a fix the build could not place",
               False,
-              f"at most {PROC_UNRESOLVED_MAX_FRACTION:.1%} of legs. Observed: 950 of "
-              "201,030 in 2610 and 941 of 200,853 in 2611",
+              f"at most {PROC_UNRESOLVED_MAX_FRACTION:.1%} of legs: a regression bound that "
+              "carries forward the 0.47% observed in 2610 (950 of 201,030) and 2611 (941 of "
+              "200,853). It does not accept those legs as correct; it stops the share "
+              "growing",
               "A fix placed at the wrong coordinates. Legs with no fix by design (for "
               "example heading legs) are not counted.", _c_unresolved),
         Check("PROC-AWY-001", "Airway idents are unique", True, "0 duplicate idents",
@@ -771,7 +985,14 @@ _KIND_CHECKS: dict[str, list[Check]] = {
         Check("TER-002", "Native tiles fall inside the pack's region", True,
               "0 tiles outside the region bbox",
               "A tile missing from inside the region (ocean tiles are absent by design, "
-              "so the check cannot tell a gap from sea).", _c_ter_bbox),
+              "so the check cannot tell a gap from sea).", _c_ter_bbox,
+          exempt=(("mosaic-pack", "a mosaic pack carries no native tiles to place"),)),
+        Check("TER-006", "No native tile of the previous edition is missing", True,
+              "every native tile in the previous edition is still present. Applies across "
+              "Copernicus editions too: a new edition that drops a tile fails",
+              "A tile that is present but holds wrong or older elevations, and a tile that "
+              "was already missing from the previous edition.",
+              _c_ter_tileset, "AER-4102", exempt=(FIRST_EDITION,)),
         Check("TER-003", "Every masked .hgt carries its .wmask water mask", True,
               "0 missing masks",
               "A mask that is present but wrong.", _c_ter_wmask, "AER-2287"),
@@ -789,10 +1010,11 @@ _KIND_CHECKS: dict[str, list[Check]] = {
 
 _OSM_CHECKS = [
     Check("OSM-001", "Feature counts per region against the previous edition", True,
-          f"no region with {OSM_REGION_MIN}+ features goes to zero (fail); no region drops "
-          f"more than {OSM_REGION_DROP_WARN:.0%} (warn)",
+          f"Provisional threshold: no region with {OSM_REGION_MIN}+ features goes to zero "
+          f"(fail); no region drops more than {OSM_REGION_DROP_WARN:.0%} (warn)",
           "A loss smaller than a region (one state inside a multi-state region), and "
-          "features that are present but wrong.", _c_osm_regions, "makerplane-data#17"),
+          "features that are present but wrong.", _c_osm_regions, "makerplane-data#17",
+          exempt=(FIRST_EDITION,), provisional=PROVISIONAL),
     Check("OSM-002", "Feature counts per state or province against the previous edition",
           False, "no state goes to zero",
           "Losses inside a state.",
@@ -804,6 +1026,14 @@ _OSM_CHECKS = [
           "Anything; it is for a person to read, not a test.",
           _fixed_not_run("Rendered by the report site (TV5).")),
 ]
+
+_RTREE_CHECK = Check(
+    "IDX-001", "Every spatial index (R-tree) indexes every row of its table", True,
+    "each declared R-tree present, its row count equal to its base table's, and "
+    "rtreecheck() ok; no undeclared R-tree",
+    "An index that holds the right number of rows with wrong boxes or ids. rtreecheck "
+    "tests the tree's internal consistency, not that each box encloses its feature.",
+    _c_rtree, "AER-4102")
 
 _HWY_SCHEMA = Check(
     "OSM-003", "highway_lines columns agree with the declared schema_version", True,
@@ -823,6 +1053,8 @@ def catalogue(kind: str, *, is_zip: bool) -> list[Check]:
     if kind in _FEDERAL_SQLITE:
         checks += _FEDERAL_GEO
     checks += _KIND_CHECKS.get(kind, [])
+    if kind in _RTREES and not is_zip:
+        checks.append(_RTREE_CHECK)
     if kind in _OSM:
         checks += _OSM_CHECKS
         if kind == "highways":
@@ -910,14 +1142,18 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                  pyefis_src: str | Path | None = None, probe: bool = True,
                  sources: list | None = None, notes: dict | None = None,
                  commit: str | None = None, builder_refs: dict | None = None,
-                 built_at: str | None = None) -> dict:
+                 built_at: str | None = None, first_edition: bool = False) -> dict:
     """Run the kind's v1 catalogue on one pack and return the record.
 
     ``previous`` is the previous edition's record (see :func:`previous_from`);
     ``notes`` maps a check id to its build note (a ``warn`` without one
-    blocks the publish, :func:`publish_blockers`)."""
+    blocks the publish, :func:`publish_blockers`). ``first_edition`` is the
+    caller's declaration that the id has no earlier edition; it is the only
+    thing that lets a blocking delta check be ``not-run`` in a build record."""
     if record not in RECORDS:
         raise ReportError(f"record must be one of {RECORDS}")
+    if first_edition and previous is not None:
+        raise ReportError("first_edition and previous are contradictory")
     path = Path(pack_path)
     try:
         meta = packmeta.read(path)
@@ -933,20 +1169,30 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
     ctx = Ctx(path=path, meta=meta, kind=meta.kind, is_zip=is_zip,
               origin=origin if origin is not None else ORIGIN_BY_KIND.get(meta.kind, ""),
               previous=previous, inputs=Path(inputs) if inputs else None,
-              pyefis_src=src, probe=probe, sources=list(sources or []))
+              pyefis_src=src, probe=probe, sources=list(sources or []),
+              first_edition=first_edition, origin_given=origin is not None)
     notes = notes or {}
     checks = []
     try:
         for c in catalogue(meta.kind, is_zip=is_zip):
+            raised, reason = False, ""
             try:
-                status, measured, note = c.run(ctx)
+                status, measured, note, *rest = c.run(ctx)
+                reason = rest[0] if rest else ""
             except Exception as e:     # a check that crashes is a failed check, never a silent one
                 status, measured, note = "fail", f"check raised {type(e).__name__}: {e}", ""
+                raised = True
             entry = {"id": c.id, "title": c.title, "status": status, "blocking": c.blocking,
                      "measured": measured, "expected": c.expected,
                      "cannot_catch": c.cannot_catch}
+            if raised:
+                entry["raised"] = True
+            if status == "not-run" and reason:
+                entry["not_run_reason"] = reason
             if c.since:
                 entry["since"] = c.since
+            if c.provisional:
+                entry["provisional"] = c.provisional
             note = notes.get(c.id) or note
             if note:
                 entry["note"] = note
@@ -974,6 +1220,8 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                    for t, n in tables.items()},
         "metrics": ctx.metrics,
         "summary": summary,
+        "gated": meta.kind not in UNGATED,
+        **({"ungated": UNGATED[meta.kind]} if meta.kind in UNGATED else {}),
         "notice": NOTICE,
     }
 
@@ -1036,12 +1284,33 @@ def validate_report(obj: dict) -> list[str]:
     return errs
 
 
+def _declared_exemptions() -> dict[str, dict[str, str]]:
+    out: dict[str, dict[str, str]] = {}
+    for checks in all_checks().values():
+        for c in checks:
+            out.setdefault(c.id, {}).update(dict(c.exempt))
+    return out
+
+
 def publish_blockers(report: dict) -> list[str]:
-    """Why this record would stop a publish: a blocking check that failed,
-    or a warn with no build note (plan section 4.3). Empty if none."""
+    """Why this record would stop a publish: a check that raised (whatever
+    its ``blocking`` flag, since it measured nothing), a blocking check that
+    failed, a warn with no build note (plan section 4.3), or, in a build
+    record, a blocking check that did not run for a reason its catalogue
+    entry does not declare (AER-4102 C1). Empty if none."""
     out = []
+    build = report.get("record") == "build"
+    exempt = _declared_exemptions() if build else {}
+    kind = (report.get("pack") or {}).get("kind")
+    if build and kind in UNGATED:
+        out.append(f"ungated: kind {kind} has no accepted check catalogue ({UNGATED[kind]})")
     for c in report["checks"]:
-        if c["status"] == "fail" and c["blocking"]:
+        if c.get("raised"):
+            out.append(f"{c['id']} raised, so it measured nothing: {c['measured']}")
+        elif build and c["status"] == "not-run" and c["blocking"]:
+            if c.get("not_run_reason") not in exempt.get(c["id"], {}):
+                out.append(f"{c['id']} is blocking and did not run: {c.get('note', '')}")
+        elif c["status"] == "fail" and c["blocking"]:
             out.append(f"{c['id']} failed: {c['measured']}")
         elif c["status"] == "warn" and not c.get("note"):
             out.append(f"{c['id']} warns with no build note: {c['measured']}")

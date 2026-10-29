@@ -59,15 +59,20 @@ def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=
 
 def _hwy_pack(path, cycle, per_region):
     """A highways pack (schema v2 columns) with ``per_region`` rows centred
-    in each of {label: (lat, lon)}."""
+    in each of {label: (lat, lon)}, indexed in ``highway_rtree`` as the
+    pyEfis builder does."""
     con = sqlite3.connect(path)
     con.execute("CREATE TABLE highway_lines (id INTEGER PRIMARY KEY, fclass TEXT NOT NULL, "
                 "min_lat REAL, max_lat REAL, min_lon REAL, max_lon REAL, verts BLOB NOT NULL, "
                 "flags INTEGER NOT NULL DEFAULT 0, ref TEXT)")
+    con.execute("CREATE VIRTUAL TABLE highway_rtree USING rtree(id, min_lat, max_lat, "
+                "min_lon, max_lon)")
     for (lat, lon), n in per_region.items():
         con.executemany("INSERT INTO highway_lines (fclass, min_lat, max_lat, min_lon, max_lon, "
                         "verts) VALUES ('primary', ?, ?, ?, ?, x'00')",
                         [(lat, lat + 0.01, lon, lon + 0.01)] * n)
+    con.execute("INSERT INTO highway_rtree SELECT id, min_lat, max_lat, min_lon, max_lon "
+                "FROM highway_lines")
     con.commit()
     con.close()
     meta = PackMeta(id="highways-conus", kind="highways", cycle=cycle,
@@ -141,7 +146,8 @@ def test_procedures_record_is_well_formed(tmp_path):
 def test_unresolved_fix_legs_are_counted_with_their_expectation(tmp_path):
     c = _by_id(_rep(_proc_pack(tmp_path / "a.pack", unresolved=2, legs=1000)))["PROC-FIX-001"]
     assert (c["status"], c["measured"]) == ("pass", "2 of 1,000 legs (0.20%)")
-    assert "950 of 201,030 in 2610" in c["expected"]
+    assert "regression bound" in c["expected"] and "950 of 201,030" in c["expected"]
+    assert "does not accept" in c["expected"]
     c = _by_id(_rep(_proc_pack(tmp_path / "b.pack", unresolved=6, legs=1000)))["PROC-FIX-001"]
     assert c["status"] == "warn" and not c["blocking"]
 
@@ -172,7 +178,43 @@ def test_row_delta_warns_and_a_build_note_clears_the_publish_block(tmp_path):
     assert any(b.startswith("ROW-002 warns with no build note") for b in report.publish_blockers(rec))
     noted = _rep(pack, previous=prev, notes={"ROW-002": "FAA withdrew 10 airways"})
     assert _by_id(noted)["ROW-002"]["note"] == "FAA withdrew 10 airways"
-    assert report.publish_blockers(noted) == []
+    # The note clears ROW-002; only the switched-off device check is left.
+    assert _blocking_ids(noted) == ["ACC-001"]
+
+
+def test_a_table_that_disappears_fails_unless_the_schema_version_moved(tmp_path):
+    # C4 (AER-4102): a vanished table used to be a -100% ROW-002 warn that
+    # a build note cleared.
+    prev_pack = _proc_pack(tmp_path / "2610.pack", "2610")
+    _sql(prev_pack, "CREATE TABLE holds (id INTEGER)", "INSERT INTO holds VALUES (1)")
+    prev = report.previous_from(prev_pack)
+    pack = _proc_pack(tmp_path / "2611.pack")
+    rec = _rep(pack, previous=prev, notes={"ROW-002": "holds table dropped"})
+    c = _by_id(rec)["ROW-003"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"] == "gone: holds (schema_version unchanged at 1)"
+    assert "ROW-003" in _blocking_ids(rec)
+    # A schema_version change is the declared way to drop a table.
+    packmeta.embed_sqlite(pack, PackMeta(id="procedures-conus", kind="procedures", cycle="2611",
+                                         schema_version=2, **LICENSE))
+    c = _by_id(_rep(pack, previous=prev))["ROW-003"]
+    assert c["status"] == "pass" and c["measured"] == "gone: holds; schema_version 1 -> 2"
+    kept = _by_id(_rep(_proc_pack(tmp_path / "x.pack"), previous=prev))
+    assert kept["ROW-003"]["status"] == "fail"
+    same = _by_id(_rep(_proc_pack(tmp_path / "y.pack"),
+                       previous=report.previous_from(_proc_pack(tmp_path / "z.pack", "2610"))))
+    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 5 tables gone")
+
+
+def test_unmeasured_thresholds_are_labelled_provisional_in_the_record(tmp_path):
+    # C7 (AER-4102): ROW_DELTA_WARN, the GEO-002 allowance and
+    # OSM_REGION_DROP_WARN have no edition-to-edition baseline yet.
+    proc = _by_id(_rep(_proc_pack(tmp_path / "p.pack")))
+    hwy = _by_id(_rep(_hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})))
+    for c in (proc["ROW-002"], proc["GEO-002"], hwy["OSM-001"]):
+        assert "no edition-to-edition baseline" in c["provisional"], c["id"]
+        assert c["expected"].startswith("Provisional threshold:"), c["id"]
+    assert "provisional" not in proc["PROC-AWY-002"] and "provisional" not in proc["GEO-001"]
 
 
 def test_previous_report_file_works_like_the_previous_pack(tmp_path):
@@ -193,8 +235,53 @@ def test_a_crashing_check_is_a_failed_check_not_a_missing_one(tmp_path, monkeypa
               report.Check(c.id, c.title, c.blocking, c.expected, c.cannot_catch, boom)
               for c in report._KIND_CHECKS["procedures"]]
     monkeypatch.setitem(report._KIND_CHECKS, "procedures", checks)
-    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack")))["PROC-FIX-001"]
+    rec = _rep(_proc_pack(tmp_path / "p.pack"))
+    c = _by_id(rec)["PROC-FIX-001"]
     assert c["status"] == "fail" and "RuntimeError: nope" in c["measured"]
+    # C2 (AER-4102): a check that crashed measured nothing, so it blocks
+    # even though PROC-FIX-001 itself is non-blocking.
+    assert not c["blocking"] and c["raised"] is True
+    assert any(b.startswith("PROC-FIX-001 raised") for b in report.publish_blockers(rec))
+
+
+def _blocking_ids(rec):
+    return sorted({b.split()[0] for b in report.publish_blockers(rec)})
+
+
+def test_a_blocking_check_that_did_not_run_blocks_a_build(tmp_path):
+    # C1 (AER-4102): device acceptance switched off, or no pyEfis checkout,
+    # used to pass the gate silently. In a build record it blocks.
+    pack = _proc_pack(tmp_path / "p.pack")
+    rec = _rep(pack)
+    c = _by_id(rec)["ACC-001"]
+    assert c["status"] == "not-run" and c["blocking"]
+    # No --previous and no --first-edition: the blocking delta check blocks too.
+    assert _blocking_ids(rec) == ["ACC-001", "ROW-003"]
+    # Declaring a first edition exempts the delta check, not the device check.
+    assert _blocking_ids(_rep(pack, first_edition=True)) == ["ACC-001"]
+    # A retro record describes old bytes; it gates nothing.
+    assert _blocking_ids(_rep(pack, record="retro")) == []
+
+
+def test_only_a_first_edition_declared_by_the_caller_exempts_a_delta_check(tmp_path):
+    pack = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 200, TX: 200})
+    missing = _by_id(_rep(pack))["OSM-001"]
+    assert missing["status"] == "not-run" and missing["not_run_reason"] == "no-previous"
+    assert "OSM-001" in _blocking_ids(_rep(pack))
+    first = _rep(pack, first_edition=True)
+    c = _by_id(first)["OSM-001"]
+    assert c["not_run_reason"] == "first-edition" and "first edition" in c["note"].lower()
+    assert "OSM-001" not in _blocking_ids(first)
+    with pytest.raises(report.ReportError):
+        _rep(pack, first_edition=True, previous=report.previous_from(pack))
+
+
+def test_a_record_cannot_exempt_itself(tmp_path):
+    # The exemption comes from the catalogue entry, not from the record.
+    rec = _rep(_proc_pack(tmp_path / "p.pack"))
+    acc = _by_id(rec)["ACC-001"]
+    acc["not_run_reason"] = "first-edition"
+    assert "ACC-001" in _blocking_ids(rec)
 
 
 # --- federal sqlite -----------------------------------------------------------
@@ -238,18 +325,45 @@ def test_schema_guard_layers_are_persisted_not_printed(tmp_path):
     assert "airports 1 (floor 9,700)" in c["SG-004"]["measured"]
 
 
-def test_obstacles_have_no_guard_contract_and_say_so(tmp_path):
-    con = sqlite3.connect(tmp_path / "o.pack")
+def _obs_pack(path, rows=1, nulls=0):
+    """An obstacles pack: ``rows`` obstacles, the first ``nulls`` with no
+    latitude."""
+    con = sqlite3.connect(path)
     con.execute("CREATE TABLE obstacles (oas_no TEXT PRIMARY KEY, lat REAL, lon REAL, "
                 "amsl_ft REAL, agl_ft REAL)")
-    con.execute("INSERT INTO obstacles VALUES ('1', 40, -100, 1000, 300)")
+    con.executemany("INSERT INTO obstacles VALUES (?, ?, -100, 1000, 300)",
+                    [(str(i), None if i < nulls else 40.0) for i in range(rows)])
     con.commit()
     con.close()
-    packmeta.embed_sqlite(tmp_path / "o.pack", PackMeta(
-        id="obstacles-conus", kind="obstacles", cycle="261001", **LICENSE))
-    c = _by_id(_rep(tmp_path / "o.pack"))
-    assert all(c[f"SG-00{i}"]["status"] == "not-run" for i in range(1, 5))
-    assert "No schema_guard contract" in c["SG-004"]["note"]
+    packmeta.embed_sqlite(path, PackMeta(id="obstacles-conus", kind="obstacles",
+                                         cycle="261001", **LICENSE))
+    return Path(path)
+
+
+def test_null_coordinates_are_bad_on_point_tables(tmp_path):
+    # C5 (AER-4102): a row with a NULL latitude was skipped, so an
+    # obstacle with no position passed GEO-001.
+    rec = _rep(_obs_pack(tmp_path / "o.pack", rows=5, nulls=2))
+    c = _by_id(rec)["GEO-001"]
+    assert (c["status"], c["measured"]) == ("fail", 2)
+    assert "GEO-001" in _blocking_ids(rec)
+    # Procedure legs keep the tolerance: PROC-FIX-001 owns unplaced fixes.
+    legs = _by_id(_rep(_proc_pack(tmp_path / "p.pack", unresolved=3)))
+    assert (legs["GEO-001"]["status"], legs["GEO-001"]["measured"]) == ("pass", 0)
+
+
+def test_obstacles_have_a_blocking_row_floor_and_no_guard_checks(tmp_path, monkeypatch):
+    # AER-4102: SG-001..004 were blocking but could never run for
+    # obstacles (no contract), and nothing short of an empty table blocked.
+    rec = _rep(_obs_pack(tmp_path / "o.pack", rows=3))
+    c = _by_id(rec)
+    assert not any(k.startswith("SG-") for k in c)
+    assert (c["OBS-001"]["status"], c["OBS-001"]["blocking"]) == ("fail", True)
+    assert c["OBS-001"]["measured"] == "obstacles 3 (floor 328,500)"
+    assert "OBS-001" in _blocking_ids(rec)
+    monkeypatch.setitem(report._ROW_FLOORS["obstacles"], "obstacles", 3)
+    c = _by_id(_rep(tmp_path / "o.pack"))["OBS-001"]
+    assert (c["status"], c["measured"]) == ("pass", "obstacles 3 (floor 3)")
 
 
 def test_missing_license_fails_the_metadata_check(tmp_path):
@@ -278,12 +392,122 @@ def test_osm_region_counts_and_schema_agreement_pass_on_a_steady_edition(tmp_pat
     assert c["OSM-002"]["status"] == "not-run" and "TV7" in c["OSM-002"]["note"]
 
 
+def test_osm_region_wording_when_every_region_grew(tmp_path):
+    # AER-4102: measured said "largest drop" on highways 2026q3r1, where
+    # every region grew.
+    prev = report.previous_from(_hwy_pack(tmp_path / "r1.pack", "r1", {CA: 200, TX: 200}))
+    c = _by_id(_rep(_hwy_pack(tmp_path / "r2.pack", "r2", {CA: 250, TX: 210}),
+                    previous=prev))["OSM-001"]
+    assert c["status"] == "pass" and "drop" not in c["measured"].replace("no region dropped", "")
+    assert c["measured"].startswith("no region dropped; smallest growth: highway_lines ")
+    assert "+5.0% (200 -> 210)" in c["measured"]
+
+
+def test_kinds_without_an_accepted_catalogue_are_declared_ungated(tmp_path):
+    # AER-4102: rivers, cifp, airspace and plates have no content check
+    # beyond the common ones and no device probe. A record may be emitted,
+    # but it must not count as a gate.
+    assert set(report.UNGATED) == {"rivers", "cifp", "airspace", "plates"}
+    pack = _hwy_pack(tmp_path / "r.pack", "r1", {CA: 5})
+    packmeta.embed_sqlite(pack, PackMeta(id="rivers-conus", kind="rivers", cycle="r1",
+                                         attribution="OSM", license="ODbL-1.0"))
+    rec = _rep(pack, first_edition=True)
+    assert rec["gated"] is False and "no device probe" in rec["ungated"]
+    assert any(b.startswith("ungated: kind rivers") for b in report.publish_blockers(rec))
+    assert report.validate_report(rec) == []
+    gated = _rep(_proc_pack(tmp_path / "p.pack"))
+    assert gated["gated"] is True and "ungated" not in gated
+
+
 def test_highways_schema_version_drift_fails(tmp_path):
     pack = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})
     packmeta.embed_sqlite(pack, PackMeta(id="highways-conus", kind="highways", cycle="r1",
                                          attribution="OSM", license="ODbL-1.0"))  # declares 1
     c = _by_id(_rep(pack))["OSM-003"]
     assert c["status"] == "fail" and c["since"] == "AER-1715"
+
+
+def _sql(path, *stmts):
+    con = sqlite3.connect(path)
+    for st in stmts:
+        con.execute(st)
+    con.commit()
+    con.close()
+
+
+def test_an_emptied_spatial_index_blocks_the_publish(tmp_path):
+    # C3 (AER-4102): QA's mutation. DELETE FROM highway_rtree left every
+    # open check passing (quick_check, ROW-001, ROW-002, OSM-001, OSM-004,
+    # OSM-003), and rtreecheck() says ok on an empty R-tree.
+    prev = report.previous_from(_hwy_pack(tmp_path / "r1.pack", "r1", {CA: 200, TX: 200}))
+    pack = _hwy_pack(tmp_path / "r2.pack", "r2", {CA: 200, TX: 200})
+    good = _by_id(_rep(pack, previous=prev))["IDX-001"]
+    assert (good["status"], good["blocking"]) == ("pass", True)
+    assert good["measured"] == "highway_rtree 400 = highway_lines 400, rtreecheck ok"
+    _sql(pack, "DELETE FROM highway_rtree")
+    rec = _rep(pack, previous=prev)
+    c = _by_id(rec)
+    assert c["SQL-001"]["status"] == "pass" and c["OSM-001"]["status"] == "pass"
+    assert c["IDX-001"]["status"] == "fail"
+    assert "highway_rtree 0 != highway_lines 400" in c["IDX-001"]["measured"]
+    assert "IDX-001" in _blocking_ids(rec)
+
+
+def test_a_damaged_spatial_index_fails_rtreecheck(tmp_path):
+    pack = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 50})
+    _sql(pack, "DELETE FROM highway_rtree_rowid WHERE rowid = 7")   # count stays 50
+    c = _by_id(_rep(pack))["IDX-001"]
+    assert c["status"] == "fail" and "rtreecheck" in c["measured"]
+    assert "highway_rtree 50 = highway_lines 50" in c["measured"]
+
+
+def test_a_missing_declared_spatial_index_fails(tmp_path):
+    pack = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})
+    _sql(pack, "DROP TABLE highway_rtree")
+    c = _by_id(_rep(pack))["IDX-001"]
+    assert c["status"] == "fail" and "highway_rtree missing" in c["measured"]
+
+
+def _water_pack(path, polygons=3, waterways=0):
+    """A water pack shaped like the live water-na-2026q2r6: polygons, plus
+    the waterway tables the builder creates empty without --waterway."""
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE water_polygons (id INTEGER PRIMARY KEY, min_lat REAL, "
+                "max_lat REAL, min_lon REAL, max_lon REAL, rings BLOB)")
+    con.execute("CREATE TABLE waterway_lines (id INTEGER PRIMARY KEY, min_lat REAL, "
+                "max_lat REAL, min_lon REAL, max_lon REAL, verts BLOB)")
+    for t in ("water", "waterway"):
+        con.execute(f"CREATE VIRTUAL TABLE {t}_rtree USING rtree(id, min_lat, max_lat, "
+                    "min_lon, max_lon)")
+    for table, rt, n in (("water_polygons", "water_rtree", polygons),
+                         ("waterway_lines", "waterway_rtree", waterways)):
+        for i in range(1, n + 1):
+            con.execute(f"INSERT INTO {table} VALUES (?, 47.6, 47.7, -122.4, -122.3, x'00')", (i,))
+            con.execute(f"INSERT INTO {rt} VALUES (?, 47.6, 47.7, -122.4, -122.3)", (i,))
+    con.commit()
+    con.close()
+    packmeta.embed_sqlite(path, PackMeta(id="water-na", kind="water", cycle="2026q2r6",
+                                         attribution="OSM", license="ODbL-1.0"))
+    return Path(path)
+
+
+def test_water_declares_its_empty_waterway_table(tmp_path):
+    # Owner answer on AER-4137: waterway_lines is created empty in every
+    # water build without --waterway (river lines are the rivers kind).
+    # The catalogue declares that one table for that one kind.
+    rec = _rep(_water_pack(tmp_path / "w.pack"))
+    c = _by_id(rec)
+    assert c["ROW-001"]["status"] == "pass"
+    assert c["ROW-001"]["measured"] == "0 empty tables; empty by declaration: waterway_lines"
+    assert "waterway_lines" in c["ROW-001"]["expected"]
+    assert c["IDX-001"]["status"] == "pass"
+    # Every other table still has to hold rows.
+    c = _by_id(_rep(_water_pack(tmp_path / "e.pack", polygons=0)))["ROW-001"]
+    assert c["status"] == "fail" and c["measured"].startswith("empty: water_polygons")
+    # And the declaration is the water kind's only.
+    hwy = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})
+    _sql(hwy, "CREATE TABLE waterway_lines (id INTEGER)")
+    assert _by_id(_rep(hwy))["ROW-001"]["status"] == "fail"
 
 
 # --- terrain ------------------------------------------------------------------
@@ -314,9 +538,58 @@ def test_terrain_missing_water_mask_and_bad_member(tmp_path):
     assert c["TER-001"]["status"] == "fail" and "N40W099.hgt" in c["TER-001"]["measured"]
 
 
+def test_terrain_losing_a_native_tile_fails(tmp_path):
+    # AER-4102: TER-002 showed the previous tile count but never compared,
+    # so a pack that dropped half its tiles passed every check.
+    tiles = {"N40/N40W100.hgt": _hgt(3), "N40/N40W099.hgt": _hgt(3)}
+    prev = report.previous_from(_terrain_pack(tmp_path / "a.pack", tiles), origin="federal")
+    assert prev["metrics"]["TER-006"] == ["N40W099", "N40W100"]
+    same = _by_id(_rep(_terrain_pack(tmp_path / "b.pack", dict(tiles)), origin="federal",
+                       previous=prev))["TER-006"]
+    assert (same["status"], same["blocking"]) == ("pass", True)
+    lost = _rep(_terrain_pack(tmp_path / "c.pack", {"N40/N40W100.hgt": _hgt(3)}),
+                origin="federal", previous=prev)
+    c = _by_id(lost)["TER-006"]
+    assert c["status"] == "fail" and "lost 1: N40W099" in c["measured"]
+    assert "TER-006" in _blocking_ids(lost)
+    # Only a declared first edition exempts it.
+    first = _rep(_terrain_pack(tmp_path / "d.pack", tiles), origin="federal", first_edition=True)
+    assert "TER-006" not in _blocking_ids(first)
+
+
 def test_terrain_has_no_default_origin(tmp_path):
     pack = _terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _hgt(3)})
-    assert _by_id(_rep(pack))["PACK-003"]["status"] == "fail"
+    c = _by_id(_rep(pack))["PACK-003"]
+    assert (c["status"], c["measured"]) == ("fail", "(unset) (kind terrain has no default; pass --origin)")
+
+
+def test_origin_check_says_how_the_label_was_set(tmp_path):
+    # C6 (AER-4102): for a kind with a default label the check is
+    # tautological, and the record has to say so.
+    pack = _proc_pack(tmp_path / "p.pack")
+    c = _by_id(_rep(pack))["PACK-003"]
+    assert c["measured"] == "federal (defaulted by kind procedures, not read from the pack)"
+    assert "tautological" in c["cannot_catch"]
+    c = _by_id(_rep(pack, origin="community"))["PACK-003"]
+    assert c["measured"] == "community (passed with --origin)"
+
+
+def test_sources_check_looks_at_each_sources_edition_and_sha256(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    good = {"name": "FAA CIFP", "edition": "2611", "url": "u", "retrieved": "t",
+            "sha256": "a" * 64}
+    c = _by_id(_rep(pack, sources=[good]))["PACK-004"]
+    assert (c["status"], c["measured"]) == ("pass", "1 source(s), each with edition and sha256")
+    c = _by_id(_rep(pack, sources=[good, {"name": "NASR", "edition": "", "sha256": "x"}]))
+    assert (c["PACK-004"]["status"], c["PACK-004"]["measured"]) == (
+        "fail", "2 source(s); incomplete: NASR (no edition, no 64-hex sha256)")
+
+
+def test_wording_names_what_the_checks_do_not_cover():
+    cat = {c.id: c for c in report.catalogue("navdata", is_zip=False)}
+    assert "integrity_check" in cat["SQL-001"].cannot_catch
+    acc = cat["ACC-001"].cannot_catch
+    assert "Denver" in acc and "Alaska" in acc and "Hawaii" in acc
 
 
 # --- device acceptance --------------------------------------------------------
@@ -371,15 +644,49 @@ def test_device_acceptance_without_pyefis_is_not_run(tmp_path, monkeypatch):
     assert c["status"] == "not-run" and "could not be loaded" in c["note"]
 
 
+_FAKE_SVS = '''
+import os
+class _Grid:
+    def __init__(self, side):
+        self.shape = (side, side)
+class TileCache:
+    def __init__(self, root):
+        self.root = root
+    def get(self, lat, lon):
+        return _Grid(int(os.environ["FAKE_GRID_SIDE"]))
+'''
+
+
+def test_terrain_device_probe_wants_the_real_grid_side(tmp_path, monkeypatch):
+    # AER-4102: the probe accepted any grid side of 1 or more; it must be
+    # the side the .hgt size implies (the side TER-001 checks).
+    src = tmp_path / "pyefis-src"
+    ai = src / "pyefis" / "instruments" / "ai"
+    ai.mkdir(parents=True)
+    for d in (src / "pyefis", src / "pyefis" / "instruments", ai):
+        (d / "__init__.py").write_text("")
+    (ai / "svs.py").write_text(_FAKE_SVS)
+    pack = _terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _hgt(3)})
+    monkeypatch.setenv("FAKE_GRID_SIDE", "1")
+    c = _by_id(_rep(pack, origin="federal", probe=True, pyefis_src=src))["ACC-001"]
+    assert c["status"] == "fail"
+    monkeypatch.setenv("FAKE_GRID_SIDE", "3")
+    rec = _rep(pack, origin="federal", probe=True, pyefis_src=src)
+    assert _by_id(rec)["ACC-001"]["status"] == "pass"
+    assert rec["metrics"]["ACC-001"][0]["min"] == 3
+
+
 # --- --check: reproduce a published record ------------------------------------
 
 def test_check_reproduces_the_published_numbers(tmp_path, capsys):
     prev_pack = _proc_pack(tmp_path / "2610.pack", "2610", airways=50, collide=2)
     pack = _proc_pack(tmp_path / "2611.pack", unresolved=3, legs=1000)
     published = tmp_path / "report.json"
+    # Exit 1: device acceptance was switched off, which blocks a build record.
     assert cli.main(["report", str(pack), "--previous", str(prev_pack), "--no-device",
-                     "--note", "ROW-002=FAA withdrew airways", "-o", str(published)]) == 0
-    capsys.readouterr()
+                     "--note", "ROW-002=FAA withdrew airways", "-o", str(published)]) == 1
+    printed = capsys.readouterr().out
+    assert [ln.split()[2] for ln in printed.splitlines() if "BLOCKS PUBLISH" in ln] == ["ACC-001"]
     assert cli.main(["report", "--check", str(pack), "--against", str(published),
                      "--previous", str(prev_pack), "--no-device"]) == 0
     out = capsys.readouterr().out
@@ -400,6 +707,16 @@ def test_check_flags_a_number_that_does_not_reproduce(tmp_path, capsys):
                      "--no-device"]) == 1
     out = capsys.readouterr().out
     assert "PROC-FIX-001   MISMATCH" in out and "MISMATCH tables.legs" in out
+
+
+def test_check_reproduces_an_origin_passed_on_the_command_line(tmp_path, capsys):
+    pack = _terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _hgt(3)})
+    published = tmp_path / "report.json"
+    cli.main(["report", str(pack), "--origin", "community", "--no-device", "-o", str(published)])
+    capsys.readouterr()
+    assert cli.main(["report", "--check", str(pack), "--against", str(published),
+                     "--no-device"]) == 0
+    assert "PACK-003       reproduced" in capsys.readouterr().out
 
 
 def test_check_without_the_previous_edition_says_not_reproducible(tmp_path):

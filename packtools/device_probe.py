@@ -38,10 +38,13 @@ _US_POINTS = [("Denver", 39.86, -104.67), ("Seattle", 47.45, -122.31),
 _CA_POINTS = [("Toronto", 43.68, -79.63), ("Vancouver", 49.19, -123.18)]
 _WATER_POINTS = [("Puget Sound", 47.6, -122.4), ("Lake Michigan", 41.88, -87.5),
                  ("Lake Ontario", 43.6, -79.3)]
+_NAVAID_IDENTS = ("DEN", "SEA", "LAX")
+_AIRWAY_IDENTS = ("V23", "J80", "V1")
 
 
-def _q(label: str, count: int, minimum: int = 1) -> dict:
-    return {"query": label, "count": count, "min": minimum, "ok": count >= minimum}
+def _q(label: str, count: int, minimum: int = 1, *, exact: bool = False) -> dict:
+    ok = count == minimum if exact else count >= minimum
+    return {"query": label, "count": count, "min": minimum, "ok": ok}
 
 
 def _probe_airports(path, points):
@@ -77,7 +80,7 @@ def probe_navaids(path):
     idx, ready = _waypoint_index(navaids_db_path=path)
     if not ready:
         return False, []
-    return True, [_q(f"ident lookup {i}", len(idx.lookup(i))) for i in ("DEN", "SEA", "LAX")]
+    return True, [_q(f"ident lookup {i}", len(idx.lookup(i))) for i in _NAVAID_IDENTS]
 
 
 def probe_obstacles(path):
@@ -96,7 +99,7 @@ def probe_procedures(path):
     if not g.ready:
         return False, []
     try:
-        return True, [_q(f"airway legs {i}", len(g.legs(i))) for i in ("V23", "J80", "V1")]
+        return True, [_q(f"airway legs {i}", len(g.legs(i))) for i in _AIRWAY_IDENTS]
     finally:
         g.close()
 
@@ -134,13 +137,16 @@ def probe_terrain(path):
                         key=lambda n: int(Path(n).stem[1:]))
         if native:
             member = native[0]
+            # The grid side the member's size implies, the side TER-001 checks.
+            side = int(round((z.getinfo(member).file_size / 2) ** 0.5))
             for n in (member, member[:-4] + ".wmask"):
                 if n in names:
                     z.extract(n, root)
             lat, lon = tile_sw_corner(Path(member).stem)
             tile = TileCache(root).get(lat, lon)
             n = 0 if tile is None else int(tile.shape[0])
-            return True, [_q(f"native tile {Path(member).stem} loads (grid side)", n)]
+            return True, [_q(f"native tile {Path(member).stem} loads with grid side {side}",
+                             n, side, exact=True)]
         if mosaic:
             member = mosaic[-1]
             level = int(Path(member).stem[1:])

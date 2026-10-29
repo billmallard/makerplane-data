@@ -388,7 +388,7 @@ def _list_checks(kind: str | None) -> int:
     from . import report
     cats = report.all_checks()
     for k in ([kind] if kind else sorted(cats)):
-        print(f"== {k}")
+        print(f"== {k}" + (f"  (UNGATED: {report.UNGATED[k]})" if k in report.UNGATED else ""))
         for c in cats[k]:
             flag = "blocking" if c.blocking else "non-blocking"
             print(f"  {c.id:<14} {flag:<13} {c.title}")
@@ -446,7 +446,12 @@ def cmd_report(args) -> int:
     if args.check:
         published = (_load_against(args.against) if args.against
                      else _published_report_for(pack, args))
-        here = report.build_report(pack, origin=published.get("origin"), **common)
+        # Re-run with --origin only if the record says it was passed, so
+        # PACK-003's "how the label was set" reproduces either way.
+        given = any(c["id"] == "PACK-003" and report.ORIGIN_PASSED in str(c.get("measured"))
+                    for c in published.get("checks") or [])
+        here = report.build_report(pack, origin=published.get("origin") if given else None,
+                                   **common)
         rows, problems = report.compare(published, here)
         for r in rows:
             print(f"{r.id:<14} {r.outcome:<22} published {r.published}")
@@ -469,7 +474,8 @@ def cmd_report(args) -> int:
     rec = report.build_report(
         pack, record=args.record, origin=args.origin, sources=sources,
         notes=_kv_list(args.note, "--note"), commit=args.build_commit,
-        builder_refs=_kv_list(args.builder_ref, "--builder-ref"), **common)
+        builder_refs=_kv_list(args.builder_ref, "--builder-ref"),
+        first_edition=args.first_edition, **common)
     errs = report.validate_report(rec)
     out = Path(args.out or f"{rec['pack']['id']}-{rec['pack']['cycle']}.report.json")
     out.write_bytes(report.to_bytes(rec))
@@ -641,6 +647,9 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument("--list-checks", action="store_true", help="print the v1 catalogue")
     rep.add_argument("--kind", choices=KINDS, help="with --list-checks: one kind only")
     rep.add_argument("--previous", help="previous edition: its pack file or its report.json")
+    rep.add_argument("--first-edition", action="store_true",
+                     help="declare that this id has no earlier edition; the only way a "
+                          "blocking delta check may be not-run in a build record")
     rep.add_argument("--inputs", help="extracted upstream files, for schema_guard layers 1-3")
     rep.add_argument("--pyefis-src", dest="pyefis_src",
                      help="pyEfis checkout's src/ dir for device acceptance "
