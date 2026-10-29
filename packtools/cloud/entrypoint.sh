@@ -9,9 +9,6 @@
 # pack-report/1 test record BEFORE the manifest is signed, and a pack whose
 # blocking checks fail is not published -- its record goes to
 # reports/rejected/ instead. The gate needs:
-#   TERRAIN_ORIGIN  the record's origin label (federal / community /
-#                   user-supplied); terrain has no default, and PACK-003
-#                   blocks without one. No default here either.
 #   pyEfis's SVS reader importable (PyQt6 + libGL): ACC-001, the device
 #                   acceptance probe, is blocking. Checked before the build.
 #   build notes     only from a person, for this edition: the file
@@ -29,8 +26,6 @@ set -euo pipefail
 # names it every run. A default goes stale -- it pointed at 2024ed after that
 # edition was retracted (AER-3350, AER-3528).
 : "${EDITION:?set EDITION (terrain edition id to build + publish, e.g. 2024edr1)}"
-# No default: the label goes into every published test record (PACK-003).
-: "${TERRAIN_ORIGIN:?set TERRAIN_ORIGIN (federal / community / user-supplied) for the test records}"
 
 # ---- optional (defaults) ----
 TILE_ROOT="${TILE_ROOT:-/data/glo30hgt}"
@@ -87,7 +82,7 @@ if ! PYTHONPATH="$PYEFIS_SRC_DIR" QT_QPA_PLATFORM=offscreen \
   exit 1
 fi
 NOTES_FILE="$PACK_OUT/build-notes-$EDITION.txt"
-GATE_ARGS=(--origin "$TERRAIN_ORIGIN")
+GATE_ARGS=()     # origin label: make_terrain.TERRAIN_ORIGIN (federal, AER-4101)
 if [ -f "$NOTES_FILE" ]; then
   echo "   build notes: $NOTES_FILE"
   GATE_ARGS+=(--notes-file "$NOTES_FILE")
@@ -145,7 +140,7 @@ for r in $REGIONS; do
   if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
         --edition "$EDITION" --only "$r" --out "$PACK_OUT" \
         --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET" \
-        "${GATE_ARGS[@]}"; then
+        ${GATE_ARGS[@]+"${GATE_ARGS[@]}"}; then
     rm -f "$PACK_OUT/packs/terrain-$r-$EDITION.pack"          # free scratch as we go
   else
     echo "!! FAILED: $r"; fail=1
@@ -159,7 +154,7 @@ echo ">> [4/5] mosaic pack  $(date -u +%H:%M:%S)"
 if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
       --edition "$EDITION" --mosaic --out "$PACK_OUT" \
       --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET" \
-      "${GATE_ARGS[@]}"; then
+      ${GATE_ARGS[@]+"${GATE_ARGS[@]}"}; then
   rm -f "$PACK_OUT/packs/terrain-mosaic-$EDITION.pack"
 else
   echo "!! FAILED: mosaic pack"; fail=1

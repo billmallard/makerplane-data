@@ -341,11 +341,10 @@ def cmd_make_terrain(args) -> int:
     store = secret = None
     only = args.only or None
     if args.upload:
-        # Fail before the build, not after it: terrain has no default origin
-        # (PACK-003) and the device probe needs a pyEfis checkout (ACC-001).
-        if not args.origin:
-            raise SystemExit("make-terrain --upload: pass --origin; terrain has no default "
-                             "origin label and PACK-003 blocks without one")
+        # Terrain's origin label is make_terrain.TERRAIN_ORIGIN unless given.
+        # Fail before the build, not after it, if the device probe (ACC-001)
+        # has no pyEfis checkout.
+        args.origin = args.origin or make_terrain.TERRAIN_ORIGIN
         _require_device_reader(args)
         from .regions import load_regions
         from .upload import R2Store
@@ -722,7 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--bucket", default="makerplane-data")
     t.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     t.add_argument("--origin", help="origin label for the test record: federal / "
-                    "community / user-supplied; required with --upload")
+                    "community / user-supplied (default: make_terrain.TERRAIN_ORIGIN, federal)")
     t.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",
                     help="build note for a check that warns, written by a person for this "
                          "edition ([PACK_ID:]CHECK_ID=TEXT; a warn without one refuses the publish)")

@@ -473,3 +473,24 @@ def test_cli_require_wmask_refuses_before_upload(tmp_path, monkeypatch):
     for lv in (4, 5, 6):
         _write_wmask(src / ".mip" / "mosaic" / f"L{lv}.hgt", side=2 * (225 >> (lv - 4)) + 1)
     assert cli.main(argv) == 0                            # masks present: gate passes
+
+
+def test_cli_upload_labels_terrain_records_federal_by_default(tmp_path, monkeypatch):
+    # Bill's ruling on AER-4101: terrain test records carry origin "federal"
+    # (PACK-003 has no terrain default in the catalogue).
+    from packtools import cli, upload
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mosaic(src)
+    for lv in (4, 5, 6):
+        _write_wmask(src / ".mip" / "mosaic" / f"L{lv}.hgt", side=2 * (225 >> (lv - 4)) + 1)
+    seen = []
+    monkeypatch.setattr(make_terrain, "update_manifest", lambda *a, **k: seen.append(k["gate"]))
+    monkeypatch.setattr(upload.R2Store, "from_env", classmethod(lambda cls, b=None: object()))
+    monkeypatch.setattr(cli, "_published_at", lambda *a: set())
+    monkeypatch.setattr(cli, "_load_secret", lambda args: None)
+    (tmp_path / "pyefis-src" / "pyefis").mkdir(parents=True)
+    monkeypatch.setenv("PYEFIS_SRC_DIR", str(tmp_path / "pyefis-src"))
+    argv = ["make-terrain", str(src), "--edition", "2024ed", "--mosaic",
+            "--out", str(tmp_path / "b"), "--require-wmask", "--upload"]
+    assert cli.main(argv) == 0
+    assert [g.origin for g in seen] == ["federal"] == [make_terrain.TERRAIN_ORIGIN]
