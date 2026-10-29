@@ -327,6 +327,7 @@ def validate(obj: dict, *, previous: dict | None = None) -> None:
         raise ManifestError("'regions' must be an object")
     if previous is not None:
         validate_new_entries(obj, previous)
+        validate_bindings_unchanged(obj, previous)
 
 
 def _is_sha256(v) -> bool:
@@ -362,3 +363,23 @@ def validate_new_entries(obj: dict, previous: dict) -> None:
         if origin and origin not in ORIGINS:
             raise ManifestError(f"{where} origin {origin!r} not one of "
                                 f"{', '.join(ORIGINS)}")
+
+
+def validate_bindings_unchanged(obj: dict, previous: dict) -> None:
+    """Refuse a re-pointed record: an entry that ``previous`` already bound
+    to a report (non-empty ``report_url`` or ``report_sha256``) must keep
+    both values. A published record is immutable (docs/pack_report.md);
+    later knowledge goes in the status overlay, never in a new binding.
+    Binding a report to an entry that had none (a retro record, TV4) is
+    allowed. Raises ManifestError."""
+    old = {(p.get("id"), p.get("cycle")): p
+           for p in (previous or {}).get("packs", []) if isinstance(p, dict)}
+    for i, p in enumerate(obj.get("packs", [])):
+        was = old.get((p["id"], p["cycle"]))
+        if not was or not (was.get("report_url") or was.get("report_sha256")):
+            continue
+        for f in ("report_url", "report_sha256"):
+            if p.get(f, "") != was.get(f, ""):
+                raise ManifestError(
+                    f"packs[{i}] ({p['id']}/{p['cycle']}) changes its {f}: a published "
+                    "record is immutable")

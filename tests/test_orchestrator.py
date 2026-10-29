@@ -14,6 +14,7 @@ from packtools.run_cyclical import CyclicalRunner
 from packtools.schema_guard import NULL_GUARD
 from packtools.sources import SOURCES
 from packtools.upload import LocalStore
+from tests.gatefake import STANDIN, standin_reporter
 
 TODAY = dt.date(2026, 6, 14)
 AIRPORTS = SOURCES["airports-conus"]
@@ -40,7 +41,7 @@ def fake_build(input_dir, out_path):
 def make_runner(tmp_path):
     sk, pub = signing.generate_keypair()
     store = LocalStore(tmp_path / "r2")
-    runner = CyclicalRunner(
+    runner = CyclicalRunner(reporter=standin_reporter,
         store=store, secret=sk, work_dir=tmp_path / "work",
         url_base="https://data.makerplane.org/packs",
         fetcher=fake_fetch,
@@ -113,7 +114,7 @@ def test_dry_run_touches_nothing(tmp_path):
     sk, pub = signing.generate_keypair()
     store = LocalStore(tmp_path / "r2")
     calls = []
-    runner = CyclicalRunner(
+    runner = CyclicalRunner(reporter=standin_reporter,
         store=store, secret=None, work_dir=tmp_path / "work",
         fetcher=lambda *a, **k: calls.append(a),
         builders={"airports": fake_build, "obstacles": fake_build},
@@ -129,7 +130,8 @@ def test_url_base_is_authoritative_and_rerooted_on_change(tmp_path):
     store = LocalStore(tmp_path / "r2")
     common = dict(store=store, secret=sk, fetcher=fake_fetch,
                   builders={"airports": fake_build, "obstacles": fake_build},
-                  guard=NULL_GUARD, today=TODAY)
+                  guard=NULL_GUARD, today=TODAY,
+                  reporter=standin_reporter)
 
     # First build under one origin.
     CyclicalRunner(work_dir=tmp_path / "w1",

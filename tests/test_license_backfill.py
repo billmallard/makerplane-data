@@ -14,6 +14,8 @@ from packtools.sources import (COPERNICUS_DEM_LICENSE, OSM_LICENSE,
 from packtools.upload import LocalStore
 
 GEN = "2026-10-28T00:00:00Z"
+# The key the live manifest is signed with; an edit verifies it first.
+KEY = signing.generate_keypair()
 
 
 def _entry(id, cycle, attribution, license="", license_url=""):
@@ -37,6 +39,7 @@ def store(tmp_path):
     ]:
         m.upsert(e)
     s.put_bytes(MANIFEST_KEY, m.to_bytes())
+    s.put_bytes(SIG_KEY, signing.sign(m.to_bytes(), KEY[0]).encode("ascii"))
     return s
 
 
@@ -45,7 +48,7 @@ def _packs(store):
 
 
 def test_fills_blanks_from_attribution_and_resigns(store):
-    sk, pub = signing.generate_keypair()
+    sk, pub = KEY
     before = json.loads(store.get_bytes(MANIFEST_KEY))
     filled = backfill_licenses(store, sk, generated=GEN, sign=signing.sign, log=lambda *_: None)
 
@@ -74,15 +77,16 @@ def test_fills_blanks_from_attribution_and_resigns(store):
 
 def test_dry_run_writes_nothing(store):
     before = store.get_bytes(MANIFEST_KEY)
+    sig_before = store.get_bytes(SIG_KEY)
     filled = backfill_licenses(store, None, generated=GEN, sign=signing.sign,
                                dry_run=True, log=lambda *_: None)
     assert len(filled) == 4
     assert store.get_bytes(MANIFEST_KEY) == before
-    assert store.get_bytes(SIG_KEY) is None
+    assert store.get_bytes(SIG_KEY) == sig_before
 
 
 def test_nothing_to_fill_does_not_resign(store):
-    sk, _ = signing.generate_keypair()
+    sk, _ = KEY
     backfill_licenses(store, sk, generated=GEN, sign=signing.sign, log=lambda *_: None)
     sig = store.get_bytes(SIG_KEY)
     assert backfill_licenses(store, sk, generated="2026-10-29T00:00:00Z",

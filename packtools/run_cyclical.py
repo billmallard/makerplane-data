@@ -6,7 +6,16 @@ products the FAA publishes ahead):
 
     compute cycle -> is the pack already in the store? -> if yes, skip
     -> else fetch upstream -> build sqlite -> embed pack_meta -> compute
-    sha256/size -> upload pack -> upsert into the manifest
+    sha256/size -> publish gate (packtools.gate: build the pack-report/1
+    record from these bytes and judge it) -> upload record + pack -> upsert
+    into the manifest with the record bound
+
+A pack the gate refuses gets a ``rejected`` record under reports/rejected/
+and is not published; the run goes red. Build notes come only from a
+person, so the scheduled run passes none: a check that warns refuses the
+build rather than being noted (AER-4102 C8). A person who has looked at the
+warn re-runs it by hand (``--notes-file``, the workflow's ``notes`` input),
+with each note keyed to one edition: ``<pack id>@<cycle>:<CHECK>``.
 
 Finally: prune old cycles, regenerate + sign the manifest, upload it.
 Idempotent and safe to run repeatedly (skip-if-present); a fetch failure
@@ -21,15 +30,17 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
 
 from . import build as _build
-from . import cycles, fetch, schema_guard, signing, summary
+from . import cycles, fetch, gate, report, schema_guard, signing, summary
 from .manifest import Manifest
 from .packmeta import PackMeta, embed_sqlite
 from .manifest import PackEntry
+from .publish import sign_and_put
 from .regions import load_regions, manifest_regions_block
 from .schema_guard import SchemaGuardError
 from .sources import Source, cyclical_sources
@@ -55,6 +66,8 @@ class CyclicalRunner:
                  fetcher=fetch.fetch_and_extract,
                  builders: dict | None = None,
                  guard=schema_guard.DEFAULT,
+                 reporter=report.build_report,
+                 notes: dict | None = None,
                  today: _dt.date | None = None):
         self.store = store
         self.secret = secret
@@ -65,10 +78,24 @@ class CyclicalRunner:
         # The data-contract guard (schema_guard). Injected like fetcher/builders;
         # tests that use fake FAA data pass schema_guard.NULL_GUARD.
         self.guard = guard
+        # Builds each pack's record for the publish gate. Injected only so
+        # tests with fake packs can stand in for it; the gate's binding and
+        # publish_blockers checks are not injectable (packtools.gate).
+        self.reporter = reporter
+        # Build notes from the person who started this run, each keyed to one
+        # edition (``<pack id>@<cycle>:<CHECK>``) so a note cannot carry over
+        # to the next cycle. The scheduled run has none.
+        self.notes = _edition_notes(notes)
         self.today = today or _dt.date.today()
         self.log = print
         # One row per (source, cycle) decision, for the job summary.
         self.checks: list[dict] = []
+        # The signed live manifest as this run found it (the gate decides
+        # first edition and previous edition from it), its raw object (the
+        # previous for manifest.validate), and the records this run accepted.
+        self.live: Manifest | None = None
+        self.previous: dict = {"packs": []}
+        self.accepted: dict = {}
         self._cur: dict = {}
 
     def _cycles_for(self, source: Source) -> list[cycles.Cycle]:
@@ -77,14 +104,36 @@ class CyclicalRunner:
         # product with no meaningful "next".
         return [cur, nxt] if source.cadence == "airac" else [cur]
 
-    def _load_manifest(self) -> Manifest:
-        raw = self.store.get_bytes(MANIFEST_KEY)
+    def _load_manifest(self, *, dry_run: bool) -> Manifest:
+        """The live manifest to build on. A real run verifies its signature
+        first (the gate decides from it); a dry run writes nothing and holds
+        no key, so it parses it unverified."""
         stamp = f"{self.today.isoformat()}T00:00:00Z"
-        if raw:
-            m = Manifest.from_bytes(raw)
-            m.generated = stamp
-            return m
-        return Manifest.new(stamp)
+        if dry_run:
+            raw = self.store.get_bytes(MANIFEST_KEY)
+            live = Manifest.from_bytes(raw) if raw else None
+        else:
+            live, self.previous = gate.load_signed(self.store, self.secret)
+        self.live = live
+        if live is None:
+            return Manifest.new(stamp)
+        m = Manifest.from_bytes(live.to_bytes())
+        m.generated = stamp
+        return m
+
+    def _sources(self, urls, cycle_work: Path, c: cycles.Cycle) -> list[dict]:
+        """PACK-004's upstream record: each archive this cycle downloaded,
+        with its sha256 and when it landed on disk."""
+        out = []
+        for url in urls:
+            archive = cycle_work / Path(url.split("?")[0]).name
+            if not archive.is_file():
+                continue
+            at = _dt.datetime.fromtimestamp(archive.stat().st_mtime, _dt.timezone.utc)
+            out.append({"name": archive.name, "edition": c.cycle, "url": url,
+                        "retrieved": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "sha256": signing.sha256_file(archive)})
+        return out
 
     def _build_one(self, source: Source, c: cycles.Cycle) -> tuple[PackEntry, Path]:
         builder = self.builders[source.builder]
@@ -98,15 +147,13 @@ class CyclicalRunner:
             extracted = self.fetcher(url, cycle_work,
                                      member=(source.archive_member or None))
         # Contract check 1-3, against the live download, before we build.
-        self._cur["guard"] = "FAILED"          # overwritten if the checks pass
-        self._cur["guard"] = self.guard.check_inputs(source, Path(extracted))
+        self.guard.check_inputs(source, Path(extracted))
         pack_path = cycle_work / f"{source.pack_id}-{c.cycle}.pack"
         self.log(f"  build {source.builder} -> {pack_path.name}")
         builder(Path(extracted), pack_path)
         # Contract check 4, against the built sqlite, before it is embedded /
         # uploaded -- a below-floor or empty pack must not ship.
-        self._cur["floors"] = "FAILED"
-        self._cur["floors"] = self.guard.check_output(source, pack_path)
+        self.guard.check_output(source, pack_path)
         meta = PackMeta(id=source.pack_id, kind=source.kind, cycle=c.cycle,
                         effective=c.effective.isoformat(),
                         expires=c.expires.isoformat(),
@@ -114,13 +161,33 @@ class CyclicalRunner:
                         license=source.license, license_url=source.license_url)
         embed_sqlite(pack_path, meta)
         url = f"{self.url_base}/{pack_path.name}"
-        return PackEntry.from_pack(pack_path, meta, url=url,
-                                   regions=list(source.regions)), pack_path
+        entry = PackEntry.from_pack(pack_path, meta, url=url, regions=list(source.regions))
+        # The publish gate, on the exact bytes about to be uploaded, with only
+        # the notes a person wrote for this edition (C8).
+        mine = {k: v for (pid, cyc, k), v in self.notes.items()
+                if (pid, cyc) == (source.pack_id, c.cycle)}
+        g = gate.gate_one(self.store, self.live, entry, pack_path, local=self.accepted,
+                          opts=gate.Options(notes=mine, inputs=Path(extracted),
+                                            sources=self._sources(urls, cycle_work, c),
+                                            record_dir=self.work_dir / "reports",
+                                            reporter=self.reporter),
+                          log=self.log)
+        self._cur["gate"] = g
+        if not g.accepted:
+            raise gate.GateRefused([g])
+        return entry, pack_path
 
     def run(self, sources: list[Source] | None = None, *,
             dry_run: bool = False) -> Manifest:
         sources = sources if sources is not None else cyclical_sources()
-        m = self._load_manifest()
+        self.checks = []
+        try:
+            return self._load_and_run(sources, dry_run=dry_run)
+        finally:
+            summary.write(self.summary_markdown(dry_run=dry_run))
+
+    def _load_and_run(self, sources: list[Source], *, dry_run: bool) -> Manifest:
+        m = self._load_manifest(dry_run=dry_run)
         m.regions = manifest_regions_block(load_regions())
         # url_base is the single source of truth for the serving origin:
         # re-root every existing entry's URL onto it so a base change (e.g.
@@ -128,17 +195,12 @@ class CyclicalRunner:
         # packs that are skipped (already present) and never rebuilt.
         for p in m.packs:
             p.url = f"{self.url_base}/{p.id}-{p.cycle}.pack"
-        self.checks = []
-        try:
-            return self._run(sources, m, dry_run=dry_run)
-        finally:
-            summary.write(self.summary_markdown(dry_run=dry_run))
+        return self._run(sources, m, dry_run=dry_run)
 
     def _record(self, source: Source, c: cycles.Cycle, decision: str, detail: str = "") -> None:
         self.checks.append({"pack": source.pack_id, "cycle": c.cycle,
                             "decision": decision, "detail": detail,
-                            "guard": self._cur.get("guard"),
-                            "floors": self._cur.get("floors")})
+                            "gate": self._cur.get("gate")})
         self._cur = {}
 
     def _run(self, sources: list[Source], m: Manifest, *, dry_run: bool) -> Manifest:
@@ -165,11 +227,13 @@ class CyclicalRunner:
                 try:
                     entry, pack_path = self._build_one(source, c)
                 except (SchemaGuardError, _build.BuildError) as e:
-                    # A HARD failure: an upstream contract break or a build
-                    # error. Do not abort the run (one bad source must not block
-                    # DOF), but record it so the run exits nonzero. The failing
-                    # source ships nothing -- its pack was never put or upserted,
-                    # so its previously published packs keep serving.
+                    # A HARD failure: an upstream contract break, a build
+                    # error, or the publish gate refusing the pack (GateRefused
+                    # and GateError are BuildErrors). Do not abort the run (one
+                    # bad source must not block DOF), but record it so the run
+                    # exits nonzero. The failing source ships nothing -- its
+                    # pack was never put or upserted, so its previously
+                    # published packs keep serving.
                     self.log(f"FAIL {source.pack_id} {c.cycle}: {e}")
                     failures.append(f"{source.pack_id} {c.cycle}: {e}")
                     self._record(source, c, f"FAIL ({type(e).__name__})", str(e))
@@ -180,8 +244,10 @@ class CyclicalRunner:
                     self.log(f"WARN {source.pack_id} {c.cycle}: {e}")
                     self._record(source, c, "WARN (not fatal)", str(e))
                     continue
+                gate.put_record(self.store, self._cur["gate"])
                 self.store.put_file(key, pack_path, content_type="application/octet-stream")
                 m.upsert(entry)
+                self.accepted[(entry.id, entry.cycle)] = (entry, self._cur["gate"].record)
                 built += 1
                 self.log(f"built+uploaded {source.pack_id} {c.cycle} "
                          f"sha256={entry.sha256[:12]}… {entry.bytes:,} B")
@@ -194,11 +260,8 @@ class CyclicalRunner:
             self.log(f"dry-run: {built} pack(s) would be built; manifest not written")
             return m
 
-        raw = m.to_bytes()
-        sig = signing.sign(raw, self.secret,
-                           trusted_comment=f"generated {self.today.isoformat()}")
-        self.store.put_bytes(MANIFEST_KEY, raw, content_type="application/json")
-        self.store.put_bytes(SIG_KEY, sig.encode("ascii"), content_type="text/plain")
+        sign_and_put(self.store, self.secret, m, previous=self.previous, sign=signing.sign,
+                     comment=f"generated {self.today.isoformat()}")
         self.log(f"manifest: {len(m.packs)} pack(s), {built} new, signed + uploaded")
 
         # Healthy sources have published; now surface any hard failures as a
@@ -211,36 +274,49 @@ class CyclicalRunner:
         return m
 
     def summary_markdown(self, *, dry_run: bool = False) -> str:
-        """The check table for ``$GITHUB_STEP_SUMMARY``: per (pack, cycle), the
-        decision, which schema-guard layers ran, the output floors, and the
-        result. A blank guard cell is never shown -- "no contract", "not run"
-        and "FAILED" are stated."""
-        def guard(v):
-            if v is None or isinstance(v, str):
-                return v or "not run"
-            return ", ".join(v) + ": pass" if v else "no contract"
-
-        def floors(v):
-            if v is None or isinstance(v, str):
-                return v or "not run"
-            return "; ".join(f"{t} {n:,} >= {f:,}" for t, n, f in v) if v else "no floors"
-
+        """``$GITHUB_STEP_SUMMARY``: one row per (pack, cycle) decision, then
+        each built pack's test record, rendered from the record JSON the gate
+        judged (accepted or rejected). A pack that never reached the gate
+        (a fetch, guard or build failure) says it has no record."""
         rows = []
         for r in self.checks:
-            skipped = r["decision"] in ("skip (present)", "would build")
-            rows.append([r["pack"], r["cycle"], r["decision"],
-                         "-" if skipped else guard(r["guard"]),
-                         "-" if skipped else floors(r["floors"]), r["detail"]])
+            g = r["gate"]
+            rec = ("-" if r["decision"] in ("skip (present)", "would build")
+                   else "none: no pack reached the gate" if g is None
+                   else "accepted" if g.accepted else "REFUSED (record: rejected)")
+            rows.append([r["pack"], r["cycle"], r["decision"], rec, r["detail"]])
         title = f"cyclical packs {self.today.isoformat()}" + (" (dry run)" if dry_run else "")
         n_fail = sum(r["decision"].startswith("FAIL") for r in self.checks)
         verdict = (f"**{n_fail} hard failure(s): this run is red.**" if n_fail
                    else "No hard failures.")
-        return (f"## {title}\n\n{verdict}\n\n"
-                + summary.table(["pack", "cycle", "decision", "schema guard (input)",
-                                 "output floors", "detail"], rows))
+        md = (f"## {title}\n\n{verdict}\n\n"
+              + summary.table(["pack", "cycle", "decision", "test record", "detail"], rows))
+        for r in self.checks:
+            if r["gate"] is not None:
+                g = r["gate"]
+                md += "\n" + summary.record_markdown(g.record, blockers=g.blockers,
+                                                     key=g.key, previous=g.previous_how)
+        return md
 
 
 # --------------------------------------------------------------------------
+
+_NOTE_KEY = re.compile(r"^(?P<id>[^@:\s]+)@(?P<cycle>[^@:\s]+):(?P<check>[A-Z0-9-]+)$")
+
+
+def _edition_notes(notes: dict | None) -> dict:
+    """``{"<pack id>@<cycle>:<CHECK>": text}`` -> ``{(id, cycle, CHECK): text}``.
+    Any other key raises: a note not tied to one edition could explain a
+    warn it was never written for."""
+    out = {}
+    for k, v in (notes or {}).items():
+        m = _NOTE_KEY.match(k)
+        if not m:
+            raise ValueError(f"build note key {k!r}: the cyclical run needs "
+                             "<pack id>@<cycle>:<CHECK>, e.g. procedures-conus@2612:ROW-002")
+        out[(m["id"], m["cycle"], m["check"])] = v
+    return out
+
 
 def _secret(args) -> signing.SecretKey:
     if os.environ.get("MINISIGN_SECRET_KEY"):
@@ -263,6 +339,10 @@ def main(argv=None) -> int:
     ap.add_argument("--sec", help="secret key file (or MINISIGN_SECRET_KEY)")
     ap.add_argument("--bucket", default=os.environ.get("R2_BUCKET", "makerplane-data"))
     ap.add_argument("--only", nargs="*", help="restrict to these pack ids")
+    ap.add_argument("--notes-file", dest="notes_file",
+                    help="build notes a person wrote for a check that warned: a JSON object "
+                         "or KEY=TEXT lines, KEY = <pack id>@<cycle>:<CHECK>. Never set this "
+                         "on the scheduled run")
     args = ap.parse_args(argv)
 
     today = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
@@ -275,7 +355,8 @@ def main(argv=None) -> int:
 
     secret = None if args.dry_run else _secret(args)
     runner = CyclicalRunner(store=store, secret=secret,
-                            url_base=args.url_base, work_dir=work, today=today)
+                            url_base=args.url_base, work_dir=work, today=today,
+                            notes=gate.read_notes_file(args.notes_file))
     srcs = cyclical_sources()
     if args.only:
         srcs = [s for s in srcs if s.pack_id in set(args.only)]

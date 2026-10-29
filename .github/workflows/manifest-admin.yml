@@ -10,6 +10,12 @@ name: manifest-admin
 #                         license_url from each entry's attribution (AER-4098).
 #                         Never overwrites a set license. `dry_run` (default on)
 #                         prints the fills and writes nothing.
+#
+# Neither action adds a pack, so neither writes a test record. Both go through
+# the same signing path as every publish (packtools.publish.sign_and_put,
+# AER-4101): the live manifest's signature is verified before it is edited,
+# and the signed result is refused if it lists an entry with no test record
+# or changes a published entry's record binding.
 on:
   workflow_dispatch:
     inputs:

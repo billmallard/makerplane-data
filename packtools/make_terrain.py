@@ -29,6 +29,13 @@ from .sources import COPERNICUS_DEM_LICENSE, COPERNICUS_DEM_LICENSE_URL
 
 DEFAULT_ATTRIBUTION = "Copernicus GLO-30 (redistribution permitted)"
 
+# Origin label for terrain test records (PACK-003). report.ORIGIN_BY_KIND has
+# no terrain default, so make-terrain supplies this one. Bill's ruling on
+# AER-4101 (2026-10-29): Copernicus GLO-30 is government-programme data with
+# a documented production process, the "federal" pedigree tier; the label
+# marks pedigree, not nationality, and the attribution names Copernicus.
+TERRAIN_ORIGIN = "federal"
+
 # Deepest mip-pyramid level a pack may carry. Coarse tiles ride in
 # .mip/<L>/<NSdir>/<name>.hgt (terrain_mip_pyramid.md); the renderer's get_mip()
 # reads them. Keep in sync with pyEfis tools/build_terrain_mips.py MAX_LEVEL and
@@ -244,13 +251,14 @@ def make_terrain_packs(*, src_root: str | Path, out_dir: str | Path,
 
 
 def update_manifest(store, secret, packs: list[TerrainPack], *,
-                    generated: str, sign, log=print) -> Manifest:
-    """Upsert terrain entries into the manifest in ``store`` and re-sign.
-    Adds terrain alongside whatever is already published (navdata, water)."""
+                    generated: str, sign, log=print, gate=None) -> Manifest:
+    """Gate, upsert terrain entries into the manifest in ``store`` and
+    re-sign. Adds terrain alongside whatever is already published (navdata,
+    water). ``gate`` is a ``packtools.gate.Options`` (origin, build notes)."""
     from .publish import publish
     return publish(store, secret, [(tp.entry, tp.path) for tp in packs],
                    generated=generated, sign=sign,
-                   comment=f"terrain {generated}", log=log)
+                   comment=f"terrain {generated}", log=log, gate=gate)
 
 
 def _now_stamp(today: _dt.date | None = None) -> str:
