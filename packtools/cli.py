@@ -177,6 +177,19 @@ def cmd_backfill_licenses(args) -> int:
     return 0
 
 
+def cmd_deploy_site(args) -> int:
+    """Upload changed files under site/ to the bucket root (AER-4098), and
+    write what changed to the job summary."""
+    from . import sitedeploy, summary
+    from .upload import R2Store
+    store = R2Store.from_env(args.bucket)
+    rows = sitedeploy.deploy(store, args.root, dry_run=args.dry_run)
+    md = (f"## deploy-site (dry_run={args.dry_run})\n\n"
+          + summary.table(["key", "bytes", "status"], rows))
+    summary.write(md)
+    return 0
+
+
 def cmd_job_summary(args) -> int:
     """Append a dispatch build's check table to $GITHUB_STEP_SUMMARY (and
     print it). Never fails the job: it runs under `if: always()` to describe
@@ -377,6 +390,14 @@ def build_parser() -> argparse.ArgumentParser:
     bl.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     bl.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
     bl.set_defaults(func=cmd_backfill_licenses)
+
+    ds = sub.add_parser("deploy-site", help="upload changed site/ files to the "
+                        "bucket root (navdata.aerocommons.org)")
+    ds.add_argument("--root", default="site", help="site directory (default: site)")
+    ds.add_argument("--dry-run", action="store_true",
+                    help="compare against the live objects; write nothing")
+    ds.add_argument("--bucket", default="makerplane-data")
+    ds.set_defaults(func=cmd_deploy_site)
 
     js = sub.add_parser("job-summary", help="write a dispatch build's check table "
                         "to the GitHub Actions job summary")
