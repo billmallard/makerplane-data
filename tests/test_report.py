@@ -259,8 +259,9 @@ def test_a_blocking_check_that_did_not_run_blocks_a_build(tmp_path):
     assert _blocking_ids(rec) == ["ACC-001", "ROW-003"]
     # Declaring a first edition exempts the delta check, not the device check.
     assert _blocking_ids(_rep(pack, first_edition=True)) == ["ACC-001"]
-    # A retro record describes old bytes; it gates nothing.
-    assert _blocking_ids(_rep(pack, record="retro")) == []
+    # A retro record describes old bytes; it can never clear the gate (R1).
+    # The C1 rule no longer depends on the record's own type field.
+    assert _blocking_ids(_rep(pack, record="retro")) == ["ACC-001", "ROW-003", "record"]
 
 
 def test_only_a_first_edition_declared_by_the_caller_exempts_a_delta_check(tmp_path):
@@ -274,6 +275,35 @@ def test_only_a_first_edition_declared_by_the_caller_exempts_a_delta_check(tmp_p
     assert "OSM-001" not in _blocking_ids(first)
     with pytest.raises(report.ReportError):
         _rep(pack, first_edition=True, previous=report.previous_from(pack))
+
+
+def test_the_gate_takes_blocking_and_the_check_set_from_the_catalogue(tmp_path):
+    # R1 (AER-4102 re-verdict): QA's tampering probe. Flipping blocking,
+    # deleting checks or relabelling the record left 0 blockers.
+    prev = report.previous_from(_hwy_pack(tmp_path / "r1.pack", "r1", {CA: 200, TX: 200}))
+    pack = _hwy_pack(tmp_path / "r2.pack", "r2", {CA: 200, TX: 200})
+    _sql(pack, "DELETE FROM highway_rtree")
+    rec = _rep(pack, previous=prev)
+    assert _blocking_ids(rec) == ["ACC-001", "IDX-001"]
+
+    flipped = json.loads(json.dumps(rec))
+    for c in flipped["checks"]:
+        c["blocking"] = False
+    assert _blocking_ids(flipped) == ["ACC-001", "IDX-001"]
+
+    stripped = json.loads(json.dumps(rec))
+    stripped["checks"] = [c for c in stripped["checks"] if c["id"] not in ("ACC-001", "IDX-001")]
+    blockers = report.publish_blockers(stripped)
+    assert "ACC-001 is in the highways catalogue but missing from the record" in blockers
+    assert "IDX-001 is in the highways catalogue but missing from the record" in blockers
+
+    retro = json.loads(json.dumps(rec))
+    retro["record"] = "retro"
+    assert any(b.startswith("record is retro") for b in report.publish_blockers(retro))
+
+    unknown = json.loads(json.dumps(rec))
+    unknown["pack"]["kind"] = "nope"
+    assert any(b.startswith("kind 'nope'") for b in report.publish_blockers(unknown))
 
 
 def test_a_record_cannot_exempt_itself(tmp_path):
@@ -555,6 +585,24 @@ def test_terrain_losing_a_native_tile_fails(tmp_path):
     # Only a declared first edition exempts it.
     first = _rep(_terrain_pack(tmp_path / "d.pack", tiles), origin="federal", first_edition=True)
     assert "TER-006" not in _blocking_ids(first)
+
+
+def test_only_the_mosaic_pack_id_is_exempt_from_tile_placement(tmp_path):
+    # R2 (AER-4102 re-verdict): a regional pack that lost every native tile
+    # exempted itself as "a mosaic pack", and as a first edition nothing
+    # else caught it.
+    stripped = _terrain_pack(tmp_path / "s.pack", {".mip/mosaic/L0.hgt": _hgt(2),
+                                                   ".mip/mosaic/L0.json": b'{"rows": 2, "cols": 2}'})
+    rec = _rep(stripped, origin="federal", first_edition=True)
+    c = _by_id(rec)["TER-002"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"] == "0 native tiles in terrain-us-central, which is not the mosaic pack"
+    assert "TER-002" in _blocking_ids(rec)
+    packmeta.embed_zip(stripped, PackMeta(id="terrain-mosaic", kind="terrain", cycle="2024edr1",
+                                          attribution="Copernicus GLO-30",
+                                          license="LicenseRef-copernicus"))
+    c = _by_id(_rep(stripped, origin="federal", first_edition=True))["TER-002"]
+    assert (c["status"], c["not_run_reason"]) == ("not-run", "mosaic-pack")
 
 
 def test_terrain_has_no_default_origin(tmp_path):
