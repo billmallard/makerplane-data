@@ -117,6 +117,13 @@ _REUSED = {
     "navaids": [("navaids", ("id", "type")), ("awy_segments", ("awy_id", "seq"))],
 }
 
+# The R-trees each kind's pyEfis builder writes, and the table each one
+# indexes (pyEfis tools/build_highway_db.py, tools/build_water_db.py).
+_RTREES = {
+    "highways": (("highway_rtree", "highway_lines"),),
+    "water": (("water_rtree", "water_polygons"), ("waterway_rtree", "waterway_lines")),
+}
+
 
 class ReportError(RuntimeError):
     """The pack cannot be reported on at all (not a pack, unknown kind)."""
@@ -309,6 +316,36 @@ def _c_row_delta(ctx):
     frac, t, old, new = worst
     measured = f"largest change: {t} {_pct(new, old)} ({old:,} -> {new:,})"
     return ("warn" if abs(frac) > ROW_DELTA_WARN else "pass", measured, "")
+
+
+def _c_rtree(ctx):
+    names = {r[0] for r in ctx.con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND upper(sql) LIKE 'CREATE VIRTUAL TABLE%USING RTREE%'")}
+    declared = _RTREES.get(ctx.kind, ())
+    parts, bad = [], False
+    for rt, base in declared:
+        if rt not in names:
+            parts.append(f"{rt} missing")
+            bad = True
+            continue
+        n_rt = ctx.con.execute(f'SELECT COUNT(*) FROM "{rt}"').fetchone()[0]
+        n_base = ctx.tables.get(base)
+        if n_base is None:
+            parts.append(f"{rt} {n_rt:,}, base table {base} missing")
+            bad = True
+            continue
+        chk = ctx.con.execute("SELECT rtreecheck(?)", (rt,)).fetchone()[0]
+        ok = n_rt == n_base and chk == "ok"
+        bad = bad or not ok
+        rel = "=" if n_rt == n_base else "!="
+        part = f"{rt} {n_rt:,} {rel} {base} {n_base:,}, rtreecheck "
+        part += "ok" if chk == "ok" else chk.replace("\n", "; ")[:200]
+        parts.append(part)
+    for rt in sorted(names - {r for r, _ in declared}):
+        parts.append(f"{rt} is not declared for kind {ctx.kind}")
+        bad = True
+    return ("fail" if bad else "pass", "; ".join(parts), "")
 
 
 # --- checks: federal --------------------------------------------------------
@@ -825,6 +862,14 @@ _OSM_CHECKS = [
           _fixed_not_run("Rendered by the report site (TV5).")),
 ]
 
+_RTREE_CHECK = Check(
+    "IDX-001", "Every spatial index (R-tree) indexes every row of its table", True,
+    "each declared R-tree present, its row count equal to its base table's, and "
+    "rtreecheck() ok; no undeclared R-tree",
+    "An index that holds the right number of rows with wrong boxes or ids. rtreecheck "
+    "tests the tree's internal consistency, not that each box encloses its feature.",
+    _c_rtree, "AER-4102")
+
 _HWY_SCHEMA = Check(
     "OSM-003", "highway_lines columns agree with the declared schema_version", True,
     "declared schema_version equals the one the column set implies",
@@ -843,6 +888,8 @@ def catalogue(kind: str, *, is_zip: bool) -> list[Check]:
     if kind in _FEDERAL_SQLITE:
         checks += _FEDERAL_GEO
     checks += _KIND_CHECKS.get(kind, [])
+    if kind in _RTREES and not is_zip:
+        checks.append(_RTREE_CHECK)
     if kind in _OSM:
         checks += _OSM_CHECKS
         if kind == "highways":

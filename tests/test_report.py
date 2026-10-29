@@ -59,15 +59,20 @@ def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=
 
 def _hwy_pack(path, cycle, per_region):
     """A highways pack (schema v2 columns) with ``per_region`` rows centred
-    in each of {label: (lat, lon)}."""
+    in each of {label: (lat, lon)}, indexed in ``highway_rtree`` as the
+    pyEfis builder does."""
     con = sqlite3.connect(path)
     con.execute("CREATE TABLE highway_lines (id INTEGER PRIMARY KEY, fclass TEXT NOT NULL, "
                 "min_lat REAL, max_lat REAL, min_lon REAL, max_lon REAL, verts BLOB NOT NULL, "
                 "flags INTEGER NOT NULL DEFAULT 0, ref TEXT)")
+    con.execute("CREATE VIRTUAL TABLE highway_rtree USING rtree(id, min_lat, max_lat, "
+                "min_lon, max_lon)")
     for (lat, lon), n in per_region.items():
         con.executemany("INSERT INTO highway_lines (fclass, min_lat, max_lat, min_lon, max_lon, "
                         "verts) VALUES ('primary', ?, ?, ?, ?, x'00')",
                         [(lat, lat + 0.01, lon, lon + 0.01)] * n)
+    con.execute("INSERT INTO highway_rtree SELECT id, min_lat, max_lat, min_lon, max_lon "
+                "FROM highway_lines")
     con.commit()
     con.close()
     meta = PackMeta(id="highways-conus", kind="highways", cycle=cycle,
@@ -329,6 +334,47 @@ def test_highways_schema_version_drift_fails(tmp_path):
                                          attribution="OSM", license="ODbL-1.0"))  # declares 1
     c = _by_id(_rep(pack))["OSM-003"]
     assert c["status"] == "fail" and c["since"] == "AER-1715"
+
+
+def _sql(path, *stmts):
+    con = sqlite3.connect(path)
+    for st in stmts:
+        con.execute(st)
+    con.commit()
+    con.close()
+
+
+def test_an_emptied_spatial_index_blocks_the_publish(tmp_path):
+    # C3 (AER-4102): QA's mutation. DELETE FROM highway_rtree left every
+    # open check passing (quick_check, ROW-001, ROW-002, OSM-001, OSM-004,
+    # OSM-003), and rtreecheck() says ok on an empty R-tree.
+    prev = report.previous_from(_hwy_pack(tmp_path / "r1.pack", "r1", {CA: 200, TX: 200}))
+    pack = _hwy_pack(tmp_path / "r2.pack", "r2", {CA: 200, TX: 200})
+    good = _by_id(_rep(pack, previous=prev))["IDX-001"]
+    assert (good["status"], good["blocking"]) == ("pass", True)
+    assert good["measured"] == "highway_rtree 400 = highway_lines 400, rtreecheck ok"
+    _sql(pack, "DELETE FROM highway_rtree")
+    rec = _rep(pack, previous=prev)
+    c = _by_id(rec)
+    assert c["SQL-001"]["status"] == "pass" and c["OSM-001"]["status"] == "pass"
+    assert c["IDX-001"]["status"] == "fail"
+    assert "highway_rtree 0 != highway_lines 400" in c["IDX-001"]["measured"]
+    assert "IDX-001" in _blocking_ids(rec)
+
+
+def test_a_damaged_spatial_index_fails_rtreecheck(tmp_path):
+    pack = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 50})
+    _sql(pack, "DELETE FROM highway_rtree_rowid WHERE rowid = 7")   # count stays 50
+    c = _by_id(_rep(pack))["IDX-001"]
+    assert c["status"] == "fail" and "rtreecheck" in c["measured"]
+    assert "highway_rtree 50 = highway_lines 50" in c["measured"]
+
+
+def test_a_missing_declared_spatial_index_fails(tmp_path):
+    pack = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})
+    _sql(pack, "DROP TABLE highway_rtree")
+    c = _by_id(_rep(pack))["IDX-001"]
+    assert c["status"] == "fail" and "highway_rtree missing" in c["measured"]
 
 
 # --- terrain ------------------------------------------------------------------
