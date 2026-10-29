@@ -328,7 +328,7 @@ def cmd_pair(args) -> int:
         headers={
             "content-type": "application/json",
             # A real UA: Cloudflare's edge 403s the default "Python-urllib/*".
-            "user-agent": "pyefis-data/0.1 (+https://github.com/makerplane/makerplane-data)",
+            "user-agent": "pyefis-data/0.1 (+https://github.com/billmallard/makerplane-data)",
         })
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:

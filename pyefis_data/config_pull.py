@@ -58,7 +58,7 @@ import urllib.request
 from pathlib import Path
 
 # A real UA: Cloudflare's edge 403s the default "Python-urllib/*".
-_UA = "pyefis-data/0.1 (+https://github.com/makerplane/makerplane-data)"
+_UA = "pyefis-data/0.1 (+https://github.com/billmallard/makerplane-data)"
 _DEFAULT_PYEFIS_CONFIG = "~/makerplane/pyefis/config"
 
 # Snapshot dir (under the config dir) holding the pre-install panel state, used

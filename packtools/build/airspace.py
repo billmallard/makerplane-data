@@ -23,6 +23,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+from .errors import BuildError
+
 _SCHEMA = """
 CREATE TABLE airspaces (
     id                     TEXT PRIMARY KEY,
@@ -47,8 +49,9 @@ CREATE TABLE airspaces (
 _COLUMNS = 16  # positional values a row of the schema above takes
 
 
-class AirspaceBuildError(RuntimeError):
-    pass
+class AirspaceBuildError(BuildError):
+    """A refusal (bad or empty input). A BuildError, so run_cyclical
+    fails the run rather than logging it as a benign WARN."""
 
 
 def _limit(value) -> tuple[str | None, str | None, str | None]:

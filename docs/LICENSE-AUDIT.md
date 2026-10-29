@@ -100,7 +100,8 @@ checked, per AC-IP-001's remit to catch exactly this class of decision.
 | Source | Layer | License | Redistribution? |
 |---|---|---|---|
 | FAA NASR/DOF/CIFP | airports, obstacles, navaids, cifp | US Government work — no copyright attaches (not a license grant) | Yes — public domain (`license=LicenseRef-us-public-domain`) |
-| Copernicus GLO-30 | terrain | Copernicus open data terms | Yes — redistributable |
+| Copernicus GLO-30 | terrain | Copernicus DEM licence (ESA, GLO-30 free and open instance) | Yes — redistributable with source attribution (`license=LicenseRef-copernicus-dem-glo30`, `license_url` = the [COPDEM-30 licence](https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Data/DEM/resources/license/License-COPDEM-30.pdf)) |
+| OurAirports | airports (non-US, e.g. `airports-canada`) | Public-domain dedication: "All data is released to the Public Domain" ([ourairports.com/data](https://ourairports.com/data/), checked 2026-10-28) | Yes (`license=LicenseRef-public-domain`; a dedication, so not the FAA's US-Government-work tag) |
 | OpenStreetMap (via Geofabrik) / Natural Earth | water, highways | ODbL / public domain | Yes — ODbL requires attribution, carried in `attribution` and explicitly in `license`/`license_url` (`ODbL-1.0`) |
 | NavCanada VNC | (Canadian charts) | proprietary, user-supplied only | **No** — never redistributed; user-supplied pack slot only |
 | **openAIP** (Garrecht Avionik GmbH) | airspace (`airspace` kind + builder land in AER-547; not yet published to R2 — Bill's explicit go required, see AER-547) | **CC BY-NC 4.0**, confirmed live against openAIP's own API metadata 2026-08-23 | **Evaluated: yes, under its own terms.** Free, no-revenue distribution reads as non-commercial under CC's own NC definition; carry-not-relicense via per-pack `license`/`license_url` metadata (AER-546, additive fields on `PackMeta`/`Source`, landed 2026-09-03). Full writeup: [openaip_evaluation.md](openaip_evaluation.md). |
@@ -112,6 +113,10 @@ presentation text, `license` is a short machine-checkable tag (SPDX id,
 `LicenseRef-*`, or e.g. `ODbL-1.0`), `license_url` the canonical link. The
 catalog manifest now carries them through to the Pi, so a pack's license is
 checkable without downloading and opening the pack itself.
+The tag/URL per upstream lives in `packtools/sources.py`
+(`LICENSE_BY_ATTRIBUTION`); entries published before a build path set them
+are filled by `packtool backfill-licenses` (manifest-admin workflow, AER-4098),
+which touches the manifest listing only, never the pack bytes.
 
 ## Enforcement
 

@@ -54,12 +54,14 @@ jobs:
       - run: pip install -e .[build] pyshp numpy
 
       - name: Fetch + build highways.sqlite (packtool build-roads)
+        id: build
         env:
           PYEFIS_TOOLS_DIR: ${{ github.workspace }}/pyefis-src/tools
         run: |
           packtool build-roads --states "${{ inputs.states }}" --dest highways.sqlite
 
       - name: Pack + upload (signed)
+        id: publish
         if: ${{ inputs.publish }}
         env:
           R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
@@ -73,3 +75,23 @@ jobs:
             --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
             --regions conus --url-base https://navdata.aerocommons.org/packs \
             --upload --bucket makerplane-data
+
+      # The public run page's record of what this run checked (AER-4098).
+      # always(): a failed build still says what failed and what was not run.
+      - name: Job summary
+        if: ${{ always() }}
+        env:
+          STATES:  ${{ inputs.states }}
+          CYCLE:   ${{ inputs.cycle }}
+          PUBLISH: ${{ inputs.publish }}
+          BUILD:   ${{ steps.build.outcome }}
+          UPLOAD:  ${{ inputs.publish && steps.publish.outcome || 'off' }}
+        run: |
+          packtool job-summary --title "roads-packs: highways-conus $CYCLE" \
+            --file highways.sqlite --file "work/packs/highways-conus-$CYCLE.pack" \
+            --input "states=$STATES" --input "cycle=$CYCLE" --input "publish=$PUBLISH" \
+            --check "fetch + build|$BUILD|packtool build-roads; any failed state fails the step" \
+            --check "schema guard (input)|none|no data contract for OSM roads -- only the cyclical FAA sources have one" \
+            --check "output floors|none|no row-count floor for highways -- row counts are listed below" \
+            --check "skip-if-present|n/a|dispatch builds always rebuild; publish upserts (id, cycle)" \
+            --check "sign + upload|$UPLOAD|build-pack --upload to production highways-conus"

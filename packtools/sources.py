@@ -225,3 +225,41 @@ def openaip_airspace_sources(countries: dict[str, str] | None = None) -> dict[st
 #: Registered per-country airspace sources. Deliberately separate from
 #: SOURCES -- see the module note above.
 AIRSPACE_SOURCES: dict[str, Source] = openaip_airspace_sources()
+
+
+# --------------------------------------------------------------------------
+# Licenses for the non-cyclical (one-off / dispatch-built) data sources, which
+# have no Source entry above. Same convention: `license` is the short
+# machine-checkable tag, `license_url` the canonical text (docs/LICENSE-AUDIT.md).
+
+OSM_LICENSE = "ODbL-1.0"
+OSM_LICENSE_URL = "https://opendatacommons.org/licenses/odbl/1-0/"
+# Copernicus DEM has no SPDX id; this LicenseRef names the ESA licence for the
+# free-and-open GLO-30 instance, which the URL is the text of.
+COPERNICUS_DEM_LICENSE = "LicenseRef-copernicus-dem-glo30"
+COPERNICUS_DEM_LICENSE_URL = ("https://documentation.dataspace.copernicus.eu/APIs/"
+                              "SentinelHub/Data/DEM/resources/license/License-COPDEM-30.pdf")
+# OurAirports: "All data is released to the Public Domain" (ourairports.com/data).
+# A dedication rather than a US Government work, hence not _FAA_PUBLIC_DOMAIN.
+OURAIRPORTS_LICENSE = "LicenseRef-public-domain"
+OURAIRPORTS_LICENSE_URL = "https://ourairports.com/data/"
+
+#: Attribution prefix -> (license, license_url). The attribution string is the
+#: per-pack record of which upstream a pack came from, so it is what a blank
+#: license is recovered from (backfill_licenses). First match wins.
+LICENSE_BY_ATTRIBUTION: tuple[tuple[str, str, str], ...] = (
+    ("FAA ", _FAA_PUBLIC_DOMAIN, ""),
+    ("OurAirports", OURAIRPORTS_LICENSE, OURAIRPORTS_LICENSE_URL),
+    ("Copernicus", COPERNICUS_DEM_LICENSE, COPERNICUS_DEM_LICENSE_URL),
+    ("OpenStreetMap", OSM_LICENSE, OSM_LICENSE_URL),
+    (OPENAIP_ATTRIBUTION, OPENAIP_LICENSE, OPENAIP_LICENSE_URL),
+)
+
+
+def license_for_attribution(attribution: str) -> tuple[str, str] | None:
+    """(license, license_url) for a pack's attribution, or None if no known
+    upstream matches -- never a guess."""
+    for prefix, lic, url in LICENSE_BY_ATTRIBUTION:
+        if attribution.startswith(prefix):
+            return lic, url
+    return None
