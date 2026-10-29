@@ -1070,9 +1070,13 @@ def catalogue(kind: str, *, is_zip: bool) -> list[Check]:
     return checks
 
 
+#: Kinds whose packs are zip archives rather than SQLite files.
+_ZIP_KINDS = ("terrain", "plates")
+
+
 def all_checks() -> dict[str, list[Check]]:
-    """Every kind's catalogue, for ``--list-checks`` and QA review."""
-    return {k: catalogue(k, is_zip=(k == "terrain")) for k in KINDS}
+    """Every kind's catalogue, for ``--list-checks``, QA review and the gate."""
+    return {k: catalogue(k, is_zip=k in _ZIP_KINDS) for k in KINDS}
 
 
 # --- device acceptance probe ------------------------------------------------
@@ -1292,33 +1296,41 @@ def validate_report(obj: dict) -> list[str]:
     return errs
 
 
-def _declared_exemptions() -> dict[str, dict[str, str]]:
-    out: dict[str, dict[str, str]] = {}
-    for checks in all_checks().values():
-        for c in checks:
-            out.setdefault(c.id, {}).update(dict(c.exempt))
-    return out
-
-
 def publish_blockers(report: dict) -> list[str]:
-    """Why this record would stop a publish: a check that raised (whatever
-    its ``blocking`` flag, since it measured nothing), a blocking check that
-    failed, a warn with no build note (plan section 4.3), or, in a build
-    record, a blocking check that did not run for a reason its catalogue
-    entry does not declare (AER-4102 C1). Empty if none."""
+    """Why this record would stop a publish. Empty if none.
+
+    The rules (AER-4102 C1, C2 and R1): only a ``build`` record can clear the
+    gate; a check that raised blocks whatever its flag; a blocking check that
+    failed, or did not run for a reason its catalogue entry does not declare,
+    blocks; a warn with no build note blocks (plan section 4.3); an ungated
+    kind blocks.
+
+    Which checks exist, and which of them block, come from this code's
+    catalogue for the pack's kind, never from the record being judged: a
+    record cannot clear itself by flipping ``blocking``, dropping a check or
+    changing its ``record`` type (R1). A catalogue check missing from the
+    record blocks."""
     out = []
-    build = report.get("record") == "build"
-    exempt = _declared_exemptions() if build else {}
+    rtype = report.get("record")
+    if rtype != "build":
+        out.append(f"record is {rtype}, not build: only a build record can clear the gate")
     kind = (report.get("pack") or {}).get("kind")
-    if build and kind in UNGATED:
+    cat = all_checks().get(kind)
+    if cat is None:
+        return out + [f"kind {kind!r} is not a known pack kind"]
+    if kind in UNGATED:
         out.append(f"ungated: kind {kind} has no accepted check catalogue ({UNGATED[kind]})")
-    for c in report["checks"]:
-        if c.get("raised"):
+    by_id = {c.get("id"): c for c in report.get("checks") or []}
+    for spec in cat:
+        c = by_id.get(spec.id)
+        if c is None:
+            out.append(f"{spec.id} is in the {kind} catalogue but missing from the record")
+        elif c.get("raised"):
             out.append(f"{c['id']} raised, so it measured nothing: {c['measured']}")
-        elif build and c["status"] == "not-run" and c["blocking"]:
-            if c.get("not_run_reason") not in exempt.get(c["id"], {}):
+        elif c["status"] == "not-run" and spec.blocking:
+            if c.get("not_run_reason") not in dict(spec.exempt):
                 out.append(f"{c['id']} is blocking and did not run: {c.get('note', '')}")
-        elif c["status"] == "fail" and c["blocking"]:
+        elif c["status"] == "fail" and spec.blocking:
             out.append(f"{c['id']} failed: {c['measured']}")
         elif c["status"] == "warn" and not c.get("note"):
             out.append(f"{c['id']} warns with no build note: {c['measured']}")
