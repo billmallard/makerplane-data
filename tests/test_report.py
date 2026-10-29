@@ -193,8 +193,13 @@ def test_a_crashing_check_is_a_failed_check_not_a_missing_one(tmp_path, monkeypa
               report.Check(c.id, c.title, c.blocking, c.expected, c.cannot_catch, boom)
               for c in report._KIND_CHECKS["procedures"]]
     monkeypatch.setitem(report._KIND_CHECKS, "procedures", checks)
-    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack")))["PROC-FIX-001"]
+    rec = _rep(_proc_pack(tmp_path / "p.pack"))
+    c = _by_id(rec)["PROC-FIX-001"]
     assert c["status"] == "fail" and "RuntimeError: nope" in c["measured"]
+    # C2 (AER-4102): a check that crashed measured nothing, so it blocks
+    # even though PROC-FIX-001 itself is non-blocking.
+    assert not c["blocking"] and c["raised"] is True
+    assert any(b.startswith("PROC-FIX-001 raised") for b in report.publish_blockers(rec))
 
 
 # --- federal sqlite -----------------------------------------------------------

@@ -938,13 +938,17 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
     checks = []
     try:
         for c in catalogue(meta.kind, is_zip=is_zip):
+            raised = False
             try:
                 status, measured, note = c.run(ctx)
             except Exception as e:     # a check that crashes is a failed check, never a silent one
                 status, measured, note = "fail", f"check raised {type(e).__name__}: {e}", ""
+                raised = True
             entry = {"id": c.id, "title": c.title, "status": status, "blocking": c.blocking,
                      "measured": measured, "expected": c.expected,
                      "cannot_catch": c.cannot_catch}
+            if raised:
+                entry["raised"] = True
             if c.since:
                 entry["since"] = c.since
             note = notes.get(c.id) or note
@@ -1037,11 +1041,14 @@ def validate_report(obj: dict) -> list[str]:
 
 
 def publish_blockers(report: dict) -> list[str]:
-    """Why this record would stop a publish: a blocking check that failed,
-    or a warn with no build note (plan section 4.3). Empty if none."""
+    """Why this record would stop a publish: a check that raised (whatever
+    its ``blocking`` flag, since it measured nothing), a blocking check that
+    failed, or a warn with no build note (plan section 4.3). Empty if none."""
     out = []
     for c in report["checks"]:
-        if c["status"] == "fail" and c["blocking"]:
+        if c.get("raised"):
+            out.append(f"{c['id']} raised, so it measured nothing: {c['measured']}")
+        elif c["status"] == "fail" and c["blocking"]:
             out.append(f"{c['id']} failed: {c['measured']}")
         elif c["status"] == "warn" and not c.get("note"):
             out.append(f"{c['id']} warns with no build note: {c['measured']}")
