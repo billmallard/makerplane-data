@@ -46,7 +46,12 @@ RECORDS = ("build", "retro", "rejected")
 STATUSES = ("pass", "warn", "fail", "not-run")
 REPO = "billmallard/makerplane-data"
 
-# --- Thresholds: proposed, pending QA review (AER-4102) ---------------------
+# --- Thresholds --------------------------------------------------------------
+# ROW_DELTA_WARN, the GEO-002 allowance and OSM_REGION_DROP_WARN are accepted
+# by QA only as provisional warn levels (AER-4102 C7); the record says so.
+PROVISIONAL = ("no edition-to-edition baseline yet (one published pair per kind when "
+               "set); a warn level for a person to look at, to be re-set once enough "
+               "records exist (AER-4102)")
 #: ROW-002: a table whose row count moves more than this against the previous
 #: edition is a warn that needs a build note.
 ROW_DELTA_WARN = 0.10
@@ -166,6 +171,9 @@ class Check:
     #: and never at run time (AER-4102 C1). A blocking check with any other
     #: not-run reason blocks.
     exempt: tuple = ()
+    #: Set when the threshold has no measured baseline yet; carried into the
+    #: record so a reader knows the number is a placeholder (AER-4102 C7).
+    provisional: str = ""
 
 
 @dataclass
@@ -855,9 +863,12 @@ _SQLITE = [
           "(water: waterway_lines)",
           "A table that has rows but is missing most of them.", _c_empty),
     Check("ROW-002", "Row counts against the previous edition", False,
-          f"no table moves more than {ROW_DELTA_WARN:.0%}; a larger move needs a build note",
-          "A change that keeps counts steady (rows replaced by wrong rows), and any "
-          "defect already present in the previous edition.", _c_row_delta),
+          f"Provisional threshold: no table moves more than {ROW_DELTA_WARN:.0%}; a larger "
+          "move needs a build note",
+          "A change that keeps counts steady (rows replaced by wrong rows), any defect "
+          "already present in the previous edition, and a loss under the threshold (for "
+          "obstacles at 10%, about 65,000 rows).", _c_row_delta,
+          provisional=PROVISIONAL),
     Check("ROW-003", "No table of the previous edition has disappeared", True,
           "every table in the previous edition is still present, unless schema_version "
           "changed",
@@ -901,11 +912,11 @@ _COORD_CHECKS = [
 _FEDERAL_GEO = [
     Check("GEO-002", "Points outside the US coverage envelope, against the previous edition",
           False,
-          f"no growth beyond {GEO_OUTSIDE_GROWTH_ROWS} points or "
+          f"Provisional threshold: no growth beyond {GEO_OUTSIDE_GROWTH_ROWS} points or "
           f"{GEO_OUTSIDE_GROWTH_FRACTION:.0%}, whichever is larger. FAA files carry real "
           "oceanic and foreign points, so the count is tracked, not forbidden",
           "A point moved to the wrong place inside the envelope; the envelope is a "
-          "handful of boxes, not a coastline.", _c_envelope),
+          "handful of boxes, not a coastline.", _c_envelope, provisional=PROVISIONAL),
 ]
 
 _KIND_CHECKS: dict[str, list[Check]] = {
@@ -926,8 +937,10 @@ _KIND_CHECKS: dict[str, list[Check]] = {
     "procedures": [
         Check("PROC-FIX-001", "Procedure legs that name a fix the build could not place",
               False,
-              f"at most {PROC_UNRESOLVED_MAX_FRACTION:.1%} of legs. Observed: 950 of "
-              "201,030 in 2610 and 941 of 200,853 in 2611",
+              f"at most {PROC_UNRESOLVED_MAX_FRACTION:.1%} of legs: a regression bound that "
+              "carries forward the 0.47% observed in 2610 (950 of 201,030) and 2611 (941 of "
+              "200,853). It does not accept those legs as correct; it stops the share "
+              "growing",
               "A fix placed at the wrong coordinates. Legs with no fix by design (for "
               "example heading legs) are not counted.", _c_unresolved),
         Check("PROC-AWY-001", "Airway idents are unique", True, "0 duplicate idents",
@@ -983,11 +996,11 @@ _KIND_CHECKS: dict[str, list[Check]] = {
 
 _OSM_CHECKS = [
     Check("OSM-001", "Feature counts per region against the previous edition", True,
-          f"no region with {OSM_REGION_MIN}+ features goes to zero (fail); no region drops "
-          f"more than {OSM_REGION_DROP_WARN:.0%} (warn)",
+          f"Provisional threshold: no region with {OSM_REGION_MIN}+ features goes to zero "
+          f"(fail); no region drops more than {OSM_REGION_DROP_WARN:.0%} (warn)",
           "A loss smaller than a region (one state inside a multi-state region), and "
           "features that are present but wrong.", _c_osm_regions, "makerplane-data#17",
-          exempt=(FIRST_EDITION,)),
+          exempt=(FIRST_EDITION,), provisional=PROVISIONAL),
     Check("OSM-002", "Feature counts per state or province against the previous edition",
           False, "no state goes to zero",
           "Losses inside a state.",
@@ -1164,6 +1177,8 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                 entry["not_run_reason"] = reason
             if c.since:
                 entry["since"] = c.since
+            if c.provisional:
+                entry["provisional"] = c.provisional
             note = notes.get(c.id) or note
             if note:
                 entry["note"] = note

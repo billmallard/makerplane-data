@@ -146,7 +146,8 @@ def test_procedures_record_is_well_formed(tmp_path):
 def test_unresolved_fix_legs_are_counted_with_their_expectation(tmp_path):
     c = _by_id(_rep(_proc_pack(tmp_path / "a.pack", unresolved=2, legs=1000)))["PROC-FIX-001"]
     assert (c["status"], c["measured"]) == ("pass", "2 of 1,000 legs (0.20%)")
-    assert "950 of 201,030 in 2610" in c["expected"]
+    assert "regression bound" in c["expected"] and "950 of 201,030" in c["expected"]
+    assert "does not accept" in c["expected"]
     c = _by_id(_rep(_proc_pack(tmp_path / "b.pack", unresolved=6, legs=1000)))["PROC-FIX-001"]
     assert c["status"] == "warn" and not c["blocking"]
 
@@ -203,6 +204,17 @@ def test_a_table_that_disappears_fails_unless_the_schema_version_moved(tmp_path)
     same = _by_id(_rep(_proc_pack(tmp_path / "y.pack"),
                        previous=report.previous_from(_proc_pack(tmp_path / "z.pack", "2610"))))
     assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 5 tables gone")
+
+
+def test_unmeasured_thresholds_are_labelled_provisional_in_the_record(tmp_path):
+    # C7 (AER-4102): ROW_DELTA_WARN, the GEO-002 allowance and
+    # OSM_REGION_DROP_WARN have no edition-to-edition baseline yet.
+    proc = _by_id(_rep(_proc_pack(tmp_path / "p.pack")))
+    hwy = _by_id(_rep(_hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})))
+    for c in (proc["ROW-002"], proc["GEO-002"], hwy["OSM-001"]):
+        assert "no edition-to-edition baseline" in c["provisional"], c["id"]
+        assert c["expected"].startswith("Provisional threshold:"), c["id"]
+    assert "provisional" not in proc["PROC-AWY-002"] and "provisional" not in proc["GEO-001"]
 
 
 def test_previous_report_file_works_like_the_previous_pack(tmp_path):
