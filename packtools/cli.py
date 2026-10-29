@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import json
 import os
 import shutil
 import sys
@@ -185,6 +186,42 @@ def cmd_deploy_site(args) -> int:
     store = R2Store.from_env(args.bucket)
     rows = sitedeploy.deploy(store, args.root, dry_run=args.dry_run)
     md = (f"## deploy-site (dry_run={args.dry_run})\n\n"
+          + summary.table(["key", "bytes", "status"], rows))
+    summary.write(md)
+    return 0
+
+
+def cmd_report_site(args) -> int:
+    """Render the report pages from the published records and upload the
+    changed ones (TV5), or render a local preview with --from/--out."""
+    from . import reportsite, sitedeploy, summary
+    from .upload import LocalStore
+    if args.source:
+        src = LocalStore(args.source)
+    else:
+        from .upload import R2Store
+        src = R2Store.from_env(args.bucket)
+    raw = src.get_bytes("manifest.json")
+    manifest = json.loads(raw) if raw else None
+    try:
+        objects = reportsite.build(reportsite.load_records(src), manifest,
+                                   commit=reportsite.generator_commit())
+    except reportsite.SiteError as e:
+        print(f"report-site: {e}", file=sys.stderr)
+        return 1
+    if args.out:
+        # A browsable preview: the site itself, the catalog it reads, and the pages.
+        dst = LocalStore(args.out)
+        for key, path, _ in sitedeploy.site_files(args.root):
+            dst.put_file(key, path)
+        if raw:
+            dst.put_bytes("manifest.json", raw)
+        for key in src.list_keys(reportsite.PREFIX):
+            dst.put_bytes(key, src.get_bytes(key))
+    else:
+        dst = src
+    rows = reportsite.publish(dst, objects, dry_run=args.dry_run)
+    md = (f"## report-site (dry_run={args.dry_run})\n\n"
           + summary.table(["key", "bytes", "status"], rows))
     summary.write(md)
     return 0
@@ -507,6 +544,20 @@ def build_parser() -> argparse.ArgumentParser:
                     help="compare against the live objects; write nothing")
     ds.add_argument("--bucket", default="makerplane-data")
     ds.set_defaults(func=cmd_deploy_site)
+
+    rs = sub.add_parser("report-site", help="render the test-report pages from the "
+                        "published records and upload the changed ones")
+    rs.add_argument("--bucket", default="makerplane-data")
+    rs.add_argument("--from", dest="source", metavar="DIR",
+                    help="read records and manifest.json from this directory "
+                    "instead of the bucket")
+    rs.add_argument("--out", metavar="DIR", help="write a browsable preview here "
+                    "(the site, the catalog, the records and the pages) instead of "
+                    "uploading")
+    rs.add_argument("--root", default="site", help="site directory for --out (default: site)")
+    rs.add_argument("--dry-run", action="store_true",
+                    help="compare against the live objects; write nothing")
+    rs.set_defaults(func=cmd_report_site)
 
     js = sub.add_parser("job-summary", help="write a dispatch build's check table "
                         "to the GitHub Actions job summary")

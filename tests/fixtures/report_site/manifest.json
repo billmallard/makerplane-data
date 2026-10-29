@@ -1,0 +1,284 @@
+{
+  "generated": "2026-10-29T00:00:00Z",
+  "manifest_version": 1,
+  "packs": [
+    {
+      "attribution": "OurAirports (public domain)",
+      "build_commit": "",
+      "bytes": 393216,
+      "cycle": "2026.06",
+      "id": "airports-canada",
+      "kind": "airports",
+      "license": "LicenseRef-public-domain",
+      "license_url": "https://ourairports.com/data/",
+      "notice": "",
+      "origin": "",
+      "regions": [
+        "canada"
+      ],
+      "report_sha256": "",
+      "report_url": "",
+      "sha256": "9e08ec278d68a9c524556fef4f587e0dd21630c76e4d4c07d6bf14d140772b75",
+      "url": "https://navdata.aerocommons.org/packs/airports-canada-2026.06.pack"
+    },
+    {
+      "attribution": "FAA NASR (public domain)",
+      "build_commit": "",
+      "bytes": 5976064,
+      "cycle": "2610",
+      "effective": "2026-10-01",
+      "expires": "2026-10-29",
+      "id": "airports-conus",
+      "kind": "navdata",
+      "license": "LicenseRef-us-public-domain",
+      "license_url": "",
+      "notice": "",
+      "origin": "",
+      "regions": [
+        "conus"
+      ],
+      "report_sha256": "",
+      "report_url": "",
+      "sha256": "96ddf1fa2bb8ae2c5d53ec7629170f574ab3aab5652ba91f2e290f5bde3c8a1f",
+      "url": "https://navdata.aerocommons.org/packs/airports-conus-2610.pack"
+    },
+    {
+      "attribution": "FAA NASR (public domain)",
+      "build_commit": "",
+      "bytes": 5980160,
+      "cycle": "2611",
+      "effective": "2026-10-29",
+      "expires": "2026-11-26",
+      "id": "airports-conus",
+      "kind": "navdata",
+      "license": "LicenseRef-us-public-domain",
+      "license_url": "",
+      "notice": "",
+      "origin": "",
+      "regions": [
+        "conus"
+      ],
+      "report_sha256": "",
+      "report_url": "",
+      "sha256": "f32dedee2a1cf2b1e9278eb844936ee24bd9b8dbf27d03760c5a9a18cff83f31",
+      "url": "https://navdata.aerocommons.org/packs/airports-conus-2611.pack"
+    },
+    {
+      "attribution": "FAA NASR (public domain)",
+      "build_commit": "",
+      "bytes": 5812224,
+      "cycle": "2610",
+      "effective": "2026-10-01",
+      "expires": "2026-10-29",
+      "id": "navaids-conus",
+      "kind": "navaids",
+      "license": "LicenseRef-us-public-domain",
+      "license_url": "",
+      "notice": "",
+      "origin": "",
+      "regions": [
+        "conus"
+      ],
+      "report_sha256": "",
+      "report_url": "",
+      "sha256": "d4f876dfd7be0442880012438b27e38deae07ff56219242a1a1b055889b566b6",
+      "url": "https://navdata.aerocommons.org/packs/navaids-conus-2610.pack"
+    },
+    {
+      "attribution": "FAA NASR (public domain)",
+      "build_commit": "",
+      "bytes": 5812224,
+      "cycle": "2611",
+      "effective": "2026-10-29",
+      "expires": "2026-11-26",
+      "id": "navaids-conus",
+      "kind": "navaids",
+      "license": "LicenseRef-us-public-domain",
+      "license_url": "",
+      "notice": "",
+      "origin": "",
+      "regions": [
+        "conus"
+      ],
+      "report_sha256": "",
+      "report_url": "",
+      "sha256": "2cb9eca314387c9d93f0fe92cd33f509bfe989cac1e7331b88077ce41ad5725b",
+      "url": "https://navdata.aerocommons.org/packs/navaids-conus-2611.pack"
+    },
+    {
+      "attribution": "FAA CIFP (public domain)",
+      "build_commit": "",
+      "bytes": 22036480,
+      "cycle": "2610",
+      "effective": "2026-10-01",
+      "expires": "2026-10-29",
+      "id": "procedures-conus",
+      "kind": "procedures",
+      "license": "LicenseRef-us-public-domain",
+      "license_url": "",
+      "notice": "",
+      "origin": "",
+      "regions": [
+        "conus"
+      ],
+      "report_sha256": "",
+      "report_url": "",
+      "sha256": "e373c924c3febb08bb97d9320b4f322d2fbb66583cd0fcf0aa473b9d3ed20385",
+      "url": "https://navdata.aerocommons.org/packs/procedures-conus-2610.pack"
+    },
+    {
+      "attribution": "FAA CIFP (public domain)",
+      "build_commit": "",
+      "bytes": 21798912,
+      "cycle": "2611",
+      "effective": "2026-10-29",
+      "expires": "2026-11-26",
+      "id": "procedures-conus",
+      "kind": "procedures",
+      "license": "LicenseRef-us-public-domain",
+      "license_url": "",
+      "notice": "",
+      "origin": "",
+      "regions": [
+        "conus"
+      ],
+      "report_sha256": "",
+      "report_url": "",
+      "sha256": "2ac5c748f9406817aacff0e84855afa6460efc7bf1d823b3a73635184dfe1099",
+      "url": "https://navdata.aerocommons.org/packs/procedures-conus-2611.pack"
+    },
+    {
+      "attribution": "OpenStreetMap contributors (ODbL)",
+      "build_commit": "",
+      "bytes": 4291354624,
+      "cycle": "2026q2r5",
+      "id": "water-na",
+      "kind": "water",
+      "license": "ODbL-1.0",
+      "license_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+      "notice": "",
+      "origin": "",
+      "regions": [
+        "conus",
+        "us-west",
+        "us-central",
+        "us-south",
+        "us-east",
+        "canada-west",
+        "canada-east"
+      ],
+      "report_sha256": "",
+      "report_url": "",
+      "sha256": "251f394e5c73f83603b20363956a711eff882b980d08cb42529b6fcd9c574e8b",
+      "url": "https://navdata.aerocommons.org/packs/water-na-2026q2r5.pack"
+    },
+    {
+      "attribution": "OpenStreetMap contributors (ODbL); Natural Earth",
+      "build_commit": "",
+      "bytes": 3170426880,
+      "cycle": "2026q2r6",
+      "id": "water-na",
+      "kind": "water",
+      "license": "ODbL-1.0",
+      "license_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+      "notice": "",
+      "origin": "",
+      "regions": [
+        "conus",
+        "us-west",
+        "us-central",
+        "us-south",
+        "us-east",
+        "canada-west",
+        "canada-east"
+      ],
+      "report_sha256": "",
+      "report_url": "",
+      "sha256": "3e31b06a228f6b8450d31b3fc8b54ba7a410ead4e3eb959fa7057066d4d7c975",
+      "url": "https://navdata.aerocommons.org/packs/water-na-2026q2r6.pack"
+    }
+  ],
+  "regions": {
+    "alaska": {
+      "bbox": [
+        51,
+        -170,
+        72,
+        -129
+      ],
+      "name": "Alaska"
+    },
+    "canada-east": {
+      "bbox": [
+        42,
+        -100,
+        72,
+        -52
+      ],
+      "name": "Canada East"
+    },
+    "canada-west": {
+      "bbox": [
+        48,
+        -140,
+        72,
+        -100
+      ],
+      "name": "Canada West"
+    },
+    "conus": {
+      "bbox": [
+        24,
+        -125,
+        50,
+        -66
+      ],
+      "name": "Continental US"
+    },
+    "mexico-central-america": {
+      "bbox": [
+        7,
+        -118,
+        33,
+        -77
+      ],
+      "name": "Mexico & Central America"
+    },
+    "us-central": {
+      "bbox": [
+        25,
+        -104,
+        49,
+        -90
+      ],
+      "name": "US Central"
+    },
+    "us-east": {
+      "bbox": [
+        24,
+        -90,
+        49,
+        -66
+      ],
+      "name": "US East"
+    },
+    "us-south": {
+      "bbox": [
+        24,
+        -107,
+        37,
+        -75
+      ],
+      "name": "US South"
+    },
+    "us-west": {
+      "bbox": [
+        31,
+        -125,
+        49,
+        -102
+      ],
+      "name": "US West"
+    }
+  }
+}
