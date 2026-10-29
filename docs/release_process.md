@@ -60,6 +60,8 @@ device on the current pack format. Cut it as **0.3.0** (from 0.2.11).
    `dev -> qa` (confirm the qa deploy is healthy), then `qa -> main` (confirm
    the prod Worker deploy + that the **next nightly cron loads the manifest
    without error**). Promotion regenerates assets from source; it does not copy.
+   If the range touches `site/`, the push to `main` also runs `site.yml`, which
+   deploys navdata.aerocommons.org; confirm its verify step is green.
 5. **Tag** `vX.Y.Z` on `main` and push the tag. The tag is the release.
 6. **Post-release** — publish any packs that were waiting on the kind reaching
    `main` (see below), then re-check cron health the next morning
