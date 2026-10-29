@@ -22,7 +22,8 @@ plan disagree, the plan wins and this document is the bug.
 ```
 reports/<id>/<cycle>/report.json      the record (this schema)
 reports/<id>/<cycle>/report.html      rendered from the JSON, never hand-written
-reports/rejected/...                  records for builds the gate refused (D4; path fixed in TV3)
+reports/rejected/<id>/<cycle>/<built.at>-<sha12>/report.json
+                                      a build the gate refused (D4); one key per attempt
 ```
 
 Same R2 bucket and hostname as the packs (`navdata.aerocommons.org`).
@@ -316,6 +317,74 @@ Which checks apply:
 | water, highways | `IDX-001` every R-tree indexes every row of its table, plus `rtreecheck` |
 | water, highways, rivers | `OSM-001` counts per region (#17); `OSM-002` per state (`not-run`, TV7); `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
 | rivers, cifp, airspace, plates | **Ungated** (`report.UNGATED`): the record is written with `gated: false`, and a build record of these kinds never clears the gate |
+
+## The publish gate (TV3)
+
+Every path that adds a pack to the live manifest runs the gate
+(`packtools/gate.py`) on the exact file it is about to upload, before the
+manifest is signed: the cyclical run (`run_cyclical`) and everything that
+calls `packtools.publish.publish` (`build-pack --upload` for roads and
+water, `make-terrain --upload` from the QNAP entrypoint, `make-plates
+--upload`). In order:
+
+1. **Verify the live manifest.** Its signature is checked against the
+   signing key before anything is decided from it. A missing or bad
+   signature stops the publish.
+2. **Refuse an (id, cycle) already listed.** A published record is
+   immutable, so a rebuild publishes under a new cycle tag.
+   `make-terrain --upload` skips a region already listed at the edition, the
+   way the cyclical run skips a present cycle.
+3. **Check the entry against the file.** The entry's `sha256` and `bytes`
+   must match it.
+4. **Find the previous edition in the signed live manifest, and nowhere
+   else.**
+   - No edition of the id listed (and none accepted earlier in the same
+     run): this is a first edition (`--first-edition`).
+   - Otherwise the newest edition ranked below this one is the previous one.
+     The gate reads its bound record (hash-checked against `report_sha256`).
+     For an edition published before records existed, it reports on that
+     edition's pack instead (hash-checked against `sha256`).
+   - Listed but unreadable: there is no previous record, and not a first
+     edition either, so every blocking delta check blocks.
+   - Nothing in config, and no flag on a scheduled run, can declare a first
+     edition.
+5. **Write the record in this job, from these bytes.** It runs with the
+   device probe on and with the build notes the person who started the run
+   wrote. A note key is `CHECK` or `<pack id>:CHECK`; the cyclical run takes
+   only `<pack id>@<cycle>:CHECK`, so a note cannot carry to the next
+   cycle. A note naming no check in the kind's catalogue is refused.
+6. **Judge it.** The record's `pack` (id, kind, cycle, sha256, bytes) must
+   equal the file being signed, hashed again after the checks ran. The
+   record must pass `validate_report`. Then `publish_blockers` decides,
+   taking the check set and the `blocking` flags from the catalogue, not
+   from the record.
+
+An **accepted** pack's record is uploaded to
+`reports/<id>/<cycle>/report.json`, then the pack, and the manifest entry
+gets `report_url`, `report_sha256`, `origin` and `build_commit` before the
+manifest is signed. A **refused** pack's record is uploaded with `record:
+rejected` to `reports/rejected/<id>/<cycle>/<built.at>-<sha12>/report.json`.
+Nothing else is written. When one publish carries several packs, nothing is
+published unless every pack is accepted.
+
+Every write of the manifest, retract and license backfill included, goes
+through `publish.sign_and_put`. It calls `manifest.validate(obj,
+previous=live)`, which refuses two things:
+
+- a new entry without a record;
+- a changed `report_url` or `report_sha256` on an entry the live manifest
+  had already bound to a record.
+
+**Build notes come only from a person.** The scheduled cyclical run has
+none, so a check that warns refuses its pack every night until someone who
+has looked at the warn dispatches `cyclical.yml` by hand with `notes`
+(`{"procedures-conus@2612:ROW-002": "why"}`). `roads.yml` and `water.yml`
+take a `notes` input. The terrain entrypoint reads
+`$PACK_OUT/build-notes-$EDITION.txt`, a file named for the edition.
+
+**Job summaries** are rendered from the records: `summary.record_markdown`,
+in `run_cyclical` and in `packtool job-summary --records <out>/reports`. A
+run that stopped before any pack reached the gate says it has no record.
 
 ## Report pages (TV5)
 
