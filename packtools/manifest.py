@@ -24,6 +24,20 @@ from . import MANIFEST_VERSION
 from .packmeta import PackMeta, KINDS
 from .signing import sha256_file
 
+# The L1 notice: the short standing text every new manifest entry carries
+# (testing-visibility plan section 4.7, Bill's D3 ruling, 2026-10-28). The
+# same words close every pack report (docs/pack_report.md). Changing it is
+# Bill's call; it is not a wording to tune.
+NOTICE = ("Experimental / Amateur-Built use only. Provided as-is, with no "
+          "warranty. Not certified. Not for primary navigation. Use at your "
+          "own risk.")
+
+# Coarse data-pedigree label (docs/do200b_applicability.md section 5).
+# Deliberately not a score: it says where the data came from, nothing about
+# how good it is. "" on an entry means unspecified (entries published before
+# the field existed).
+ORIGINS = ("federal", "community", "user-supplied")
+
 
 def _rank_key(p: "PackEntry") -> tuple:
     """Sort key shared by ``select()`` and ``prune_old_cycles()``: latest
@@ -59,6 +73,17 @@ class PackEntry:
     license_url: str = ""
     min_pyefis: str | None = None
     tiles_bbox: list[float] | None = None   # [lat_min, lon_min, lat_max, lon_max]
+    # Testing-visibility fields (AER-4099): additive, default "", like
+    # license/license_url, no MANIFEST_VERSION bump. report_url/report_sha256
+    # bind the pack's pack-report/1 record (docs/pack_report.md) to the
+    # manifest signature; origin is one of ORIGINS; notice is NOTICE;
+    # build_commit is the makerplane-data commit that built the pack. ""
+    # means absent -- entries published before these fields existed.
+    report_url: str = ""
+    report_sha256: str = ""
+    origin: str = ""
+    notice: str = ""
+    build_commit: str = ""
 
     # --- currency helpers (shared with the Pi updater) ---
     def covers(self, day: _dt.date) -> bool:
@@ -88,8 +113,14 @@ class PackEntry:
     @classmethod
     def from_pack(cls, path: str | Path, meta: PackMeta, *, url: str,
                   regions: list[str] | None = None, min_pyefis: str | None = None,
-                  tiles_bbox: list[float] | None = None) -> "PackEntry":
-        """Build an entry from a pack file on disk plus its pack_meta."""
+                  tiles_bbox: list[float] | None = None,
+                  report_url: str = "", report_sha256: str = "",
+                  origin: str = "", notice: str = NOTICE,
+                  build_commit: str = "") -> "PackEntry":
+        """Build an entry from a pack file on disk plus its pack_meta.
+
+        ``notice`` defaults to the standing :data:`NOTICE`, so every entry
+        built here carries it without each caller having to remember."""
         path = Path(path)
         return cls(
             id=meta.id, kind=meta.kind, cycle=meta.cycle,
@@ -102,6 +133,8 @@ class PackEntry:
             regions=regions or [],
             min_pyefis=min_pyefis,
             tiles_bbox=tiles_bbox,
+            report_url=report_url, report_sha256=report_sha256,
+            origin=origin, notice=notice, build_commit=build_commit,
         )
 
 
@@ -247,11 +280,19 @@ class ManifestError(ValueError):
     """Raised on a structurally invalid manifest."""
 
 
-def validate(obj: dict) -> None:
+def validate(obj: dict, *, previous: dict | None = None) -> None:
     """Structural validation. Raises ManifestError on any problem.
 
     Intentionally strict: a malformed manifest must fail loudly on the
     build side rather than ship something the Pi will choke on.
+
+    ``previous`` is the build side's publish gate: the manifest as it stood
+    before this publish. Any (id, cycle) in ``obj`` that is not in
+    ``previous`` is a NEW entry and must carry a report and the notice (see
+    :func:`validate_new_entries`); entries already in ``previous`` are left
+    alone, so packs published before pack-report/1 stay valid. The client
+    parse path never passes it -- a device must not refuse a catalog over
+    the testing-visibility fields (AER-4099).
     """
     if not isinstance(obj, dict):
         raise ManifestError("manifest must be a JSON object")
@@ -284,3 +325,40 @@ def validate(obj: dict) -> None:
             raise ManifestError(f"{where} has 'expires' but no 'effective'")
     if not isinstance(obj.get("regions", {}), dict):
         raise ManifestError("'regions' must be an object")
+    if previous is not None:
+        validate_new_entries(obj, previous)
+
+
+def _is_sha256(v) -> bool:
+    return (isinstance(v, str) and len(v) == 64
+            and all(c in "0123456789abcdef" for c in v))
+
+
+def validate_new_entries(obj: dict, previous: dict) -> None:
+    """Refuse any entry of ``obj`` that is new relative to ``previous`` and
+    lacks a pack report or the notice. Raises ManifestError.
+
+    "New" is keyed by (id, cycle), the manifest's own identity. A new entry
+    needs a non-empty ``report_url``, a 64-hex ``report_sha256`` and a
+    non-empty ``notice``; an ``origin``, if given, must be one of
+    :data:`ORIGINS`. Build side only: an unknown origin value is refused
+    here, never on a device (``validate`` without ``previous``).
+    """
+    old = {(p.get("id"), p.get("cycle"))
+           for p in (previous or {}).get("packs", []) if isinstance(p, dict)}
+    for i, p in enumerate(obj.get("packs", [])):
+        if (p["id"], p["cycle"]) in old:
+            continue
+        where = f"packs[{i}] ({p['id']}/{p['cycle']}, new)"
+        if not (isinstance(p.get("report_url"), str) and p["report_url"]):
+            raise ManifestError(f"{where} has no report_url: a new entry "
+                                "must publish a pack-report/1 record")
+        if not _is_sha256(p.get("report_sha256")):
+            raise ManifestError(f"{where} report_sha256 must be 64 lowercase "
+                                "hex chars")
+        if not (isinstance(p.get("notice"), str) and p["notice"].strip()):
+            raise ManifestError(f"{where} has no notice")
+        origin = p.get("origin", "")
+        if origin and origin not in ORIGINS:
+            raise ManifestError(f"{where} origin {origin!r} not one of "
+                                f"{', '.join(ORIGINS)}")
