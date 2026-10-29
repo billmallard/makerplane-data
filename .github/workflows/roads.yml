@@ -19,6 +19,13 @@ name: roads-packs
 # canonical one it stood in for, AER-1109, but a states-limited pack under
 # the production id is still wrong data to have live). `packtool
 # remove-pack` retracts a bad entry like that one.
+#
+# Publish gate (TV3, AER-4101): build-pack --upload writes the pack's
+# pack-report/1 test record before the manifest is signed. A pack whose
+# blocking checks fail, or that warns with no build note, is not published;
+# its record goes to reports/rejected/. A published (id, cycle) is
+# immutable: a rebuild needs a new cycle tag. Build notes come only from the
+# person dispatching (`notes`), for this edition.
 on:
   workflow_dispatch:
     inputs:
@@ -26,12 +33,15 @@ on:
         description: "Geofabrik states ('conus', or a comma list like 'colorado,texas')"
         default: "conus"
       cycle:
-        description: "Edition tag"
+        description: "Edition tag (a published cycle cannot be republished: use a new tag, e.g. r2)"
         default: "2026q3r1"
       publish:
         description: "Upload to production and re-sign the live manifest -- leave OFF for a states test-run"
         type: boolean
         default: true
+      notes:
+        description: "Build notes for checks that warn, written for this edition: JSON, e.g. {\"ROW-002\": \"why\"}"
+        default: ""
 
 env:
   PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
@@ -60,7 +70,7 @@ jobs:
         run: |
           packtool build-roads --states "${{ inputs.states }}" --dest highways.sqlite
 
-      - name: Pack + upload (signed)
+      - name: Pack + gate + upload (signed)
         id: publish
         if: ${{ inputs.publish }}
         env:
@@ -68,16 +78,21 @@ jobs:
           R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
+          PYEFIS_SRC_DIR:       ${{ github.workspace }}/pyefis-src/src
+          NOTES:                ${{ inputs.notes }}
         run: |
-          packtool build-pack highways.sqlite \
+          notes=()
+          if [ -n "$NOTES" ]; then printf '%s' "$NOTES" > notes.json; notes=(--notes-file notes.json); fi
+          packtool build-pack highways.sqlite "${notes[@]}" \
             --id highways-conus --kind highways --cycle "${{ inputs.cycle }}" \
             --attribution "OpenStreetMap contributors (ODbL)" \
             --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
             --regions conus --url-base https://navdata.aerocommons.org/packs \
             --upload --bucket makerplane-data
 
-      # The public run page's record of what this run checked (AER-4098).
-      # always(): a failed build still says what failed and what was not run.
+      # The public run page's record of what this run checked, rendered from
+      # the test record the publish gate wrote (AER-4101). always(): a failed
+      # or refused build still says what it checked and why it stopped.
       - name: Job summary
         if: ${{ always() }}
         env:
@@ -87,11 +102,9 @@ jobs:
           BUILD:   ${{ steps.build.outcome }}
           UPLOAD:  ${{ inputs.publish && steps.publish.outcome || 'off' }}
         run: |
+          mkdir -p work/reports
           packtool job-summary --title "roads-packs: highways-conus $CYCLE" \
+            --records work/reports \
             --file highways.sqlite --file "work/packs/highways-conus-$CYCLE.pack" \
             --input "states=$STATES" --input "cycle=$CYCLE" --input "publish=$PUBLISH" \
-            --check "fetch + build|$BUILD|packtool build-roads; any failed state fails the step" \
-            --check "schema guard (input)|none|no data contract for OSM roads -- only the cyclical FAA sources have one" \
-            --check "output floors|none|no row-count floor for highways -- row counts are listed below" \
-            --check "skip-if-present|n/a|dispatch builds always rebuild; publish upserts (id, cycle)" \
-            --check "sign + upload|$UPLOAD|build-pack --upload to production highways-conus"
+            --input "fetch + build=$BUILD" --input "gate + sign + upload=$UPLOAD"

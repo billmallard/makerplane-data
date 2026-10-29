@@ -3,11 +3,25 @@ name: cyclical-packs
 # Build current+next NASR/DOF packs and regenerate the signed manifest.
 # Idempotent (skip-if-present), so a daily run does nothing until the FAA
 # publishes a new cycle.
+#
+# Publish gate (TV3, AER-4101): each built pack gets its pack-report/1 test
+# record before the manifest is signed; a pack whose blocking checks fail,
+# or that warns, is not published and its record goes to reports/rejected/.
+# The scheduled run has no build notes, so a warn is refused rather than
+# noted (AER-4102 C8). A person who has looked at the warn dispatches this
+# workflow by hand with `notes`, each keyed to one edition.
 on:
   schedule:
     # 09:20 UTC daily — after the FAA's typical posting window.
     - cron: "20 9 * * *"
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Pack ids to run, space-separated (empty = all)"
+        default: ""
+      notes:
+        description: "Build notes for checks that warned, written for that edition: JSON, e.g. {\"procedures-conus@2612:ROW-002\": \"why\"}"
+        default: ""
 
 # Interim tool sharing: the FAA->sqlite build scripts live in pyEfis. We
 # check it out and point PYEFIS_TOOLS_DIR at its tools/ dir. Override these
@@ -44,4 +58,11 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET:            ${{ vars.R2_BUCKET || 'makerplane-data' }}
           MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
-        run: python -m packtools.run_cyclical
+          # Empty on the schedule: only a person's dispatch carries these.
+          ONLY:                 ${{ inputs.only }}
+          NOTES:                ${{ inputs.notes }}
+        run: |
+          args=()
+          if [ -n "$ONLY" ]; then read -ra ids <<< "$ONLY"; args+=(--only "${ids[@]}"); fi
+          if [ -n "$NOTES" ]; then printf '%s' "$NOTES" > notes.json; args+=(--notes-file notes.json); fi
+          python -m packtools.run_cyclical "${args[@]}"
