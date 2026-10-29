@@ -84,6 +84,35 @@ def _sqlite(path, tables):
     return path
 
 
+# --- persisted results (pack reports, AER-4100) ------------------------------
+
+def test_evaluate_inputs_records_every_layer_without_raising(tmp_path):
+    # Structure drifts AND an unknown enum value: the raising API stops at
+    # layer 1; the report API records all three layers.
+    idir = _input(tmp_path, structure_rows=DEMO_ROWS + [
+        ("DEMO_BASE", "EXTRA", "1", "VARCHAR", "Yes")],
+        data_rows=(("1", "Z", "34.0"),))
+    res = _guard(tmp_path).evaluate_inputs(DEMO_SRC, idir)
+    assert [(r.layer, r.name, r.ok) for r in res] == [
+        (1, "structure", False), (2, "headers", True), (3, "enums", False)]
+    assert "EXTRA" in res[0].message and "'Z'" in res[2].message
+    assert res[1].message == ""
+
+
+def test_evaluate_output_floor_result(tmp_path):
+    g = _guard(tmp_path)
+    assert g.evaluate_output(DEMO_SRC, _sqlite(tmp_path / "ok.sqlite", {"widgets": 3})).ok
+    low = g.evaluate_output(DEMO_SRC, _sqlite(tmp_path / "low.sqlite", {"widgets": 2}))
+    assert not low.ok and "below the floor" in low.message
+
+
+def test_evaluate_no_contract_is_empty(tmp_path):
+    g = _guard(tmp_path)
+    other = SimpleNamespace(builder="obstacles")
+    assert g.evaluate_inputs(other, tmp_path) == []
+    assert g.evaluate_output(other, tmp_path / "x.sqlite") is None
+
+
 # --- check 1: structure snapshot diff --------------------------------------
 
 def test_structure_identical_passes(tmp_path):

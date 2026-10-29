@@ -10,8 +10,21 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-_UA = "makerplane-data/0.1 (+https://github.com/billmallard/makerplane-data)"
+#: Sent on every request this package makes. The CDN in front of
+#: navdata.aerocommons.org answers 403 to Python's default ``Python-urllib/*``
+#: user agent, so no download path may fall back to it.
+USER_AGENT = "makerplane-data/0.1 (+https://github.com/billmallard/makerplane-data)"
 _CHUNK = 1 << 20  # 1 MiB
+
+
+def http_get(url: str, *, timeout: int = 60) -> bytes:
+    """GET ``url`` into memory with :data:`USER_AGENT`. For small objects
+    (a manifest, its signature, a pack report); packs go through
+    :func:`download`."""
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
 
 
 def download(url: str, dest: str | Path, *, resume: bool = True,
@@ -30,7 +43,7 @@ def download(url: str, dest: str | Path, *, resume: bool = True,
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_suffix(dest.suffix + ".part")
 
-    headers = {"User-Agent": _UA}
+    headers = {"User-Agent": USER_AGENT}
     mode = "wb"
     have = 0
     if resume and part.exists():
