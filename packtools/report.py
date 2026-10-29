@@ -94,6 +94,11 @@ _COORDS = {
                    ("airway_legs", "fix_lat", "fix_lon")],
 }
 
+# Tables whose NULL coordinates GEO-001 tolerates: a procedure or airway
+# leg may name no fix, and PROC-FIX-001 counts the legs whose fix the build
+# could not place. On every other (point) table a NULL position is bad.
+_NULL_COORDS_OK = ("legs", "airway_legs")
+
 # Where FAA data is expected: CONUS, Alaska (both sides of the antimeridian),
 # Hawaii, Puerto Rico / USVI, Guam / CNMI, American Samoa, Wake, Midway.
 # [lat_min, lon_min, lat_max, lon_max]. FAA files also carry real oceanic
@@ -407,10 +412,11 @@ def _c_coords_valid(ctx):
         return _not_run("This pack has none of the coordinate columns the check knows.")
     bad = 0
     for t, la, lo in cols:
+        scope = f"{la} IS NOT NULL AND " if t in _NULL_COORDS_OK else ""
         bad += ctx.con.execute(
-            f'SELECT COUNT(*) FROM "{t}" WHERE {la} IS NOT NULL AND ('
-            f'{lo} IS NULL OR {la} < -90 OR {la} > 90 OR {lo} < -180 OR {lo} > 180 '
-            f'OR ({la} = 0 AND {lo} = 0))').fetchone()[0]
+            f'SELECT COUNT(*) FROM "{t}" WHERE {scope}('
+            f'{la} IS NULL OR {lo} IS NULL OR {la} < -90 OR {la} > 90 OR {lo} < -180 '
+            f'OR {lo} > 180 OR ({la} = 0 AND {lo} = 0))').fetchone()[0]
     return ("fail" if bad else "pass", bad, "")
 
 
@@ -785,9 +791,12 @@ _FEDERAL = [
 ]
 
 _COORD_CHECKS = [
-    Check("GEO-001", "Coordinates are valid and not at 0,0", True, "0 bad coordinates",
+    Check("GEO-001", "Coordinates are present, valid and not at 0,0", True,
+          "0 bad coordinates. On point tables a NULL latitude or longitude is bad; on "
+          "procedure and airway legs a leg with no fix position is left to PROC-FIX-001",
           "A plausible coordinate in the wrong place, such as a transposed digit that "
-          "still lands on land.", _c_coords_valid),
+          "still lands on land. On airway_legs, a leg with a NULL fix position (no "
+          "check counts those).", _c_coords_valid),
     Check("UNQ-001", "Identifiers that must be unique are unique", True, "0 duplicates",
           "Two different things given the same correct-looking identifier in "
           "different tables, and a wrong identifier that happens to be unique.",

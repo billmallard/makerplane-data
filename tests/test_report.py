@@ -313,15 +313,35 @@ def test_schema_guard_layers_are_persisted_not_printed(tmp_path):
     assert "airports 1 (floor 9,700)" in c["SG-004"]["measured"]
 
 
-def test_obstacles_have_no_guard_contract_and_say_so(tmp_path):
-    con = sqlite3.connect(tmp_path / "o.pack")
+def _obs_pack(path, rows=1, nulls=0):
+    """An obstacles pack: ``rows`` obstacles, the first ``nulls`` with no
+    latitude."""
+    con = sqlite3.connect(path)
     con.execute("CREATE TABLE obstacles (oas_no TEXT PRIMARY KEY, lat REAL, lon REAL, "
                 "amsl_ft REAL, agl_ft REAL)")
-    con.execute("INSERT INTO obstacles VALUES ('1', 40, -100, 1000, 300)")
+    con.executemany("INSERT INTO obstacles VALUES (?, ?, -100, 1000, 300)",
+                    [(str(i), None if i < nulls else 40.0) for i in range(rows)])
     con.commit()
     con.close()
-    packmeta.embed_sqlite(tmp_path / "o.pack", PackMeta(
-        id="obstacles-conus", kind="obstacles", cycle="261001", **LICENSE))
+    packmeta.embed_sqlite(path, PackMeta(id="obstacles-conus", kind="obstacles",
+                                         cycle="261001", **LICENSE))
+    return Path(path)
+
+
+def test_null_coordinates_are_bad_on_point_tables(tmp_path):
+    # C5 (AER-4102): a row with a NULL latitude was skipped, so an
+    # obstacle with no position passed GEO-001.
+    rec = _rep(_obs_pack(tmp_path / "o.pack", rows=5, nulls=2))
+    c = _by_id(rec)["GEO-001"]
+    assert (c["status"], c["measured"]) == ("fail", 2)
+    assert "GEO-001" in _blocking_ids(rec)
+    # Procedure legs keep the tolerance: PROC-FIX-001 owns unplaced fixes.
+    legs = _by_id(_rep(_proc_pack(tmp_path / "p.pack", unresolved=3)))
+    assert (legs["GEO-001"]["status"], legs["GEO-001"]["measured"]) == ("pass", 0)
+
+
+def test_obstacles_have_no_guard_contract_and_say_so(tmp_path):
+    _obs_pack(tmp_path / "o.pack")
     c = _by_id(_rep(tmp_path / "o.pack"))
     assert all(c[f"SG-00{i}"]["status"] == "not-run" for i in range(1, 5))
     assert "No schema_guard contract" in c["SG-004"]["note"]
