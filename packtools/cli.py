@@ -257,13 +257,8 @@ def cmd_make_plates(args) -> int:
 def cmd_fetch_pack(args) -> int:
     """Download one published pack, verified through the signed manifest;
     the local path is the last line on stdout (for shell capture)."""
-    import urllib.request
     from . import fetch_pack
-
-    def _get(url: str) -> bytes:
-        req = urllib.request.Request(url, headers={"User-Agent": "makerplane-data packtool"})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return r.read()
+    from .fetch import http_get as _get
 
     day = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
     pub = Path(args.pub).read_text(encoding="ascii")
