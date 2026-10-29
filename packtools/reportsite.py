@@ -57,9 +57,9 @@ STANDING_TEXT = (
     "does not mean the data is correct, complete or current. Results marked as "
     "coming from Auspex come from a proprietary AI test engine whose method is not "
     "published; each of its findings is stated so you can check it yourself. This "
-    "data is for Experimental / Amateur-Built use, is provided as-is with no "
-    "warranty of any kind, and must not be used as a primary navigation source. "
-    "Use it at your own risk, and verify against official publications.")
+    "data is for Experimental / Amateur-Built use. This data is provided as-is "
+    "with no warranty and any use of the data is at your own risk. Verify "
+    "against official publications.")
 
 # Never used about a pack or a check result (plan 4.7). The standing text and
 # the notice use two of them in the negative; lint() exempts those exact

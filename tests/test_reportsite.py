@@ -89,8 +89,9 @@ def test_every_record_page_carries_the_standing_text_verbatim(site):
 def test_standing_text_is_the_plan_4_7_block():
     # Pinned so an edit to it is a visible diff, not a quiet drift.
     assert rs.STANDING_TEXT.startswith("These are the checks we ran on this pack,")
-    assert rs.STANDING_TEXT.endswith("Use it at your own risk, and verify against "
-                                     "official publications.")
+    assert rs.STANDING_TEXT.endswith("This data is provided as-is with no warranty "
+                                     "and any use of the data is at your own risk. "
+                                     "Verify against official publications.")
     assert "No authority has reviewed or approved this data or these checks." in rs.STANDING_TEXT
 
 

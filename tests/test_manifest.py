@@ -239,9 +239,9 @@ def test_from_pack_threads_license_fields_through(tmp_path):
 
 def test_notice_is_the_adopted_short_text_verbatim():
     # Plan section 4.7 (D3). A wording change is Bill's, not a refactor's.
-    assert NOTICE == ("Experimental / Amateur-Built use only. Provided as-is, "
-                      "with no warranty. Not certified. Not for primary "
-                      "navigation. Use at your own risk.")
+    assert NOTICE == ("Experimental / Amateur-Built use only. Not certified. "
+                      "This data is provided as-is with no warranty and any "
+                      "use of the data is at your own risk.")
     assert ORIGINS == ("federal", "community", "user-supplied")
 
 
