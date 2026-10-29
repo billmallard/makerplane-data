@@ -40,8 +40,9 @@ _WATER_POINTS = [("Puget Sound", 47.6, -122.4), ("Lake Michigan", 41.88, -87.5),
                  ("Lake Ontario", 43.6, -79.3)]
 
 
-def _q(label: str, count: int, minimum: int = 1) -> dict:
-    return {"query": label, "count": count, "min": minimum, "ok": count >= minimum}
+def _q(label: str, count: int, minimum: int = 1, *, exact: bool = False) -> dict:
+    ok = count == minimum if exact else count >= minimum
+    return {"query": label, "count": count, "min": minimum, "ok": ok}
 
 
 def _probe_airports(path, points):
@@ -134,13 +135,16 @@ def probe_terrain(path):
                         key=lambda n: int(Path(n).stem[1:]))
         if native:
             member = native[0]
+            # The grid side the member's size implies, the side TER-001 checks.
+            side = int(round((z.getinfo(member).file_size / 2) ** 0.5))
             for n in (member, member[:-4] + ".wmask"):
                 if n in names:
                     z.extract(n, root)
             lat, lon = tile_sw_corner(Path(member).stem)
             tile = TileCache(root).get(lat, lon)
             n = 0 if tile is None else int(tile.shape[0])
-            return True, [_q(f"native tile {Path(member).stem} loads (grid side)", n)]
+            return True, [_q(f"native tile {Path(member).stem} loads with grid side {side}",
+                             n, side, exact=True)]
         if mosaic:
             member = mosaic[-1]
             level = int(Path(member).stem[1:])

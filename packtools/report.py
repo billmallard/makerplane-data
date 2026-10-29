@@ -615,6 +615,25 @@ def _c_ter_bbox(ctx):
     return ("fail" if outside else "pass", measured, "")
 
 
+def _c_ter_tileset(ctx):
+    tiles = sorted(Path(n).stem for n in _native_tiles(_terrain_members(ctx)))
+    ctx.metrics["TER-006"] = tiles
+    if ctx.previous is None:
+        return _no_previous(ctx, f" This edition has {len(tiles):,} native tiles; the next "
+                            "edition compares against them.")
+    prev = ctx.prev_metric("TER-006")
+    if prev is None:
+        return _not_run("The previous record lists no native tile set (metrics TER-006); "
+                        "pass the previous pack instead of its report.", "no-previous-tiles")
+    lost = sorted(set(prev) - set(tiles))
+    gained = len(set(tiles) - set(prev))
+    cycle = ((ctx.previous.get("pack") or {}).get("cycle")) or "?"
+    measured = (f"{len(tiles):,} native tiles (previous edition {cycle}: {len(prev):,}); "
+                f"lost {len(lost)}{': ' + ', '.join(lost[:10]) if lost else ''}"
+                f"{' ...' if len(lost) > 10 else ''}; gained {gained}")
+    return ("fail" if lost else "pass", measured, "")
+
+
 def _c_ter_wmask(ctx):
     from .make_terrain import missing_wmask_members
     missing = missing_wmask_members(ctx.path)
@@ -881,6 +900,12 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "A tile missing from inside the region (ocean tiles are absent by design, "
               "so the check cannot tell a gap from sea).", _c_ter_bbox,
           exempt=(("mosaic-pack", "a mosaic pack carries no native tiles to place"),)),
+        Check("TER-006", "No native tile of the previous edition is missing", True,
+              "every native tile in the previous edition is still present. Applies across "
+              "Copernicus editions too: a new edition that drops a tile fails",
+              "A tile that is present but holds wrong or older elevations, and a tile that "
+              "was already missing from the previous edition.",
+              _c_ter_tileset, "AER-4102", exempt=(FIRST_EDITION,)),
         Check("TER-003", "Every masked .hgt carries its .wmask water mask", True,
               "0 missing masks",
               "A mask that is present but wrong.", _c_ter_wmask, "AER-2287"),

@@ -457,6 +457,25 @@ def test_terrain_missing_water_mask_and_bad_member(tmp_path):
     assert c["TER-001"]["status"] == "fail" and "N40W099.hgt" in c["TER-001"]["measured"]
 
 
+def test_terrain_losing_a_native_tile_fails(tmp_path):
+    # AER-4102: TER-002 showed the previous tile count but never compared,
+    # so a pack that dropped half its tiles passed every check.
+    tiles = {"N40/N40W100.hgt": _hgt(3), "N40/N40W099.hgt": _hgt(3)}
+    prev = report.previous_from(_terrain_pack(tmp_path / "a.pack", tiles), origin="federal")
+    assert prev["metrics"]["TER-006"] == ["N40W099", "N40W100"]
+    same = _by_id(_rep(_terrain_pack(tmp_path / "b.pack", dict(tiles)), origin="federal",
+                       previous=prev))["TER-006"]
+    assert (same["status"], same["blocking"]) == ("pass", True)
+    lost = _rep(_terrain_pack(tmp_path / "c.pack", {"N40/N40W100.hgt": _hgt(3)}),
+                origin="federal", previous=prev)
+    c = _by_id(lost)["TER-006"]
+    assert c["status"] == "fail" and "lost 1: N40W099" in c["measured"]
+    assert "TER-006" in _blocking_ids(lost)
+    # Only a declared first edition exempts it.
+    first = _rep(_terrain_pack(tmp_path / "d.pack", tiles), origin="federal", first_edition=True)
+    assert "TER-006" not in _blocking_ids(first)
+
+
 def test_terrain_has_no_default_origin(tmp_path):
     pack = _terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _hgt(3)})
     assert _by_id(_rep(pack))["PACK-003"]["status"] == "fail"
@@ -512,6 +531,38 @@ def test_device_acceptance_without_pyefis_is_not_run(tmp_path, monkeypatch):
     (broken / "pyefis" / "__init__.py").write_text("")
     c = _by_id(_rep(_proc_pack(tmp_path / "q.pack"), probe=True, pyefis_src=broken))["ACC-001"]
     assert c["status"] == "not-run" and "could not be loaded" in c["note"]
+
+
+_FAKE_SVS = '''
+import os
+class _Grid:
+    def __init__(self, side):
+        self.shape = (side, side)
+class TileCache:
+    def __init__(self, root):
+        self.root = root
+    def get(self, lat, lon):
+        return _Grid(int(os.environ["FAKE_GRID_SIDE"]))
+'''
+
+
+def test_terrain_device_probe_wants_the_real_grid_side(tmp_path, monkeypatch):
+    # AER-4102: the probe accepted any grid side of 1 or more; it must be
+    # the side the .hgt size implies (the side TER-001 checks).
+    src = tmp_path / "pyefis-src"
+    ai = src / "pyefis" / "instruments" / "ai"
+    ai.mkdir(parents=True)
+    for d in (src / "pyefis", src / "pyefis" / "instruments", ai):
+        (d / "__init__.py").write_text("")
+    (ai / "svs.py").write_text(_FAKE_SVS)
+    pack = _terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _hgt(3)})
+    monkeypatch.setenv("FAKE_GRID_SIDE", "1")
+    c = _by_id(_rep(pack, origin="federal", probe=True, pyefis_src=src))["ACC-001"]
+    assert c["status"] == "fail"
+    monkeypatch.setenv("FAKE_GRID_SIDE", "3")
+    rec = _rep(pack, origin="federal", probe=True, pyefis_src=src)
+    assert _by_id(rec)["ACC-001"]["status"] == "pass"
+    assert rec["metrics"]["ACC-001"][0]["min"] == 3
 
 
 # --- --check: reproduce a published record ------------------------------------
