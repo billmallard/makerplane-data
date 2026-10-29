@@ -2,7 +2,8 @@
 """packtools/cloud/entrypoint.sh requires EDITION. It used to default to
 2024ed, which kept pointing a cloud build at that edition after it was
 retracted (AER-3350, AER-3528). An unset EDITION must stop the run before it
-clones, fetches or builds anything."""
+clones, fetches or builds anything. TERRAIN_ORIGIN, the publish gate's origin
+label for the test records (AER-4101), has no default either."""
 
 import os
 import shutil
@@ -33,14 +34,14 @@ def _run(tmp_path, **extra):
 
 
 def test_unset_edition_fails_before_any_work(tmp_path):
-    r = _run(tmp_path)
+    r = _run(tmp_path, TERRAIN_ORIGIN="community")
     assert r.returncode != 0
     assert "EDITION" in r.stderr
     assert ">> terrain build" not in r.stdout
 
 
 def test_empty_edition_fails(tmp_path):
-    r = _run(tmp_path, EDITION="")
+    r = _run(tmp_path, EDITION="", TERRAIN_ORIGIN="community")
     assert r.returncode != 0
     assert "EDITION" in r.stderr
 
@@ -48,10 +49,25 @@ def test_empty_edition_fails(tmp_path):
 def test_set_edition_passes_the_guard(tmp_path):
     # Positive control: with EDITION set the script reaches the TILE_ROOT
     # guard, so the failure above is the EDITION check and nothing earlier.
-    r = _run(tmp_path, EDITION="2024edr1")
+    r = _run(tmp_path, EDITION="2024edr1", TERRAIN_ORIGIN="community")
     assert r.returncode == 2
     assert "edition=2024edr1" in r.stdout
     assert "missing/empty" in r.stdout
+
+
+@pytest.mark.parametrize("origin", [None, ""])
+def test_unset_origin_fails_before_any_work(tmp_path, origin):
+    extra = {} if origin is None else {"TERRAIN_ORIGIN": origin}
+    r = _run(tmp_path, EDITION="2024edr1", **extra)
+    assert r.returncode != 0
+    assert "TERRAIN_ORIGIN" in r.stderr
+    assert ">> terrain build" not in r.stdout
+
+
+def test_compose_has_no_origin_default():
+    compose = (ENTRYPOINT.parent / "docker-compose.yml").read_text()
+    line = next(l for l in compose.splitlines() if l.strip().startswith("TERRAIN_ORIGIN:"))
+    assert "${TERRAIN_ORIGIN:?" in line
 
 
 def test_compose_has_no_edition_default():

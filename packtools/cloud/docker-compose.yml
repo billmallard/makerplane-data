@@ -26,6 +26,7 @@ services:
       TILE_ROOT: /data/glo30hgt          # native GLO-30 tiles live here on the NAS
       PACK_OUT:  /data/pack-scratch      # region packs stage here, deleted after upload
       EDITION:   "${EDITION:?set EDITION in the shell or .env, e.g. 2024edr1}"  # no default (AER-3528)
+      TERRAIN_ORIGIN: "${TERRAIN_ORIGIN:?set TERRAIN_ORIGIN for the test records}"  # no default (AER-4101)
       JOBS:      "8"                      # V1500B = 4 cores / 8 threads
       CODE_REF:  dev                      # branch/tag of pyEfis + makerplane-data to run
     restart: "no"                          # run-once batch job

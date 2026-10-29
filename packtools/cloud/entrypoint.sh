@@ -1,8 +1,23 @@
 #!/usr/bin/env bash
 # Terrain pyramid + water-mask build + publish. Idempotent: the mip and mask
 # builds skip files already present (so both persist on the mounted NAS tree
-# across runs), and each region upsert is independent + re-runnable. Exit
-# non-zero if the mask build or any region failed.
+# across runs), and each region upsert is independent + re-runnable (a region
+# already published at $EDITION is skipped). Exit non-zero if the mask build
+# or any region failed.
+#
+# Publish gate (TV3, AER-4101): make-terrain --upload writes each pack's
+# pack-report/1 test record BEFORE the manifest is signed, and a pack whose
+# blocking checks fail is not published -- its record goes to
+# reports/rejected/ instead. The gate needs:
+#   TERRAIN_ORIGIN  the record's origin label (federal / community /
+#                   user-supplied); terrain has no default, and PACK-003
+#                   blocks without one. No default here either.
+#   pyEfis's SVS reader importable (PyQt6 + libGL): ACC-001, the device
+#                   acceptance probe, is blocking. Checked before the build.
+#   build notes     only from a person, for this edition: the file
+#                   $PACK_OUT/build-notes-$EDITION.txt (KEY=TEXT lines or a
+#                   JSON object; KEY is CHECK or terrain-<region>:CHECK).
+#                   A check that warns with no note refuses its pack.
 set -euo pipefail
 
 # ---- required (env / .env) ----
@@ -14,6 +29,8 @@ set -euo pipefail
 # names it every run. A default goes stale -- it pointed at 2024ed after that
 # edition was retracted (AER-3350, AER-3528).
 : "${EDITION:?set EDITION (terrain edition id to build + publish, e.g. 2024edr1)}"
+# No default: the label goes into every published test record (PACK-003).
+: "${TERRAIN_ORIGIN:?set TERRAIN_ORIGIN (federal / community / user-supplied) for the test records}"
 
 # ---- optional (defaults) ----
 TILE_ROOT="${TILE_ROOT:-/data/glo30hgt}"
@@ -56,6 +73,27 @@ fi
 rm -rf /opt/pyEfis
 git clone --depth 1 -b "$PYEFIS_REF" https://github.com/billmallard/pyEfis.git /opt/pyEfis
 echo "   pyEfis: $PYEFIS_REF @ $(git -C /opt/pyEfis rev-parse --short HEAD 2>/dev/null || echo '?')"
+
+# ---- publish-gate preflight: the device acceptance probe (ACC-001, blocking)
+#      opens each pack with pyEfis's own SVS reader, which needs PyQt6 and
+#      libGL. Fail now, not after hours of building, if it cannot load. --
+export PYEFIS_SRC_DIR=/opt/pyEfis/src
+if ! PYTHONPATH="$PYEFIS_SRC_DIR" QT_QPA_PLATFORM=offscreen \
+     python -c "import pyefis.instruments.ai.svs" 2>/tmp/svs-import.err; then
+  echo "ERROR: pyEfis's SVS reader does not import here, so the publish gate's device"
+  echo "       acceptance check (ACC-001, blocking) cannot run and would refuse every pack."
+  echo "       Install PyQt6 (pip) and libGL/libEGL (apt: libgl1 libegl1). Import error:"
+  tail -n 1 /tmp/svs-import.err
+  exit 1
+fi
+NOTES_FILE="$PACK_OUT/build-notes-$EDITION.txt"
+GATE_ARGS=(--origin "$TERRAIN_ORIGIN")
+if [ -f "$NOTES_FILE" ]; then
+  echo "   build notes: $NOTES_FILE"
+  GATE_ARGS+=(--notes-file "$NOTES_FILE")
+else
+  echo "   build notes: none ($NOTES_FILE absent); a check that warns refuses its pack"
+fi
 
 # ---- 0. water.sqlite for step 2b: the published water pack IS the sqlite
 #         file. Fetched through the signed manifest (signature + sha256) and
@@ -106,7 +144,8 @@ for r in $REGIONS; do
   echo ">> [3/5] region $r  $(date -u +%H:%M:%S)"
   if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
         --edition "$EDITION" --only "$r" --out "$PACK_OUT" \
-        --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET"; then
+        --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET" \
+        "${GATE_ARGS[@]}"; then
     rm -f "$PACK_OUT/packs/terrain-$r-$EDITION.pack"          # free scratch as we go
   else
     echo "!! FAILED: $r"; fail=1
@@ -119,13 +158,16 @@ done
 echo ">> [4/5] mosaic pack  $(date -u +%H:%M:%S)"
 if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
       --edition "$EDITION" --mosaic --out "$PACK_OUT" \
-      --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET"; then
+      --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET" \
+      "${GATE_ARGS[@]}"; then
   rm -f "$PACK_OUT/packs/terrain-mosaic-$EDITION.pack"
 else
   echo "!! FAILED: mosaic pack"; fail=1
 fi
 
-# ---- 5. verify the published manifest (signature + that it parses) ----
+# ---- 5. verify the published manifest (signature + that it parses). A
+#         post-publish sanity check only: it runs after upload, so it cannot
+#         block. The blocking checks are the publish gate inside step 3/4. --
 echo ">> [5/5] verifying published manifest..."
 curl -fsS "$MANIFEST_URL" -o /tmp/manifest.json
 # verify reads the detached signature next to the manifest (<name>.minisig) --
