@@ -351,3 +351,18 @@ def test_end_to_end_build_sign_verify(tmp_path):
     assert trusted == "generated 2026-06-14"
     reloaded = Manifest.read(manifest_path)
     assert signing.sha256_file(pack) == reloaded.packs[0].sha256
+
+
+def test_signing_refuses_a_repointed_record():
+    prev = {"manifest_version": 1, "generated": "2026-06-14T00:00:00Z", "packs": [
+        {"id": "x", "kind": "water", "cycle": "1", "bytes": 1, "sha256": "a" * 64, "url": "u",
+         "report_url": "https://r/1", "report_sha256": "b" * 64, "notice": "n"}]}
+    moved = json.loads(json.dumps(prev))
+    moved["packs"][0]["report_sha256"] = "c" * 64
+    with pytest.raises(ManifestError, match="immutable"):
+        validate(moved, previous=prev)
+    # Binding a record to an entry that had none (a retro record) is allowed.
+    bare = json.loads(json.dumps(prev))
+    for f in ("report_url", "report_sha256"):
+        bare["packs"][0][f] = ""
+    validate(prev, previous=bare)
