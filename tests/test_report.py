@@ -172,7 +172,8 @@ def test_row_delta_warns_and_a_build_note_clears_the_publish_block(tmp_path):
     assert any(b.startswith("ROW-002 warns with no build note") for b in report.publish_blockers(rec))
     noted = _rep(pack, previous=prev, notes={"ROW-002": "FAA withdrew 10 airways"})
     assert _by_id(noted)["ROW-002"]["note"] == "FAA withdrew 10 airways"
-    assert report.publish_blockers(noted) == []
+    # The note clears ROW-002; only the switched-off device check is left.
+    assert _blocking_ids(noted) == ["ACC-001"]
 
 
 def test_previous_report_file_works_like_the_previous_pack(tmp_path):
@@ -200,6 +201,45 @@ def test_a_crashing_check_is_a_failed_check_not_a_missing_one(tmp_path, monkeypa
     # even though PROC-FIX-001 itself is non-blocking.
     assert not c["blocking"] and c["raised"] is True
     assert any(b.startswith("PROC-FIX-001 raised") for b in report.publish_blockers(rec))
+
+
+def _blocking_ids(rec):
+    return sorted({b.split()[0] for b in report.publish_blockers(rec)})
+
+
+def test_a_blocking_check_that_did_not_run_blocks_a_build(tmp_path):
+    # C1 (AER-4102): device acceptance switched off, or no pyEfis checkout,
+    # used to pass the gate silently. In a build record it blocks.
+    pack = _proc_pack(tmp_path / "p.pack")
+    rec = _rep(pack)
+    c = _by_id(rec)["ACC-001"]
+    assert c["status"] == "not-run" and c["blocking"]
+    assert _blocking_ids(rec) == ["ACC-001"]
+    # Declaring a first edition does not exempt the device check.
+    assert _blocking_ids(_rep(pack, first_edition=True)) == ["ACC-001"]
+    # A retro record describes old bytes; it gates nothing.
+    assert _blocking_ids(_rep(pack, record="retro")) == []
+
+
+def test_only_a_first_edition_declared_by_the_caller_exempts_a_delta_check(tmp_path):
+    pack = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 200, TX: 200})
+    missing = _by_id(_rep(pack))["OSM-001"]
+    assert missing["status"] == "not-run" and missing["not_run_reason"] == "no-previous"
+    assert "OSM-001" in _blocking_ids(_rep(pack))
+    first = _rep(pack, first_edition=True)
+    c = _by_id(first)["OSM-001"]
+    assert c["not_run_reason"] == "first-edition" and "first edition" in c["note"].lower()
+    assert "OSM-001" not in _blocking_ids(first)
+    with pytest.raises(report.ReportError):
+        _rep(pack, first_edition=True, previous=report.previous_from(pack))
+
+
+def test_a_record_cannot_exempt_itself(tmp_path):
+    # The exemption comes from the catalogue entry, not from the record.
+    rec = _rep(_proc_pack(tmp_path / "p.pack"))
+    acc = _by_id(rec)["ACC-001"]
+    acc["not_run_reason"] = "first-edition"
+    assert "ACC-001" in _blocking_ids(rec)
 
 
 # --- federal sqlite -----------------------------------------------------------
@@ -382,9 +422,11 @@ def test_check_reproduces_the_published_numbers(tmp_path, capsys):
     prev_pack = _proc_pack(tmp_path / "2610.pack", "2610", airways=50, collide=2)
     pack = _proc_pack(tmp_path / "2611.pack", unresolved=3, legs=1000)
     published = tmp_path / "report.json"
+    # Exit 1: device acceptance was switched off, which blocks a build record.
     assert cli.main(["report", str(pack), "--previous", str(prev_pack), "--no-device",
-                     "--note", "ROW-002=FAA withdrew airways", "-o", str(published)]) == 0
-    capsys.readouterr()
+                     "--note", "ROW-002=FAA withdrew airways", "-o", str(published)]) == 1
+    printed = capsys.readouterr().out
+    assert [ln.split()[2] for ln in printed.splitlines() if "BLOCKS PUBLISH" in ln] == ["ACC-001"]
     assert cli.main(["report", "--check", str(pack), "--against", str(published),
                      "--previous", str(prev_pack), "--no-device"]) == 0
     out = capsys.readouterr().out

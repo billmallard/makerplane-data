@@ -134,6 +134,11 @@ class Check:
     cannot_catch: str
     run: Callable[["Ctx"], tuple]
     since: str = ""
+    #: The only reasons this check may be ``not-run`` in a build record
+    #: without blocking the publish: ``(reason, why)`` pairs, declared here
+    #: and never at run time (AER-4102 C1). A blocking check with any other
+    #: not-run reason blocks.
+    exempt: tuple = ()
 
 
 @dataclass
@@ -148,6 +153,7 @@ class Ctx:
     pyefis_src: Path | None
     probe: bool
     sources: list
+    first_edition: bool = False
     metrics: dict = field(default_factory=dict)
     _con: sqlite3.Connection | None = None
     _tables: dict | None = None
@@ -173,11 +179,23 @@ class Ctx:
             self._con = None
 
 
-def _not_run(note: str) -> tuple:
-    return ("not-run", None, note)
+def _not_run(note: str, reason: str = "") -> tuple:
+    return ("not-run", None, note, reason)
 
 
-_NO_PREVIOUS = "No previous edition was supplied to compare against (--previous)."
+#: Declared exemption for a delta check: the caller said this is the id's
+#: first edition (``--first-edition``), so there is nothing to compare.
+FIRST_EDITION = ("first-edition", "first edition, no previous record")
+
+
+def _no_previous(ctx, extra: str = "") -> tuple:
+    """not-run for a delta check with no previous record. Only a first
+    edition the caller declared is exemptable; a missing ``--previous`` is not."""
+    if ctx.first_edition:
+        return _not_run("First edition (--first-edition): there is no previous record to "
+                        "compare against." + extra, FIRST_EDITION[0])
+    return _not_run("No previous edition was supplied to compare against (--previous), and "
+                    "--first-edition was not declared." + extra, "no-previous")
 
 
 # --- sqlite helpers ---------------------------------------------------------
@@ -276,7 +294,7 @@ def _c_empty(ctx):
 def _c_row_delta(ctx):
     prev = (ctx.previous or {}).get("tables")
     if not prev:
-        return _not_run(_NO_PREVIOUS)
+        return _no_previous(ctx)
     worst = None
     for t in sorted(set(prev) | set(ctx.tables)):
         old = (prev.get(t) or {}).get("rows")
@@ -363,8 +381,8 @@ def _c_envelope(ctx):
     total = sum(counts.values())
     prev = ctx.prev_metric("GEO-002")
     if prev is None:
-        return _not_run(_NO_PREVIOUS + f" This edition has {total:,} such points; "
-                        "the next edition compares against that.")
+        return _no_previous(ctx, f" This edition has {total:,} such points; "
+                            "the next edition compares against that.")
     old = sum(prev.values())
     allowed = old + max(GEO_OUTSIDE_GROWTH_ROWS, int(old * GEO_OUTSIDE_GROWTH_FRACTION))
     return ("warn" if total > allowed else "pass", f"{total:,} (previous {old:,})", "")
@@ -400,7 +418,7 @@ def _c_reused(ctx):
     prev = ctx.prev_metric("UNQ-002")
     measured = "; ".join(f"{k} {n}" for k, n in counts.items())
     if prev is None:
-        return _not_run(_NO_PREVIOUS + f" This edition: {measured}.")
+        return _no_previous(ctx, f" This edition: {measured}.")
     grew = [k for k, n in counts.items() if n > prev.get(k, 0)]
     prev_s = "; ".join(f"{k} {prev.get(k, 0)}" for k in counts)
     return ("warn" if grew else "pass", f"{measured} (previous {prev_s})", "")
@@ -513,7 +531,7 @@ def _c_ter_bbox(ctx):
               and not n.startswith(".mip/mosaic/"))
     ctx.metrics["TER-002"] = {"native_tiles": len(native), "mip_tiles": mip}
     if not native:
-        return _not_run("This pack carries no native tiles (a mosaic pack).")
+        return _not_run("This pack carries no native tiles (a mosaic pack).", "mosaic-pack")
     region = load_regions().get(ctx.meta.id.removeprefix("terrain-"))
     if region is None:
         return _not_run(f"Pack id {ctx.meta.id!r} names no region in regions.yaml.")
@@ -605,8 +623,8 @@ def _c_osm_regions(ctx):
     ctx.metrics["OSM-001"] = counts
     prev = ctx.prev_metric("OSM-001")
     if prev is None:
-        return _not_run(_NO_PREVIOUS + " This edition's per-region counts are recorded "
-                        "for the next one.")
+        return _no_previous(ctx, " This edition's per-region counts are recorded "
+                            "for the next one.")
     worst, emptied = None, False
     for t, by_region in counts.items():
         for k, new in by_region.items():
@@ -771,7 +789,8 @@ _KIND_CHECKS: dict[str, list[Check]] = {
         Check("TER-002", "Native tiles fall inside the pack's region", True,
               "0 tiles outside the region bbox",
               "A tile missing from inside the region (ocean tiles are absent by design, "
-              "so the check cannot tell a gap from sea).", _c_ter_bbox),
+              "so the check cannot tell a gap from sea).", _c_ter_bbox,
+          exempt=(("mosaic-pack", "a mosaic pack carries no native tiles to place"),)),
         Check("TER-003", "Every masked .hgt carries its .wmask water mask", True,
               "0 missing masks",
               "A mask that is present but wrong.", _c_ter_wmask, "AER-2287"),
@@ -792,7 +811,8 @@ _OSM_CHECKS = [
           f"no region with {OSM_REGION_MIN}+ features goes to zero (fail); no region drops "
           f"more than {OSM_REGION_DROP_WARN:.0%} (warn)",
           "A loss smaller than a region (one state inside a multi-state region), and "
-          "features that are present but wrong.", _c_osm_regions, "makerplane-data#17"),
+          "features that are present but wrong.", _c_osm_regions, "makerplane-data#17",
+          exempt=(FIRST_EDITION,)),
     Check("OSM-002", "Feature counts per state or province against the previous edition",
           False, "no state goes to zero",
           "Losses inside a state.",
@@ -910,14 +930,18 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                  pyefis_src: str | Path | None = None, probe: bool = True,
                  sources: list | None = None, notes: dict | None = None,
                  commit: str | None = None, builder_refs: dict | None = None,
-                 built_at: str | None = None) -> dict:
+                 built_at: str | None = None, first_edition: bool = False) -> dict:
     """Run the kind's v1 catalogue on one pack and return the record.
 
     ``previous`` is the previous edition's record (see :func:`previous_from`);
     ``notes`` maps a check id to its build note (a ``warn`` without one
-    blocks the publish, :func:`publish_blockers`)."""
+    blocks the publish, :func:`publish_blockers`). ``first_edition`` is the
+    caller's declaration that the id has no earlier edition; it is the only
+    thing that lets a blocking delta check be ``not-run`` in a build record."""
     if record not in RECORDS:
         raise ReportError(f"record must be one of {RECORDS}")
+    if first_edition and previous is not None:
+        raise ReportError("first_edition and previous are contradictory")
     path = Path(pack_path)
     try:
         meta = packmeta.read(path)
@@ -933,14 +957,16 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
     ctx = Ctx(path=path, meta=meta, kind=meta.kind, is_zip=is_zip,
               origin=origin if origin is not None else ORIGIN_BY_KIND.get(meta.kind, ""),
               previous=previous, inputs=Path(inputs) if inputs else None,
-              pyefis_src=src, probe=probe, sources=list(sources or []))
+              pyefis_src=src, probe=probe, sources=list(sources or []),
+              first_edition=first_edition)
     notes = notes or {}
     checks = []
     try:
         for c in catalogue(meta.kind, is_zip=is_zip):
-            raised = False
+            raised, reason = False, ""
             try:
-                status, measured, note = c.run(ctx)
+                status, measured, note, *rest = c.run(ctx)
+                reason = rest[0] if rest else ""
             except Exception as e:     # a check that crashes is a failed check, never a silent one
                 status, measured, note = "fail", f"check raised {type(e).__name__}: {e}", ""
                 raised = True
@@ -949,6 +975,8 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                      "cannot_catch": c.cannot_catch}
             if raised:
                 entry["raised"] = True
+            if status == "not-run" and reason:
+                entry["not_run_reason"] = reason
             if c.since:
                 entry["since"] = c.since
             note = notes.get(c.id) or note
@@ -1040,14 +1068,29 @@ def validate_report(obj: dict) -> list[str]:
     return errs
 
 
+def _declared_exemptions() -> dict[str, dict[str, str]]:
+    out: dict[str, dict[str, str]] = {}
+    for checks in all_checks().values():
+        for c in checks:
+            out.setdefault(c.id, {}).update(dict(c.exempt))
+    return out
+
+
 def publish_blockers(report: dict) -> list[str]:
     """Why this record would stop a publish: a check that raised (whatever
     its ``blocking`` flag, since it measured nothing), a blocking check that
-    failed, or a warn with no build note (plan section 4.3). Empty if none."""
+    failed, a warn with no build note (plan section 4.3), or, in a build
+    record, a blocking check that did not run for a reason its catalogue
+    entry does not declare (AER-4102 C1). Empty if none."""
     out = []
+    build = report.get("record") == "build"
+    exempt = _declared_exemptions() if build else {}
     for c in report["checks"]:
         if c.get("raised"):
             out.append(f"{c['id']} raised, so it measured nothing: {c['measured']}")
+        elif build and c["status"] == "not-run" and c["blocking"]:
+            if c.get("not_run_reason") not in exempt.get(c["id"], {}):
+                out.append(f"{c['id']} is blocking and did not run: {c.get('note', '')}")
         elif c["status"] == "fail" and c["blocking"]:
             out.append(f"{c['id']} failed: {c['measured']}")
         elif c["status"] == "warn" and not c.get("note"):

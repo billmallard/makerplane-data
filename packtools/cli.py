@@ -432,7 +432,8 @@ def cmd_report(args) -> int:
     rec = report.build_report(
         pack, record=args.record, origin=args.origin, sources=sources,
         notes=_kv_list(args.note, "--note"), commit=args.build_commit,
-        builder_refs=_kv_list(args.builder_ref, "--builder-ref"), **common)
+        builder_refs=_kv_list(args.builder_ref, "--builder-ref"),
+        first_edition=args.first_edition, **common)
     errs = report.validate_report(rec)
     out = Path(args.out or f"{rec['pack']['id']}-{rec['pack']['cycle']}.report.json")
     out.write_bytes(report.to_bytes(rec))
@@ -590,6 +591,9 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument("--list-checks", action="store_true", help="print the v1 catalogue")
     rep.add_argument("--kind", choices=KINDS, help="with --list-checks: one kind only")
     rep.add_argument("--previous", help="previous edition: its pack file or its report.json")
+    rep.add_argument("--first-edition", action="store_true",
+                     help="declare that this id has no earlier edition; the only way a "
+                          "blocking delta check may be not-run in a build record")
     rep.add_argument("--inputs", help="extracted upstream files, for schema_guard layers 1-3")
     rep.add_argument("--pyefis-src", dest="pyefis_src",
                      help="pyEfis checkout's src/ dir for device acceptance "
