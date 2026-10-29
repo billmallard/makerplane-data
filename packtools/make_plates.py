@@ -201,8 +201,12 @@ def run(*, out_dir: str | Path, cycle: Cycle, url_base: str, work_dir: str | Pat
                             fix_index=fix_index, log=log)
 
 
-def update_manifest(store, secret, packs: list[PlatePack], *, generated: str, sign, log=print) -> Manifest:
-    """Upsert plate entries into the manifest in ``store`` and re-sign."""
+def update_manifest(store, secret, packs: list[PlatePack], *, generated: str, sign, log=print,
+                    gate=None) -> Manifest:
+    """Gate, upsert plate entries into the manifest in ``store`` and re-sign.
+    Plates is an ungated kind (``report.UNGATED``), so until QA accepts a
+    plates catalogue the gate refuses every plates publish."""
     from .publish import publish
     return publish(store, secret, [(p.entry, p.path) for p in packs],
-                   generated=generated, sign=sign, comment=f"plates {generated}", log=log)
+                   generated=generated, sign=sign, comment=f"plates {generated}", log=log,
+                   gate=gate)

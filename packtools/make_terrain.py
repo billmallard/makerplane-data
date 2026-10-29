@@ -244,13 +244,14 @@ def make_terrain_packs(*, src_root: str | Path, out_dir: str | Path,
 
 
 def update_manifest(store, secret, packs: list[TerrainPack], *,
-                    generated: str, sign, log=print) -> Manifest:
-    """Upsert terrain entries into the manifest in ``store`` and re-sign.
-    Adds terrain alongside whatever is already published (navdata, water)."""
+                    generated: str, sign, log=print, gate=None) -> Manifest:
+    """Gate, upsert terrain entries into the manifest in ``store`` and
+    re-sign. Adds terrain alongside whatever is already published (navdata,
+    water). ``gate`` is a ``packtools.gate.Options`` (origin, build notes)."""
     from .publish import publish
     return publish(store, secret, [(tp.entry, tp.path) for tp in packs],
                    generated=generated, sign=sign,
-                   comment=f"terrain {generated}", log=log)
+                   comment=f"terrain {generated}", log=log, gate=gate)
 
 
 def _now_stamp(today: _dt.date | None = None) -> str:
