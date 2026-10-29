@@ -26,10 +26,13 @@ CONTENT_TYPES = {
     ".sample": "text/plain; charset=utf-8",
     ".svg": "image/svg+xml",
     ".png": "image/png",
+    ".js": "text/javascript; charset=utf-8",
 }
 
 _RESERVED_KEYS = {MANIFEST_KEY, SIG_KEY}
-_RESERVED_PREFIXES = ("packs/",)
+# reports/ belongs to the publish paths (records) and `packtool report-site`
+# (the pages rendered from them), never to site/.
+_RESERVED_PREFIXES = ("packs/", "reports/")
 
 
 def site_files(root: str | Path) -> list[tuple[str, Path, str]]:
