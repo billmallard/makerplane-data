@@ -22,6 +22,7 @@ from packtools.schema_guard import (CONTRACTS, DEFAULT, NULL_GUARD, SCHEMAS_DIR,
                                      _structure_rows)
 from packtools.sources import SOURCES
 from packtools.upload import LocalStore
+from tests.gatefake import STANDIN, standin_reporter
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -280,7 +281,7 @@ class _FailOne:
 def _runner(tmp_path, guard):
     sk, _pub = signing.generate_keypair()
     store = LocalStore(tmp_path / "r2")
-    runner = CyclicalRunner(
+    runner = CyclicalRunner(reporter=standin_reporter,
         store=store, secret=sk, work_dir=tmp_path / "work",
         fetcher=_fake_fetch,
         builders={"airports": _fake_build, "obstacles": _fake_build},
@@ -345,12 +346,19 @@ def test_job_summary_shows_layers_floors_failures_and_skips(tmp_path, monkeypatc
     rows = {tuple(c.strip() for c in line.strip("|").split("|")[:5])
             for line in summary_file.read_text().splitlines() if line.startswith("| a")
             or line.startswith("| o")}
-    assert ("airports-conus", "2606", "built + uploaded",
-            "structure, headers, enums: pass", "widgets 5 >= 3") in rows
+    # TV3: the per-pack checks come from the test record the publish gate
+    # judged; a pack that failed before the gate says it has no record.
+    assert ("airports-conus", "2606", "built + uploaded", "accepted") == next(
+        r[:4] for r in rows if r[:2] == ("airports-conus", "2606"))
     assert ("airports-conus", "2607", "FAIL (SchemaGuardError)",
-            "structure, headers, enums: pass", "FAILED") in rows
-    assert ("obstacles-conus", "260611", "built + uploaded",
-            "no contract", "no floors") in rows
+            "none: no pack reached the gate") == next(
+        r[:4] for r in rows if r[:2] == ("airports-conus", "2607"))
+    assert ("obstacles-conus", "260611", "built + uploaded", "accepted") == next(
+        r[:4] for r in rows if r[:2] == ("obstacles-conus", "260611"))
+    text = summary_file.read_text()
+    assert "### airports-conus 2606: accepted by the publish gate" in text
+    assert "### airports-conus 2607" not in text
+    assert "| SG-004 | pass | yes |" in text           # rendered from the record
     assert "this run is red" in summary_file.read_text()
 
     # A re-run records the skip-if-present decisions too.
@@ -366,7 +374,7 @@ def test_no_summary_written_off_actions(tmp_path, monkeypatch):
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     runner, store = _runner(tmp_path, NULL_GUARD)
     runner.run([SOURCES["obstacles-conus"]])
-    assert "not run" in runner.summary_markdown()       # null guard is stated, not hidden
+    assert "0 not run" in runner.summary_markdown()     # the record's tally is stated
     assert not list(tmp_path.glob("*.md"))
 
 

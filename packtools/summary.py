@@ -91,3 +91,32 @@ def artifact_report(title: str, path: str | os.PathLike, *,
             md.append(table(["table", "rows"],
                             [[t, f"{n:,}"] for t, n in counts.items()]))
     return "\n".join(md)
+
+
+def record_markdown(rec: dict, *, blockers: list[str] | None = None, key: str = "",
+                    previous: str = "", level: int = 3) -> str:
+    """One pack's test record for the job summary, rendered from the
+    ``pack-report/1`` JSON the publish gate judged, never from anything
+    else. Every catalogue check is a row, ``not-run`` ones included, with
+    whether it blocks; then why the gate refused the pack, if it did."""
+    p = rec["pack"]
+    s = rec["summary"]
+    refused = rec.get("record") == "rejected"
+    md = [f"{'#' * level} {p['id']} {p['cycle']}: "
+          + ("REFUSED by the publish gate" if refused else "accepted by the publish gate") + "\n"]
+    md.append(f"`{p['sha256']}`, {p['bytes']:,} B, origin {rec.get('origin') or '(unset)'}; "
+              f"{s['pass']} pass / {s['warn']} warn / {s['fail']} fail / {s['not_run']} not run"
+              + (f"; record at `{key}`" if key else "") + "\n")
+    if previous:
+        md.append(f"Compared against: {previous}\n")
+    if rec.get("gated") is False:
+        md.append(f"Ungated kind: {rec.get('ungated', '')}\n")
+    rows = []
+    for c in rec["checks"]:
+        shown = c.get("note", "") if c["status"] == "not-run" else c["measured"]
+        rows.append([c["id"], c["status"], "yes" if c["blocking"] else "no", shown,
+                     c.get("note", "") if c["status"] != "not-run" else ""])
+    md.append(table(["check", "status", "blocks", "measured (or why not run)", "build note"], rows))
+    if blockers:
+        md.append("**Why it was refused:**\n\n" + "\n".join(f"- {_cell(b)}" for b in blockers) + "\n")
+    return "\n".join(md)

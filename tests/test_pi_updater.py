@@ -20,6 +20,7 @@ from packtools.run_cyclical import CyclicalRunner
 from packtools.schema_guard import NULL_GUARD
 from packtools.sources import SOURCES
 from packtools.upload import LocalStore
+from tests.gatefake import STANDIN, standin_reporter
 
 from pyefis_data import cli, core
 from pyefis_data.config import Config
@@ -50,7 +51,7 @@ def build_store(tmp_path, keypair=None):
     Pass ``keypair`` to keep the secret key for re-signing an edited manifest."""
     sk, pub = keypair or signing.generate_keypair()
     store = LocalStore(tmp_path / "r2")
-    CyclicalRunner(
+    CyclicalRunner(reporter=standin_reporter,
         store=store, secret=sk, work_dir=tmp_path / "wbuild",
         url_base=f"{ORIGIN}/packs", fetcher=_fake_fetch,
         builders={"airports": _fake_build, "obstacles": _fake_build},

@@ -4,9 +4,11 @@ the manifest is signed; refused builds get a ``rejected`` record and publish
 nothing; first edition comes only from the signed live manifest; build
 notes come only from the caller; records are immutable once bound."""
 
+import datetime as dt
 import hashlib
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +16,9 @@ from packtools import gate, report, signing
 from packtools.manifest import Manifest, ManifestError, PackEntry
 from packtools.packmeta import PackMeta, embed_sqlite
 from packtools.publish import publish, retract, sign_and_put
+from packtools.run_cyclical import CyclicalRunner, PipelineFailure
+from packtools.schema_guard import NULL_GUARD
+from packtools.sources import SOURCES
 from packtools.upload import LocalStore
 from tests.gatefake import STANDIN, standin_reporter
 
@@ -180,6 +185,46 @@ def test_warn_without_a_note_refuses_and_a_person_s_note_clears_it(tmp_path):
     assert row["note"] == "Geofabrik split Texas; checked the counts"
 
 
+def test_cyclical_run_supplies_no_notes_so_a_warn_refuses(tmp_path):
+    # The unattended nightly has nobody to write a note: a warn is refused,
+    # never noted from config or a default (C8).
+    store, (sk, _) = _store(tmp_path)
+    rep = Recording(mutate=_warn("ROW-002"))
+    runner = _cyclical(tmp_path, store, sk, rep)
+    with pytest.raises(PipelineFailure, match="refused by the publish gate"):
+        runner.run([SOURCES["obstacles-conus"]])
+    assert all(c["notes"] == {} for c in rep.calls)
+    assert store.list_keys("reports/rejected/obstacles-conus/")
+    assert not store.exists("packs/obstacles-conus-260611.pack")
+    assert "REFUSED" in runner.summary_markdown()
+
+
+def test_person_s_dispatch_notes_clear_a_cyclical_warn_for_that_edition_only(tmp_path):
+    # The path back from a refused nightly: a person re-runs it with a note
+    # keyed to one edition. A note for another cycle explains nothing here.
+    store, (sk, _) = _store(tmp_path)
+    rep = Recording(mutate=_warn("ROW-002"))
+    stale = _cyclical(tmp_path, store, sk, rep,
+                      notes={"obstacles-conus@260415:ROW-002": "last cycle's reason"})
+    with pytest.raises(PipelineFailure):
+        stale.run([SOURCES["obstacles-conus"]])
+    assert rep.calls[-1]["notes"] == {}
+
+    _cyclical(tmp_path, store, sk, rep,
+              notes={"obstacles-conus@260611:ROW-002": "DOF dropped dismantled towers"}
+              ).run([SOURCES["obstacles-conus"]])
+    rec = json.loads(store.get_bytes("reports/obstacles-conus/260611/report.json"))
+    assert next(c for c in rec["checks"] if c["id"] == "ROW-002")["note"] == \
+        "DOF dropped dismantled towers"
+
+
+@pytest.mark.parametrize("key", ["ROW-002", "obstacles-conus:ROW-002", "obstacles-conus@:ROW-002"])
+def test_cyclical_notes_must_name_one_edition(tmp_path, key):
+    store, (sk, _) = _store(tmp_path)
+    with pytest.raises(ValueError, match="<pack id>@<cycle>:<CHECK>"):
+        _cyclical(tmp_path, store, sk, standin_reporter, notes={key: "x"})
+
+
 def test_note_for_an_unknown_check_is_refused(tmp_path):
     store, (sk, _) = _store(tmp_path)
     entry, path = _pack(tmp_path)
@@ -254,6 +299,15 @@ def test_previous_ranks_below_the_new_edition(tmp_path):
     assert prev is rec and first is False
 
 
+def test_cyclical_next_cycle_compares_against_this_run_s_current(tmp_path):
+    store, (sk, _) = _store(tmp_path)
+    rep = Recording()
+    _cyclical(tmp_path, store, sk, rep).run([SOURCES["airports-conus"]])
+    first, second = rep.calls
+    assert first["first_edition"] is True
+    assert second["first_edition"] is False and second["previous"]["pack"]["cycle"] == "2606"
+
+
 # --- immutability and the signed live manifest ----------------------------------------
 
 def test_already_published_cycle_is_refused(tmp_path):
@@ -306,3 +360,29 @@ def test_retract_keeps_records_and_bindings(tmp_path):
     retract(store, sk, "highways-conus", "r1", generated=GEN, sign=signing.sign, **quiet)
     assert {p.cycle: p.report_sha256 for p in _live(store).packs} == {"r2": bound["r2"]}
     assert store.exists("reports/highways-conus/r1/report.json")   # never deleted
+
+
+# --- helpers -----------------------------------------------------------------------------
+
+def _fake_fetch(url, work_dir, member=None):
+    d = Path(work_dir) / "extracted"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "input.csv").write_text("dummy")
+    return d
+
+
+def _fake_build(input_dir, out_path):
+    Path(out_path).unlink(missing_ok=True)       # a rerun rebuilds, as the real builders do
+    con = sqlite3.connect(str(out_path))
+    con.execute("CREATE TABLE t (x INTEGER)")
+    con.execute("INSERT INTO t VALUES (1)")
+    con.commit()
+    con.close()
+
+
+def _cyclical(tmp_path, store, sk, reporter, notes=None):
+    return CyclicalRunner(store=store, secret=sk, work_dir=tmp_path / "work",
+                          url_base=f"{ORIGIN}/packs", fetcher=_fake_fetch,
+                          builders={"airports": _fake_build, "obstacles": _fake_build},
+                          guard=NULL_GUARD, reporter=reporter, notes=notes,
+                          today=dt.date(2026, 6, 14))
