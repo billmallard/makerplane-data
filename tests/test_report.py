@@ -340,11 +340,18 @@ def test_null_coordinates_are_bad_on_point_tables(tmp_path):
     assert (legs["GEO-001"]["status"], legs["GEO-001"]["measured"]) == ("pass", 0)
 
 
-def test_obstacles_have_no_guard_contract_and_say_so(tmp_path):
-    _obs_pack(tmp_path / "o.pack")
-    c = _by_id(_rep(tmp_path / "o.pack"))
-    assert all(c[f"SG-00{i}"]["status"] == "not-run" for i in range(1, 5))
-    assert "No schema_guard contract" in c["SG-004"]["note"]
+def test_obstacles_have_a_blocking_row_floor_and_no_guard_checks(tmp_path, monkeypatch):
+    # AER-4102: SG-001..004 were blocking but could never run for
+    # obstacles (no contract), and nothing short of an empty table blocked.
+    rec = _rep(_obs_pack(tmp_path / "o.pack", rows=3))
+    c = _by_id(rec)
+    assert not any(k.startswith("SG-") for k in c)
+    assert (c["OBS-001"]["status"], c["OBS-001"]["blocking"]) == ("fail", True)
+    assert c["OBS-001"]["measured"] == "obstacles 3 (floor 328,500)"
+    assert "OBS-001" in _blocking_ids(rec)
+    monkeypatch.setitem(report._ROW_FLOORS["obstacles"], "obstacles", 3)
+    c = _by_id(_rep(tmp_path / "o.pack"))["OBS-001"]
+    assert (c["status"], c["measured"]) == ("pass", "obstacles 3 (floor 3)")
 
 
 def test_missing_license_fails_the_metadata_check(tmp_path):

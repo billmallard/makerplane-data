@@ -79,8 +79,16 @@ ORIGIN_BY_KIND = {
 _FEDERAL_SQLITE = ("navdata", "navaids", "obstacles", "procedures")
 _OSM = ("water", "highways", "rivers")
 
-# Which schema_guard contract speaks for which pack kind.
-_GUARD_BUILDER = {"navdata": "airports", "navaids": "navaids", "obstacles": "obstacles"}
+# Which schema_guard contract speaks for which pack kind. Obstacles (FAA
+# DOF) has no contract, so its SG checks could never run; OBS-001 is its
+# floor instead.
+_GUARD_BUILDER = {"navdata": "airports", "navaids": "navaids"}
+
+#: OBS-001: row floors for kinds with no schema_guard contract, by the
+#: SG-004 convention (50% of an observed build, rounded down to the
+#: hundred). obstacles: 50% of the 657,181 rows in obstacles-conus 261001
+#: (260806 had 652,407).
+_ROW_FLOORS = {"obstacles": {"obstacles": 328_500}}
 
 # Coordinate columns per kind, for GEO-001/GEO-002. Missing tables or
 # columns are skipped, not failed: the schema is ACC-001's and SG-004's job.
@@ -396,6 +404,14 @@ def _guard_layer(layer: int):
             return ("pass", "held", "")
         return ("fail", res.message.replace(str(ctx.inputs), "<inputs>"), "")
     return run
+
+
+def _c_row_floor(ctx):
+    floors = _ROW_FLOORS.get(ctx.kind, {})
+    low = [t for t, f in floors.items() if ctx.tables.get(t, 0) < f]
+    measured = "; ".join(f"{t} {ctx.tables.get(t, 0):,} (floor {f:,})"
+                         for t, f in sorted(floors.items()))
+    return ("fail" if low else "pass", measured, "")
 
 
 def _coord_columns(ctx):
@@ -814,6 +830,14 @@ _FEDERAL_GEO = [
 ]
 
 _KIND_CHECKS: dict[str, list[Check]] = {
+    "obstacles": [
+        Check("OBS-001", "The obstacles table clears its row floor", True,
+              "at or above the floor: half an observed build (half of the 657,181 "
+              "obstacles in 261001)",
+              "A loss smaller than half an observed build (ROW-002 tracks that against "
+              "the previous edition, as a warn), and rows that are present but wrong.",
+              _c_row_floor, "AER-4102"),
+    ],
     "navaids": [
         Check("UNQ-002", "Identifiers the FAA reuses, against the previous edition", False,
               "no more reused navaid idents or airway sequence numbers than the previous "
