@@ -348,6 +348,20 @@ def _c_rtree(ctx):
     return ("fail" if bad else "pass", "; ".join(parts), "")
 
 
+def _c_tables_kept(ctx):
+    if ctx.previous is None:
+        return _no_previous(ctx)
+    prev = ctx.previous.get("tables") or {}
+    gone = sorted(t for t in prev if t not in ctx.tables)
+    if not gone:
+        return ("pass", f"{len(gone)} of {len(prev)} tables gone", "")
+    old = str((ctx.previous.get("pack") or {}).get("schema_version", ""))
+    new = str(ctx.meta.schema_version)
+    if old != new:
+        return ("pass", f"gone: {', '.join(gone)}; schema_version {old} -> {new}", "")
+    return ("fail", f"gone: {', '.join(gone)} (schema_version unchanged at {new})", "")
+
+
 # --- checks: federal --------------------------------------------------------
 
 def _guard_source(ctx):
@@ -743,6 +757,12 @@ _SQLITE = [
           f"no table moves more than {ROW_DELTA_WARN:.0%}; a larger move needs a build note",
           "A change that keeps counts steady (rows replaced by wrong rows), and any "
           "defect already present in the previous edition.", _c_row_delta),
+    Check("ROW-003", "No table of the previous edition has disappeared", True,
+          "every table in the previous edition is still present, unless schema_version "
+          "changed",
+          "A table dropped together with a schema_version bump that should not have "
+          "been; the bump is taken as the declaration that the drop is intended.",
+          _c_tables_kept, "AER-4102", exempt=(FIRST_EDITION,)),
 ]
 
 _FEDERAL = [

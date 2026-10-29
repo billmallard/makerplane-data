@@ -181,6 +181,30 @@ def test_row_delta_warns_and_a_build_note_clears_the_publish_block(tmp_path):
     assert _blocking_ids(noted) == ["ACC-001"]
 
 
+def test_a_table_that_disappears_fails_unless_the_schema_version_moved(tmp_path):
+    # C4 (AER-4102): a vanished table used to be a -100% ROW-002 warn that
+    # a build note cleared.
+    prev_pack = _proc_pack(tmp_path / "2610.pack", "2610")
+    _sql(prev_pack, "CREATE TABLE holds (id INTEGER)", "INSERT INTO holds VALUES (1)")
+    prev = report.previous_from(prev_pack)
+    pack = _proc_pack(tmp_path / "2611.pack")
+    rec = _rep(pack, previous=prev, notes={"ROW-002": "holds table dropped"})
+    c = _by_id(rec)["ROW-003"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"] == "gone: holds (schema_version unchanged at 1)"
+    assert "ROW-003" in _blocking_ids(rec)
+    # A schema_version change is the declared way to drop a table.
+    packmeta.embed_sqlite(pack, PackMeta(id="procedures-conus", kind="procedures", cycle="2611",
+                                         schema_version=2, **LICENSE))
+    c = _by_id(_rep(pack, previous=prev))["ROW-003"]
+    assert c["status"] == "pass" and c["measured"] == "gone: holds; schema_version 1 -> 2"
+    kept = _by_id(_rep(_proc_pack(tmp_path / "x.pack"), previous=prev))
+    assert kept["ROW-003"]["status"] == "fail"
+    same = _by_id(_rep(_proc_pack(tmp_path / "y.pack"),
+                       previous=report.previous_from(_proc_pack(tmp_path / "z.pack", "2610"))))
+    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 5 tables gone")
+
+
 def test_previous_report_file_works_like_the_previous_pack(tmp_path):
     prev_pack = _proc_pack(tmp_path / "2610.pack", "2610", airways=50)
     prev_json = tmp_path / "2610.json"
@@ -219,8 +243,9 @@ def test_a_blocking_check_that_did_not_run_blocks_a_build(tmp_path):
     rec = _rep(pack)
     c = _by_id(rec)["ACC-001"]
     assert c["status"] == "not-run" and c["blocking"]
-    assert _blocking_ids(rec) == ["ACC-001"]
-    # Declaring a first edition does not exempt the device check.
+    # No --previous and no --first-edition: the blocking delta check blocks too.
+    assert _blocking_ids(rec) == ["ACC-001", "ROW-003"]
+    # Declaring a first edition exempts the delta check, not the device check.
     assert _blocking_ids(_rep(pack, first_edition=True)) == ["ACC-001"]
     # A retro record describes old bytes; it gates nothing.
     assert _blocking_ids(_rep(pack, record="retro")) == []
