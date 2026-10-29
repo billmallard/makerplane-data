@@ -59,6 +59,8 @@ separate, unsigned `status.json` overlay (TV8), never into the record.
 | `summary` | object | yes | Tally of `checks[].status`. |
 | `notice` | string | yes | The short standing text, verbatim (below). |
 | `metrics` | object | no | Per-check breakdowns keyed by check id (below). |
+| `gated` | boolean | no | `false` when the pack's kind has no check catalogue QA has accepted as a gate (`report.UNGATED`: rivers, cifp, airspace, plates). |
+| `ungated` | string | when `gated` is `false` | Why the kind is ungated. |
 | `auspex` | object | no | At most one. Fixed schema, **pending sign-off** (below). |
 
 Consumers ignore unknown top-level fields, so `pack-report/1` may gain
@@ -127,9 +129,28 @@ any delta checks were computed against, or `null`.
 | `cannot_catch` | string | yes | A plain statement of what this check would miss. Never empty. |
 | `since` | string | no | The issue or change that introduced the check, e.g. `AER-1979`. |
 | `note` | string | for `warn` and `not-run` | For `not-run`, why it did not run. For `warn`, the build note explaining it; a `warn` without one blocks the publish (plan 4.3). |
+| `not_run_reason` | string | no | For `not-run`, a short reason key, e.g. `first-edition`, `no-previous`, `mosaic-pack`. Only a key the catalogue entry declares can exempt a blocking check (below). |
+| `raised` | boolean | no | `true` when the check crashed. It is recorded as `fail`, and it blocks the publish whatever `blocking` says: it measured nothing. |
+| `provisional` | string | no | The check's threshold has no measured baseline yet; this says so and why. |
 
 `not-run` is a first-class status. A check that exists but did not run is
 listed as `not-run` with its `note`. Leaving it out would imply it passed.
+
+**What blocks a publish** (`report.publish_blockers`, QA AER-4102):
+
+- a check that raised, whatever its `blocking` flag (C2);
+- a blocking check that failed;
+- a `warn` with no build note;
+- in a `build` record, a blocking check that is `not-run`, unless its
+  `not_run_reason` is one the check's catalogue entry declares (C1). The
+  declaration lives in `packtools/report.py` (`Check.exempt`), never in the
+  record or at run time. Declared today: `first-edition` on the delta checks
+  `OSM-001`, `ROW-003` and `TER-006`, given only when the caller passes
+  `--first-edition`; and `mosaic-pack` on `TER-002`. `ACC-001` declares none,
+  so a missing or unloadable pyEfis reader always blocks;
+- in a `build` record, a kind that is ungated.
+
+A `retro` record gates nothing; only the first rule applies to it.
 
 A check can "pass". A pack is never "passed".
 
@@ -216,16 +237,20 @@ here (Auspex)", with each finding's locator.
 ## Writing and checking a record
 
 ```bash
-packtool report PACK [--previous PREV.pack|PREV.report.json] [--inputs DIR] \
-                [--note CHECK_ID=TEXT ...] [--sources sources.json] [-o out.json]
+packtool report PACK [--previous PREV.pack|PREV.report.json | --first-edition] \
+                [--inputs DIR] [--note CHECK_ID=TEXT ...] [--sources sources.json] [-o out.json]
 packtool report --check PACK [--against report.json|URL] [--previous ...]
 packtool report --list-checks [--kind KIND]
 ```
 
 `packtool report` runs the kind's catalogue and writes the record in the
-canonical bytes above. It exits 1 when the record would stop a publish: a
-blocking check failed, or a check warned without a `--note`. The record is
-written either way.
+canonical bytes above. It exits 1 when the record would stop a publish (the
+rules under [`checks[]`](#checks)). The record is written either way.
+
+`--first-edition` declares that the pack's id has no earlier edition. It is
+the only way a blocking delta check may be `not-run` in a build record: a
+missing `--previous` without it blocks, so a forgotten argument cannot pass
+as a first edition.
 
 `--check` re-runs the checks on a pack you downloaded and compares each
 check's `status` and `measured`, plus `tables` and the pack's identity,
@@ -249,7 +274,9 @@ a separate pyEfis checkout (`--pyefis-src`, `PYEFIS_SRC_DIR`, or the
 `src/` beside `PYEFIS_TOOLS_DIR`), the same way the builders run
 `pyEfis/tools`; no pyEfis code is in this repo. If no checkout is available,
 or its reader cannot be imported (for terrain the SVS reader needs PyQt6),
-the check is `not-run` with the reason.
+the check is `not-run` with the reason, and in a build record that blocks
+the publish. The terrain query requires the grid side the tile's size
+implies, not just a non-empty grid.
 
 ### The v1 check catalogue
 
@@ -257,23 +284,29 @@ the check is `not-run` with the reason.
 expectation and `cannot_catch` line; `packtools/report.py` is the source.
 Thresholds are named constants at the top of that file.
 
-**The definitions and thresholds are pending QA review (AER-4102)** before
-any of them gates a publish (plan section 4.4). The author proposes; QA
-decides what to accept.
+**QA reviews the definitions and thresholds (AER-4102)** before any of them
+gates a publish (plan section 4.4). The author proposes; QA decides what to
+accept. QA's first verdict (catalogue v1 at `1913743`) was "changes
+needed" for every kind; AER-4137 applies those changes and awaits QA's
+re-verdict. `ROW-002`, `GEO-002` and `OSM-001`'s thresholds are accepted
+only as provisional (`provisional` in the record).
 
 Which checks apply:
 
 | Applies to | Checks |
 |---|---|
 | Every kind | `PACK-001..004` identity, attribution and license, origin, sources; `ACC-001` device acceptance |
-| SQLite packs | `SQL-001` quick_check; `ROW-001` no empty table; `ROW-002` row counts against the previous edition |
-| navdata, navaids, obstacles | `SG-001..004`, the four `schema_guard` layers, persisted |
+| SQLite packs | `SQL-001` quick_check; `ROW-001` no empty table (water declares `waterway_lines` empty by design); `ROW-002` row counts against the previous edition; `ROW-003` no table of the previous edition gone, unless `schema_version` changed |
+| navdata, navaids | `SG-001..004`, the four `schema_guard` layers, persisted |
+| obstacles | `OBS-001` row floor (no `schema_guard` contract exists for FAA DOF) |
 | navdata, airports, navaids, obstacles, procedures | `GEO-001` valid coordinates; `UNQ-001` unique identifiers |
 | FAA kinds | `GEO-002` points outside the US coverage envelope against the previous edition |
 | navaids | `UNQ-002` identifiers the FAA reuses, against the previous edition |
 | procedures | `PROC-FIX-001` unresolved-fix legs; `PROC-AWY-001`, `PROC-AWY-002` airway idents and the AER-1979 area merge; `PROC-GLD-001` and `PROC-DIFF-001` (`not-run`) |
-| terrain | `TER-001` member layout and sizes; `TER-002` tiles inside the region; `TER-003` water masks (AER-2287); `TER-004` sampled elevation range; `TER-005` (`not-run`) |
+| terrain | `TER-001` member layout and sizes; `TER-002` tiles inside the region; `TER-006` no native tile of the previous edition missing; `TER-003` water masks (AER-2287); `TER-004` sampled elevation range; `TER-005` (`not-run`) |
+| water, highways | `IDX-001` every R-tree indexes every row of its table, plus `rtreecheck` |
 | water, highways, rivers | `OSM-001` counts per region (#17); `OSM-002` per state (`not-run`, TV7); `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
+| rivers, cifp, airspace, plates | **Ungated** (`report.UNGATED`): the record is written with `gated: false`, and a build record of these kinds never clears the gate |
 
 ## Manifest fields
 
