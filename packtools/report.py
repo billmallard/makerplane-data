@@ -130,6 +130,13 @@ _REUSED = {
     "navaids": [("navaids", ("id", "type")), ("awy_segments", ("awy_id", "seq"))],
 }
 
+# ROW-001: tables a kind's builder creates empty by design, declared here so
+# the record says so. water: pyEfis tools/build_water_db.py creates
+# waterway_lines (and its R-tree) in every build and fills it only with
+# --waterway, which the Geofabrik orchestrator never passes; river lines are
+# the rivers kind (AER-4137).
+_DECLARED_EMPTY = {"water": ("waterway_lines",)}
+
 # The R-trees each kind's pyEfis builder writes, and the table each one
 # indexes (pyEfis tools/build_highway_db.py, tools/build_water_db.py).
 _RTREES = {
@@ -303,11 +310,15 @@ def _c_quick_check(ctx):
 
 
 def _c_empty(ctx):
-    empty = sorted(t for t, n in ctx.tables.items() if n == 0)
     if not ctx.tables:
         return ("fail", "no data tables", "")
+    declared = _DECLARED_EMPTY.get(ctx.kind, ())
+    empty = sorted(t for t, n in ctx.tables.items() if n == 0)
+    undeclared = [t for t in empty if t not in declared]
+    if undeclared:
+        return ("fail", "empty: " + ", ".join(undeclared), "")
     if empty:
-        return ("fail", "empty: " + ", ".join(empty), "")
+        return ("pass", "0 empty tables; empty by declaration: " + ", ".join(empty), "")
     return ("pass", 0, "")
 
 
@@ -792,7 +803,9 @@ _COMMON = [
 _SQLITE = [
     Check("SQL-001", "SQLite structure is sound (PRAGMA quick_check)", True, "ok",
           "Wrong data in a structurally sound file.", _c_quick_check),
-    Check("ROW-001", "No data table is empty", True, "0 empty tables",
+    Check("ROW-001", "No data table is empty", True,
+          "0 empty tables, apart from those declared empty by design for the kind "
+          "(water: waterway_lines)",
           "A table that has rows but is missing most of them.", _c_empty),
     Check("ROW-002", "Row counts against the previous edition", False,
           f"no table moves more than {ROW_DELTA_WARN:.0%}; a larger move needs a build note",

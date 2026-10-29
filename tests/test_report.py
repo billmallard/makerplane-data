@@ -429,6 +429,48 @@ def test_a_missing_declared_spatial_index_fails(tmp_path):
     assert c["status"] == "fail" and "highway_rtree missing" in c["measured"]
 
 
+def _water_pack(path, polygons=3, waterways=0):
+    """A water pack shaped like the live water-na-2026q2r6: polygons, plus
+    the waterway tables the builder creates empty without --waterway."""
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE water_polygons (id INTEGER PRIMARY KEY, min_lat REAL, "
+                "max_lat REAL, min_lon REAL, max_lon REAL, rings BLOB)")
+    con.execute("CREATE TABLE waterway_lines (id INTEGER PRIMARY KEY, min_lat REAL, "
+                "max_lat REAL, min_lon REAL, max_lon REAL, verts BLOB)")
+    for t in ("water", "waterway"):
+        con.execute(f"CREATE VIRTUAL TABLE {t}_rtree USING rtree(id, min_lat, max_lat, "
+                    "min_lon, max_lon)")
+    for table, rt, n in (("water_polygons", "water_rtree", polygons),
+                         ("waterway_lines", "waterway_rtree", waterways)):
+        for i in range(1, n + 1):
+            con.execute(f"INSERT INTO {table} VALUES (?, 47.6, 47.7, -122.4, -122.3, x'00')", (i,))
+            con.execute(f"INSERT INTO {rt} VALUES (?, 47.6, 47.7, -122.4, -122.3)", (i,))
+    con.commit()
+    con.close()
+    packmeta.embed_sqlite(path, PackMeta(id="water-na", kind="water", cycle="2026q2r6",
+                                         attribution="OSM", license="ODbL-1.0"))
+    return Path(path)
+
+
+def test_water_declares_its_empty_waterway_table(tmp_path):
+    # Owner answer on AER-4137: waterway_lines is created empty in every
+    # water build without --waterway (river lines are the rivers kind).
+    # The catalogue declares that one table for that one kind.
+    rec = _rep(_water_pack(tmp_path / "w.pack"))
+    c = _by_id(rec)
+    assert c["ROW-001"]["status"] == "pass"
+    assert c["ROW-001"]["measured"] == "0 empty tables; empty by declaration: waterway_lines"
+    assert "waterway_lines" in c["ROW-001"]["expected"]
+    assert c["IDX-001"]["status"] == "pass"
+    # Every other table still has to hold rows.
+    c = _by_id(_rep(_water_pack(tmp_path / "e.pack", polygons=0)))["ROW-001"]
+    assert c["status"] == "fail" and c["measured"].startswith("empty: water_polygons")
+    # And the declaration is the water kind's only.
+    hwy = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})
+    _sql(hwy, "CREATE TABLE waterway_lines (id INTEGER)")
+    assert _by_id(_rep(hwy))["ROW-001"]["status"] == "fail"
+
+
 # --- terrain ------------------------------------------------------------------
 
 def test_terrain_checks_on_a_region_pack(tmp_path):
