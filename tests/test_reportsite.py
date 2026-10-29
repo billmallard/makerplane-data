@@ -285,3 +285,10 @@ def test_every_page_loads_the_analytics_loader_and_nothing_else_does(site):
         if key.endswith(".html"):
             assert b'assets/analytics.js"></script>' in data, key
     assert b"analytics" not in site[rs.INDEX_KEY]
+
+
+def test_analytics_uses_the_zone_token_and_never_loads_twice():
+    js = (REPO_SITE / "assets" / "analytics.js").read_text()
+    assert 'var TOKEN = "3522e4f857de4e05b4384a6a5777c4ed";' in js
+    # The guard runs before the beacon is created.
+    assert js.index('querySelector("script[data-cf-beacon]")') < js.index("createElement")
