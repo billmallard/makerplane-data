@@ -50,7 +50,22 @@ So a reader knows what is already done vs. what a from-nothing rebuild redoes:
 - [x] **Static site** (Phase E, live 2026-06-14): not Cloudflare Pages after
       all — `site/index.html` (+ `data.yaml.sample`, `assets/`) is uploaded to
       the **bucket root** and served from the same custom domain; a Cloudflare
-      Transform Rule rewrites `/` to `/index.html`. Redeploy after editing:
+      Transform Rule rewrites `/` to `/index.html`. **Deploys run in the
+      `site.yml` workflow** (since AER-4098), with the repo's R2 secrets. A
+      release that changes `site/` deploys it on the push to `main`. For an
+      out-of-band deploy (a fix merged to `dev` that shouldn't wait for a
+      release), dispatch it on that branch, a dry run first:
+      ```bash
+      gh workflow run site.yml --ref dev -f dry_run=true    # lists changes
+      gh workflow run site.yml --ref dev -f dry_run=false   # writes + verifies
+      ```
+      It writes only files whose bytes differ from the live object, refuses
+      the manifest and `packs/` keys, then checks that the public URL serves
+      the committed bytes. GitHub only dispatches a workflow that exists on
+      the default branch (`main`), so dispatch works from the first release
+      that carries `site.yml`; until then the push trigger is the only path.
+      The manual fallback needs a `wrangler login` with R2 write access, which
+      agents do not have:
       ```bash
       npx wrangler r2 object put makerplane-data/index.html \
           --file=site/index.html --content-type "text/html; charset=utf-8" --remote
