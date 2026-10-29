@@ -557,6 +557,24 @@ def test_terrain_losing_a_native_tile_fails(tmp_path):
     assert "TER-006" not in _blocking_ids(first)
 
 
+def test_only_the_mosaic_pack_id_is_exempt_from_tile_placement(tmp_path):
+    # R2 (AER-4102 re-verdict): a regional pack that lost every native tile
+    # exempted itself as "a mosaic pack", and as a first edition nothing
+    # else caught it.
+    stripped = _terrain_pack(tmp_path / "s.pack", {".mip/mosaic/L0.hgt": _hgt(2),
+                                                   ".mip/mosaic/L0.json": b'{"rows": 2, "cols": 2}'})
+    rec = _rep(stripped, origin="federal", first_edition=True)
+    c = _by_id(rec)["TER-002"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"] == "0 native tiles in terrain-us-central, which is not the mosaic pack"
+    assert "TER-002" in _blocking_ids(rec)
+    packmeta.embed_zip(stripped, PackMeta(id="terrain-mosaic", kind="terrain", cycle="2024edr1",
+                                          attribution="Copernicus GLO-30",
+                                          license="LicenseRef-copernicus"))
+    c = _by_id(_rep(stripped, origin="federal", first_edition=True))["TER-002"]
+    assert (c["status"], c["not_run_reason"]) == ("not-run", "mosaic-pack")
+
+
 def test_terrain_has_no_default_origin(tmp_path):
     pack = _terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _hgt(3)})
     c = _by_id(_rep(pack))["PACK-003"]

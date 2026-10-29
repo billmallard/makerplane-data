@@ -659,7 +659,13 @@ def _c_ter_bbox(ctx):
               and not n.startswith(".mip/mosaic/"))
     ctx.metrics["TER-002"] = {"native_tiles": len(native), "mip_tiles": mip}
     if not native:
-        return _not_run("This pack carries no native tiles (a mosaic pack).", "mosaic-pack")
+        # The exemption follows the pack's identity, never its contents: a
+        # regional pack that lost every tile must not pass as a mosaic (R2).
+        from .make_terrain import MOSAIC_PACK_ID
+        if ctx.meta.id == MOSAIC_PACK_ID:
+            return _not_run("This is the mosaic pack; it carries no native tiles.",
+                            "mosaic-pack")
+        return ("fail", f"0 native tiles in {ctx.meta.id}, which is not the mosaic pack", "")
     region = load_regions().get(ctx.meta.id.removeprefix("terrain-"))
     if region is None:
         return _not_run(f"Pack id {ctx.meta.id!r} names no region in regions.yaml.")
@@ -983,10 +989,12 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "0 malformed members",
               "A tile of the right size holding wrong elevations.", _c_ter_layout),
         Check("TER-002", "Native tiles fall inside the pack's region", True,
-              "0 tiles outside the region bbox",
+              "0 tiles outside the region bbox; a regional pack with no native tiles fails "
+              "(only the terrain-mosaic pack, by id, carries none)",
               "A tile missing from inside the region (ocean tiles are absent by design, "
               "so the check cannot tell a gap from sea).", _c_ter_bbox,
-          exempt=(("mosaic-pack", "a mosaic pack carries no native tiles to place"),)),
+          exempt=(("mosaic-pack", "the terrain-mosaic pack (by pack_meta.id) carries no "
+                                  "native tiles to place"),)),
         Check("TER-006", "No native tile of the previous edition is missing", True,
               "every native tile in the previous edition is still present. Applies across "
               "Copernicus editions too: a new edition that drops a tile fails",
