@@ -25,6 +25,7 @@ from . import packmeta
 from .manifest import Manifest, PackEntry
 from .packmeta import PackMeta
 from .regions import Region, load_regions, regions_for_tile, tile_sw_corner
+from .sources import COPERNICUS_DEM_LICENSE, COPERNICUS_DEM_LICENSE_URL
 
 DEFAULT_ATTRIBUTION = "Copernicus GLO-30 (redistribution permitted)"
 
@@ -130,7 +131,8 @@ def build_region_pack(region: str, tiles: list[tuple[str, Path]], *,
                     z.write(mp, mp_arcname)
                     _write_wmask_sibling(z, mp, mp_arcname)
 
-    meta = PackMeta(id=pack_id, kind="terrain", cycle=edition, attribution=attribution)
+    meta = PackMeta(id=pack_id, kind="terrain", cycle=edition, attribution=attribution,
+                    license=COPERNICUS_DEM_LICENSE, license_url=COPERNICUS_DEM_LICENSE_URL)
     packmeta.embed_zip(pack_path, meta)   # adds pack_meta.json into the zip
 
     entry = PackEntry.from_pack(
@@ -200,7 +202,8 @@ def build_mosaic_pack(src_root: str | Path, *, out_dir: str | Path,
             _write_wmask_sibling(z, hgt, arcname)
 
     meta = PackMeta(id=MOSAIC_PACK_ID, kind="terrain", cycle=edition,
-                    attribution=attribution)
+                    attribution=attribution,
+                    license=COPERNICUS_DEM_LICENSE, license_url=COPERNICUS_DEM_LICENSE_URL)
     packmeta.embed_zip(pack_path, meta)
 
     entry = PackEntry.from_pack(

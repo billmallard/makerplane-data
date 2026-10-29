@@ -161,3 +161,32 @@ def test_fetch_failure_on_next_is_non_fatal(tmp_path):
     assert "2606" in cycles_built           # current succeeded
     assert "2607" not in cycles_built       # next failed, but run completed
     assert store.get_bytes("manifest.json") is not None
+
+
+@pytest.mark.parametrize("err", [
+    pytest.param("packtools.build.procedures.ProceduresBuildError", id="procedures"),
+    pytest.param("packtools.build.plates.PlatesBuildError", id="plates"),
+    pytest.param("packtools.build.airspace.AirspaceBuildError", id="airspace"),
+])
+def test_builder_refusal_fails_the_run_but_healthy_sources_publish(tmp_path, err):
+    # A builder that refuses (empty/bad input) is a HARD failure, like any
+    # BuildError: it must turn the run red, not log a WARN and stay green.
+    # The healthy source still ships and the manifest is still signed.
+    import importlib
+    from packtools.run_cyclical import PipelineFailure
+    mod, _, cls = err.rpartition(".")
+    exc = getattr(importlib.import_module(mod), cls)
+
+    runner, store, pub = make_runner(tmp_path)
+
+    def refusing(input_dir, out_path):
+        raise exc("refusing to ship an empty pack (simulated)")
+
+    runner.builders["airports"] = refusing
+    with pytest.raises(PipelineFailure, match="airports-conus 2606"):
+        runner.run([AIRPORTS, OBSTACLES])
+
+    m = Manifest.from_bytes(store.get_bytes("manifest.json"))
+    assert ("obstacles-conus", "260611") in {(p.id, p.cycle) for p in m.packs}
+    assert not any(p.id == "airports-conus" for p in m.packs)
+    assert not store.exists("packs/airports-conus-2606.pack")

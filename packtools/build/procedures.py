@@ -32,6 +32,7 @@ from pathlib import Path
 
 from .. import arinc424
 from ..geo import great_circle_nm
+from .errors import BuildError
 
 _SCHEMA = """
 CREATE TABLE airways (
@@ -102,8 +103,9 @@ CREATE INDEX idx_legs_trans ON legs(transition_id, seq);
 """
 
 
-class ProceduresBuildError(RuntimeError):
-    pass
+class ProceduresBuildError(BuildError):
+    """A refusal (bad or empty input). A BuildError, so run_cyclical
+    fails the run rather than logging it as a benign WARN."""
 
 
 def _find_cifp_file(input_dir: Path) -> Path:

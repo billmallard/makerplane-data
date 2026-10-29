@@ -37,12 +37,14 @@ jobs:
       - run: pip install -e .[build] pyshp
 
       - name: Fetch + build water.sqlite (pyEfis tools)
+        id: build
         run: |
           python pyefis-src/tools/fetch_geofabrik_water.py --states "${{ inputs.states }}"
           # produces water.sqlite via build_water_db (see the tool's --help for
           # the ocean coastline extract it expects)
 
       - name: Pack + upload (signed)
+        id: publish
         env:
           R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -52,5 +54,25 @@ jobs:
           python -m packtools.cli build-pack water.sqlite \
             --id water-conus --kind water --cycle "${{ inputs.cycle }}" \
             --attribution "OpenStreetMap contributors (ODbL); Natural Earth" \
+            --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
             --regions conus --url-base https://navdata.aerocommons.org/packs \
             --upload --bucket makerplane-data
+
+      # The public run page's record of what this run checked (AER-4098).
+      # always(): a failed build still says what failed and what was not run.
+      - name: Job summary
+        if: ${{ always() }}
+        env:
+          STATES:  ${{ inputs.states }}
+          CYCLE:   ${{ inputs.cycle }}
+          BUILD:   ${{ steps.build.outcome }}
+          UPLOAD:  ${{ steps.publish.outcome }}
+        run: |
+          packtool job-summary --title "water-packs: water-conus $CYCLE" \
+            --file water.sqlite --file "work/packs/water-conus-$CYCLE.pack" \
+            --input "states=$STATES" --input "cycle=$CYCLE" \
+            --check "fetch + build|$BUILD|pyEfis tools/fetch_geofabrik_water.py" \
+            --check "schema guard (input)|none|no data contract for OSM water -- only the cyclical FAA sources have one" \
+            --check "output floors|none|no row-count floor for water -- row counts are listed below" \
+            --check "skip-if-present|n/a|dispatch builds always rebuild; publish upserts (id, cycle)" \
+            --check "sign + upload|$UPLOAD|build-pack --upload to production water-conus"
