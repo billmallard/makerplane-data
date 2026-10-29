@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import packmeta
+from . import device_probe, packmeta
 from .manifest import NOTICE, ORIGINS
 from .packmeta import KINDS
 from .regions import load_regions, tile_sw_corner
@@ -181,6 +181,7 @@ class Ctx:
     probe: bool
     sources: list
     first_edition: bool = False
+    origin_given: bool = False
     metrics: dict = field(default_factory=dict)
     _con: sqlite3.Connection | None = None
     _tables: dict | None = None
@@ -263,16 +264,38 @@ def _c_meta_fields(ctx):
     return ("pass", "attribution and license present", "")
 
 
+#: PACK-003's measured text when the label was passed rather than defaulted.
+ORIGIN_PASSED = "passed with --origin"
+
+
 def _c_origin(ctx):
-    if ctx.origin in ORIGINS:
-        return ("pass", ctx.origin, "")
-    return ("fail", ctx.origin or "(unset)", "")
+    if ctx.origin_given:
+        how = ORIGIN_PASSED
+    elif ctx.kind in ORIGIN_BY_KIND:
+        how = f"defaulted by kind {ctx.kind}, not read from the pack"
+    else:
+        how = f"kind {ctx.kind} has no default; pass --origin"
+    measured = f"{ctx.origin or '(unset)'} ({how})"
+    return ("pass" if ctx.origin in ORIGINS else "fail", measured, "")
+
+
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _c_sources(ctx):
-    if ctx.sources:
-        return ("pass", f"{len(ctx.sources)} source(s)", "")
-    return _not_run("No upstream sources were supplied to the report (--sources).")
+    if not ctx.sources:
+        return _not_run("No upstream sources were supplied to the report (--sources).")
+    bad = []
+    for src in ctx.sources:
+        gaps = [g for g, ok in (("no edition", (src.get("edition") or "").strip()),
+                                ("no 64-hex sha256", _HEX64.match(src.get("sha256") or "")))
+                if not ok]
+        if gaps:
+            bad.append(f"{src.get('name') or '(unnamed)'} ({', '.join(gaps)})")
+    n = len(ctx.sources)
+    if bad:
+        return ("fail", f"{n} source(s); incomplete: " + "; ".join(bad), "")
+    return ("pass", f"{n} source(s), each with edition and sha256", "")
 
 
 def _c_device(ctx):
@@ -776,6 +799,20 @@ def _fixed_not_run(note: str):
     return lambda ctx: _not_run(note)
 
 
+def _names(points) -> str:
+    names = [p[0] for p in points]
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _probe_coverage() -> str:
+    d = device_probe
+    return (f"US kinds, {len(d._US_POINTS)} CONUS metros ({_names(d._US_POINTS)}); "
+            f"airports (Canada), {_names(d._CA_POINTS)}; water, {_names(d._WATER_POINTS)}; "
+            f"navaids, idents {', '.join(d._NAVAID_IDENTS)}; procedures, airways "
+            f"{', '.join(d._AIRWAY_IDENTS)}; terrain, one native tile or the coarsest "
+            "mosaic level")
+
+
 _COMMON = [
     Check("PACK-001", "pack_meta is readable and names a known kind", True,
           "pack_meta present; kind is one the device knows",
@@ -787,22 +824,32 @@ _COMMON = [
           _c_meta_fields),
     Check("PACK-003", "Origin label is federal, community or user-supplied", True,
           "one of federal / community / user-supplied",
-          "Whether the label matches where the data really came from: the builder "
-          "sets it, the check only reads it.", _c_origin, "AER-699"),
+          "Whether the label matches where the data really came from. For a kind with "
+          "a default label (ORIGIN_BY_KIND in packtools/report.py) the label comes from "
+          "that table, not from the builder or the pack, so the check is tautological "
+          "and always passes; measured says which. With --origin it shows only that the "
+          "label given is one of the three.", _c_origin, "AER-699"),
     Check("PACK-004", "Upstream sources are recorded", False,
-          "at least one source with its edition and sha256",
-          "A recorded source that is not the one the build actually used.",
+          "at least one source, each with a non-empty edition and a 64-hex sha256",
+          "A recorded source that is not the one the build actually used, and an "
+          "edition or sha256 that is well formed but wrong.",
           _c_sources),
     Check("ACC-001", "Device acceptance: pyEfis's own reader opens the pack and "
           "answers a fixed query set", True,
           "the reader opens the pack and every query returns data",
           "Wrong values the reader accepts. It shows the device can open and query "
-          "these bytes, not that what it returns is right.", _c_device),
+          "these bytes, not that what it returns is right. The queries cover fixed "
+          "points only: " + _probe_coverage() + ". So it cannot catch a missing Alaska, "
+          "Hawaii or Puerto Rico, or any state or province that holds none of those "
+          "points.", _c_device),
 ]
 
 _SQLITE = [
     Check("SQL-001", "SQLite structure is sound (PRAGMA quick_check)", True, "ok",
-          "Wrong data in a structurally sound file.", _c_quick_check),
+          "Wrong data in a structurally sound file, and an index whose contents do not "
+          "match its table: quick_check does not verify index contents, which is "
+          "SQLite's documented difference from integrity_check. IDX-001 covers the "
+          "R-trees.", _c_quick_check),
     Check("ROW-001", "No data table is empty", True,
           "0 empty tables, apart from those declared empty by design for the kind "
           "(water: waterway_lines)",
@@ -1096,7 +1143,7 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
               origin=origin if origin is not None else ORIGIN_BY_KIND.get(meta.kind, ""),
               previous=previous, inputs=Path(inputs) if inputs else None,
               pyefis_src=src, probe=probe, sources=list(sources or []),
-              first_edition=first_edition)
+              first_edition=first_edition, origin_given=origin is not None)
     notes = notes or {}
     checks = []
     try:

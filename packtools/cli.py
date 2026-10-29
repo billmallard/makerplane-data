@@ -409,7 +409,12 @@ def cmd_report(args) -> int:
     if args.check:
         published = (_load_against(args.against) if args.against
                      else _published_report_for(pack, args))
-        here = report.build_report(pack, origin=published.get("origin"), **common)
+        # Re-run with --origin only if the record says it was passed, so
+        # PACK-003's "how the label was set" reproduces either way.
+        given = any(c["id"] == "PACK-003" and report.ORIGIN_PASSED in str(c.get("measured"))
+                    for c in published.get("checks") or [])
+        here = report.build_report(pack, origin=published.get("origin") if given else None,
+                                   **common)
         rows, problems = report.compare(published, here)
         for r in rows:
             print(f"{r.id:<14} {r.outcome:<22} published {r.published}")

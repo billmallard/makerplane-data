@@ -520,7 +520,37 @@ def test_terrain_losing_a_native_tile_fails(tmp_path):
 
 def test_terrain_has_no_default_origin(tmp_path):
     pack = _terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _hgt(3)})
-    assert _by_id(_rep(pack))["PACK-003"]["status"] == "fail"
+    c = _by_id(_rep(pack))["PACK-003"]
+    assert (c["status"], c["measured"]) == ("fail", "(unset) (kind terrain has no default; pass --origin)")
+
+
+def test_origin_check_says_how_the_label_was_set(tmp_path):
+    # C6 (AER-4102): for a kind with a default label the check is
+    # tautological, and the record has to say so.
+    pack = _proc_pack(tmp_path / "p.pack")
+    c = _by_id(_rep(pack))["PACK-003"]
+    assert c["measured"] == "federal (defaulted by kind procedures, not read from the pack)"
+    assert "tautological" in c["cannot_catch"]
+    c = _by_id(_rep(pack, origin="community"))["PACK-003"]
+    assert c["measured"] == "community (passed with --origin)"
+
+
+def test_sources_check_looks_at_each_sources_edition_and_sha256(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    good = {"name": "FAA CIFP", "edition": "2611", "url": "u", "retrieved": "t",
+            "sha256": "a" * 64}
+    c = _by_id(_rep(pack, sources=[good]))["PACK-004"]
+    assert (c["status"], c["measured"]) == ("pass", "1 source(s), each with edition and sha256")
+    c = _by_id(_rep(pack, sources=[good, {"name": "NASR", "edition": "", "sha256": "x"}]))
+    assert (c["PACK-004"]["status"], c["PACK-004"]["measured"]) == (
+        "fail", "2 source(s); incomplete: NASR (no edition, no 64-hex sha256)")
+
+
+def test_wording_names_what_the_checks_do_not_cover():
+    cat = {c.id: c for c in report.catalogue("navdata", is_zip=False)}
+    assert "integrity_check" in cat["SQL-001"].cannot_catch
+    acc = cat["ACC-001"].cannot_catch
+    assert "Denver" in acc and "Alaska" in acc and "Hawaii" in acc
 
 
 # --- device acceptance --------------------------------------------------------
@@ -638,6 +668,16 @@ def test_check_flags_a_number_that_does_not_reproduce(tmp_path, capsys):
                      "--no-device"]) == 1
     out = capsys.readouterr().out
     assert "PROC-FIX-001   MISMATCH" in out and "MISMATCH tables.legs" in out
+
+
+def test_check_reproduces_an_origin_passed_on_the_command_line(tmp_path, capsys):
+    pack = _terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _hgt(3)})
+    published = tmp_path / "report.json"
+    cli.main(["report", str(pack), "--origin", "community", "--no-device", "-o", str(published)])
+    capsys.readouterr()
+    assert cli.main(["report", "--check", str(pack), "--against", str(published),
+                     "--no-device"]) == 0
+    assert "PACK-003       reproduced" in capsys.readouterr().out
 
 
 def test_check_without_the_previous_edition_says_not_reproducible(tmp_path):
