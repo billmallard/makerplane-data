@@ -60,6 +60,38 @@ def _load_secret(args) -> signing.SecretKey:
     raise SystemExit("no secret key: set MINISIGN_SECRET_KEY or pass --sec PATH")
 
 
+def _gate_options(args, record_dir: Path):
+    """The publish gate's inputs from the command line. Build notes come
+    only from ``--note`` / ``--notes-file``, never from a default."""
+    import json
+    from . import gate
+    notes = gate.read_notes_file(getattr(args, "notes_file", None))
+    notes.update(_kv_list(getattr(args, "note", None), "--note"))
+    sources = []
+    if getattr(args, "sources", None):
+        sources = json.loads(Path(args.sources).read_text(encoding="utf-8"))
+    return gate.Options(notes=notes, origin=getattr(args, "origin", None), sources=sources,
+                        pyefis_src=getattr(args, "pyefis_src", None), record_dir=record_dir)
+
+
+def _require_device_reader(args) -> None:
+    """Fail before a long build rather than after it: ACC-001 is blocking,
+    so a publish with no pyEfis checkout to probe with is refused anyway."""
+    from .report import resolve_pyefis_src
+    if resolve_pyefis_src(getattr(args, "pyefis_src", None)) is None:
+        raise SystemExit("publish gate: no pyEfis checkout for device acceptance (ACC-001, "
+                         "blocking). Pass --pyefis-src or set PYEFIS_SRC_DIR / PYEFIS_TOOLS_DIR.")
+
+
+def _publish_refused(e) -> int:
+    from .gate import GateRefused
+    print(f"PUBLISH REFUSED: {e}", file=sys.stderr)
+    if isinstance(e, GateRefused):
+        for g in e.refused:
+            print(f"  rejected record: {g.key}", file=sys.stderr)
+    return 1
+
+
 def cmd_build_pack(args) -> int:
     date = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
     src = Path(args.source)
@@ -118,12 +150,18 @@ def cmd_build_pack(args) -> int:
     # --upload: push to R2 and re-sign the live manifest (adds this pack
     # alongside whatever is already published). Used for water and one-offs.
     if args.upload:
+        from .gate import GateError, GateRefused
         from .upload import R2Store
         from .publish import publish
+        _require_device_reader(args)
+        opts = _gate_options(args, out_dir / "reports")
         store = R2Store.from_env(args.bucket)
-        publish(store, sk, [(entry, pack_path)], generated=_utc_stamp(date),
-                sign=signing.sign, comment=f"{args.id} {cycle}")
-        print(f"uploaded {pack_path.name} -> R2, manifest re-signed")
+        try:
+            publish(store, sk, [(entry, pack_path)], generated=_utc_stamp(date),
+                    sign=signing.sign, comment=f"{args.id} {cycle}", gate=opts)
+        except (GateError, GateRefused) as e:
+            return _publish_refused(e)
+        print(f"uploaded {pack_path.name} + its test record -> R2, manifest re-signed")
         return 0
 
     # Otherwise write a local signed manifest (dev / staging).
@@ -227,16 +265,48 @@ def cmd_report_site(args) -> int:
     return 0
 
 
+def _records_markdown(record_dir: str) -> str | None:
+    """The job summary's test records, rendered from the JSON the publish
+    gate wrote (``<id>-<cycle>.gate.json`` beside the record). None if no
+    pack reached the gate."""
+    import json
+    from . import summary
+    out = []
+    for verdict in sorted(Path(record_dir).glob("*.gate.json")):
+        v = json.loads(verdict.read_text(encoding="utf-8"))
+        stem = verdict.name[: -len(".gate.json")]
+        rec_path = verdict.with_name(f"{stem}.{'report' if v['accepted'] else 'rejected'}.json")
+        rec = json.loads(rec_path.read_text(encoding="utf-8"))
+        out.append(summary.record_markdown(rec, blockers=v["blockers"], previous=v["previous"]))
+    return "\n".join(out) if out else None
+
+
 def cmd_job_summary(args) -> int:
-    """Append a dispatch build's check table to $GITHUB_STEP_SUMMARY (and
-    print it). Never fails the job: it runs under `if: always()` to describe
-    whatever happened, including a failed build."""
+    """Append a dispatch build's summary to $GITHUB_STEP_SUMMARY (and print
+    it). Never fails the job: it runs under `if: always()` to describe
+    whatever happened, including a failed build. With ``--records`` the
+    checks come from the test records the publish gate wrote; if no pack
+    reached the gate it says so and describes the built files instead."""
     from . import summary
     inputs = dict(kv.split("=", 1) for kv in args.input)
     checks = [(c.split("|", 2) + ["", ""])[:3] for c in args.check]
-    first, *rest = args.file
-    md = "\n".join([summary.artifact_report(args.title, first, checks=checks, inputs=inputs)]
-                    + [summary.artifact_report(Path(f).name, f, level=3) for f in rest])
+    records = _records_markdown(args.records) if args.records else None
+    if args.records:
+        head = f"## {args.title}\n\n" + (summary.table(["input", "value"], list(
+            map(list, inputs.items()))) if inputs else "")
+        if records:
+            md = head + "\n" + records
+        else:
+            md = (head + "\n**No test record:** no pack reached the publish gate (the build "
+                  "failed, or publish was off).\n\n"
+                  + "\n".join(summary.artifact_report(Path(f).name, f, level=3)
+                               for f in args.file))
+    else:
+        if not args.file:
+            raise SystemExit("job-summary: pass --file or --records")
+        first, *rest = args.file
+        md = "\n".join([summary.artifact_report(args.title, first, checks=checks, inputs=inputs)]
+                        + [summary.artifact_report(Path(f).name, f, level=3) for f in rest])
     print(md)
     summary.write(md)
     return 0
@@ -258,9 +328,43 @@ def cmd_verify(args) -> int:
     return 0
 
 
+def _published_at(store, secret, edition: str) -> set[str]:
+    """Pack ids the signed live manifest already lists at ``edition``."""
+    from .gate import load_signed
+    live, _ = load_signed(store, secret)
+    return {p.id for p in (live.packs if live else []) if p.cycle == edition}
+
+
 def cmd_make_terrain(args) -> int:
     from . import make_terrain
     compress = not args.no_compress
+    store = secret = None
+    only = args.only or None
+    if args.upload:
+        # Fail before the build, not after it: terrain has no default origin
+        # (PACK-003) and the device probe needs a pyEfis checkout (ACC-001).
+        if not args.origin:
+            raise SystemExit("make-terrain --upload: pass --origin; terrain has no default "
+                             "origin label and PACK-003 blocks without one")
+        _require_device_reader(args)
+        from .regions import load_regions
+        from .upload import R2Store
+        store = R2Store.from_env(args.bucket)
+        secret = _load_secret(args)
+        # A published record is immutable, so an (id, edition) already listed
+        # is skipped, as the cyclical run skips a present cycle. This keeps a
+        # re-run of a part-failed edition re-runnable.
+        listed = _published_at(store, secret, args.edition)
+        if args.mosaic and make_terrain.MOSAIC_PACK_ID in listed:
+            print(f"skip {make_terrain.MOSAIC_PACK_ID} {args.edition}: already published")
+            return 0
+        if not args.mosaic:
+            keys = only or list(load_regions(args.regions))
+            only = [k for k in keys if f"terrain-{k}" not in listed]
+            for k in sorted(set(keys) - set(only)):
+                print(f"skip terrain-{k} {args.edition}: already published")
+            if not only:
+                return 0
     if args.mosaic:
         # Package the pre-built coarse mosaic (one whole-extent pack, shared by
         # all region combinations) instead of the per-region native packs.
@@ -278,7 +382,7 @@ def cmd_make_terrain(args) -> int:
         packs = make_terrain.make_terrain_packs(
             src_root=args.source, out_dir=args.out, edition=args.edition,
             url_base=args.url_base, regions_path=args.regions,
-            only_regions=args.only or None, compress=compress)
+            only_regions=only, compress=compress)
         if not packs:
             return 1
     if args.require_wmask:
@@ -299,11 +403,13 @@ def cmd_make_terrain(args) -> int:
         print(f"--require-wmask: .wmask present beside every masked-level "
               f".hgt in {len(packs)} pack(s)")
     if args.upload:
-        from .upload import R2Store
-        store = R2Store.from_env(args.bucket)
-        secret = _load_secret(args)
-        make_terrain.update_manifest(store, secret, packs,
-                                     generated=make_terrain._now_stamp(), sign=signing.sign)
+        from .gate import GateError, GateRefused
+        try:
+            make_terrain.update_manifest(store, secret, packs,
+                                         generated=make_terrain._now_stamp(), sign=signing.sign,
+                                         gate=_gate_options(args, Path(args.out) / "reports"))
+        except (GateError, GateRefused) as e:
+            return _publish_refused(e)
     else:
         print(f"built {len(packs)} pack(s) under {args.out}/packs "
               f"(not uploaded; pass --upload with R2_* env + a key)")
@@ -334,8 +440,13 @@ def cmd_make_plates(args) -> int:
         from .upload import R2Store
         store = R2Store.from_env(args.bucket)
         secret = _load_secret(args)
-        make_plates.update_manifest(store, secret, packs,
-                                    generated=_utc_stamp(_dt.date.today()), sign=signing.sign)
+        from .gate import GateError, GateRefused, Options
+        try:
+            make_plates.update_manifest(store, secret, packs,
+                                        generated=_utc_stamp(_dt.date.today()), sign=signing.sign,
+                                        gate=Options(record_dir=Path(args.out) / "reports"))
+        except (GateError, GateRefused) as e:
+            return _publish_refused(e)
         print(f"uploaded {len(packs)} plate pack(s) -> R2, manifest re-signed")
     else:
         print(f"built {len(packs)} plate pack(s) under {args.out}/packs "
@@ -522,6 +633,17 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     b.add_argument("--upload", action="store_true", help="upload to R2 + re-sign the live manifest")
     b.add_argument("--bucket", default="makerplane-data")
+    b.add_argument("--origin", help="origin label for the test record: federal / "
+                    "community / user-supplied (default: by kind)")
+    b.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",
+                    help="build note for a check that warns, written by a person for this "
+                         "edition ([PACK_ID:]CHECK_ID=TEXT; a warn without one refuses the publish)")
+    b.add_argument("--notes-file", dest="notes_file",
+                    help="build notes: a JSON object or KEY=TEXT lines, same keys as --note")
+    b.add_argument("--sources", help="JSON file: the test record's sources[] array")
+    b.add_argument("--pyefis-src", dest="pyefis_src",
+                    help="pyEfis checkout's src/ for device acceptance "
+                         "(default: PYEFIS_SRC_DIR, or PYEFIS_TOOLS_DIR/../src)")
     b.set_defaults(func=cmd_build_pack)
 
     rp = sub.add_parser("remove-pack", help="retract one (id, cycle) entry from "
@@ -568,8 +690,11 @@ def build_parser() -> argparse.ArgumentParser:
     js = sub.add_parser("job-summary", help="write a dispatch build's check table "
                         "to the GitHub Actions job summary")
     js.add_argument("--title", required=True)
-    js.add_argument("--file", action="append", default=[], required=True,
+    js.add_argument("--file", action="append", default=[],
                     help="built artifact to describe (repeatable; first gets the tables)")
+    js.add_argument("--records", metavar="DIR",
+                    help="the publish gate's record directory (<out>/reports): render "
+                         "the summary from the test records")
     js.add_argument("--input", action="append", default=[], metavar="KEY=VALUE")
     js.add_argument("--check", action="append", default=[], metavar="CHECK|RESULT|DETAIL")
     js.set_defaults(func=cmd_job_summary)
@@ -596,6 +721,17 @@ def build_parser() -> argparse.ArgumentParser:
                         "carries a .wmask sibling (pyEfis build_water_masks.py)")
     t.add_argument("--bucket", default="makerplane-data")
     t.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    t.add_argument("--origin", help="origin label for the test record: federal / "
+                    "community / user-supplied; required with --upload")
+    t.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",
+                    help="build note for a check that warns, written by a person for this "
+                         "edition ([PACK_ID:]CHECK_ID=TEXT; a warn without one refuses the publish)")
+    t.add_argument("--notes-file", dest="notes_file",
+                    help="build notes: a JSON object or KEY=TEXT lines, same keys as --note")
+    t.add_argument("--sources", help="JSON file: the test record's sources[] array")
+    t.add_argument("--pyefis-src", dest="pyefis_src",
+                    help="pyEfis checkout's src/ for device acceptance "
+                         "(default: PYEFIS_SRC_DIR, or PYEFIS_TOOLS_DIR/../src)")
     t.set_defaults(func=cmd_make_terrain)
 
     p = sub.add_parser("make-plates", help="fetch+build per-region d-TPP plate packs")

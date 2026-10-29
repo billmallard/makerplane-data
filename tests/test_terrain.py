@@ -456,11 +456,19 @@ def test_cli_require_wmask_refuses_before_upload(tmp_path, monkeypatch):
     uploads = []
     monkeypatch.setattr(make_terrain, "update_manifest",
                         lambda *a, **k: uploads.append(a))
+    # --upload checks the live manifest for an already-published edition
+    # before building; stand in for R2 and the device reader so the test
+    # reaches the mask gate without credentials.
+    from packtools import upload
+    monkeypatch.setattr(upload.R2Store, "from_env", classmethod(lambda cls, b=None: object()))
+    monkeypatch.setattr(cli, "_published_at", lambda *a: set())
+    monkeypatch.setattr(cli, "_load_secret", lambda args: None)
+    (tmp_path / "pyefis-src" / "pyefis").mkdir(parents=True)
+    monkeypatch.setenv("PYEFIS_SRC_DIR", str(tmp_path / "pyefis-src"))
     argv = ["make-terrain", str(src), "--edition", "2024ed", "--mosaic",
             "--out", str(tmp_path / "b"), "--require-wmask"]
-    # --upload would reach R2Store.from_env before update_manifest; the gate
-    # must return first, so no R2 env is needed for the refusal.
-    assert cli.main(argv + ["--upload"]) == 1
+    # The mask gate must refuse before anything is uploaded.
+    assert cli.main(argv + ["--upload", "--origin", "community"]) == 1
     assert uploads == []
     for lv in (4, 5, 6):
         _write_wmask(src / ".mip" / "mosaic" / f"L{lv}.hgt", side=2 * (225 >> (lv - 4)) + 1)
