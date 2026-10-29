@@ -351,7 +351,7 @@ def _list_checks(kind: str | None) -> int:
     from . import report
     cats = report.all_checks()
     for k in ([kind] if kind else sorted(cats)):
-        print(f"== {k}")
+        print(f"== {k}" + (f"  (UNGATED: {report.UNGATED[k]})" if k in report.UNGATED else ""))
         for c in cats[k]:
             flag = "blocking" if c.blocking else "non-blocking"
             print(f"  {c.id:<14} {flag:<13} {c.title}")

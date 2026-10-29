@@ -403,6 +403,22 @@ def test_osm_region_wording_when_every_region_grew(tmp_path):
     assert "+5.0% (200 -> 210)" in c["measured"]
 
 
+def test_kinds_without_an_accepted_catalogue_are_declared_ungated(tmp_path):
+    # AER-4102: rivers, cifp, airspace and plates have no content check
+    # beyond the common ones and no device probe. A record may be emitted,
+    # but it must not count as a gate.
+    assert set(report.UNGATED) == {"rivers", "cifp", "airspace", "plates"}
+    pack = _hwy_pack(tmp_path / "r.pack", "r1", {CA: 5})
+    packmeta.embed_sqlite(pack, PackMeta(id="rivers-conus", kind="rivers", cycle="r1",
+                                         attribution="OSM", license="ODbL-1.0"))
+    rec = _rep(pack, first_edition=True)
+    assert rec["gated"] is False and "no device probe" in rec["ungated"]
+    assert any(b.startswith("ungated: kind rivers") for b in report.publish_blockers(rec))
+    assert report.validate_report(rec) == []
+    gated = _rep(_proc_pack(tmp_path / "p.pack"))
+    assert gated["gated"] is True and "ungated" not in gated
+
+
 def test_highways_schema_version_drift_fails(tmp_path):
     pack = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})
     packmeta.embed_sqlite(pack, PackMeta(id="highways-conus", kind="highways", cycle="r1",

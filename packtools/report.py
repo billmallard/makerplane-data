@@ -81,6 +81,19 @@ ORIGIN_BY_KIND = {
     "rivers": "community", "airspace": "community",
 }
 
+#: Kinds whose catalogue QA has not accepted as a gate (AER-4102). A record
+#: is still written for them, but it says it is ungated and a build record
+#: never clears the publish gate on its own.
+UNGATED = {
+    "rivers": "OSM checks only and no device probe; it needs IDX-001 and an ACC-001 "
+              "probe before it can gate",
+    "cifp": "no content check beyond the common and SQLite ones, and no device probe "
+            "(the CIFP build itself is deferred)",
+    "airspace": "no content check beyond the common and SQLite ones, and no device probe",
+    "plates": "a zip pack: only PACK-001..004 and a not-run ACC-001; no content check and "
+              "no device probe",
+}
+
 _FEDERAL_SQLITE = ("navdata", "navaids", "obstacles", "procedures")
 _OSM = ("water", "highways", "rivers")
 
@@ -1207,6 +1220,8 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                    for t, n in tables.items()},
         "metrics": ctx.metrics,
         "summary": summary,
+        "gated": meta.kind not in UNGATED,
+        **({"ungated": UNGATED[meta.kind]} if meta.kind in UNGATED else {}),
         "notice": NOTICE,
     }
 
@@ -1286,6 +1301,9 @@ def publish_blockers(report: dict) -> list[str]:
     out = []
     build = report.get("record") == "build"
     exempt = _declared_exemptions() if build else {}
+    kind = (report.get("pack") or {}).get("kind")
+    if build and kind in UNGATED:
+        out.append(f"ungated: kind {kind} has no accepted check catalogue ({UNGATED[kind]})")
     for c in report["checks"]:
         if c.get("raised"):
             out.append(f"{c['id']} raised, so it measured nothing: {c['measured']}")
