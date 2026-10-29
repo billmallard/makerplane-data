@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Navigation Data &middot; AeroCommons / MakerPlane</title>
 <link rel="icon" href="assets/aerocommons-logo.svg">
+<script defer src="assets/analytics.js"></script>
 <style>
   :root {
     --navy: #152238; --navy2: #1F3151; --orange: #E8702A; --mpred: #B3231F;
@@ -49,6 +50,12 @@
   .pack .meta .cyc { color: var(--navy2); font-size: 12.5px; margin-top: 1px;
     font-variant-numeric: tabular-nums; }
   .pack .meta .cyc a { color: var(--navy2); }
+  .pack .meta .rep { font-size: 12.5px; margin-top: 1px; color: var(--navy2);
+    font-variant-numeric: tabular-nums; }
+  .pack .meta .rep a { color: var(--navy2); }
+  .pack .meta .rep.none { color: var(--muted); }
+  .tag { font-size: 11px; font-weight: 700; padding: 0 7px; border-radius: 20px;
+    background: #eef1f6; color: var(--navy2); margin-left: 6px; vertical-align: 1px; }
   .pack .size { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; white-space: nowrap; }
   .badge { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
   .b-current { background: #e8f5ee; color: var(--green); }
@@ -193,7 +200,7 @@
 <script>
 const MANIFEST = "manifest.json";
 const GROUPS = [
-  { kinds: ["navdata", "navaids", "obstacles", "cifp", "airports"], title: "Navigation data",
+  { kinds: ["navdata", "navaids", "obstacles", "procedures", "cifp", "airports"], title: "Navigation data",
     blurb: "US airports, runways, navaids, airways, obstacles & procedures (FAA cycle), plus regional airport packs for outside the US (OurAirports — e.g. Canada)." },
   { kinds: ["terrain"], title: "Terrain (Copernicus GLO-30)",
     blurb: "30 m elevation, by region. Big — pick the areas you fly." },
@@ -220,7 +227,7 @@ function currency(p, future) {
 // date, matching how FAA products state it).
 function cycleName(p) {
   return ({ navdata: "AIRAC " + p.cycle, navaids: "AIRAC " + p.cycle,
-            cifp: "AIRAC " + p.cycle,
+            cifp: "AIRAC " + p.cycle, procedures: "AIRAC " + p.cycle,
             obstacles: "FAA DOF" })[p.kind] || ("cycle " + p.cycle);
 }
 
@@ -245,13 +252,25 @@ function packLabel(p) {
   if (p.kind === "terrain" && p.regions && p.regions.length) return "Terrain — " + p.regions[0];
   if (p.kind === "airports" && p.regions && p.regions.length) return "Airports — " + p.regions[0];
   return ({ navdata: "Airports & runways", navaids: "Navaids & airways",
-            obstacles: "Obstacles", cifp: "Procedures & waypoints",
+            obstacles: "Obstacles", cifp: "Procedures & waypoints", procedures: "Procedures & airways",
             water: "Water", highways: "Roads & highways", airports: "Airports (regional)" })[p.kind] || p.id;
+}
+
+// The test-report summary for one edition (reports/index.json, written by
+// `packtool report-site` from the published pack-report/1 records). An
+// edition with no record says so on its row; it is never hidden.
+function reportLine(p, reports) {
+  const r = ((reports[p.id] || {})[p.cycle]);
+  if (!r)
+    return `<div class="rep none">No test report yet for this edition.</div>`;
+  const s = r.summary;
+  return `<div class="rep">${s.pass} pass / ${s.warn} warn / ${s.fail} fail / ${s.not_run} not run
+    &middot; <a href="${r.page}">report</a> &middot; <a href="reports/${p.id}/index.html">history</a></div>`;
 }
 
 let MANIFEST_URLS = { manifest: MANIFEST, sig: MANIFEST + ".minisig" };
 
-function render(m) {
+function render(m, reports) {
   const cat = document.getElementById("catalog");
   cat.innerHTML = "";
   const byId = {};
@@ -279,8 +298,8 @@ function render(m) {
       const row = document.createElement("div"); row.className = "pack";
       row.innerHTML =
         `<input type="checkbox" data-url="${p.url}" data-name="${p.id}-${p.cycle}.pack">
-         <div class="meta"><div class="name">${packLabel(p)}</div>
-           ${cyc}<div class="det">${p.attribution || ""}</div></div>
+         <div class="meta"><div class="name">${packLabel(p)}${p.origin ? `<span class="tag">${p.origin}</span>` : ""}</div>
+           ${cyc}${reportLine(p, reports)}<div class="det">${p.attribution || ""}</div></div>
          <span class="badge ${c.cls}">${c.text}</span>
          <span class="size">${fmtBytes(p.bytes)}</span>
          <a class="dl" href="${p.url}" download>Download</a>`;
@@ -314,9 +333,13 @@ document.getElementById("dlbtn").addEventListener("click", () => {
   sel.forEach((cb, i) => setTimeout(() => triggerDownload(cb.dataset.url, cb.dataset.name), 350 * (i + 1)));
 });
 
+// The report index is optional: until it exists, or if it fails to load,
+// every row says it has no report rather than the catalog failing.
+const REPORTS = fetch("reports/index.json", { cache: "no-store" })
+  .then(r => r.ok ? r.json() : {}).then(j => j.packs || {}).catch(() => ({}));
 fetch(MANIFEST, { cache: "no-store" })
   .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-  .then(render)
+  .then(m => REPORTS.then(reports => render(m, reports)))
   .catch(() => {
     document.getElementById("catalog").innerHTML =
       `<div class="msg">Couldn’t load the catalog right now. The data is at <a href="manifest.json">manifest.json</a>.</div>`;

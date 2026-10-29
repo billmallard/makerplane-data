@@ -317,6 +317,37 @@ Which checks apply:
 | water, highways, rivers | `OSM-001` counts per region (#17); `OSM-002` per state (`not-run`, TV7); `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
 | rivers, cifp, airspace, plates | **Ungated** (`report.UNGATED`): the record is written with `gated: false`, and a build record of these kinds never clears the gate |
 
+## Report pages (TV5)
+
+`packtool report-site` (`packtools/reportsite.py`) renders the public pages
+from the records in the bucket. It never writes a record; it owns only:
+
+```
+reports/index.json                   per-edition tally the catalog line reads
+reports/index.html                   every pack with a record
+reports/check.html                   check it yourself (the --check walk-through)
+reports/<id>/index.html              history: editions, row-count trends, check status over time
+reports/<id>/<cycle>/report.html     one edition, with the standing text below
+```
+
+`site.yml` runs it after `deploy-site` and daily at 11:20 UTC, so a record a
+publish path uploads gets its page with no deploy. A catalog row whose edition
+has no record says "No test report yet for this edition."; it is not hidden.
+
+Before rendering, every string in a record is scrubbed of local paths, IP
+addresses, internal hostnames and links to non-public hosts. Links are drawn
+only to an allowlist of public hosts, so a board id such as `AER-1979`
+appears as bare text. The build fails, and writes nothing, if any page
+carries a banned word outside the standing text and the notice, or a host
+detail the scrub missed.
+
+Preview locally from the committed fixture records:
+
+```bash
+packtool report-site --from tests/fixtures/report_site --out /tmp/preview
+python -m http.server -d /tmp/preview      # then open /index.html
+```
+
 ## Manifest fields
 
 `PackEntry` (`packtools/manifest.py`) gains five fields. All are additive and

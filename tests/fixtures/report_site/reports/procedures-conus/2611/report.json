@@ -1,0 +1,224 @@
+{
+  "built": {
+    "at": "2026-10-29T13:46:29Z",
+    "builder_refs": {},
+    "commit": "a2c8e32f4c2319dc8987a45293d3dbc4b8609956",
+    "repo": "billmallard/makerplane-data",
+    "run_url": null,
+    "runner": "local"
+  },
+  "checks": [
+    {
+      "blocking": true,
+      "cannot_catch": "A pack_meta that is well formed but names the wrong id or cycle for the bytes inside.",
+      "expected": "pack_meta present; kind is one the device knows",
+      "id": "PACK-001",
+      "measured": "id=procedures-conus kind=procedures cycle=2611 schema_version=1",
+      "status": "pass",
+      "title": "pack_meta is readable and names a known kind"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "A license tag or attribution that is present but wrong for the data.",
+      "expected": "both non-empty",
+      "id": "PACK-002",
+      "measured": "attribution and license present",
+      "status": "pass",
+      "title": "Attribution and license are recorded in pack_meta"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Whether the label matches where the data really came from: the builder sets it, the check only reads it.",
+      "expected": "one of federal / community / user-supplied",
+      "id": "PACK-003",
+      "measured": "federal",
+      "since": "AER-699",
+      "status": "pass",
+      "title": "Origin label is federal, community or user-supplied"
+    },
+    {
+      "blocking": false,
+      "cannot_catch": "A recorded source that is not the one the build actually used.",
+      "expected": "at least one source with its edition and sha256",
+      "id": "PACK-004",
+      "measured": null,
+      "note": "No upstream sources were supplied to the report (--sources).",
+      "status": "not-run",
+      "title": "Upstream sources are recorded"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Wrong values the reader accepts. It shows the device can open and query these bytes, not that what it returns is right.",
+      "expected": "the reader opens the pack and every query returns data",
+      "id": "ACC-001",
+      "measured": null,
+      "note": "No pyEfis checkout was available (set PYEFIS_SRC_DIR or pass --pyefis-src).",
+      "status": "not-run",
+      "title": "Device acceptance: pyEfis's own reader opens the pack and answers a fixed query set"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Wrong data in a structurally sound file.",
+      "expected": "ok",
+      "id": "SQL-001",
+      "measured": "ok",
+      "status": "pass",
+      "title": "SQLite structure is sound (PRAGMA quick_check)"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "A table that has rows but is missing most of them.",
+      "expected": "0 empty tables",
+      "id": "ROW-001",
+      "measured": 0,
+      "status": "pass",
+      "title": "No data table is empty"
+    },
+    {
+      "blocking": false,
+      "cannot_catch": "A change that keeps counts steady (rows replaced by wrong rows), and any defect already present in the previous edition.",
+      "expected": "no table moves more than 10%; a larger move needs a build note",
+      "id": "ROW-002",
+      "measured": "largest change: airways -17.3% (1,504 -> 1,244)",
+      "status": "warn",
+      "title": "Row counts against the previous edition"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "A plausible coordinate in the wrong place, such as a transposed digit that still lands on land.",
+      "expected": "0 bad coordinates",
+      "id": "GEO-001",
+      "measured": 0,
+      "status": "pass",
+      "title": "Coordinates are valid and not at 0,0"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Two different things given the same correct-looking identifier in different tables, and a wrong identifier that happens to be unique.",
+      "expected": "0 duplicates",
+      "id": "UNQ-001",
+      "measured": "procedures(airport, kind, ident) 0",
+      "status": "pass",
+      "title": "Identifiers that must be unique are unique"
+    },
+    {
+      "blocking": false,
+      "cannot_catch": "A point moved to the wrong place inside the envelope; the envelope is a handful of boxes, not a coastline.",
+      "expected": "no growth beyond 25 points or 10%, whichever is larger. FAA files carry real oceanic and foreign points, so the count is tracked, not forbidden",
+      "id": "GEO-002",
+      "measured": "641 (previous 1,007)",
+      "status": "pass",
+      "title": "Points outside the US coverage envelope, against the previous edition"
+    },
+    {
+      "blocking": false,
+      "cannot_catch": "A fix placed at the wrong coordinates. Legs with no fix by design (for example heading legs) are not counted.",
+      "expected": "at most 0.5% of legs. Observed: 950 of 201,030 in 2610 and 941 of 200,853 in 2611",
+      "id": "PROC-FIX-001",
+      "measured": "941 of 200,853 legs (0.47%)",
+      "status": "pass",
+      "title": "Procedure legs that name a fix the build could not place"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Two areas' airways merged under one ident row; PROC-AWY-002 looks for that.",
+      "expected": "0 duplicate idents",
+      "id": "PROC-AWY-001",
+      "measured": "0 duplicate idents; unique index present",
+      "since": "AER-1979",
+      "status": "pass",
+      "title": "Airway idents are unique"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Two areas' legs merged with sequence numbers that do not collide, and an airway whose legs are all present but in the wrong order.",
+      "expected": "0 airways",
+      "id": "PROC-AWY-002",
+      "measured": 0,
+      "since": "AER-1979",
+      "status": "pass",
+      "title": "No airway mixes legs from two areas (repeated sequence numbers)"
+    },
+    {
+      "blocking": false,
+      "cannot_catch": "Everything outside the fixture's handful of procedures.",
+      "expected": "the fixture's procedures decode to their published legs",
+      "id": "PROC-GLD-001",
+      "measured": null,
+      "note": "The golden fixture runs in the unit tests against the parser (tests/test_build_procedures.py), not against a built pack. Catalogue v2 (TV7) moves it here.",
+      "status": "not-run",
+      "title": "FAACIFP18 golden fixture"
+    },
+    {
+      "blocking": false,
+      "cannot_catch": "Errors that both databases share.",
+      "expected": "no unexplained differences",
+      "id": "PROC-DIFF-001",
+      "measured": null,
+      "note": "Not yet run (AER-1702). Until it is, nothing independent of the FAA source has been compared against this pack's procedures.",
+      "status": "not-run",
+      "title": "Independent differential against a commercial database"
+    }
+  ],
+  "metrics": {
+    "GEO-002": {
+      "airway_legs.fix_lat": 335,
+      "legs.centre_lat": 14,
+      "legs.fix_lat": 292
+    },
+    "PROC-FIX-001": {
+      "by_fix_type": {
+        "airport": 641,
+        "ndb": 188,
+        "vor": 112
+      },
+      "legs": 200853,
+      "unresolved": 941
+    }
+  },
+  "notice": "Experimental / Amateur-Built use only. Provided as-is, with no warranty. Not certified. Not for primary navigation. Use at your own risk.",
+  "origin": "federal",
+  "pack": {
+    "bytes": 21798912,
+    "cycle": "2611",
+    "id": "procedures-conus",
+    "kind": "procedures",
+    "schema_version": "1",
+    "sha256": "2ac5c748f9406817aacff0e84855afa6460efc7bf1d823b3a73635184dfe1099"
+  },
+  "previous": {
+    "cycle": "2610",
+    "sha256": "e373c924c3febb08bb97d9320b4f322d2fbb66583cd0fcf0aa473b9d3ed20385"
+  },
+  "record": "build",
+  "schema": "pack-report/1",
+  "sources": [],
+  "summary": {
+    "fail": 0,
+    "not_run": 4,
+    "pass": 11,
+    "warn": 1
+  },
+  "tables": {
+    "airway_legs": {
+      "prev": 19391,
+      "rows": 16960
+    },
+    "airways": {
+      "prev": 1504,
+      "rows": 1244
+    },
+    "legs": {
+      "prev": 201030,
+      "rows": 200853
+    },
+    "procedures": {
+      "prev": 14338,
+      "rows": 14303
+    },
+    "transitions": {
+      "prev": 52352,
+      "rows": 52317
+    }
+  }
+}
