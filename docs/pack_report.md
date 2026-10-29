@@ -3,8 +3,9 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 **Status:** schema, 2026-10-28 (AER-4099, testing-visibility item TV1).
-Nothing writes a report yet; `packtool report` is TV2 and the publish wiring
-is TV3. The `auspex` section (below) is **pending Bill's sign-off at the TV14
+`packtool report` writes records and `packtool report --check` re-runs them
+(AER-4100, TV2; see [Writing and checking a record](#writing-and-checking-a-record)).
+Nothing publishes one yet: the publish wiring is TV3. The `auspex` section (below) is **pending Bill's sign-off at the TV14
 schema review** and must not be emitted before then.
 
 Every pack edition gets one test record: the checks that ran on it, what each
@@ -57,6 +58,7 @@ separate, unsigned `status.json` overlay (TV8), never into the record.
 | `tables` | object | yes | Row counts per table, with the previous edition's counts. |
 | `summary` | object | yes | Tally of `checks[].status`. |
 | `notice` | string | yes | The short standing text, verbatim (below). |
+| `metrics` | object | no | Per-check breakdowns keyed by check id (below). |
 | `auspex` | object | no | At most one. Fixed schema, **pending sign-off** (below). |
 
 Consumers ignore unknown top-level fields, so `pack-report/1` may gain
@@ -142,6 +144,16 @@ A check can "pass". A pack is never "passed".
 `checks[].status`, nothing else. A renderer reads this for the catalog line;
 it must equal the tally of `checks` or the record is malformed.
 
+### `metrics`
+
+Optional. The detail behind a check's one-line `measured`, keyed by check
+id, so that the next edition's delta checks can read it from this record
+without the old pack: `OSM-001` per-region feature counts, `GEO-002` points
+outside the coverage envelope per column, `UNQ-002` reused-ident counts,
+`PROC-FIX-001` unresolved legs by fix type, `ACC-001` the device query
+results, `TER-002` tile counts. `--check` compares `checks` and `tables`,
+not `metrics`.
+
 ### `notice`
 
 Exactly the manifest `notice` text, `packtools.manifest.NOTICE`:
@@ -200,6 +212,68 @@ false-pass rates); totals across runs.
 
 `packtool report --check` prints this section's results as "not reproducible
 here (Auspex)", with each finding's locator.
+
+## Writing and checking a record
+
+```bash
+packtool report PACK [--previous PREV.pack|PREV.report.json] [--inputs DIR] \
+                [--note CHECK_ID=TEXT ...] [--sources sources.json] [-o out.json]
+packtool report --check PACK [--against report.json|URL] [--previous ...]
+packtool report --list-checks [--kind KIND]
+```
+
+`packtool report` runs the kind's catalogue and writes the record in the
+canonical bytes above. It exits 1 when the record would stop a publish: a
+blocking check failed, or a check warned without a `--note`. The record is
+written either way.
+
+`--check` re-runs the checks on a pack you downloaded and compares each
+check's `status` and `measured`, plus `tables` and the pack's identity,
+against the published record. Without `--against` it finds the record
+through the signed live manifest (signature, then the pack's sha256, then
+`report_sha256`). A check that needs something you did not supply (the
+previous edition for a delta, the upstream CSVs for `schema_guard` layers
+1-3, a pyEfis checkout for device acceptance) prints as "not reproducible
+here" with the reason, not as a mismatch. It exits 1 on any mismatch.
+
+Every request either command makes sends its own user agent: the CDN
+answers 403 to Python's default `urllib` one (`packtools.fetch.USER_AGENT`).
+
+### Device acceptance (ACC-001)
+
+pyEfis's own reader opens the pack and answers a fixed set of queries for
+the kind: airports near five US cities, ident lookups, airway legs, road
+and water features near fixed points, one terrain tile or mosaic level
+(`packtools/device_probe.py`). The probe runs in its own process against
+a separate pyEfis checkout (`--pyefis-src`, `PYEFIS_SRC_DIR`, or the
+`src/` beside `PYEFIS_TOOLS_DIR`), the same way the builders run
+`pyEfis/tools`; no pyEfis code is in this repo. If no checkout is available,
+or its reader cannot be imported (for terrain the SVS reader needs PyQt6),
+the check is `not-run` with the reason.
+
+### The v1 check catalogue
+
+`packtool report --list-checks` prints every kind's checks with their
+expectation and `cannot_catch` line; `packtools/report.py` is the source.
+Thresholds are named constants at the top of that file.
+
+**The definitions and thresholds are pending QA review (AER-4102)** before
+any of them gates a publish (plan section 4.4). The author proposes; QA
+decides what to accept.
+
+Which checks apply:
+
+| Applies to | Checks |
+|---|---|
+| Every kind | `PACK-001..004` identity, attribution and license, origin, sources; `ACC-001` device acceptance |
+| SQLite packs | `SQL-001` quick_check; `ROW-001` no empty table; `ROW-002` row counts against the previous edition |
+| navdata, navaids, obstacles | `SG-001..004`, the four `schema_guard` layers, persisted |
+| navdata, airports, navaids, obstacles, procedures | `GEO-001` valid coordinates; `UNQ-001` unique identifiers |
+| FAA kinds | `GEO-002` points outside the US coverage envelope against the previous edition |
+| navaids | `UNQ-002` identifiers the FAA reuses, against the previous edition |
+| procedures | `PROC-FIX-001` unresolved-fix legs; `PROC-AWY-001`, `PROC-AWY-002` airway idents and the AER-1979 area merge; `PROC-GLD-001` and `PROC-DIFF-001` (`not-run`) |
+| terrain | `TER-001` member layout and sizes; `TER-002` tiles inside the region; `TER-003` water masks (AER-2287); `TER-004` sampled elevation range; `TER-005` (`not-run`) |
+| water, highways, rivers | `OSM-001` counts per region (#17); `OSM-002` per state (`not-run`, TV7); `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
 
 ## Manifest fields
 
