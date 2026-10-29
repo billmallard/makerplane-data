@@ -285,6 +285,120 @@ def cmd_build_roads(args) -> int:
     return 0
 
 
+def _kv_list(items, flag: str) -> dict:
+    out = {}
+    for item in items or []:
+        k, sep, v = item.partition("=")
+        if not sep or not k:
+            raise SystemExit(f"{flag} wants KEY=VALUE, got {item!r}")
+        out[k] = v
+    return out
+
+
+def _list_checks(kind: str | None) -> int:
+    from . import report
+    cats = report.all_checks()
+    for k in ([kind] if kind else sorted(cats)):
+        print(f"== {k}")
+        for c in cats[k]:
+            flag = "blocking" if c.blocking else "non-blocking"
+            print(f"  {c.id:<14} {flag:<13} {c.title}")
+            print(f"  {'':<14} expected:     {c.expected}")
+            print(f"  {'':<14} cannot catch: {c.cannot_catch}")
+    return 0
+
+
+def _published_report_for(pack: Path, args) -> dict:
+    """Find the published record for these bytes through the signed live
+    manifest: verify the signature, match the pack's sha256 to an entry,
+    fetch its report_url and check it against report_sha256."""
+    import json
+    from .fetch import http_get
+    from .manifest import Manifest
+    sha = signing.sha256_file(pack)
+    raw = http_get(args.manifest_url)
+    signing.verify(raw, http_get(args.manifest_url + ".minisig").decode("ascii"),
+                   Path(args.pub).read_text(encoding="ascii"))
+    entry = next((p for p in Manifest.from_bytes(raw, lenient=True).packs if p.sha256 == sha), None)
+    if entry is None:
+        raise SystemExit("these bytes match no entry in the signed manifest; pass --against")
+    if not entry.report_url:
+        raise SystemExit(f"{entry.id} {entry.cycle} has no published report yet; pass --against")
+    body = http_get(entry.report_url)
+    import hashlib
+    if hashlib.sha256(body).hexdigest() != entry.report_sha256:
+        raise SystemExit(f"{entry.report_url} does not match the report_sha256 the signed "
+                         "manifest carries")
+    print(f"published record: {entry.report_url} (sha256 matches the signed manifest)")
+    return json.loads(body)
+
+
+def _load_against(spec: str) -> dict:
+    import json
+    if spec.startswith(("https://", "http://")):
+        from .fetch import http_get
+        return json.loads(http_get(spec))
+    return json.loads(Path(spec).read_text(encoding="utf-8"))
+
+
+def cmd_report(args) -> int:
+    from . import report
+    if args.list_checks:
+        return _list_checks(args.kind)
+    if not args.pack:
+        raise SystemExit("report: a pack file is required (or --list-checks)")
+    pack = Path(args.pack)
+    if not pack.is_file():
+        raise SystemExit(f"pack not found: {pack}")
+    previous = report.previous_from(args.previous) if args.previous else None
+    common = dict(previous=previous, inputs=args.inputs, pyefis_src=args.pyefis_src,
+                  probe=not args.no_device)
+
+    if args.check:
+        published = (_load_against(args.against) if args.against
+                     else _published_report_for(pack, args))
+        here = report.build_report(pack, origin=published.get("origin"), **common)
+        rows, problems = report.compare(published, here)
+        for r in rows:
+            print(f"{r.id:<14} {r.outcome:<22} published {r.published}")
+            if r.outcome in ("MISMATCH", "not reproducible here"):
+                print(f"{'':<37} here      {r.here}")
+        for line in report.auspex_lines(published):
+            print(line)
+        for p in problems:
+            print(f"MISMATCH {p}")
+        bad = problems + [r.id for r in rows if r.outcome == "MISMATCH"]
+        n_ok = sum(1 for r in rows if r.outcome == "reproduced")
+        print(f"{n_ok} reproduced, {len(bad)} mismatched, "
+              f"{sum(1 for r in rows if r.outcome == 'not reproducible here')} not reproducible here")
+        return 1 if bad else 0
+
+    sources = []
+    if args.sources:
+        import json
+        sources = json.loads(Path(args.sources).read_text(encoding="utf-8"))
+    rec = report.build_report(
+        pack, record=args.record, origin=args.origin, sources=sources,
+        notes=_kv_list(args.note, "--note"), commit=args.build_commit,
+        builder_refs=_kv_list(args.builder_ref, "--builder-ref"), **common)
+    errs = report.validate_report(rec)
+    out = Path(args.out or f"{rec['pack']['id']}-{rec['pack']['cycle']}.report.json")
+    out.write_bytes(report.to_bytes(rec))
+    s = rec["summary"]
+    print(f"{out}: {s['pass']} pass / {s['warn']} warn / {s['fail']} fail / "
+          f"{s['not_run']} not run")
+    for c in rec["checks"]:
+        if c["status"] != "pass":
+            detail = c["measured"] if c["status"] != "not-run" else c.get("note", "")
+            print(f"  {c['status'].upper():<8} {c['id']:<14} {detail}")
+    for e in errs:
+        print(f"  MALFORMED {e}", file=sys.stderr)
+    blockers = report.publish_blockers(rec)
+    for b in blockers:
+        print(f"  BLOCKS PUBLISH  {b}")
+    return 1 if (blockers or errs) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="packtool")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -386,6 +500,34 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--keep-zips", action="store_true",
                    help="don't delete state zips after extraction")
     r.set_defaults(func=cmd_build_roads)
+
+    rep = sub.add_parser("report", help="write a pack's pack-report/1 test record, or "
+                         "re-run its open checks with --check (docs/pack_report.md)")
+    rep.add_argument("pack", nargs="?", help="the pack file")
+    rep.add_argument("--check", action="store_true",
+                     help="re-run the open checks and diff against the published record")
+    rep.add_argument("--against", help="published report.json (path or URL) for --check; "
+                     "default: look the pack up in the signed live manifest")
+    rep.add_argument("--list-checks", action="store_true", help="print the v1 catalogue")
+    rep.add_argument("--kind", choices=KINDS, help="with --list-checks: one kind only")
+    rep.add_argument("--previous", help="previous edition: its pack file or its report.json")
+    rep.add_argument("--inputs", help="extracted upstream files, for schema_guard layers 1-3")
+    rep.add_argument("--pyefis-src", dest="pyefis_src",
+                     help="pyEfis checkout's src/ dir for device acceptance "
+                          "(default: PYEFIS_SRC_DIR, or PYEFIS_TOOLS_DIR/../src)")
+    rep.add_argument("--no-device", action="store_true", help="skip device acceptance")
+    rep.add_argument("--record", choices=("build", "retro", "rejected"), default="build")
+    rep.add_argument("--origin", help="federal / community / user-supplied "
+                     "(default: by kind; required for terrain)")
+    rep.add_argument("--sources", help="JSON file: the record's sources[] array")
+    rep.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",
+                     help="build note for a check (a warn without one blocks a publish)")
+    rep.add_argument("--builder-ref", action="append", metavar="NAME=SHA")
+    rep.add_argument("--build-commit", help="makerplane-data commit (default: git HEAD)")
+    rep.add_argument("-o", "--out", help="output path (default: <id>-<cycle>.report.json)")
+    rep.add_argument("--manifest-url", default=_DEFAULT_URL_BASE.rsplit("/", 1)[0] + "/manifest.json")
+    rep.add_argument("--pub", default="keys/minisign.pub")
+    rep.set_defaults(func=cmd_report)
 
     return ap
 
