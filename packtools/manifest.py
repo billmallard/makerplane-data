@@ -28,8 +28,8 @@ from .signing import sha256_file
 # (testing-visibility plan section 4.7, Bill's D3 ruling, 2026-10-28). The
 # same words close every pack report (docs/pack_report.md). Changing it is
 # Bill's call; it is not a wording to tune.
-NOTICE = ("Experimental / Amateur-Built use only. Provided as-is, with no "
-          "warranty. Not certified. Not for primary navigation. Use at your "
+NOTICE = ("Experimental / Amateur-Built use only. Not certified. This data is "
+          "provided as-is with no warranty and any use of the data is at your "
           "own risk.")
 
 # Coarse data-pedigree label (docs/do200b_applicability.md section 5).

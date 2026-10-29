@@ -188,8 +188,8 @@ not `metrics`.
 
 Exactly the manifest `notice` text, `packtools.manifest.NOTICE`:
 
-> Experimental / Amateur-Built use only. Provided as-is, with no warranty. Not
-> certified. Not for primary navigation. Use at your own risk.
+> Experimental / Amateur-Built use only. Not certified. This data is provided
+> as-is with no warranty and any use of the data is at your own risk.
 
 ## The `auspex` section -- PENDING SIGN-OFF
 
@@ -418,6 +418,6 @@ measured 2026-10-28; sha fields and the check list are placeholders.
   "tables": {"airways": {"rows": 1244, "prev": 1504},
              "airway_legs": {"rows": 16960, "prev": 19391}},
   "summary": {"pass": 1, "warn": 0, "fail": 0, "not_run": 1},
-  "notice": "Experimental / Amateur-Built use only. Provided as-is, with no warranty. Not certified. Not for primary navigation. Use at your own risk."
+  "notice": "Experimental / Amateur-Built use only. Not certified. This data is provided as-is with no warranty and any use of the data is at your own risk."
 }
 ```
