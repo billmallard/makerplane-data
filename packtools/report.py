@@ -772,7 +772,8 @@ def _c_osm_regions(ctx):
     if worst is None:
         return _not_run(f"No region had {OSM_REGION_MIN} or more features in the previous edition.")
     frac, t, k, old, new = worst
-    measured = f"largest drop: {t} {k} {_pct(new, old)} ({old:,} -> {new:,})"
+    lead = "largest drop" if frac < 0 else "no region dropped; smallest growth"
+    measured = f"{lead}: {t} {k} {_pct(new, old)} ({old:,} -> {new:,})"
     if emptied:
         return ("fail", measured, "")
     return ("warn" if -frac > OSM_REGION_DROP_WARN else "pass", measured, "")

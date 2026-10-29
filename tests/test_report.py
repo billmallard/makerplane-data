@@ -392,6 +392,17 @@ def test_osm_region_counts_and_schema_agreement_pass_on_a_steady_edition(tmp_pat
     assert c["OSM-002"]["status"] == "not-run" and "TV7" in c["OSM-002"]["note"]
 
 
+def test_osm_region_wording_when_every_region_grew(tmp_path):
+    # AER-4102: measured said "largest drop" on highways 2026q3r1, where
+    # every region grew.
+    prev = report.previous_from(_hwy_pack(tmp_path / "r1.pack", "r1", {CA: 200, TX: 200}))
+    c = _by_id(_rep(_hwy_pack(tmp_path / "r2.pack", "r2", {CA: 250, TX: 210}),
+                    previous=prev))["OSM-001"]
+    assert c["status"] == "pass" and "drop" not in c["measured"].replace("no region dropped", "")
+    assert c["measured"].startswith("no region dropped; smallest growth: highway_lines ")
+    assert "+5.0% (200 -> 210)" in c["measured"]
+
+
 def test_highways_schema_version_drift_fails(tmp_path):
     pack = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})
     packmeta.embed_sqlite(pack, PackMeta(id="highways-conus", kind="highways", cycle="r1",
