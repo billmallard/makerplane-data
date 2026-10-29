@@ -24,6 +24,7 @@ class ObjectStore(Protocol):
     def put_file(self, key: str, path: str | Path, content_type: str | None = None) -> None: ...
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> None: ...
     def get_bytes(self, key: str) -> bytes | None: ...
+    def list_keys(self, prefix: str) -> list[str]: ...
 
 
 class LocalStore:
@@ -52,6 +53,11 @@ class LocalStore:
     def get_bytes(self, key: str) -> bytes | None:
         p = self._p(key)
         return p.read_bytes() if p.exists() else None
+
+    def list_keys(self, prefix: str) -> list[str]:
+        """Every key starting with ``prefix``, sorted."""
+        keys = (p.relative_to(self.root).as_posix() for p in self.root.rglob("*") if p.is_file())
+        return sorted(k for k in keys if k.startswith(prefix))
 
 
 class R2Store:
@@ -109,3 +115,11 @@ class R2Store:
             if e.response["Error"]["Code"] in ("404", "NoSuchKey", "NotFound"):
                 return None
             raise
+
+    def list_keys(self, prefix: str) -> list[str]:
+        """Every key starting with ``prefix``, sorted (all pages of the listing)."""
+        keys = []
+        for page in self._s3.get_paginator("list_objects_v2").paginate(
+                Bucket=self.bucket, Prefix=prefix):
+            keys.extend(o["Key"] for o in page.get("Contents", []))
+        return sorted(keys)
