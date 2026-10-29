@@ -138,6 +138,13 @@ listed as `not-run` with its `note`. Leaving it out would imply it passed.
 
 **What blocks a publish** (`report.publish_blockers`, QA AER-4102):
 
+The gate takes the check set and each check's `blocking` flag from the
+catalogue for the record's kind in `packtools/report.py`, never from the
+record it judges (R1). Editing `blocking`, dropping a check or changing
+`record` in a record cannot clear it.
+
+- a record that is not `build`: only a build record can clear the gate (R1);
+- a catalogue check missing from the record, or a kind that is not known (R1);
 - a check that raised, whatever its `blocking` flag (C2);
 - a blocking check that failed;
 - a `warn` with no build note;
@@ -146,11 +153,13 @@ listed as `not-run` with its `note`. Leaving it out would imply it passed.
   declaration lives in `packtools/report.py` (`Check.exempt`), never in the
   record or at run time. Declared today: `first-edition` on the delta checks
   `OSM-001`, `ROW-003` and `TER-006`, given only when the caller passes
-  `--first-edition`; and `mosaic-pack` on `TER-002`. `ACC-001` declares none,
+  `--first-edition`; and `mosaic-pack` on `TER-002`, only for the pack whose
+  `pack_meta.id` is `terrain-mosaic` (R2). A regional terrain pack with no
+  native tiles fails `TER-002`. `ACC-001` declares none,
   so a missing or unloadable pyEfis reader always blocks;
 - in a `build` record, a kind that is ungated.
 
-A `retro` record gates nothing; only the first rule applies to it.
+A `retro` or `rejected` record never clears the gate.
 
 A check can "pass". A pack is never "passed".
 
