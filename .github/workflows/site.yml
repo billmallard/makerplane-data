@@ -1,0 +1,88 @@
+name: site
+
+# Deploy site/ (index.html, data.yaml.sample, assets/) to the root of the
+# makerplane-data bucket, served at https://navdata.aerocommons.org/.
+# `packtool deploy-site` writes only files whose bytes differ from the live
+# object and refuses any key the pack pipeline owns (manifest, signature,
+# packs/). It replaces the manual `wrangler r2 object put`, which needed
+# Bill's OAuth login (AER-4098).
+#
+#   push to main  -- a release that changes site/ deploys it, the same way a
+#                    merge to main deploys the prod Worker
+#                    (docs/release_process.md).
+#   schedule      -- daily, two hours after the cyclical build: re-renders the
+#                    test-report pages (reports/**.html, reports/index.json)
+#                    from whatever records the publish paths have uploaded,
+#                    so a new record gets its page without anyone deploying.
+#   dispatch      -- an out-of-band deploy from the chosen branch, e.g. a fix
+#                    merged to dev that should not wait for the next release.
+#                    `dry_run` (default on) lists what would change and
+#                    writes nothing.
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "packtools/reportsite.py"]
+  schedule:
+    - cron: "20 11 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "list what would change; write nothing"
+        type: boolean
+        default: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency: site-deploy
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .[build]
+
+      - name: Deploy site/ to the bucket root
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          packtool deploy-site --bucket makerplane-data \
+            ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
+
+      # The pages are rendered from the records in the bucket, never from
+      # this checkout; a banned word or a leaked host in any page fails here
+      # and nothing is written.
+      - name: Render the test-report pages
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          packtool report-site --bucket makerplane-data \
+            ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
+
+      # The upload succeeding is not the proof; the public URL serving the
+      # committed bytes is.
+      - name: Verify the public site serves site/
+        if: ${{ env.DRY_RUN != 'true' }}
+        run: |
+          fail=0
+          cd site
+          for f in $(find . -type f | sed 's|^\./||' | sort); do
+            if curl -fsS "https://navdata.aerocommons.org/$f?run=$GITHUB_RUN_ID" | cmp -s - "$f"; then
+              echo "ok    $f"
+            else
+              echo "DIFF  $f"; fail=1
+            fi
+          done
+          if curl -fsS "https://navdata.aerocommons.org/reports/index.json?run=$GITHUB_RUN_ID" \
+              | python -c "import json,sys; assert json.load(sys.stdin)['schema'] == 'report-index/1'"; then
+            echo "ok    reports/index.json"
+          else
+            echo "BAD   reports/index.json"; fail=1
+          fi
+          exit $fail

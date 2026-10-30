@@ -27,6 +27,7 @@ import {
   touchLastPull,
 } from "./db";
 import { claimCode, randomToken, sha256B64url } from "./crypto";
+import { devicePreferences, serveDeviceConfig } from "./device_prefs";
 import { emailRequest, emailVerify } from "./email";
 import { googleCallback, googleStart } from "./google";
 import { endSession, requireUser } from "./session";
@@ -182,6 +183,18 @@ app.get("/api/devices/:id/config", async (c) => {
   return c.body(await obj.text(), 200, { "content-type": "application/x-yaml" });
 });
 
+// The device preferences the device would receive with its next pull (#108),
+// derived from the owning project's active aircraft profile by the same
+// function /device/config uses -- so the editor preview shows what the device
+// will. {} when the profile sets nothing.
+app.get("/api/devices/:id/preferences", async (c) => {
+  const userId = c.get("userId");
+  const device = await getDevice(c.env.DB, userId, Number(c.req.param("id")));
+  if (!device) return c.json({ error: "device not found" }, 404);
+  const row = await getAircraftProfile(c.env.DB, userId, Number(device["project_id"]));
+  return c.json({ preferences: devicePreferences(row ? row["json"] : null) });
+});
+
 // Pairing: the owner mints a short claim code (KV holds it with a TTL); the
 // device redeems it for a long-lived token (see /device/pair below). #65 P1.
 app.post("/api/devices/:id/pair", async (c) => {
@@ -215,9 +228,11 @@ app.post("/device/pair", async (c) => {
   return c.json({ device_token: token, device_id: device["id"], name: device["name"] });
 });
 
-// The device pulls its latest panel config (native pyEfis YAML). Authed by the
-// device token (Bearer). ETag = config version, so the on-Pi updater can send
-// If-None-Match and get a cheap 304 when nothing changed. #65 P2.
+// The device pulls its latest panel config (native pyEfis YAML), plus a
+// `preferences:` block from the project's aircraft profile (#108). Authed by the
+// device token (Bearer). ETag = config version (+ a hash of the preferences
+// block when there is one -- see device_prefs.ts), so the on-Pi updater can
+// send If-None-Match and get a cheap 304 when nothing changed. #65 P2.
 app.get("/device/config", async (c) => {
   const auth = c.req.header("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -229,16 +244,19 @@ app.get("/device/config", async (c) => {
     await touchLastPull(c.env.DB, deviceId);
     return c.json({ error: "no config yet" }, 404);
   }
-  const etag = `"v${row["version"]}"`;
   await touchLastPull(c.env.DB, deviceId);
-  if (c.req.header("if-none-match") === etag) {
-    return c.body(null, 304, { etag });
-  }
+  // The ETag depends on what is actually served (blob + preferences block), so
+  // the blob is read before the 304 check. Devices pull on boot only; the extra
+  // R2 read on a 304 is not worth a second code path that could disagree.
   const obj = await c.env.CONFIGS.get(String(row["yaml_r2_key"]));
   if (!obj) return c.json({ error: "config blob missing" }, 404);
-  return c.body(await obj.text(), 200, {
+  const served = await serveDeviceConfig(await obj.text(), String(row["version"]), row["profile_json"]);
+  if (c.req.header("if-none-match") === served.etag) {
+    return c.body(null, 304, { etag: served.etag });
+  }
+  return c.body(served.body, 200, {
     "content-type": "application/x-yaml",
-    etag,
+    etag: served.etag,
     "x-config-version": String(row["version"]),
   });
 });

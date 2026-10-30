@@ -44,6 +44,19 @@ def test_regions_for_tile_offshore_is_empty():
     assert regions.regions_for_tile("N00W030", r) == []   # mid-Atlantic
 
 
+def test_alaska_region_reaches_adak_but_not_chukotka():
+    """AER-1990: lon_min -177 (not the old -170, not all the way to -180)
+    -- real, measured tradeoff in docs/aer-1990-alaska-region-gap.md."""
+    r = regions.load_regions()["alaska"]
+    assert r.contains(51.872, -176.676)       # PADK Adak Island, real d-TPP airport
+    assert r.contains(52.220, -174.206)       # PAAK Atka
+    assert r.contains(63.767, -171.733)       # PAGM Gambell
+    assert not r.contains(66.5, -179.5)       # Chukotka Peninsula (Russia), not Alaska
+    assert not r.contains(52.712, 174.114)    # PASY Eareckson/Shemya -- across the
+                                               # antimeridian, unreachable by any
+                                               # lon_min/lon_max bbox, still an open gap
+
+
 def test_manifest_regions_block_shape():
     block = regions.manifest_regions_block(regions.load_regions())
     assert block["conus"]["bbox"] == [24, -125, 50, -66]

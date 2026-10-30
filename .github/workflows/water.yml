@@ -7,6 +7,13 @@ name: water-packs
 # enough to build entirely in CI for modest scopes. Full CONUS is a large
 # multi-GB Geofabrik download; prefer a workstation or a self-hosted runner
 # for that, or split by state group.
+#
+# Publish gate (TV3, AER-4101): build-pack --upload writes the pack's
+# pack-report/1 test record before the manifest is signed. A pack whose
+# blocking checks fail, or that warns with no build note, is not published;
+# its record goes to reports/rejected/. A published (id, cycle) is
+# immutable: a rebuild needs a new cycle tag. Build notes come only from the
+# person dispatching (`notes`), for this edition.
 on:
   workflow_dispatch:
     inputs:
@@ -14,8 +21,11 @@ on:
         description: "Geofabrik states (e.g. 'texas' or 'conus')"
         default: "texas"
       cycle:
-        description: "Edition tag"
+        description: "Edition tag (a published cycle cannot be republished: use a new tag)"
         default: "2026q2"
+      notes:
+        description: "Build notes for checks that warn, written for this edition: JSON, e.g. {\"ROW-002\": \"why\"}"
+        default: ""
 
 env:
   PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
@@ -34,23 +44,49 @@ jobs:
           repository: ${{ env.PYEFIS_REPO }}
           ref: ${{ env.PYEFIS_REF }}
           path: pyefis-src
-      - run: pip install -e .[build] pyshp
+      # numpy: pyEfis's water reader, for the gate's device acceptance check.
+      - run: pip install -e .[build] pyshp numpy
 
       - name: Fetch + build water.sqlite (pyEfis tools)
+        id: build
         run: |
           python pyefis-src/tools/fetch_geofabrik_water.py --states "${{ inputs.states }}"
           # produces water.sqlite via build_water_db (see the tool's --help for
           # the ocean coastline extract it expects)
 
-      - name: Pack + upload (signed)
+      - name: Pack + gate + upload (signed)
+        id: publish
         env:
           R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
           R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
+          PYEFIS_SRC_DIR:       ${{ github.workspace }}/pyefis-src/src
+          NOTES:                ${{ inputs.notes }}
         run: |
-          python -m packtools.cli build-pack water.sqlite \
+          notes=()
+          if [ -n "$NOTES" ]; then printf '%s' "$NOTES" > notes.json; notes=(--notes-file notes.json); fi
+          python -m packtools.cli build-pack water.sqlite "${notes[@]}" \
             --id water-conus --kind water --cycle "${{ inputs.cycle }}" \
             --attribution "OpenStreetMap contributors (ODbL); Natural Earth" \
+            --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
             --regions conus --url-base https://navdata.aerocommons.org/packs \
             --upload --bucket makerplane-data
+
+      # The public run page's record of what this run checked, rendered from
+      # the test record the publish gate wrote (AER-4101). always(): a failed
+      # or refused build still says what it checked and why it stopped.
+      - name: Job summary
+        if: ${{ always() }}
+        env:
+          STATES:  ${{ inputs.states }}
+          CYCLE:   ${{ inputs.cycle }}
+          BUILD:   ${{ steps.build.outcome }}
+          UPLOAD:  ${{ steps.publish.outcome }}
+        run: |
+          mkdir -p work/reports
+          packtool job-summary --title "water-packs: water-conus $CYCLE" \
+            --records work/reports \
+            --file water.sqlite --file "work/packs/water-conus-$CYCLE.pack" \
+            --input "states=$STATES" --input "cycle=$CYCLE" \
+            --input "fetch + build=$BUILD" --input "gate + sign + upload=$UPLOAD"

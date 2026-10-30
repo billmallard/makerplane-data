@@ -37,7 +37,9 @@ silently**, and the container aborts with the "TILE_ROOT missing/empty" guard.
    to match `ls /share/`.
 3. **Secrets.** `cp .env.example .env` and fill in the R2 creds (from *CloudFlare
    R2 Bucket Keys.txt*) and `MINISIGN_SECRET_KEY` (the base64 contents of
-   `keys/minisign.sec`). `.env` is gitignored — never commit it.
+   `keys/minisign.sec`). `.env` is gitignored — never commit it. Add
+   `EDITION=<edition id>` there too (or export it in the shell): it has no
+   default, and compose refuses to start without it.
 4. **Run it.** In Container Station, "Create Application" from `docker-compose.yml`;
    or over SSH:
    ```bash
@@ -56,16 +58,19 @@ silently**, and the container aborts with the "TILE_ROOT missing/empty" guard.
 - **Don't** run this while the nightly navdata cron is publishing (both rewrite
   the manifest). Pick a quiet window.
 
-## Config (env, all optional except secrets)
+## Config (env, all optional except secrets and `EDITION`)
 
 | var | default | notes |
 |---|---|---|
-| `EDITION` | `2024ed` | reuse the cycle tag → in-place manifest upsert (see docs/terrain.md) |
+| `EDITION` | **required** | terrain edition id; reuse the cycle tag → in-place manifest upsert (see docs/terrain.md). No default: one went stale when `2024ed` was retracted, so an unset `EDITION` fails the run |
 | `TILE_ROOT` | `/data/glo30hgt` | native tiles (container path; `/data` is the NAS mount) |
 | `PACK_OUT` | `/data/pack-scratch` | region packs stage here, deleted after each upload |
 | `REGIONS` | all 8 NA | space-separated subset to (re)publish just some |
 | `JOBS` | `0` (all cores) | mip build workers; `8` set in compose for the V1500B |
-| `CODE_REF` | `dev` | branch/tag of pyEfis + makerplane-data to run |
+| `CODE_REF` | `dev` | branch/tag of makerplane-data to clone (and of pyEfis unless `PYEFIS_REF` is set). Ignored for makerplane-data when `entrypoint.sh` runs from inside a checkout -- that checkout is used |
+| `PYEFIS_REF` | `CODE_REF` (`dev` when run from a checkout) | branch/tag of pyEfis to clone |
+| `WATER_PACK_ID` | `water-na` | published water pack whose water.sqlite step 2b rasterizes into `.wmask` masks |
+| `WATER_CACHE` | `/data/water-cache` | where that pack is cached (sha-checked, reused across runs) |
 
 ## Portability
 

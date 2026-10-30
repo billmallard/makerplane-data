@@ -180,6 +180,46 @@ def test_build_pack_noncyclical_requires_cycle(tmp_path):
                   "--out", str(tmp_path / "w")])
 
 
+def test_make_plates_cli_end_to_end_no_network(tmp_path):
+    # Pre-seed everything make_plates.run() would otherwise fetch (metafile,
+    # PDFs, the OurAirports region-join CSVs via --ourairports-cache) so this
+    # exercises the real CLI argument wiring with no network at all.
+    from pathlib import Path as _P
+
+    fixtures = _P(__file__).resolve().parent / "fixtures" / "dtpp"
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "d-tpp_Metafile_2609.xml").write_bytes((fixtures / "metafile_2609_sample.xml").read_bytes())
+    pdf_dir = work / "pdfs"
+    pdf_dir.mkdir()
+    from packtools.dtpp import parse_metafile
+    real_pdf = (fixtures / "01244IYLY23.PDF").read_bytes()
+    for name in {r.pdf_name for r in parse_metafile(fixtures / "metafile_2609_sample.xml")}:
+        (pdf_dir / name).write_bytes(real_pdf if name == "01244IYLY23.PDF" else b"%PDF-fake")
+
+    cache_dir = tmp_path / "oa_cache"
+    cache_dir.mkdir()
+    # In the "alaska" region box on purpose (see
+    # tests/test_make_plates.py::test_airport_region_map_real_adak_falls_outside_the_alaska_region
+    # for the real -- different -- coordinates).
+    (cache_dir / "ourairports_airports.csv").write_text(
+        "ident,latitude_deg,longitude_deg\n"
+        "PADK,60.0,-150.0\nPAEI,60.0,-150.0\nPAED,60.0,-150.0\nPAFB,60.0,-150.0\n")
+    (cache_dir / "ourairports_runways.csv").write_text("airport_ident\n")
+
+    keys = tmp_path / "keys"
+    cli.main(["genkey", "--out", str(keys)])
+    out = tmp_path / "out"
+    rc = cli.main(["make-plates", "--cycle", "2609", "--effective", "2026-09-03",
+                   "--expires", "2026-10-01", "--work", str(work), "--out", str(out),
+                   "--ourairports-cache", str(cache_dir)])
+    assert rc == 0
+    assert (out / "packs" / "plates-alaska-2609.pack").exists()
+    meta = read_packmeta(out / "packs" / "plates-alaska-2609.pack")
+    assert meta.kind == "plates"
+    assert meta.license == "LicenseRef-us-public-domain"
+
+
 def test_build_pack_noncyclical_cycle_only_ok(tmp_path):
     # --cycle alone is sufficient for a non-cyclical kind (water/terrain/highways);
     # no --effective needed. Regression for the build-pack && bug.

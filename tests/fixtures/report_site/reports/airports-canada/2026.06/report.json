@@ -1,0 +1,141 @@
+{
+  "built": {
+    "at": "2026-10-29T13:46:29Z",
+    "builder_refs": {},
+    "commit": "a2c8e32f4c2319dc8987a45293d3dbc4b8609956",
+    "repo": "billmallard/makerplane-data",
+    "run_url": null,
+    "runner": "local"
+  },
+  "checks": [
+    {
+      "blocking": true,
+      "cannot_catch": "A pack_meta that is well formed but names the wrong id or cycle for the bytes inside.",
+      "expected": "pack_meta present; kind is one the device knows",
+      "id": "PACK-001",
+      "measured": "id=airports-canada kind=airports cycle=2026.06 schema_version=1",
+      "status": "pass",
+      "title": "pack_meta is readable and names a known kind"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "A license tag or attribution that is present but wrong for the data.",
+      "expected": "both non-empty",
+      "id": "PACK-002",
+      "measured": "missing: license",
+      "status": "fail",
+      "title": "Attribution and license are recorded in pack_meta"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Whether the label matches where the data really came from: the builder sets it, the check only reads it.",
+      "expected": "one of federal / community / user-supplied",
+      "id": "PACK-003",
+      "measured": "community",
+      "since": "AER-699",
+      "status": "pass",
+      "title": "Origin label is federal, community or user-supplied"
+    },
+    {
+      "blocking": false,
+      "cannot_catch": "A recorded source that is not the one the build actually used.",
+      "expected": "at least one source with its edition and sha256",
+      "id": "PACK-004",
+      "measured": null,
+      "note": "No upstream sources were supplied to the report (--sources).",
+      "status": "not-run",
+      "title": "Upstream sources are recorded"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Wrong values the reader accepts. It shows the device can open and query these bytes, not that what it returns is right.",
+      "expected": "the reader opens the pack and every query returns data",
+      "id": "ACC-001",
+      "measured": null,
+      "note": "No pyEfis checkout was available (set PYEFIS_SRC_DIR or pass --pyefis-src).",
+      "status": "not-run",
+      "title": "Device acceptance: pyEfis's own reader opens the pack and answers a fixed query set"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Wrong data in a structurally sound file.",
+      "expected": "ok",
+      "id": "SQL-001",
+      "measured": "ok",
+      "status": "pass",
+      "title": "SQLite structure is sound (PRAGMA quick_check)"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "A table that has rows but is missing most of them.",
+      "expected": "0 empty tables",
+      "id": "ROW-001",
+      "measured": 0,
+      "status": "pass",
+      "title": "No data table is empty"
+    },
+    {
+      "blocking": false,
+      "cannot_catch": "A change that keeps counts steady (rows replaced by wrong rows), and any defect already present in the previous edition.",
+      "expected": "no table moves more than 10%; a larger move needs a build note",
+      "id": "ROW-002",
+      "measured": null,
+      "note": "No previous edition was supplied to compare against (--previous).",
+      "status": "not-run",
+      "title": "Row counts against the previous edition"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "A plausible coordinate in the wrong place, such as a transposed digit that still lands on land.",
+      "expected": "0 bad coordinates",
+      "id": "GEO-001",
+      "measured": 0,
+      "status": "pass",
+      "title": "Coordinates are valid and not at 0,0"
+    },
+    {
+      "blocking": true,
+      "cannot_catch": "Two different things given the same correct-looking identifier in different tables, and a wrong identifier that happens to be unique.",
+      "expected": "0 duplicates",
+      "id": "UNQ-001",
+      "measured": "airports(icao) 0",
+      "status": "pass",
+      "title": "Identifiers that must be unique are unique"
+    }
+  ],
+  "metrics": {},
+  "notice": "Experimental / Amateur-Built use only. Not certified. This data is provided as-is with no warranty and any use of the data is at your own risk.",
+  "origin": "community",
+  "pack": {
+    "bytes": 393216,
+    "cycle": "2026.06",
+    "id": "airports-canada",
+    "kind": "airports",
+    "schema_version": "1",
+    "sha256": "9e08ec278d68a9c524556fef4f587e0dd21630c76e4d4c07d6bf14d140772b75"
+  },
+  "previous": null,
+  "record": "build",
+  "schema": "pack-report/1",
+  "sources": [],
+  "summary": {
+    "fail": 1,
+    "not_run": 3,
+    "pass": 6,
+    "warn": 0
+  },
+  "tables": {
+    "airports": {
+      "prev": null,
+      "rows": 1490
+    },
+    "runway_ends": {
+      "prev": null,
+      "rows": 1456
+    },
+    "runways": {
+      "prev": null,
+      "rows": 728
+    }
+  }
+}

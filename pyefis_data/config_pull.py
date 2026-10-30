@@ -32,6 +32,15 @@ SVS; that was the AI redraw-before-resize bug (pyEfis #274), now fixed, so a
 clean editor-only list is safe (verified on the Pi 5). The single-screen path
 still keeps the full stock list -- it's the proven, untouched original.
 
+**Aircraft preferences** (#108): the served YAML may carry a top-level
+``preferences:`` block derived from the project's aircraft profile, today only
+``units: {Pressure: inHg|hPa}``. Its ``units`` are merged into
+``preferences.yaml.custom`` (pyEfis starts every unit-switching instrument in
+the group's unit), leaving every other key there alone. Which unit groups
+config-pull set is recorded in ``.panel_prefs.yaml``, so when the profile stops
+setting one (the block is absent) only a key config-pull itself wrote is
+removed -- a hand-set unit is never touched. A malformed block changes nothing.
+
 The shipped config files are never modified. Before each install the current
 panel state is snapshotted to ``.panel_backup/`` so a config that crashes pyEfis
 is rolled back to the last working panel. Every write is atomic (temp +
@@ -49,12 +58,17 @@ import urllib.request
 from pathlib import Path
 
 # A real UA: Cloudflare's edge 403s the default "Python-urllib/*".
-_UA = "pyefis-data/0.1 (+https://github.com/makerplane/makerplane-data)"
+_UA = "pyefis-data/0.1 (+https://github.com/billmallard/makerplane-data)"
 _DEFAULT_PYEFIS_CONFIG = "~/makerplane/pyefis/config"
 
 # Snapshot dir (under the config dir) holding the pre-install panel state, used
 # by rollback() to restore the last working panel after a failed swap.
 _BACKUP_DIR = ".panel_backup"
+
+# Record of the unit groups config-pull last wrote into preferences.yaml.custom
+# (from the served preferences block), so a group the profile no longer sets is
+# removed without touching one the user set by hand. Snapshotted with the panel.
+_PREFS_RECORD = ".panel_prefs.yaml"
 
 # Standard on-device SVS data layout (the makerplane-data updater installs here).
 # Injected into a virtual_vfr instrument so it renders terrain, mirroring the
@@ -117,14 +131,19 @@ def config_dir() -> Path:
 def fetch_config(cfg) -> tuple[str, int | None, str | None]:
     """GET <configurator>/device/config with the device token.
 
-    Returns ``(status, version, yaml_text)`` where status is one of
+    Returns ``(status, version, yaml_text, etag)`` where status is one of
     ``updated`` (new config in yaml_text), ``up-to-date`` (304), ``none`` (404),
-    ``unpaired`` (no token), or ``error:<msg>``.
+    ``unpaired`` (no token), or ``error:<msg>``. ``etag`` is the server's ETag
+    for an ``updated`` response (else None); store it and it is sent back as
+    If-None-Match. It covers the aircraft-preferences block as well as the panel
+    version (#108), so a profile-only change is not a 304.
     """
     if not cfg.device_token:
-        return ("unpaired", None, None)
+        return ("unpaired", None, None, None)
     headers = {"Authorization": f"Bearer {cfg.device_token}", "User-Agent": _UA}
-    if cfg.config_version:
+    if cfg.config_etag:
+        headers["If-None-Match"] = cfg.config_etag
+    elif cfg.config_version:                 # installed before ETags were stored
         headers["If-None-Match"] = f'"v{cfg.config_version}"'
     url = f"{cfg.configurator_url.rstrip('/')}/device/config"
     try:
@@ -132,15 +151,16 @@ def fetch_config(cfg) -> tuple[str, int | None, str | None]:
                                     timeout=30) as resp:
             text = resp.read().decode("utf-8")
             ver = resp.headers.get("X-Config-Version")
-            return ("updated", int(ver) if ver else None, text)
+            return ("updated", int(ver) if ver else None, text,
+                    resp.headers.get("ETag"))
     except urllib.error.HTTPError as e:
         if e.code == 304:
-            return ("up-to-date", cfg.config_version, None)
+            return ("up-to-date", cfg.config_version, None, None)
         if e.code == 404:
-            return ("none", None, None)
-        return (f"error:HTTP {e.code}", None, None)
+            return ("none", None, None, None)
+        return (f"error:HTTP {e.code}", None, None, None)
     except Exception as e:                       # network / TLS / timeout
-        return (f"error:{e}", None, None)
+        return (f"error:{e}", None, None, None)
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -219,7 +239,7 @@ def _switch_button(button_cfg: str) -> dict:
 def _managed_rel_paths(cd: Path) -> list[str]:
     """Config-relative paths of every file an install writes (the override + all
     managed screen/button files), for snapshot/restore."""
-    rels = ["preferences.yaml.custom"]
+    rels = ["preferences.yaml.custom", _PREFS_RECORD]
     sd = cd / "screens"
     if sd.is_dir():
         rels += [f"screens/{p.name}" for p in sorted(sd.glob("managed*.yaml"))]
@@ -268,6 +288,74 @@ def _write_custom(cd: Path, custom: dict) -> None:
                   yaml.safe_dump(custom, sort_keys=False))
 
 
+_MALFORMED = object()
+
+
+def _served_units(prefs):
+    """The ``units`` mapping of a served ``preferences:`` block.
+
+    ``{}`` when the block is absent or sets no units (the profile does not
+    manage any unit group); ``_MALFORMED`` when it is present but not a mapping
+    of non-empty string group -> non-empty string unit. Never raises."""
+    if prefs is None:
+        return {}
+    if not isinstance(prefs, dict):
+        return _MALFORMED
+    units = prefs.get("units")
+    if units is None:
+        return {}
+    if not isinstance(units, dict):
+        return _MALFORMED
+    for g, u in units.items():
+        if not (isinstance(g, str) and g.strip() and isinstance(u, str) and u.strip()):
+            return _MALFORMED
+    return {g.strip(): u.strip() for g, u in units.items()}
+
+
+def _load_prefs_record(cd: Path) -> list[str]:
+    import yaml
+    try:
+        rec = yaml.safe_load((cd / _PREFS_RECORD).read_text("utf-8")) or {}
+        groups = rec.get("units") if isinstance(rec, dict) else None
+        return [g for g in groups if isinstance(g, str)] if isinstance(groups, list) else []
+    except Exception:
+        return []
+
+
+def _apply_preferences(cd: Path, custom: dict, prefs) -> dict:
+    """Merge the served preferences block's ``units`` into ``custom`` (the
+    loaded preferences.yaml.custom, written by the caller) and update the
+    record of the unit groups config-pull manages. Returns the units now
+    managed (``{}`` if none). A malformed block changes nothing at all.
+
+    Only ``units.<group>`` keys are written, and a group is only removed if
+    the record says config-pull wrote it -- every other key in the file, and a
+    unit the user set by hand, is left alone."""
+    import yaml
+    served = _served_units(prefs)
+    if served is _MALFORMED:
+        return {}
+    previous = _load_prefs_record(cd)
+    units = custom.get("units")
+    if units is not None and not isinstance(units, dict):
+        if not served and not previous:
+            return {}                     # nothing to do; leave the user's value
+        units = None                      # an unreadable units: is replaced
+    units = dict(units or {})
+    for g in previous:
+        if g not in served:
+            units.pop(g, None)
+    units.update(served)
+    if units:
+        custom["units"] = units
+    else:
+        custom.pop("units", None)
+    if served or previous:
+        _atomic_write(cd / _PREFS_RECORD, yaml.safe_dump(
+            {"units": sorted(served)}, sort_keys=False))
+    return served
+
+
 def _clear_managed_includes(inc: dict, boot: str) -> None:
     """Drop any include keys a prior install (single OR multi) added, so the two
     shapes can switch cleanly and a shrinking screen set leaves no stale entries.
@@ -294,6 +382,7 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
         raise ValueError("config is not native pyEfis form (no 'screens:' block) -- "
                          "re-save the panel in the editor")
     screens = doc["screens"]
+    prefs = doc.get("preferences")
     default_name = (doc.get("main") or {}).get("defaultScreen")
     if default_name not in screens:
         default_name = next(iter(screens))
@@ -301,14 +390,14 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
 
     _snapshot(cd)                       # capture the working state for rollback
     if len(screens) == 1:
-        summary = _install_single(cd, screens[default_name], boot)
+        summary = _install_single(cd, screens[default_name], boot, prefs)
     else:
-        summary = _install_multi(cd, screens, default_name, boot)
+        summary = _install_multi(cd, screens, default_name, boot, prefs)
     summary["config_dir"] = str(cd)
     return summary
 
 
-def _install_single(cd: Path, screen_def: dict, boot: str) -> dict:
+def _install_single(cd: Path, screen_def: dict, boot: str, prefs=None) -> dict:
     """Original proven path: one managed screen named after the device's
     defaultScreen, activated by overriding only that screen's include while
     KEEPING the device's stock screen list."""
@@ -321,9 +410,10 @@ def _install_single(cd: Path, screen_def: dict, boot: str) -> dict:
     _clear_managed_includes(inc, boot)
     inc[f"SCREEN_{boot}"] = "screens/managed.yaml"
     _ensure_boot_loaded(cd, inc, boot)   # boot may be a non-stock name
+    units = _apply_preferences(cd, custom, prefs)
     _write_custom(cd, custom)
     return {"mode": "single", "boot_screen": boot, "screens": 1,
-            "screen_names": [boot]}
+            "screen_names": [boot], "units": units}
 
 
 _STOCK_SCREEN_LIST = "screens/default_list.yaml"
@@ -377,7 +467,8 @@ def _ensure_boot_loaded(cd: Path, inc: dict, boot: str) -> None:
     inc["SCREENS_CONFIG"] = "screens/managed_list.yaml"
 
 
-def _install_multi(cd: Path, screens: dict, default_name: str, boot: str) -> dict:
+def _install_multi(cd: Path, screens: dict, default_name: str, boot: str,
+                   prefs=None) -> dict:
     """Multi-screen path (#72). The hard constraint: a SHORT screen list + the
     SVS GL widget segfaults the eglfs ``QOpenGLCompositor`` (a real eglfs bug that
     correlates with screen count, independent of pyEfis #274). So we KEEP the full
@@ -449,9 +540,10 @@ def _install_multi(cd: Path, screens: dict, default_name: str, boot: str) -> dic
         inc["SCREENS_CONFIG"] = "screens/managed_list.yaml"
     # (boot is stock + no additional screens -> keep the stock SCREENS_CONFIG)
 
+    units = _apply_preferences(cd, custom, prefs)
     _write_custom(cd, custom)
     return {"mode": "multi", "boot_screen": boot, "screens": len(screens),
-            "screen_names": on_names}
+            "screen_names": on_names, "units": units}
 
 
 # The systemd unit that runs pyEfis. The Raspberry Pi image runs it as a
@@ -618,6 +710,10 @@ def rollback(cd: Path | None = None) -> str:
                 _atomic_write(cd / rel, src.read_text("utf-8"))
                 restored_any = True
         if restored_any:
+            # A preferences record the failed install created (none before it)
+            # would claim unit groups the restored override no longer has.
+            if _PREFS_RECORD not in rels:
+                (cd / _PREFS_RECORD).unlink(missing_ok=True)
             return "previous panel"
     prepanel = cd / "preferences.yaml.custom.prepanel"
     if prepanel.exists():

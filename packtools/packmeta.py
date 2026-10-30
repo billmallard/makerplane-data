@@ -29,8 +29,16 @@ SCHEMA_VERSION = 1
 
 # Recognised pack kinds. "kind" drives which build tool produced the pack and
 # how the Pi installs it; it is open for extension (charts, etc.).
+#
+# "plates" (AER-1610/PA11): FAA d-TPP approach-plate PDFs, one pack per
+# packtools/regions.yaml region (docs/dtpp_plates_spike.md §3) -- NOT yet
+# merged to main and NOT wired into packtools.sources.SOURCES, so it cannot
+# reach the nightly cyclical cron yet. Per the repo rule (CLAUDE.md "Deploy /
+# publish notes"), a new kind must merge to `dev` -- the branch devices
+# actually track -- before its first R2 publish; promoting this kind to
+# `main` and enabling publish is a separate, later step.
 KINDS = ("navdata", "obstacles", "cifp", "water", "terrain", "highways",
-         "rivers", "airports", "navaids", "airspace", "procedures")
+         "rivers", "airports", "navaids", "airspace", "procedures", "plates")
 
 
 @dataclass

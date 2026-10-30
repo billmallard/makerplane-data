@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
-# Terrain pyramid build + publish. Idempotent: the mip build skips tiles already
-# present (so the pyramid persists on the mounted NAS tree across runs), and each
-# region upsert is independent + re-runnable. Exit non-zero if any region failed.
+# Terrain pyramid + water-mask build + publish. Idempotent: the mip and mask
+# builds skip files already present (so both persist on the mounted NAS tree
+# across runs), and each region upsert is independent + re-runnable (a region
+# already published at $EDITION is skipped). Exit non-zero if the mask build
+# or any region failed.
+#
+# Publish gate (TV3, AER-4101): make-terrain --upload writes each pack's
+# pack-report/1 test record BEFORE the manifest is signed, and a pack whose
+# blocking checks fail is not published -- its record goes to
+# reports/rejected/ instead. The gate needs:
+#   pyEfis's SVS reader importable (PyQt6 + libGL): ACC-001, the device
+#                   acceptance probe, is blocking. Checked before the build.
+#   build notes     only from a person, for this edition: the file
+#                   $PACK_OUT/build-notes-$EDITION.txt (KEY=TEXT lines or a
+#                   JSON object; KEY is CHECK or terrain-<region>:CHECK).
+#                   A check that warns with no note refuses its pack.
 set -euo pipefail
 
 # ---- required (env / .env) ----
@@ -9,9 +22,12 @@ set -euo pipefail
 : "${R2_ACCESS_KEY_ID:?set R2_ACCESS_KEY_ID}"
 : "${R2_SECRET_ACCESS_KEY:?set R2_SECRET_ACCESS_KEY}"
 : "${MINISIGN_SECRET_KEY:?set MINISIGN_SECRET_KEY (base64 signing blob = contents of keys/minisign.sec)}"
+# No default: an edition id is published to the live manifest, so the caller
+# names it every run. A default goes stale -- it pointed at 2024ed after that
+# edition was retracted (AER-3350, AER-3528).
+: "${EDITION:?set EDITION (terrain edition id to build + publish, e.g. 2024edr1)}"
 
 # ---- optional (defaults) ----
-EDITION="${EDITION:-2024ed}"
 TILE_ROOT="${TILE_ROOT:-/data/glo30hgt}"
 PACK_OUT="${PACK_OUT:-/data/pack-scratch}"
 REGIONS="${REGIONS:-us-west us-central us-east us-south alaska canada-west canada-east mexico-central-america}"
@@ -20,6 +36,8 @@ CODE_REF="${CODE_REF:-dev}"
 URL_BASE="${URL_BASE:-https://navdata.aerocommons.org/packs}"
 MANIFEST_URL="${MANIFEST_URL:-https://navdata.aerocommons.org/manifest.json}"
 R2_BUCKET="${R2_BUCKET:-makerplane-data}"
+WATER_PACK_ID="${WATER_PACK_ID:-water-na}"         # water.sqlite source for step 2b
+WATER_CACHE="${WATER_CACHE:-/data/water-cache}"    # persists; re-runs reuse a sha-matching copy
 export R2_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY MINISIGN_SECRET_KEY R2_BUCKET
 
 echo ">> terrain build: tile_root=$TILE_ROOT edition=$EDITION jobs=${JOBS} ref=$CODE_REF"
@@ -30,11 +48,58 @@ if [ ! -d "$TILE_ROOT" ] || [ -z "$(ls -A "$TILE_ROOT" 2>/dev/null)" ]; then
   exit 2
 fi
 
-# ---- code: fresh clone each run so map iterations are always current ----
-for repo in pyEfis makerplane-data; do
-  rm -rf "/opt/$repo"
-  git clone --depth 1 -b "$CODE_REF" "https://github.com/billmallard/$repo.git" "/opt/$repo"
-done
+# ---- code: pyEfis is cloned fresh each run so map iterations are always
+#      current. makerplane-data: when this script runs from inside a checkout
+#      (the self-hosted runner path), use THAT checkout, so the packtools code
+#      is the same revision as this script. In the Docker image the script is
+#      copied alone, so clone it at $CODE_REF as before. --
+DATA_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+if [ -f "$DATA_DIR/packtools/cli.py" ] && [ -f "$DATA_DIR/keys/minisign.pub" ]; then
+  echo "   makerplane-data: using this checkout ($DATA_DIR, $(git -C "$DATA_DIR" rev-parse --short HEAD 2>/dev/null || echo '?'))"
+  # CODE_REF here names the makerplane-data ref the caller checked out;
+  # pyEfis has no `main`, so it takes its own ref.
+  PYEFIS_REF="${PYEFIS_REF:-dev}"
+else
+  DATA_DIR=/opt/makerplane-data
+  PYEFIS_REF="${PYEFIS_REF:-$CODE_REF}"
+  rm -rf "$DATA_DIR"
+  git clone --depth 1 -b "$CODE_REF" https://github.com/billmallard/makerplane-data.git "$DATA_DIR"
+fi
+rm -rf /opt/pyEfis
+git clone --depth 1 -b "$PYEFIS_REF" https://github.com/billmallard/pyEfis.git /opt/pyEfis
+echo "   pyEfis: $PYEFIS_REF @ $(git -C /opt/pyEfis rev-parse --short HEAD 2>/dev/null || echo '?')"
+
+# ---- publish-gate preflight: the device acceptance probe (ACC-001, blocking)
+#      opens each pack with pyEfis's own SVS reader, which needs PyQt6 and
+#      libGL. Fail now, not after hours of building, if it cannot load. --
+export PYEFIS_SRC_DIR=/opt/pyEfis/src
+if ! PYTHONPATH="$PYEFIS_SRC_DIR" QT_QPA_PLATFORM=offscreen \
+     python -c "import pyefis.instruments.ai.svs" 2>/tmp/svs-import.err; then
+  echo "ERROR: pyEfis's SVS reader does not import here, so the publish gate's device"
+  echo "       acceptance check (ACC-001, blocking) cannot run and would refuse every pack."
+  echo "       Install PyQt6 (pip) and libGL/libEGL (apt: libgl1 libegl1). Import error:"
+  tail -n 1 /tmp/svs-import.err
+  exit 1
+fi
+NOTES_FILE="$PACK_OUT/build-notes-$EDITION.txt"
+GATE_ARGS=()     # origin label: make_terrain.TERRAIN_ORIGIN (federal, AER-4101)
+if [ -f "$NOTES_FILE" ]; then
+  echo "   build notes: $NOTES_FILE"
+  GATE_ARGS+=(--notes-file "$NOTES_FILE")
+else
+  echo "   build notes: none ($NOTES_FILE absent); a check that warns refuses its pack"
+fi
+
+# ---- 0. water.sqlite for step 2b: the published water pack IS the sqlite
+#         file. Fetched through the signed manifest (signature + sha256) and
+#         cached on the mount. Up front so a missing source fails in seconds,
+#         not after the pyramid build. --
+echo ">> [0/5] fetching $WATER_PACK_ID (water.sqlite source for masks)..."
+WATER_DB="$(cd "$DATA_DIR" && PYTHONPATH=. python -m packtools.cli fetch-pack \
+  "$WATER_PACK_ID" --dest "$WATER_CACHE" --manifest-url "$MANIFEST_URL" \
+  --pub keys/minisign.pub | tail -n 1)"
+[ -s "$WATER_DB" ] || { echo "ERROR: fetch-pack gave no water_db path"; exit 1; }
+echo "   water_db=$WATER_DB"
 
 # ---- 1. mip pyramid (parallel; written into the mounted tree, persists) ----
 echo ">> [1/5] building mip pyramid (jobs=$JOBS)..."
@@ -47,38 +112,35 @@ PYTHONPATH=/opt/pyEfis/src python /opt/pyEfis/tools/build_terrain_mips.py "$TILE
 echo ">> [2/5] stitching coarse terrain mosaic..."
 PYTHONPATH=/opt/pyEfis/src python /opt/pyEfis/tools/build_terrain_mosaic.py "$TILE_ROOT" --levels 4 5 6
 
-# ---- 2b. water masks (MP10a, pyEfis tools/build_water_masks.py -- mirrors
-#          build_terrain_mips.py): rasterize water.sqlite onto the mip (L1-6)
-#          and mosaic (L4-6) grids and write a `.wmask` sibling beside each
-#          `.hgt`. Runs after both 1 and 2 because it needs both grids built.
-#          Guarded on both sides, deliberately: the tool may not exist yet on
-#          $CODE_REF (MP10a lands separately, after MP5), and even once it
-#          does, a failed or partial mask build must never fail this
-#          pipeline -- an edition with no (or partial) `.wmask` files is a
-#          permanently supported state, packaged by make_terrain.py exactly
-#          like a pre-MP10b edition (docs/terrain.md § Water mask). ----
+# ---- 2b. water masks (MP10a, pyEfis tools/build_water_masks.py): rasterize
+#          water.sqlite onto the mip (L1-6) and mosaic (L4-6) grids and write
+#          a `.wmask` sibling beside each `.hgt`. Runs after 1 and 2 because it
+#          needs both grids. REQUIRED: a missing tool or a failed build fails
+#          the run (set -e). It used to be best-effort, which turned "no
+#          water_db argument" into a successful, signed, maskless edition
+#          (AER-2287). Every tile is masked, whatever $REGIONS says: the
+#          tool's closing pack_check scans the whole tree and ignores --only,
+#          so a region-limited mask build would fail its own self-check.
+#          Existing masks are skipped (no --force), so only the first run
+#          pays the full cost; re-runs just fill gaps. --
 WATER_MASK_TOOL="/opt/pyEfis/tools/build_water_masks.py"
-if [ -f "$WATER_MASK_TOOL" ]; then
-  echo ">> [2b/5] building water masks (jobs=$JOBS)..."
-  if ! PYTHONPATH=/opt/pyEfis/src python "$WATER_MASK_TOOL" "$TILE_ROOT" -j "$JOBS"; then
-    echo "!! water mask build failed -- continuing without masks (reader falls back to polygons)"
-  fi
-else
-  echo ">> [2b/5] skipping water masks: $WATER_MASK_TOOL not found on $CODE_REF"
-fi
+[ -f "$WATER_MASK_TOOL" ] || { echo "ERROR: $WATER_MASK_TOOL not found on pyEfis $PYEFIS_REF"; exit 1; }
+echo ">> [2b/5] building water masks (jobs=$JOBS)..."
+PYTHONPATH=/opt/pyEfis/src python "$WATER_MASK_TOOL" "$TILE_ROOT" "$WATER_DB" -j "$JOBS"
 
 # ---- 3. build + upload each region pack (re-signs the manifest per region) --
 # Packs ship COMPRESSED (DEFLATE): ~50% smaller on R2 and on the wire, at the
 # cost of build CPU + a one-time Pi decompress on pull. (Flipped from
 # --no-compress per docs/terrain.md's pre-release footprint decision.)
-cd /opt/makerplane-data
+cd "$DATA_DIR"
 mkdir -p "$PACK_OUT"
 fail=0
 for r in $REGIONS; do
   echo ">> [3/5] region $r  $(date -u +%H:%M:%S)"
   if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
         --edition "$EDITION" --only "$r" --out "$PACK_OUT" \
-        --url-base "$URL_BASE" --upload --bucket "$R2_BUCKET"; then
+        --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET" \
+        ${GATE_ARGS[@]+"${GATE_ARGS[@]}"}; then
     rm -f "$PACK_OUT/packs/terrain-$r-$EDITION.pack"          # free scratch as we go
   else
     echo "!! FAILED: $r"; fail=1
@@ -91,13 +153,16 @@ done
 echo ">> [4/5] mosaic pack  $(date -u +%H:%M:%S)"
 if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
       --edition "$EDITION" --mosaic --out "$PACK_OUT" \
-      --url-base "$URL_BASE" --upload --bucket "$R2_BUCKET"; then
+      --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET" \
+      ${GATE_ARGS[@]+"${GATE_ARGS[@]}"}; then
   rm -f "$PACK_OUT/packs/terrain-mosaic-$EDITION.pack"
 else
   echo "!! FAILED: mosaic pack"; fail=1
 fi
 
-# ---- 5. verify the published manifest (signature + that it parses) ----
+# ---- 5. verify the published manifest (signature + that it parses). A
+#         post-publish sanity check only: it runs after upload, so it cannot
+#         block. The blocking checks are the publish gate inside step 3/4. --
 echo ">> [5/5] verifying published manifest..."
 curl -fsS "$MANIFEST_URL" -o /tmp/manifest.json
 # verify reads the detached signature next to the manifest (<name>.minisig) --

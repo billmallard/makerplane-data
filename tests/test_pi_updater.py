@@ -20,6 +20,7 @@ from packtools.run_cyclical import CyclicalRunner
 from packtools.schema_guard import NULL_GUARD
 from packtools.sources import SOURCES
 from packtools.upload import LocalStore
+from tests.gatefake import STANDIN, standin_reporter
 
 from pyefis_data import cli, core
 from pyefis_data.config import Config
@@ -45,11 +46,12 @@ def _fake_build(input_dir, out):
     return Path(out)
 
 
-def build_store(tmp_path):
-    """Run the real pipeline into a LocalStore; return (store_root, pubkey)."""
-    sk, pub = signing.generate_keypair()
+def build_store(tmp_path, keypair=None):
+    """Run the real pipeline into a LocalStore; return (store_root, pubkey).
+    Pass ``keypair`` to keep the secret key for re-signing an edited manifest."""
+    sk, pub = keypair or signing.generate_keypair()
     store = LocalStore(tmp_path / "r2")
-    CyclicalRunner(
+    CyclicalRunner(reporter=standin_reporter,
         store=store, secret=sk, work_dir=tmp_path / "wbuild",
         url_base=f"{ORIGIN}/packs", fetcher=_fake_fetch,
         builders={"airports": _fake_build, "obstacles": _fake_build},
@@ -291,6 +293,41 @@ def test_unknown_pack_kind_is_skipped_not_fatal(tmp_path):
     m = up.fetch_manifest()
     assert [p.id for p in m.packs] == ["navdata-conus"]
     assert m.dropped_kinds == ["BOGUS"]
+
+
+def test_device_ignores_unknown_manifest_fields(tmp_path):
+    """Old devices keep working when the manifest grows fields (AER-4099).
+
+    The testing-visibility fields (report_url, report_sha256, origin, notice,
+    build_commit) are unknown to every device released before them, and the
+    next revision will add fields unknown to this one. Stand in for both
+    with fields this client has never heard of, per pack and at top level,
+    on a real built-and-signed catalog: the device must still verify,
+    select, download, sha-check and install exactly as before."""
+    sk, pub = signing.generate_keypair()
+    root, _ = build_store(tmp_path, keypair=(sk, pub))
+    mpath = root / "manifest.json"
+    obj = json.loads(mpath.read_bytes())
+    obj["future_top_level"] = {"anything": [1, 2, 3]}
+    for p in obj["packs"]:
+        p.update({
+            "report_url": f"{ORIGIN}/reports/{p['id']}/{p['cycle']}/report.json",
+            "report_sha256": "c" * 64, "origin": "a-value-no-client-knows",
+            "notice": "x", "build_commit": "d" * 40,
+            "future_field": {"nested": True}, "future_list": ["a"],
+        })
+    mpath.write_bytes((json.dumps(obj, indent=2, sort_keys=True) + "\n").encode())
+    signing.sign_file(mpath, sk)
+
+    up = make_updater(tmp_path, pub, remote_root=root)
+    m = up.fetch_manifest()
+    assert {p.id for p in m.packs} == {"airports-conus", "obstacles-conus"}
+    assert m.dropped_kinds == []
+    up.update()
+    piroot = tmp_path / "pi"
+    assert (piroot / "navdata" / "2606" / "airports.sqlite").exists()
+    assert up._current_target(piroot / "navdata") == "2606"
+    assert all(r.status == CURRENT for r in up.status())
 
 
 def test_catalog_rejected_manifest_is_not_reported_as_offline(tmp_path):

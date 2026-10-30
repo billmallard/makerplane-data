@@ -22,13 +22,10 @@ from pathlib import Path
 from typing import Callable
 
 from .airspace import build_airspace
+from .errors import BuildError
 from .procedures import build_procedures
 
 Builder = Callable[[Path, Path], Path]
-
-
-class BuildError(RuntimeError):
-    pass
 
 
 def tools_dir() -> Path:

@@ -9,7 +9,8 @@ import sqlite3
 import pytest
 
 from packtools import signing
-from packtools.manifest import Manifest, PackEntry, ManifestError, validate
+from packtools.manifest import (Manifest, PackEntry, ManifestError, validate,
+                                NOTICE, ORIGINS)
 from packtools.packmeta import PackMeta, embed_sqlite
 from packtools.regions import load_regions, manifest_regions_block
 
@@ -236,6 +237,86 @@ def test_from_pack_threads_license_fields_through(tmp_path):
     assert reloaded.packs[0].license_url == meta.license_url
 
 
+def test_notice_is_the_adopted_short_text_verbatim():
+    # Plan section 4.7 (D3). A wording change is Bill's, not a refactor's.
+    assert NOTICE == ("Experimental / Amateur-Built use only. Not certified. "
+                      "This data is provided as-is with no warranty and any "
+                      "use of the data is at your own risk.")
+    assert ORIGINS == ("federal", "community", "user-supplied")
+
+
+def test_testing_visibility_fields_default_empty_and_roundtrip():
+    e = _entry()
+    assert (e.report_url, e.report_sha256, e.origin, e.notice,
+            e.build_commit) == ("", "", "", "", "")
+    full = _entry(report_url="https://x/reports/navdata-conus/2606/report.json",
+                  report_sha256="b" * 64, origin="federal", notice=NOTICE,
+                  build_commit="c" * 40)
+    m = Manifest.new(GEN)
+    m.upsert(full)
+    assert Manifest.from_bytes(m.to_bytes()).packs[0] == full
+
+
+def test_from_pack_carries_notice_by_default(tmp_path):
+    db = tmp_path / "navdata.sqlite"
+    con = sqlite3.connect(str(db))
+    con.execute("CREATE TABLE t (x INTEGER)")
+    con.commit()
+    con.close()
+    meta = PackMeta(id="navdata-conus", kind="navdata", cycle="2606")
+    embed_sqlite(db, meta)
+    entry = PackEntry.from_pack(db, meta, url="https://x/p.pack",
+                                origin="federal", build_commit="c" * 40)
+    assert entry.notice == NOTICE
+    assert entry.origin == "federal" and entry.build_commit == "c" * 40
+    assert entry.report_url == "" and entry.report_sha256 == ""
+
+
+def _obj(*entries):
+    return {"manifest_version": 1, "generated": GEN,
+            "packs": [e.as_dict() for e in entries], "regions": {}}
+
+
+def _reported(**kw):
+    base = dict(report_url="https://x/reports/r.json", report_sha256="b" * 64,
+                notice=NOTICE, origin="federal")
+    base.update(kw)
+    return _entry(**base)
+
+
+def test_validate_new_entry_needs_report_and_notice():
+    """A NEW (id, cycle) must carry a report and the notice (AER-4099)."""
+    prev = _obj()
+    validate(_obj(_reported()), previous=prev)                 # complete: ok
+    validate(_obj(_reported(origin="")), previous=prev)        # origin optional
+    for bad in (dict(report_url=""), dict(report_sha256=""),
+                dict(report_sha256="B" * 64), dict(report_sha256="short"),
+                dict(notice=""), dict(notice="   "), dict(origin="vendor")):
+        with pytest.raises(ManifestError):
+            validate(_obj(_reported(**bad)), previous=prev)
+
+
+def test_validate_existing_entries_stay_valid():
+    """Entries already published before pack-report/1 carry none of the new
+    fields; a publish that leaves them in place must not be refused, while
+    the new cycle beside them is still held to the rule."""
+    old = _entry(cycle="2606")
+    prev = _obj(old)
+    validate(_obj(old, _reported(cycle="2607")), previous=prev)
+    with pytest.raises(ManifestError, match="2607.*report_url"):
+        validate(_obj(old, _entry(cycle="2607")), previous=prev)
+
+
+def test_validate_without_previous_ignores_new_fields():
+    """The device parse path (no ``previous``) must never refuse a catalog
+    over these fields, including an origin value this client predates."""
+    validate(_obj(_entry()))
+    validate(_obj(_entry(origin="some-future-origin", report_sha256="zz")))
+    m = Manifest.from_obj(_obj(_entry(origin="some-future-origin")),
+                          lenient=True)
+    assert m.packs[0].origin == "some-future-origin"
+
+
 def test_end_to_end_build_sign_verify(tmp_path):
     """The Phase A acceptance path in miniature: build a pack, embed
     pack_meta, register it in a manifest, sign the manifest, verify."""
@@ -270,3 +351,18 @@ def test_end_to_end_build_sign_verify(tmp_path):
     assert trusted == "generated 2026-06-14"
     reloaded = Manifest.read(manifest_path)
     assert signing.sha256_file(pack) == reloaded.packs[0].sha256
+
+
+def test_signing_refuses_a_repointed_record():
+    prev = {"manifest_version": 1, "generated": "2026-06-14T00:00:00Z", "packs": [
+        {"id": "x", "kind": "water", "cycle": "1", "bytes": 1, "sha256": "a" * 64, "url": "u",
+         "report_url": "https://r/1", "report_sha256": "b" * 64, "notice": "n"}]}
+    moved = json.loads(json.dumps(prev))
+    moved["packs"][0]["report_sha256"] = "c" * 64
+    with pytest.raises(ManifestError, match="immutable"):
+        validate(moved, previous=prev)
+    # Binding a record to an entry that had none (a retro record) is allowed.
+    bare = json.loads(json.dumps(prev))
+    for f in ("report_url", "report_sha256"):
+        bare["packs"][0][f] = ""
+    validate(prev, previous=bare)

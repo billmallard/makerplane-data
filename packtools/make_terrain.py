@@ -25,8 +25,16 @@ from . import packmeta
 from .manifest import Manifest, PackEntry
 from .packmeta import PackMeta
 from .regions import Region, load_regions, regions_for_tile, tile_sw_corner
+from .sources import COPERNICUS_DEM_LICENSE, COPERNICUS_DEM_LICENSE_URL
 
 DEFAULT_ATTRIBUTION = "Copernicus GLO-30 (redistribution permitted)"
+
+# Origin label for terrain test records (PACK-003). report.ORIGIN_BY_KIND has
+# no terrain default, so make-terrain supplies this one. Bill's ruling on
+# AER-4101 (2026-10-29): Copernicus GLO-30 is government-programme data with
+# a documented production process, the "federal" pedigree tier; the label
+# marks pedigree, not nationality, and the attribution names Copernicus.
+TERRAIN_ORIGIN = "federal"
 
 # Deepest mip-pyramid level a pack may carry. Coarse tiles ride in
 # .mip/<L>/<NSdir>/<name>.hgt (terrain_mip_pyramid.md); the renderer's get_mip()
@@ -64,6 +72,25 @@ def _write_wmask_sibling(z: zipfile.ZipFile, hgt_path: Path, hgt_arcname: str) -
     wmask = hgt_path.with_suffix(".wmask")
     if wmask.is_file():
         z.write(wmask, hgt_arcname[: -len(".hgt")] + ".wmask")
+
+
+def missing_wmask_members(pack_path: str | Path) -> list[str]:
+    """The ``.hgt`` members of a built pack that pyEfis ``build_water_masks.py``
+    covers -- mip levels ``.mip/<L>/...`` (L >= 1) and ``.mip/mosaic/L*`` --
+    but that carry no ``.wmask`` sibling. Native (L0) tiles are not masked by
+    that tool, so they are never reported.
+
+    Packaging itself treats an absent mask as supported (see
+    ``_write_wmask_sibling``); this is the opt-in publish gate for an edition
+    that is *meant* to carry masks (``make-terrain --require-wmask``), so a
+    mask build that silently produced nothing cannot ship as a maskless
+    signed edition (AER-2287)."""
+    with zipfile.ZipFile(pack_path) as z:
+        names = set(z.namelist())
+    return sorted(n for n in names
+                  if n.startswith(".mip/") and n.endswith(".hgt")
+                  and not n.startswith(".mip/0/")
+                  and n[: -len(".hgt")] + ".wmask" not in names)
 
 
 def _bbox(names: list[str]) -> list[int]:
@@ -111,7 +138,8 @@ def build_region_pack(region: str, tiles: list[tuple[str, Path]], *,
                     z.write(mp, mp_arcname)
                     _write_wmask_sibling(z, mp, mp_arcname)
 
-    meta = PackMeta(id=pack_id, kind="terrain", cycle=edition, attribution=attribution)
+    meta = PackMeta(id=pack_id, kind="terrain", cycle=edition, attribution=attribution,
+                    license=COPERNICUS_DEM_LICENSE, license_url=COPERNICUS_DEM_LICENSE_URL)
     packmeta.embed_zip(pack_path, meta)   # adds pack_meta.json into the zip
 
     entry = PackEntry.from_pack(
@@ -181,7 +209,8 @@ def build_mosaic_pack(src_root: str | Path, *, out_dir: str | Path,
             _write_wmask_sibling(z, hgt, arcname)
 
     meta = PackMeta(id=MOSAIC_PACK_ID, kind="terrain", cycle=edition,
-                    attribution=attribution)
+                    attribution=attribution,
+                    license=COPERNICUS_DEM_LICENSE, license_url=COPERNICUS_DEM_LICENSE_URL)
     packmeta.embed_zip(pack_path, meta)
 
     entry = PackEntry.from_pack(
@@ -222,13 +251,14 @@ def make_terrain_packs(*, src_root: str | Path, out_dir: str | Path,
 
 
 def update_manifest(store, secret, packs: list[TerrainPack], *,
-                    generated: str, sign, log=print) -> Manifest:
-    """Upsert terrain entries into the manifest in ``store`` and re-sign.
-    Adds terrain alongside whatever is already published (navdata, water)."""
+                    generated: str, sign, log=print, gate=None) -> Manifest:
+    """Gate, upsert terrain entries into the manifest in ``store`` and
+    re-sign. Adds terrain alongside whatever is already published (navdata,
+    water). ``gate`` is a ``packtools.gate.Options`` (origin, build notes)."""
     from .publish import publish
     return publish(store, secret, [(tp.entry, tp.path) for tp in packs],
                    generated=generated, sign=sign,
-                   comment=f"terrain {generated}", log=log)
+                   comment=f"terrain {generated}", log=log, gate=gate)
 
 
 def _now_stamp(today: _dt.date | None = None) -> str:
