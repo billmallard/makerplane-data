@@ -165,7 +165,7 @@ placeholder).
   (Worker + D1 migrations). Old feature branches (`feat/accounts-auth`, …) are
   parked history. Live thread state: `../STATE.md`.
 - `packtools`/`pyefis_data` Phases A–F are complete and live end-to-end.
-  Package version **0.2.11** (`pyproject.toml`; README agrees).
+  Package version **0.4.0** (`pyproject.toml`; README agrees).
 - `ssh pyefis` reaches the Pi 5 test bench; mid-flight patching is explicitly OK
   (it's a debug bench, not a certified article).
 
