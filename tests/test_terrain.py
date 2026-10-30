@@ -10,7 +10,9 @@ import pytest
 
 from packtools import make_terrain, signing
 from packtools.manifest import Manifest
+from packtools.sources import COPERNICUS_DEM_LICENSE, COPERNICUS_DEM_LICENSE_URL
 from packtools.upload import LocalStore
+from tests.gatefake import STANDIN, standin_reporter
 from pyefis_data.config import Config
 from pyefis_data.core import Updater, LocalDirRemote, VerificationError
 
@@ -39,7 +41,7 @@ def build_store_with_terrain(tmp_path, names=US_WEST_TILES):
         src_root=src, out_dir=tmp_path / "build", edition="2024ed",
         url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
     sk, pub = signing.generate_keypair()
-    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z", gate=STANDIN,
                                  sign=signing.sign, log=lambda *a: None)
     return store, pub, packs
 
@@ -60,6 +62,8 @@ def test_build_region_pack_shape(tmp_path):
     assert tp.entry.kind == "terrain"
     assert tp.entry.effective is None and tp.entry.expires is None   # non-cyclical
     assert tp.entry.regions == ["us-west"]
+    assert tp.entry.license == COPERNICUS_DEM_LICENSE                # AER-4098: not blank
+    assert tp.entry.license_url == COPERNICUS_DEM_LICENSE_URL
     assert tp.entry.tiles_bbox == [32, -121, 34, -119]               # SW corners +1deg
     with zipfile.ZipFile(tp.path) as z:
         names = set(z.namelist())
@@ -94,7 +98,7 @@ def test_pack_carries_mip_pyramid_and_updater_installs_it(tmp_path):
     assert ".mip/2/N33/N33W121.hgt" in names_in
     # install through the real updater: the pyramid lands in the tile tree
     sk, pub = signing.generate_keypair()
-    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z", gate=STANDIN,
                                  sign=signing.sign, log=lambda *a: None)
     make_updater(tmp_path, pub, store.root).update()
     tiles = tmp_path / "pi" / "terrain" / "tiles"
@@ -126,6 +130,7 @@ def test_build_mosaic_pack_shape(tmp_path):
     assert tp is not None
     assert tp.entry.id == "terrain-mosaic" and tp.entry.kind == "terrain"
     assert tp.entry.regions == ["mosaic"]                  # synthetic region, isolates provenance
+    assert tp.entry.license == COPERNICUS_DEM_LICENSE      # AER-4098: not blank
     assert tp.entry.effective is None and tp.entry.expires is None
     assert tp.entry.tiles_bbox == [32, -121, 34, -119]     # derived from the L*.json sidecar
     with zipfile.ZipFile(tp.path) as z:
@@ -149,7 +154,7 @@ def test_updater_installs_mosaic_pack_by_explicit_id(tmp_path):
     tp = make_terrain.build_mosaic_pack(
         src, out_dir=tmp_path / "build", edition="2024ed", url_base=f"{ORIGIN}/packs")
     sk, pub = signing.generate_keypair()
-    make_terrain.update_manifest(store, sk, [tp], generated="2026-06-14T00:00:00Z",
+    make_terrain.update_manifest(store, sk, [tp], generated="2026-06-14T00:00:00Z", gate=STANDIN,
                                  sign=signing.sign, log=lambda *a: None)
     # A device opts in with an explicit pack id (always tracked), no region needed.
     cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", packs=("terrain-mosaic",))
@@ -185,7 +190,7 @@ def test_mosaic_auto_tracked_with_any_terrain_region(tmp_path):
     packs.append(make_terrain.build_mosaic_pack(
         src, out_dir=tmp_path / "build", edition="2024ed", url_base=f"{ORIGIN}/packs"))
     sk, pub = signing.generate_keypair()
-    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z", gate=STANDIN,
                                  sign=signing.sign, log=lambda *a: None)
     m = Manifest.from_bytes(store.get_bytes("manifest.json"))
     # no terrain regions -> mosaic NOT tracked (it only rides along)
@@ -222,7 +227,7 @@ def test_two_regions_union_into_one_tree(tmp_path):
         url_base=f"{ORIGIN}/packs", only_regions=["us-west", "us-central"],
         log=lambda *a: None)
     sk, pub = signing.generate_keypair()
-    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z", gate=STANDIN,
                                  sign=signing.sign, log=lambda *a: None)
     up = make_updater(tmp_path, pub, store.root, regions=("us-west", "us-central"))
     up.update()
@@ -244,7 +249,7 @@ def test_deselecting_terrain_region_removes_its_tiles(tmp_path):
         url_base=f"{ORIGIN}/packs", only_regions=["us-west", "us-central"],
         log=lambda *a: None)
     sk, pub = signing.generate_keypair()
-    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z", gate=STANDIN,
                                  sign=signing.sign, log=lambda *a: None)
     piroot = tmp_path / "pi"
     tiles = piroot / "terrain" / "tiles"
@@ -370,7 +375,7 @@ def test_installer_installs_wmask_siblings_alongside_tiles(tmp_path):
         src_root=src, out_dir=tmp_path / "build", edition="2024ed",
         url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
     sk, pub = signing.generate_keypair()
-    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+    make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z", gate=STANDIN,
                                  sign=signing.sign, log=lambda *a: None)
     up = make_updater(tmp_path, pub, store.root)
     up.update()
@@ -395,7 +400,7 @@ def test_manifest_signature_verifies_with_and_without_masks(tmp_path):
             src_root=src, out_dir=tmp_path / f"build-{label}", edition="2024ed",
             url_base=f"{ORIGIN}/packs", only_regions=["us-west"], log=lambda *a: None)
         sk, pub = signing.generate_keypair()
-        make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z",
+        make_terrain.update_manifest(store, sk, packs, generated="2026-06-14T00:00:00Z", gate=STANDIN,
                                      sign=signing.sign, log=lambda *a: None)
         trusted = signing.verify_file(store.root / "manifest.json", pub)
         assert trusted   # non-empty trusted comment -> signature verified OK
@@ -451,12 +456,41 @@ def test_cli_require_wmask_refuses_before_upload(tmp_path, monkeypatch):
     uploads = []
     monkeypatch.setattr(make_terrain, "update_manifest",
                         lambda *a, **k: uploads.append(a))
+    # --upload checks the live manifest for an already-published edition
+    # before building; stand in for R2 and the device reader so the test
+    # reaches the mask gate without credentials.
+    from packtools import upload
+    monkeypatch.setattr(upload.R2Store, "from_env", classmethod(lambda cls, b=None: object()))
+    monkeypatch.setattr(cli, "_published_at", lambda *a: set())
+    monkeypatch.setattr(cli, "_load_secret", lambda args: None)
+    (tmp_path / "pyefis-src" / "pyefis").mkdir(parents=True)
+    monkeypatch.setenv("PYEFIS_SRC_DIR", str(tmp_path / "pyefis-src"))
     argv = ["make-terrain", str(src), "--edition", "2024ed", "--mosaic",
             "--out", str(tmp_path / "b"), "--require-wmask"]
-    # --upload would reach R2Store.from_env before update_manifest; the gate
-    # must return first, so no R2 env is needed for the refusal.
-    assert cli.main(argv + ["--upload"]) == 1
+    # The mask gate must refuse before anything is uploaded.
+    assert cli.main(argv + ["--upload", "--origin", "community"]) == 1
     assert uploads == []
     for lv in (4, 5, 6):
         _write_wmask(src / ".mip" / "mosaic" / f"L{lv}.hgt", side=2 * (225 >> (lv - 4)) + 1)
     assert cli.main(argv) == 0                            # masks present: gate passes
+
+
+def test_cli_upload_labels_terrain_records_federal_by_default(tmp_path, monkeypatch):
+    # Bill's ruling on AER-4101: terrain test records carry origin "federal"
+    # (PACK-003 has no terrain default in the catalogue).
+    from packtools import cli, upload
+    src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
+    _add_mosaic(src)
+    for lv in (4, 5, 6):
+        _write_wmask(src / ".mip" / "mosaic" / f"L{lv}.hgt", side=2 * (225 >> (lv - 4)) + 1)
+    seen = []
+    monkeypatch.setattr(make_terrain, "update_manifest", lambda *a, **k: seen.append(k["gate"]))
+    monkeypatch.setattr(upload.R2Store, "from_env", classmethod(lambda cls, b=None: object()))
+    monkeypatch.setattr(cli, "_published_at", lambda *a: set())
+    monkeypatch.setattr(cli, "_load_secret", lambda args: None)
+    (tmp_path / "pyefis-src" / "pyefis").mkdir(parents=True)
+    monkeypatch.setenv("PYEFIS_SRC_DIR", str(tmp_path / "pyefis-src"))
+    argv = ["make-terrain", str(src), "--edition", "2024ed", "--mosaic",
+            "--out", str(tmp_path / "b"), "--require-wmask", "--upload"]
+    assert cli.main(argv) == 0
+    assert [g.origin for g in seen] == ["federal"] == [make_terrain.TERRAIN_ORIGIN]

@@ -27,13 +27,12 @@ decision 2.
 
 from __future__ import annotations
 
-import math
 import sqlite3
 from pathlib import Path
 
 from .. import arinc424
-
-_EARTH_RADIUS_NM = 3440.065
+from ..geo import great_circle_nm
+from .errors import BuildError
 
 _SCHEMA = """
 CREATE TABLE airways (
@@ -104,8 +103,9 @@ CREATE INDEX idx_legs_trans ON legs(transition_id, seq);
 """
 
 
-class ProceduresBuildError(RuntimeError):
-    pass
+class ProceduresBuildError(BuildError):
+    """A refusal (bad or empty input). A BuildError, so run_cyclical
+    fails the run rather than logging it as a benign WARN."""
 
 
 def _find_cifp_file(input_dir: Path) -> Path:
@@ -146,13 +146,6 @@ def _approach_type_and_runway(proc_ident: str) -> tuple[str | None, str | None]:
         if len(digits) > 2 and digits[2] in ("L", "R", "C"):
             runway += digits[2]
     return (kind, runway)
-
-
-def _great_circle_nm(p1: tuple[float, float], p2: tuple[float, float]) -> float:
-    lat1, lon1, lat2, lon2 = (math.radians(v) for v in (*p1, *p2))
-    a = (math.sin((lat2 - lat1) / 2) ** 2
-         + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2)
-    return _EARTH_RADIUS_NM * 2 * math.asin(min(1.0, math.sqrt(a)))
 
 
 #: AER-1979: the ER stream in one CIFP file interleaves airway legs from
@@ -241,7 +234,7 @@ def _build_procedures(con: sqlite3.Connection, path: Path,
 
         arc_radius_nm = None
         if leg.centre_lat is not None and leg.fix_lat is not None:
-            arc_radius_nm = _great_circle_nm(
+            arc_radius_nm = great_circle_nm(
                 (leg.centre_lat, leg.centre_lon), (leg.fix_lat, leg.fix_lon))
         con.execute(
             "INSERT INTO legs (transition_id, seq, path_term, fix_id, fix_lat, "

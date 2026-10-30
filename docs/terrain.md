@@ -102,7 +102,10 @@ a sibling bitmask file:
   level; a mosaic level's side comes from its own `.json` sidecar
   (`rows`/`cols`), same as the mosaic `.hgt` it sits beside.
 - **Registration:** pixel-is-point, identical to the elevation grid — the
-  reader (MP10c) indexes both with the same row/col.
+  reader (MP10c) indexes both with the same row/col. **MP10c doesn't exist
+  yet** (as of 2026-09-09, no file/branch/issue by that name in `pyEfis`,
+  `pyavtools`, or here) — same unbuilt state as MP10a below. Until one of
+  them lands, a `.wmask` sibling is inert cargo: nothing reads it.
 
 **Ride-along, not a manifest field.** Like the mip pyramid, a `.wmask` rides
 into a region pack or the mosaic pack purely by path convention
@@ -140,6 +143,13 @@ The mask build always covers the whole tile tree, even when `REGIONS` limits
 which packs are built: `build_water_masks.py`'s closing `pack_check` scans
 every tile and ignores `--only`. Existing masks are skipped, so only the first
 run pays for the full continent.
+
+**Notify QA before the first `.wmask`-carrying publish, dev origin first, and
+tell Elon too at the production hop.** The mask is a new,
+independently-rasterized coastline representation, not a copy of
+`water.sqlite` — see [water.md](water.md#before-you-publish--notify-qa-aer-854)
+for the trigger this fires, the dev-origin-first promotion, and what to tell
+QA and Elon.
 
 ## Build + upload (workstation)
 

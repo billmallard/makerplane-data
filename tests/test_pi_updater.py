@@ -7,6 +7,7 @@ these tests exercise the real sign->verify and manifest contract across both
 halves of the system."""
 
 import datetime as dt
+import json
 import sqlite3
 from functools import partial
 from pathlib import Path
@@ -19,6 +20,7 @@ from packtools.run_cyclical import CyclicalRunner
 from packtools.schema_guard import NULL_GUARD
 from packtools.sources import SOURCES
 from packtools.upload import LocalStore
+from tests.gatefake import STANDIN, standin_reporter
 
 from pyefis_data import cli, core
 from pyefis_data.config import Config
@@ -44,11 +46,12 @@ def _fake_build(input_dir, out):
     return Path(out)
 
 
-def build_store(tmp_path):
-    """Run the real pipeline into a LocalStore; return (store_root, pubkey)."""
-    sk, pub = signing.generate_keypair()
+def build_store(tmp_path, keypair=None):
+    """Run the real pipeline into a LocalStore; return (store_root, pubkey).
+    Pass ``keypair`` to keep the secret key for re-signing an edited manifest."""
+    sk, pub = keypair or signing.generate_keypair()
     store = LocalStore(tmp_path / "r2")
-    CyclicalRunner(
+    CyclicalRunner(reporter=standin_reporter,
         store=store, secret=sk, work_dir=tmp_path / "wbuild",
         url_base=f"{ORIGIN}/packs", fetcher=_fake_fetch,
         builders={"airports": _fake_build, "obstacles": _fake_build},
@@ -254,6 +257,161 @@ def test_offline_uses_cached_manifest(tmp_path):
     up.remote = Dead()
     rows = up.status()                            # must fall back to cache
     assert any(r.status == CURRENT for r in rows)
+
+
+def _sign_manifest_dir(tmp_path, obj, sk):
+    """A hand-built signed manifest served from a directory, for exercising
+    fetch_manifest() without running the full pack-build pipeline."""
+    remote_dir = tmp_path / "remote"
+    remote_dir.mkdir(exist_ok=True)
+    raw = (json.dumps(obj, indent=2, sort_keys=True) + "\n").encode()
+    (remote_dir / "manifest.json").write_bytes(raw)
+    signing.sign_file(remote_dir / "manifest.json", sk)
+    return remote_dir
+
+
+def test_unknown_pack_kind_is_skipped_not_fatal(tmp_path):
+    """A manifest published by a newer packtools that knows a pack kind this
+    client predates must not lose every OTHER pack too (AER-1935) -- an
+    older device tracking an older branch will see this the moment a new
+    kind's first pack is published anywhere upstream of it."""
+    sk, pub = signing.generate_keypair()
+    obj = {
+        "manifest_version": 1, "generated": "2026-06-14T00:00:00Z",
+        "packs": [
+            {"id": "navdata-conus", "kind": "navdata", "cycle": "2606",
+             "bytes": 1, "sha256": "a" * 64, "url": f"{ORIGIN}/p.pack",
+             "effective": "2026-06-11", "expires": "2026-07-09"},
+            {"id": "bogus-conus", "kind": "BOGUS", "cycle": "2609",
+             "bytes": 1, "sha256": "b" * 64, "url": f"{ORIGIN}/q.pack"},
+        ],
+        "regions": {},
+    }
+    remote_dir = _sign_manifest_dir(tmp_path, obj, sk)
+    cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", packs=("navdata-conus",))
+    up = Updater(cfg, pub, remote=LocalDirRemote(remote_dir), today=TODAY)
+    m = up.fetch_manifest()
+    assert [p.id for p in m.packs] == ["navdata-conus"]
+    assert m.dropped_kinds == ["BOGUS"]
+
+
+def test_device_ignores_unknown_manifest_fields(tmp_path):
+    """Old devices keep working when the manifest grows fields (AER-4099).
+
+    The testing-visibility fields (report_url, report_sha256, origin, notice,
+    build_commit) are unknown to every device released before them, and the
+    next revision will add fields unknown to this one. Stand in for both
+    with fields this client has never heard of, per pack and at top level,
+    on a real built-and-signed catalog: the device must still verify,
+    select, download, sha-check and install exactly as before."""
+    sk, pub = signing.generate_keypair()
+    root, _ = build_store(tmp_path, keypair=(sk, pub))
+    mpath = root / "manifest.json"
+    obj = json.loads(mpath.read_bytes())
+    obj["future_top_level"] = {"anything": [1, 2, 3]}
+    for p in obj["packs"]:
+        p.update({
+            "report_url": f"{ORIGIN}/reports/{p['id']}/{p['cycle']}/report.json",
+            "report_sha256": "c" * 64, "origin": "a-value-no-client-knows",
+            "notice": "x", "build_commit": "d" * 40,
+            "future_field": {"nested": True}, "future_list": ["a"],
+        })
+    mpath.write_bytes((json.dumps(obj, indent=2, sort_keys=True) + "\n").encode())
+    signing.sign_file(mpath, sk)
+
+    up = make_updater(tmp_path, pub, remote_root=root)
+    m = up.fetch_manifest()
+    assert {p.id for p in m.packs} == {"airports-conus", "obstacles-conus"}
+    assert m.dropped_kinds == []
+    up.update()
+    piroot = tmp_path / "pi"
+    assert (piroot / "navdata" / "2606" / "airports.sqlite").exists()
+    assert up._current_target(piroot / "navdata") == "2606"
+    assert all(r.status == CURRENT for r in up.status())
+
+
+def test_catalog_rejected_manifest_is_not_reported_as_offline(tmp_path):
+    """A manifest that fetches and verifies fine but fails to parse is a
+    broken catalog, not a network problem -- it must be reported as itself
+    (ManifestError), never silently swapped for a stale cache under an
+    'offline' label, and it must never overwrite the last good cache."""
+    sk, pub = signing.generate_keypair()
+    good_obj = {
+        "manifest_version": 1, "generated": "2026-06-14T00:00:00Z",
+        "packs": [{"id": "navdata-conus", "kind": "navdata", "cycle": "2606",
+                   "bytes": 1, "sha256": "a" * 64, "url": f"{ORIGIN}/p.pack",
+                   "effective": "2026-06-11", "expires": "2026-07-09"}],
+        "regions": {},
+    }
+    remote_dir = _sign_manifest_dir(tmp_path, good_obj, sk)
+    cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", packs=("navdata-conus",))
+    up = Updater(cfg, pub, remote=LocalDirRemote(remote_dir), today=TODAY)
+    up.fetch_manifest()                              # populates a good cache
+    cached_raw = (tmp_path / "pi" / "manifest.json").read_bytes()
+
+    # Replace with a manifest that is genuinely structurally broken (not just
+    # an unrecognized kind, which is now tolerated) -- missing a required field.
+    bad_obj = {
+        "manifest_version": 1, "generated": "2026-06-15T00:00:00Z",
+        "packs": [{"id": "navdata-conus", "kind": "navdata", "cycle": "2607"}],
+        "regions": {},
+    }
+    _sign_manifest_dir(tmp_path, bad_obj, sk)
+
+    logs = []
+    up.log = logs.append
+    with pytest.raises(core.ManifestError):
+        up.fetch_manifest()
+    assert not any("offline" in line for line in logs)
+    # the bad manifest must not have clobbered the last good cache
+    assert (tmp_path / "pi" / "manifest.json").read_bytes() == cached_raw
+
+
+def test_offline_self_heals_a_cache_poisoned_before_the_fix(tmp_path):
+    """Before AER-1935, fetch_manifest() wrote the raw bytes to cache *before*
+    parsing them, so a device that ever received a manifest with an
+    unrecognized kind was left with that manifest on disk permanently. A
+    device upgraded to the fix does not get that stale cache cleaned up for
+    it -- nothing deletes or rewrites it. The fix must still work on exactly
+    that leftover file, with no network, or the upgrade alone doesn't clear
+    the symptom."""
+    sk, pub = signing.generate_keypair()
+    poisoned_obj = {
+        "manifest_version": 1, "generated": "2026-06-14T00:00:00Z",
+        "packs": [
+            {"id": "navdata-conus", "kind": "navdata", "cycle": "2606",
+             "bytes": 1, "sha256": "a" * 64, "url": f"{ORIGIN}/p.pack",
+             "effective": "2026-06-11", "expires": "2026-07-09"},
+            {"id": "bogus-conus", "kind": "BOGUS", "cycle": "2609",
+             "bytes": 1, "sha256": "b" * 64, "url": f"{ORIGIN}/q.pack"},
+        ],
+        "regions": {},
+    }
+    raw = (json.dumps(poisoned_obj, indent=2, sort_keys=True) + "\n").encode()
+    sig = signing.sign(raw, sk)
+    root = tmp_path / "pi"
+    root.mkdir(parents=True)
+    # Written directly, not via fetch_manifest(): this is what the pre-fix
+    # write-before-parse left behind, not a state this test can reach by
+    # calling the (now fixed) updater against a live remote.
+    (root / "manifest.json").write_bytes(raw)
+    (root / "manifest.json.minisig").write_text(sig, encoding="ascii")
+
+    class Dead:
+        def get_bytes(self, url, timeout=30):
+            raise ConnectionError("no network")
+
+        def download(self, url, dest):
+            raise ConnectionError("no network")
+
+    cfg = Config(base_url=ORIGIN, root=root, packs=("navdata-conus",))
+    up = Updater(cfg, pub, remote=Dead(), today=TODAY)
+    logs = []
+    up.log = logs.append
+    m = up.fetch_manifest()
+    assert [p.id for p in m.packs] == ["navdata-conus"]
+    assert m.dropped_kinds == ["BOGUS"]
+    assert any("offline" in line for line in logs)
 
 
 def test_import_dir_via_cli_offline(tmp_path, monkeypatch):

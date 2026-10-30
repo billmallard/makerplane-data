@@ -28,6 +28,7 @@ in the workspace ledger (`makerplane/STATE.md`, local umbrella dir).
 
 | Doc | Status |
 |---|---|
+| [pack_report.md](pack_report.md) | SCHEMA 2026-10-28 — `pack-report/1` per-pack test record + the five additive manifest fields (TV1); the `auspex` section is **pending Bill's sign-off at TV14** |
 | [environments.md](environments.md) | SPEC, §9 locked 2026-07-08 — DEV/QA/PROD env split; **implementation not started** |
 | [dev_navdata_environment.md](dev_navdata_environment.md) | DESIGN NOTE 2026-08-01 — a DEV pack origin (`dev.navdata`); fills the "navdata OUT" gap in environments.md; **open decisions for Bill** |
 | [canfix_configurator.md](canfix_configurator.md) | SPEC — V-speed/gauge-band profiles → fixgw init_data; **awaiting Bill's review** |
@@ -40,6 +41,9 @@ in the workspace ledger (`makerplane/STATE.md`, local umbrella dir).
 | [europe_coverage.md](europe_coverage.md) | Parking lot — "not started, future Bill" |
 | [svs_runway_terrain.md](svs_runway_terrain.md) | Investigation complete; decision DEFERRED to real-flight validation |
 | [aircraft_params_schema_env_prefix_fix.md](aircraft_params_schema_env_prefix_fix.md) | Env-prefix R2 gotcha note (untracked — should be committed) |
+| [do200b_applicability.md](do200b_applicability.md) | RESEARCH BRIEF 2026-09-07 — DO-200B/AC 20-153B applicability; verdict: not legally required, adopt a per-source pedigree label on engineering merit, do nothing else |
+| [route_sync.md](route_sync.md) | DESIGN PASS 2026-09-08 (FP9, AER-811) — configurator route/user-waypoint sync D1 schema, pull/push endpoints, token scope; **awaiting Bill's review, no code until approved** |
+| [seattle_avionics_compatibility.md](seattle_avionics_compatibility.md) | RESEARCH BRIEF 2026-09-07 — licensing/interop evaluation vs. Seattle Avionics ChartData; verdict: distracts from CAP-206, do not pursue |
 
 ## Historical (executed — record only)
 

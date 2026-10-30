@@ -66,7 +66,7 @@ preserve verify-then-swap; don't introduce a path that installs before verifying
 | **`packtools/`** | 1 | Pack builder. `cycles` (AIRAC/DOF date math), `signing` (minisign ed25519, pure PyNaCl — shared with the Pi), `packmeta` (self-describing header inside every pack), `manifest` (catalog schema + canonical bytes + validation + prune), `regions`/`regions.yaml` (8 N-America bboxes), `sources` (upstream FAA URLs), `fetch`, `build/` (shim to pyEfis tools), `upload` (R2/S3 + LocalStore), `publish`, `make_terrain`, `ourairports`, `run_cyclical` (the daily orchestrator), `cli` (`packtool`). |
 | **`pyefis_data/`** | 3 | On-Pi updater. `config` (`~/.makerplane/pyefis/data.yaml`, construct-never-raises), `core` (`Updater`, `Remote`, inventory, the verify-then-swap install), `config_pull` (device panel-config pull + install + rollback), `cli` (`pyefis-data`), `systemd/` (user service + timer + USB-import udev/service). |
 | **`configurator/`** | — | The web panel editor (Worker, TS). Own CLAUDE.md. |
-| `.github/workflows/` | 1/2 | `ci.yml` (SPDX check + pytest + no-secrets dry-run), `cyclical.yml` (daily build+sign+upload), `terrain.yml`, `water.yml` (dispatch builds). |
+| `.github/workflows/` | 1/2 | `ci.yml` (SPDX check + pytest + no-secrets dry-run), `cyclical.yml` (daily build+sign+upload), `terrain.yml`, `water.yml` (dispatch builds), `site.yml` (deploys `site/` to the bucket root: on push to `main`, or dispatched). |
 | `site/` | 2 | Static Cloudflare site + on-device pack picker (`data.yaml.sample`). |
 | `docs/` | — | Phase plan (`data_manager_implementation.md`), Cloudflare runbook, per-kind build notes (terrain/water/roads), licensing audit, the AC-DP-001 defensive publication, panel-config format, device deployment. |
 | `keys/minisign.pub` | — | Signing **public** key (committed). The secret never is. |
@@ -143,10 +143,18 @@ placeholder).
 - The daily pipeline is **live and unattended**: `cyclical.yml` builds + signs +
   uploads to R2, served at `https://navdata.aerocommons.org` (manifest at
   `/manifest.json`). Reproduce-from-nothing runbook: `docs/cloudflare_setup.md`.
-- **Rule (from prior incident):** a new pack `kind` must be merged to `main`
-  **before** its first R2 publish — an unknown kind in a published manifest
-  crashed the nightly cron. New kinds land in `packmeta.KINDS` + the updater
-  first, then publish.
+- **Rule (from prior incident, reworded after AER-1935):** a new pack `kind`
+  must be merged to **`dev`** — the branch devices actually track (see the
+  branch model below) — **before** its first R2 publish. The original wording
+  named `main`; AER-1702 followed it to the letter (the kind landed on `main`)
+  and devices tracking `dev` still lost every pack in the manifest, not just
+  the new one, because `main` was 15 commits ahead of `dev` on exactly the
+  files that mattered. Merging to `main` alone proves nothing about what a
+  device tracking `dev` will see. New kinds land in `packmeta.KINDS` + the
+  updater on `dev` first, then promote to `qa`/`main`, then publish. AER-1935
+  also hardened the client itself as defense-in-depth — an unrecognized kind
+  is now dropped, not fatal, and can no longer poison the manifest cache — but
+  that is a safety net, not a reason to skip the merge-order rule.
 - Configurator deploy is separate (`npx wrangler deploy` from `configurator/`);
   see configurator/CLAUDE.md.
 
@@ -157,7 +165,7 @@ placeholder).
   (Worker + D1 migrations). Old feature branches (`feat/accounts-auth`, …) are
   parked history. Live thread state: `../STATE.md`.
 - `packtools`/`pyefis_data` Phases A–F are complete and live end-to-end.
-  Package version **0.2.11** (`pyproject.toml`; README agrees).
+  Package version **0.4.0** (`pyproject.toml`; README agrees).
 - `ssh pyefis` reaches the Pi 5 test bench; mid-flight patching is explicitly OK
   (it's a debug bench, not a certified article).
 

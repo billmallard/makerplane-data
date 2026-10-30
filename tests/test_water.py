@@ -14,6 +14,7 @@ from packtools.manifest import Manifest, PackEntry
 from packtools.packmeta import PackMeta, embed_sqlite, read_sqlite
 from packtools.publish import publish, retract
 from packtools.upload import LocalStore
+from tests.gatefake import STANDIN, standin_reporter
 from pyefis_data.config import Config
 from pyefis_data.core import Updater, LocalDirRemote
 
@@ -47,7 +48,7 @@ def _water_pack(tmp_path):
 def _publish(tmp_path, pairs):
     store = LocalStore(tmp_path / "r2")
     sk, pub = signing.generate_keypair()
-    publish(store, sk, pairs, generated="2026-06-14T00:00:00Z",
+    publish(store, sk, gate=STANDIN, pairs=pairs, generated="2026-06-14T00:00:00Z",
             sign=signing.sign, log=lambda *a: None)
     return store, pub
 
@@ -91,12 +92,10 @@ def test_publish_adds_alongside_existing(tmp_path):
     # a prior navdata entry must survive a water publish
     store = LocalStore(tmp_path / "r2")
     sk, pub = signing.generate_keypair()
-    nav = PackEntry(id="airports-conus", kind="navdata", cycle="2606", bytes=1,
-                    sha256="a" * 64, url="u", effective="2026-06-11", expires="2026-07-09")
-    publish(store, sk, [(nav, _existing_sqlite(tmp_path))],
+    publish(store, sk, gate=STANDIN, pairs=[_nav(tmp_path)],
             generated="2026-06-14T00:00:00Z", sign=signing.sign, log=lambda *a: None)
     pack, entry = _water_pack(tmp_path)
-    publish(store, sk, [(entry, pack)], generated="2026-06-14T00:00:00Z",
+    publish(store, sk, gate=STANDIN, pairs=[(entry, pack)], generated="2026-06-14T00:00:00Z",
             sign=signing.sign, log=lambda *a: None)
     m = Manifest.from_bytes(store.get_bytes("manifest.json"))
     ids = {p.id for p in m.packs}
@@ -109,19 +108,11 @@ def test_retract_drops_one_entry_leaves_rest(tmp_path):
     # disturbing any other pack already in the manifest.
     store = LocalStore(tmp_path / "r2")
     sk, pub = signing.generate_keypair()
-    nav = PackEntry(id="airports-conus", kind="navdata", cycle="2606", bytes=1,
-                    sha256="a" * 64, url="u", effective="2026-06-11", expires="2026-07-09")
-    good = PackEntry(id="highways-conus", kind="highways", cycle="2026q3r1", bytes=1,
-                     sha256="b" * 64, url="u", effective=None, expires=None)
-    bad = PackEntry(id="highways-conus", kind="highways", cycle="2026q3r1-smoketest",
-                    bytes=1, sha256="c" * 64, url="u", effective=None, expires=None)
-    publish(store, sk, [(nav, _existing_sqlite(tmp_path))],
+    publish(store, sk, gate=STANDIN, pairs=[_nav(tmp_path)],
             generated="2026-06-14T00:00:00Z", sign=signing.sign, log=lambda *a: None)
-    pack2 = tmp_path / "good.pack"
-    pack2.write_bytes(b"x")
-    pack3 = tmp_path / "bad.pack"
-    pack3.write_bytes(b"y")
-    publish(store, sk, [(good, pack2), (bad, pack3)],
+    good = _sqlite_pack(tmp_path, "highways-conus", "highways", "2026q3r1")
+    bad = _sqlite_pack(tmp_path, "highways-conus", "highways", "2026q3r1-smoketest")
+    publish(store, sk, gate=STANDIN, pairs=[good, bad],
             generated="2026-06-14T00:00:00Z", sign=signing.sign, log=lambda *a: None)
 
     retract(store, sk, "highways-conus", "2026q3r1-smoketest",
@@ -142,17 +133,41 @@ def test_retract_missing_entry_raises(tmp_path):
     pack, entry = _water_pack(tmp_path)
     store = LocalStore(tmp_path / "r2")
     sk, pub = signing.generate_keypair()
-    publish(store, sk, [(entry, pack)], generated="2026-06-14T00:00:00Z",
+    publish(store, sk, gate=STANDIN, pairs=[(entry, pack)], generated="2026-06-14T00:00:00Z",
             sign=signing.sign, log=lambda *a: None)
     with pytest.raises(RuntimeError):
         retract(store, sk, "no-such-id", "no-such-cycle",
                 generated="2026-06-15T00:00:00Z", sign=signing.sign, log=lambda *a: None)
 
 
-def _existing_sqlite(tmp_path):
-    p = tmp_path / "airports-conus-2606.pack"
+def _sqlite_pack(tmp_path, id, kind, cycle, **dates):
+    """A one-table sqlite pack with its pack_meta and a matching entry: the
+    publish gate checks the entry's sha256 and size against the file."""
+    p = tmp_path / f"{id}-{cycle}.pack"
     con = sqlite3.connect(str(p)); con.execute("CREATE TABLE t(x)"); con.commit(); con.close()
-    return p
+    meta = PackMeta(id=id, kind=kind, cycle=cycle, attribution=ATTR, **dates)
+    embed_sqlite(p, meta)
+    return PackEntry.from_pack(p, meta, url=f"{ORIGIN}/packs/{p.name}"), p
+
+
+def _nav(tmp_path):
+    return _sqlite_pack(tmp_path, "airports-conus", "navdata", "2606",
+                        effective="2026-06-11", expires="2026-07-09")
+
+
+def _list_directly(tmp_path, pairs):
+    """Sign a manifest listing ``pairs`` without the publish gate: for a kind
+    the gate refuses on principle (an ungated kind), where the test is about
+    the device install path, not about publishing."""
+    store = LocalStore(tmp_path / "r2")
+    sk, pub = signing.generate_keypair()
+    m = Manifest.new("2026-06-14T00:00:00Z")
+    for entry, path in pairs:
+        store.put_file(f"packs/{path.name}", path)
+        m.upsert(entry)
+    store.put_bytes("manifest.json", m.to_bytes())
+    store.put_bytes("manifest.json.minisig", signing.sign(m.to_bytes(), sk).encode("ascii"))
+    return store, pub
 
 
 def test_highways_install(tmp_path):
@@ -201,7 +216,9 @@ def test_rivers_install(tmp_path):
     embed_sqlite(pack, meta)
     entry = PackEntry.from_pack(pack, meta, url=f"{ORIGIN}/packs/{pack.name}",
                                 regions=["conus"])
-    store, pub = _publish(tmp_path, [(entry, pack)])
+    # rivers is ungated (report.UNGATED): the publish gate refuses it, so
+    # list it directly to test the install path.
+    store, pub = _list_directly(tmp_path, [(entry, pack)])
     cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", regions=("conus",))
     up = Updater(cfg, pub, remote=LocalDirRemote(store.root), today=TODAY)
     up.update()

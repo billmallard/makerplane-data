@@ -15,6 +15,7 @@ custom domain is attached to the bucket.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from typing import Protocol
 
@@ -24,6 +25,8 @@ class ObjectStore(Protocol):
     def put_file(self, key: str, path: str | Path, content_type: str | None = None) -> None: ...
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> None: ...
     def get_bytes(self, key: str) -> bytes | None: ...
+    def get_file(self, key: str, dest: str | Path) -> bool: ...
+    def list_keys(self, prefix: str) -> list[str]: ...
 
 
 class LocalStore:
@@ -52,6 +55,20 @@ class LocalStore:
     def get_bytes(self, key: str) -> bytes | None:
         p = self._p(key)
         return p.read_bytes() if p.exists() else None
+
+    def get_file(self, key: str, dest: str | Path) -> bool:
+        """Copy ``key`` to ``dest``. False (and nothing written) if absent."""
+        p = self._p(key)
+        if not p.exists():
+            return False
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(p, dest)
+        return True
+
+    def list_keys(self, prefix: str) -> list[str]:
+        """Every key starting with ``prefix``, sorted."""
+        keys = (p.relative_to(self.root).as_posix() for p in self.root.rglob("*") if p.is_file())
+        return sorted(k for k in keys if k.startswith(prefix))
 
 
 class R2Store:
@@ -109,3 +126,20 @@ class R2Store:
             if e.response["Error"]["Code"] in ("404", "NoSuchKey", "NotFound"):
                 return None
             raise
+
+    def get_file(self, key: str, dest: str | Path) -> bool:
+        """Stream ``key`` to ``dest`` (a terrain pack is gigabytes; never
+        held in memory). False (and nothing written) if absent."""
+        if not self.exists(key):
+            return False
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        self._s3.download_file(self.bucket, key, str(dest))
+        return True
+
+    def list_keys(self, prefix: str) -> list[str]:
+        """Every key starting with ``prefix``, sorted (all pages of the listing)."""
+        keys = []
+        for page in self._s3.get_paginator("list_objects_v2").paginate(
+                Bucket=self.bucket, Prefix=prefix):
+            keys.extend(o["Key"] for o in page.get("Contents", []))
+        return sorted(keys)

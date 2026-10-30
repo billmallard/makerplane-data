@@ -260,20 +260,49 @@ class SchemaGuard:
                         f"If this is a real new category, handle it (as the SP "
                         f"filter handles SP) then add it here.")
 
-    def check_inputs(self, source, input_dir) -> None:
+    def check_inputs(self, source, input_dir) -> list[str]:
+        """Run checks 1-3. Returns the layers that ran and passed (for the job
+        summary); ``[]`` means this builder has no contract."""
         contract = self._contract(source)
         if contract is None:
-            return
+            return []
         input_dir = Path(input_dir)
         self._check_structure(contract, input_dir)
         self._check_headers(contract, input_dir)
-        self._check_enums(contract, input_dir)
+        passed = ["structure", "headers"]
+        if contract.enum_columns:
+            self._check_enums(contract, input_dir)
+            passed.append("enums")
+        return passed
 
-    # -- check 4 -----------------------------------------------------------
-    def check_output(self, source, pack_path) -> None:
+    # -- persisted results (pack reports, AER-4100) -------------------------
+    def evaluate_inputs(self, source, input_dir) -> list["LayerResult"]:
+        """Run layers 1-3 like :meth:`check_inputs`, but run every layer and
+        return one :class:`LayerResult` each instead of raising on the first
+        break, so a pack report can record all three. Empty for a builder
+        with no contract."""
         contract = self._contract(source)
         if contract is None:
-            return
+            return []
+        input_dir = Path(input_dir)
+        return [_run_layer(1, "structure", self._check_structure, contract, input_dir),
+                _run_layer(2, "headers", self._check_headers, contract, input_dir),
+                _run_layer(3, "enums", self._check_enums, contract, input_dir)]
+
+    def evaluate_output(self, source, pack_path) -> "LayerResult | None":
+        """Layer 4 as a result, not a raise. None for a builder with no
+        contract."""
+        if self._contract(source) is None:
+            return None
+        return _run_layer(4, "floors", lambda: self.check_output(source, pack_path))
+
+    # -- check 4 -----------------------------------------------------------
+    def check_output(self, source, pack_path) -> list[tuple[str, int, int]]:
+        """Run check 4. Returns (table, rows, floor) for each floored table
+        (for the job summary); ``[]`` means this builder has no contract."""
+        contract = self._contract(source)
+        if contract is None:
+            return []
         name = Path(pack_path).name
         con = sqlite3.connect(str(pack_path))
         try:
@@ -302,6 +331,25 @@ class SchemaGuard:
                         f"truncated upstream file or a parse break.")
         finally:
             con.close()
+        return [(t, counts[t], f) for t, f in contract.floors.items()]
+
+
+@dataclass(frozen=True)
+class LayerResult:
+    """One guard layer's outcome. ``message`` is the SchemaGuardError text
+    on a break, "" when the layer held."""
+    layer: int
+    name: str
+    ok: bool
+    message: str = ""
+
+
+def _run_layer(layer: int, name: str, fn, *args) -> LayerResult:
+    try:
+        fn(*args)
+    except SchemaGuardError as e:
+        return LayerResult(layer, name, False, str(e))
+    return LayerResult(layer, name, True)
 
 
 class _NullGuard:
@@ -309,10 +357,10 @@ class _NullGuard:
     (e.g. the orchestrator tests, which inject fake builders + fake inputs)."""
 
     def check_inputs(self, source, input_dir) -> None:
-        pass
+        return None              # None, not []: "not run", not "no contract"
 
     def check_output(self, source, pack_path) -> None:
-        pass
+        return None
 
 
 #: the guard the pipeline uses by default (real contracts + committed snapshots)

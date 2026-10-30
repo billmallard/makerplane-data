@@ -192,16 +192,27 @@
      and isn't reused, AER-173 sec 1/sec 4c) so the two aren't visually
      conflated. */
   .tab-twin { position: absolute; inset: 0; }
+  /* Position (top/left/width/height) and the bar-vs-content separator border
+     are edge-dependent (tab_position, AER-665) and set inline per instance --
+     see tabStripGeom()/tabContentGeom(). */
   .tab-twin-strip {
-    position: absolute; top: 0; left: 0; right: 0; display: flex; overflow: hidden;
-    background: #161b22; border-bottom: 1px solid #30363d;
+    position: absolute; display: flex; overflow: hidden; background: #161b22;
   }
   .tab-twin-chip {
-    padding: 0 8px; display: flex; align-items: center; font-size: 11px;
-    color: #8b949e; white-space: nowrap; cursor: pointer; border-right: 1px solid #21262d;
+    padding: 0 8px; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #8b949e; white-space: nowrap; cursor: pointer;
+    border-right: 1px solid #21262d;
   }
   .tab-twin-chip.active { color: #e6edf3; background: #0d1117; }
-  .tab-twin-content { position: absolute; left: 0; right: 0; overflow: hidden; }
+  /* left/right tab_position: QTabBar's RoundedWest/RoundedEast shapes stack
+     tabs down the bar and rotate the labels (tab_section/__init__.py
+     _TAB_BAR_SHAPE) -- vertical-rl approximates the rotated glyphs; a chip
+     separates from its neighbour on the stacking axis, not the side one. */
+  .tab-twin-chip.vertical {
+    writing-mode: vertical-rl; padding: 8px 0;
+    border-right: none; border-bottom: 1px solid #21262d;
+  }
+  .tab-twin-content { position: absolute; overflow: hidden; }
   /* Container-scoped drop zone (sec 4b): visible only while the container
      itself is selected, so it reads as "drop into the active tab here"
      rather than a permanent decoration. */
@@ -287,6 +298,7 @@
   <label class="tsel">Screen <select id="res"></select></label>
   <span id="custom" class="hidden"><input id="cw" type="number" class="num"> × <input id="ch" type="number" class="num"></span>
   <label class="tsel">Size <select id="inches"></select></label>
+  <span id="inches-custom" class="hidden"><input id="ci" type="number" step="0.1" min="1" max="120" class="num">&#8243;</span>
   <span class="muted" id="readout"></span>
   <label class="tsel"><input type="checkbox" id="gridToggle" checked> Grid</label>
   <label class="tsel"><input type="checkbox" id="snapToggle"> Snap</label>
@@ -329,6 +341,9 @@ const deviceId = params.get("device");
 
 const state = {
   schema: null,
+  // Altimeter-setting unit from the project's aircraft profile (#108), as the
+  // device will receive it in preferences units.Pressure. inHg = pyEfis default.
+  baroUnit: "inHg",
   screen: { width: 1280, height: 800, inches: 10.1 },  // device physical display (shared by all screens)
   // A device can hold several screens (PFD / EMS / RADIO ...) the pilot switches
   // between. Each: { name, layout, instruments }. `layout` + `instruments` below
@@ -388,12 +403,23 @@ function sampleText(inst) {
   switch (inst.type) {
     case "static_text": return o.text || "Text";
     case "heading_display": return "360°";  // HeadingDisplay shows "NNN°"
-    case "numeric_display": return "123";
+    case "numeric_display": return o.pressure === true ? baroSample(o) : "123";
     // With a number format set, preview a formatted sample so the mask is
     // visible; otherwise fall back to the bound key name.
     case "value_text": return o.number_format ? formatValue(88.8, o.number_format) : (o.dbkey || "ABC");
     default: return inst.type;
   }
+}
+
+// A pressure numeric_display (e.g. the BARO box) previews the standard
+// altimeter setting in the aircraft's unit, converted and formatted the way
+// pyEfis does: funcPressHpa (screenbuilder_options) then
+// '{:.{decimal_places}f}', decimal_places defaulting to 1 (gauges.AbstractGauge).
+const BARO_STD_INHG = 29.92;
+const INHG_TO_HPA = 33.863889532610884;
+function baroSample(o) {
+  const v = state.baroUnit === "hPa" ? BARO_STD_INHG * INHG_TO_HPA : BARO_STD_INHG;
+  return v.toFixed(o.decimal_places ?? 1);
 }
 
 // pyEfis text-widget defaults, matched class-by-class so an unset font / size /
@@ -1938,7 +1964,20 @@ const RESOLUTIONS = [
   { w: 800, h: 480 }, { w: 1024, h: 600 }, { w: 1280, h: 800 }, { w: 1280, h: 1024 },
   { w: 1920, h: 1080 }, { w: 1920, h: 1200 },
 ];
-const INCHES = [5, 7, 8, 10.1, 11.6, 15.6, 21.5];
+// Panel sizes, keyed on the TRUE viewable diagonal -- that is what the DPI
+// maths needs, and what pyEfis stores as `screenDiagonalInches`.
+//
+// Monitors are sold by a rounded class that is usually LARGER than the panel:
+// a "22-inch" monitor is a 21.5-inch panel, a "24-inch" is 23.8. A builder
+// looking for the number printed on the box could not find it here and
+// reasonably concluded the list was wrong, so `cls` puts that number in the
+// label while the stored value stays the real one. Anything not listed goes
+// through Custom, like the resolution control above.
+const INCHES = [
+  { in: 5 }, { in: 7 }, { in: 8 }, { in: 10.1 }, { in: 11.6 },
+  { in: 15.6 }, { in: 21.5, cls: 22 }, { in: 23.8, cls: 24 }, { in: 27 },
+];
+const inchLabel = (e) => e.cls ? `${e.in}″ (${e.cls}″ class)` : `${e.in}″`;
 
 function gcd(a, b) { return b ? gcd(b, a % b) : a; }
 function aspect(w, h) { const g = gcd(w, h), aw = w / g, ah = h / g; return ah <= 20 ? `${aw}:${ah}` : `${(w / h).toFixed(2)}:1`; }
@@ -1956,9 +1995,31 @@ function buildScreenControls() {
   const inch = $("inches");
   inch.innerHTML = "";
   const none = document.createElement("option"); none.value = ""; none.textContent = "— in"; inch.appendChild(none);
-  for (const i of INCHES) { const o = document.createElement("option"); o.value = i; o.textContent = i + "″"; inch.appendChild(o); }
+  for (const e of INCHES) {
+    const o = document.createElement("option");
+    o.value = e.in; o.textContent = inchLabel(e); inch.appendChild(o);
+  }
+  const inchCustom = document.createElement("option");
+  inchCustom.value = "custom"; inchCustom.textContent = "Custom…"; inch.appendChild(inchCustom);
   res.addEventListener("change", onResChange);
-  inch.addEventListener("change", () => { state.screen.inches = parseFloat($("inches").value) || null; applyScreen(); });
+  inch.addEventListener("change", () => {
+    if ($("inches").value === "custom") {
+      $("inches-custom").classList.remove("hidden");
+      $("ci").value = state.screen.inches || "";
+      $("ci").focus();
+      return;                       // wait for a number before touching state
+    }
+    $("inches-custom").classList.add("hidden");
+    state.screen.inches = parseFloat($("inches").value) || null;
+    applyScreen();
+  });
+  $("ci").addEventListener("input", () => {
+    const v = parseFloat($("ci").value);
+    // Guard the divisor: `inches` feeds dpi() and pyEfis's mm-to-pixel maths,
+    // so a zero or a stray minus must not reach it.
+    state.screen.inches = (v > 0 && v <= 120) ? v : null;
+    applyScreen();
+  });
   $("cw").addEventListener("input", onCustom);
   $("ch").addEventListener("input", onCustom);
   syncScreenControls();
@@ -1979,7 +2040,15 @@ function syncScreenControls() {
   const key = state.screen.width + "x" + state.screen.height;
   if ([...$("res").options].some((o) => o.value === key)) { $("res").value = key; $("custom").classList.add("hidden"); }
   else { $("res").value = "custom"; $("custom").classList.remove("hidden"); $("cw").value = state.screen.width; $("ch").value = state.screen.height; }
-  $("inches").value = state.screen.inches || "";
+  const inches = state.screen.inches;
+  if (inches && !INCHES.some((e) => e.in === inches)) {
+    $("inches").value = "custom";
+    $("inches-custom").classList.remove("hidden");
+    $("ci").value = inches;
+  } else {
+    $("inches").value = inches || "";
+    $("inches-custom").classList.add("hidden");
+  }
 }
 function applyScreen() { sizeCanvas(); renderCanvas(); renderProps(); updateReadout(); }
 function updateReadout() {
@@ -2258,6 +2327,16 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       } else {
         content.textContent = sampleText(inst);
         if (inst.type === "value_text" && o.value_color) content.style.color = o.value_color;
+        // numeric_display show_units: the unit in the small font (0.4 of the
+        // value font, NumericDisplay.small_font_percent), right-aligned.
+        if (inst.type === "numeric_display" && o.pressure === true && o.show_units) {
+          const u = document.createElement("span");
+          u.textContent = state.baroUnit;
+          u.style.fontSize = "0.4em";
+          u.style.marginLeft = "auto";
+          u.style.alignSelf = "flex-start";
+          content.appendChild(u);
+        }
       }
       el.appendChild(content);
     } else if (depth === 0 && meta.containers && meta.containers.length) {
@@ -2353,10 +2432,13 @@ canvas.addEventListener("drop", (e) => {
       const tabLayout = tab.layout || { rows: 110, columns: 200 };
       // Tab-local coordinates (sec 4b): divide by the TAB's own layout, not
       // the screen's -- the same nested-space math buildContainerTwin uses.
-      const gw = box.w / (tabLayout.columns || 1);
-      const gh = Math.max(0, box.h - TAB_STRIP_H) / (tabLayout.rows || 1);
-      dropped.column = clamp(snapTo((mx - box.x) / gw), 0, tabLayout.columns - 1);
-      dropped.row = clamp(snapTo((my - box.y - TAB_STRIP_H) / gh), 0, tabLayout.rows - 1);
+      // cbox is the content area within box, net of the tab bar on whichever
+      // edge tab_position names (AER-665) -- top-only was the sec-4b original.
+      const cbox = tabContentGeom(box, tabPosition(sel));
+      const gw = cbox.w / (tabLayout.columns || 1);
+      const gh = cbox.h / (tabLayout.rows || 1);
+      dropped.column = clamp(snapTo((mx - box.x - cbox.x) / gw), 0, tabLayout.columns - 1);
+      dropped.row = clamp(snapTo((my - box.y - cbox.y) / gh), 0, tabLayout.rows - 1);
       tab.instruments = tab.instruments || [];
       tab.instruments.push(dropped);
       renderCanvas(); renderProps();
@@ -2748,13 +2830,40 @@ function buildContainerEditor(inst, slot) {
 }
 
 // Fixed px, not proportional to the container's box: the real widget's
-// QTabBar.sizeHint() height comes from font metrics, not from the container's
-// own size (tab_section/__init__.py _layout_pages -- `bar_height =
-// self.tab_bar.sizeHint().height()`, computed once, independent of the
-// widget's own height). This is the ONE place that assumes the bar sits on
-// top; pyEfis#137 (AVIONICS's, configurable tab-bar edge) becomes a local
-// change here when it lands, not a scattered one.
-const TAB_STRIP_H = 22;
+// QTabBar.sizeHint() comes from font metrics, not from the container's own
+// size (tab_section/__init__.py _layout_pages -- `bar_size =
+// self.tab_bar.sizeHint().height()` for top/bottom, `.width()` for the
+// rotated left/right shapes, computed once regardless of the widget's own
+// size). One constant approximates sizeHint on whichever axis it reserves.
+const TAB_BAR_THICKNESS = 22;
+
+// Which edge the tab bar sits on (tab_position option, AER-665; default
+// "top" matches both the schema default and pyEfis's own `_TAB_BAR_SHAPE`
+// fallback for an unrecognised value).
+function tabPosition(inst) {
+  const p = inst.options?.tab_position;
+  return (p === "bottom" || p === "left" || p === "right") ? p : "top";
+}
+
+// The tab bar's own box within the container, box-local px -- mirrors
+// tab_section/__init__.py _layout_pages' `bar_geom` exactly.
+function tabStripGeom(box, position) {
+  const t = TAB_BAR_THICKNESS;
+  if (position === "bottom") return { x: 0, y: Math.max(0, box.h - t), w: box.w, h: t };
+  if (position === "left") return { x: 0, y: 0, w: t, h: box.h };
+  if (position === "right") return { x: Math.max(0, box.w - t), y: 0, w: t, h: box.h };
+  return { x: 0, y: 0, w: box.w, h: t };   // top
+}
+
+// The active tab's own content box, box-local px -- mirrors _layout_pages'
+// `stack_geom`: whatever the strip doesn't occupy.
+function tabContentGeom(box, position) {
+  const t = TAB_BAR_THICKNESS;
+  if (position === "bottom") return { x: 0, y: 0, w: box.w, h: Math.max(0, box.h - t) };
+  if (position === "left") return { x: t, y: 0, w: Math.max(0, box.w - t), h: box.h };
+  if (position === "right") return { x: 0, y: 0, w: Math.max(0, box.w - t), h: box.h };
+  return { x: 0, y: t, w: box.w, h: Math.max(0, box.h - t) };   // top
+}
 
 // The recursive nested twin (AER-345 sec 4f): the tab strip + the active
 // tab's instruments, rendered inside the container's own box at the same
@@ -2768,13 +2877,40 @@ function buildContainerTwin(inst, meta, ci) {
   const activeIdx = defaultActiveTab(inst, tabs);
   inst.activeTab = activeIdx;
 
+  const position = tabPosition(inst);
+  const vertical = position === "left" || position === "right";
+  const box = rect(inst);   // a container is always top-level -> root space
+  const stripGeom = tabStripGeom(box, position);
+  const contentGeom = tabContentGeom(box, position);
+
+  // fg_color/bg_color (AER-665): a fixed override applied uniformly to every
+  // chip, active or not -- matches the device's stylesheet rule, which has
+  // no `:selected` clause (tab_section/__init__.py _apply_tab_bar_style).
+  // Unset (null, the schema default) leaves the inherited .tab-twin-chip /
+  // .active CSS legibility floor untouched.
+  const fg = inst.options?.fg_color, bg = inst.options?.bg_color;
+
   const strip = document.createElement("div");
   strip.className = "tab-twin-strip";
-  strip.style.height = TAB_STRIP_H + "px";
+  strip.style.left = stripGeom.x + "px"; strip.style.top = stripGeom.y + "px";
+  strip.style.width = stripGeom.w + "px"; strip.style.height = stripGeom.h + "px";
+  strip.style.flexDirection = vertical ? "column" : "row";
+  // Separator sits between the bar and the content, so it's on the side
+  // facing the content box, not always "bottom" (that was the top-only
+  // original).
+  strip.style.borderBottom = strip.style.borderTop = strip.style.borderLeft = strip.style.borderRight = "";
+  strip.style[{ top: "borderBottom", bottom: "borderTop", left: "borderRight", right: "borderLeft" }[position]] = "1px solid #30363d";
+  if (bg) strip.style.background = bg;
   tabs.forEach((tab, ti) => {
     const chip = document.createElement("div");
-    chip.className = "tab-twin-chip" + (ti === activeIdx ? " active" : "");
+    chip.className = "tab-twin-chip" + (ti === activeIdx ? " active" : "") + (vertical ? " vertical" : "");
     chip.textContent = tab.label || `Tab ${ti + 1}`;
+    // West (left) reads bottom-to-top, East (right) top-to-bottom -- Qt's
+    // rotation for RoundedWest/RoundedEast (tab_section/__init__.py
+    // _TAB_BAR_SHAPE). vertical-rl alone gives the East reading; West flips it.
+    if (position === "left") chip.style.transform = "rotate(180deg)";
+    if (fg) chip.style.color = fg;
+    if (bg) chip.style.background = bg;
     chip.addEventListener("mousedown", (e) => {
       e.stopPropagation();   // switching tabs must not start a container move
       inst.activeTab = ti;
@@ -2787,21 +2923,19 @@ function buildContainerTwin(inst, meta, ci) {
 
   const content = document.createElement("div");
   content.className = "tab-twin-content";
-  content.style.top = TAB_STRIP_H + "px";
-  content.style.height = `calc(100% - ${TAB_STRIP_H}px)`;
+  content.style.left = contentGeom.x + "px"; content.style.top = contentGeom.y + "px";
+  content.style.width = contentGeom.w + "px"; content.style.height = contentGeom.h + "px";
   wrap.appendChild(content);
 
   // Nested coordinate space (sec 4f's "big lift"): the container's own
   // content-box pixels divided by the ACTIVE TAB'S OWN layout, never the
   // screen's -- the exact trap Bill hit hand-authoring YAML (a tab narrower
   // than the screen makes screen coordinates land off its edge).
-  const box = rect(inst);   // a container is always top-level -> root space
   const activeTab = tabs[activeIdx];
   const tabLayout = activeTab.layout || { rows: 110, columns: 200 };
-  const contentH = Math.max(0, box.h - TAB_STRIP_H);
   const space = {
-    gw: box.w / (tabLayout.columns || 1),
-    gh: contentH / (tabLayout.rows || 1),
+    gw: contentGeom.w / (tabLayout.columns || 1),
+    gh: contentGeom.h / (tabLayout.rows || 1),
   };
 
   withSpace(space, () => {
@@ -3809,6 +3943,14 @@ async function boot() {
     state.groups = gj.groups || [];
     state.groups.forEach((g) => { state.groupsById[g.id] = g; });
   } catch (_) { /* no groups catalog */ }
+  if (deviceId) {
+    try {
+      const pr = await (await fetch(`/api/devices/${deviceId}/preferences`,
+        { credentials: "same-origin" })).json();
+      const u = pr && pr.preferences && pr.preferences.units && pr.preferences.units.Pressure;
+      if (u === "hPa" || u === "inHg") state.baroUnit = u;
+    } catch (_) { /* no profile preferences -- preview the inHg default */ }
+  }
   await load();
   buildScreenControls();
   $("gridToggle").addEventListener("change", (e) => $("canvas").classList.toggle("grid", e.target.checked));

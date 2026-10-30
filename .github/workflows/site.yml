@@ -10,6 +10,10 @@ name: site
 #   push to main  -- a release that changes site/ deploys it, the same way a
 #                    merge to main deploys the prod Worker
 #                    (docs/release_process.md).
+#   schedule      -- daily, two hours after the cyclical build: re-renders the
+#                    test-report pages (reports/**.html, reports/index.json)
+#                    from whatever records the publish paths have uploaded,
+#                    so a new record gets its page without anyone deploying.
 #   dispatch      -- an out-of-band deploy from the chosen branch, e.g. a fix
 #                    merged to dev that should not wait for the next release.
 #                    `dry_run` (default on) lists what would change and
@@ -17,7 +21,9 @@ name: site
 on:
   push:
     branches: [main]
-    paths: ["site/**"]
+    paths: ["site/**", "packtools/reportsite.py"]
+  schedule:
+    - cron: "20 11 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -47,6 +53,18 @@ jobs:
           packtool deploy-site --bucket makerplane-data \
             ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
 
+      # The pages are rendered from the records in the bucket, never from
+      # this checkout; a banned word or a leaked host in any page fails here
+      # and nothing is written.
+      - name: Render the test-report pages
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          packtool report-site --bucket makerplane-data \
+            ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
+
       # The upload succeeding is not the proof; the public URL serving the
       # committed bytes is.
       - name: Verify the public site serves site/
@@ -61,4 +79,10 @@ jobs:
               echo "DIFF  $f"; fail=1
             fi
           done
+          if curl -fsS "https://navdata.aerocommons.org/reports/index.json?run=$GITHUB_RUN_ID" \
+              | python -c "import json,sys; assert json.load(sys.stdin)['schema'] == 'report-index/1'"; then
+            echo "ok    reports/index.json"
+          else
+            echo "BAD   reports/index.json"; fail=1
+          fi
           exit $fail

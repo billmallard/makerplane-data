@@ -106,3 +106,60 @@ test("a nested instrument placed via the drop-target round-trips byte-identicall
   assert.equal(yamlA, yamlB);
   assert.ok(!yamlA.includes("activeTab"), "editor-only UI state must never reach the saved doc");
 });
+
+// AER-665: tab_position/fg_color/bg_color are plain scalar Props on
+// tab_section itself (not the nested "tabs" recursion above), so they ride
+// through toScreenInstrument()/fromStoredDoc() as ordinary `options` -- no
+// special-casing needed there. This pins that down as a regression guard,
+// same as the sec-4b nested-instrument case above.
+const HAND_AUTHORED_YAML_WITH_TAB_BAR_OPTIONS = `
+main:
+  screenWidth: 1280
+  screenHeight: 800
+  defaultScreen: PANEL
+screens:
+  PANEL:
+    module: pyefis.screens.screenbuilder
+    title: PANEL
+    layout: {rows: 110, columns: 200}
+    instruments:
+      - type: tab_section
+        row: 10
+        column: 10
+        span: {rows: 60, columns: 100}
+        options: {tab_position: left, fg_color: '#e6edf3', bg_color: '#161b22'}
+        tabs:
+          - label: Tab 1
+            layout: {rows: 110, columns: 200}
+            instruments: []
+`;
+
+test("tab_position/fg_color/bg_color round-trip byte-identically with hand-authored YAML", () => {
+  const a = makeSandbox();
+  a.state.screens = [{
+    name: "PANEL",
+    layout: { rows: 110, columns: 200 },
+    instruments: [{
+      type: "tab_section",
+      row: 10, column: 10, span: { rows: 60, columns: 100 },
+      options: { tab_position: "left", fg_color: "#e6edf3", bg_color: "#161b22" },
+      activeTab: 0,
+      tabs: [{ label: "Tab 1", layout: { rows: 110, columns: 200 }, instruments: [] }],
+    }],
+  }];
+  a.state.defaultScreen = "PANEL";
+  a.state.screen = { width: 1280, height: 800 };
+  const yamlA = jsyaml.dump(a.api.toPyefisDoc(), { lineWidth: 100, noRefs: true });
+
+  const b = makeSandbox();
+  const parsed = b.api.fromStoredDoc(jsyaml.load(HAND_AUTHORED_YAML_WITH_TAB_BAR_OPTIONS));
+  b.state.screens = parsed.screens;
+  b.state.defaultScreen = parsed.defaultScreen;
+  b.state.screen = parsed.screen;
+  const yamlB = jsyaml.dump(b.api.toPyefisDoc(), { lineWidth: 100, noRefs: true });
+
+  assert.equal(yamlA, yamlB);
+  assert.match(yamlA, /tab_position: left/);
+  assert.match(yamlA, /fg_color: '#e6edf3'/);
+  assert.match(yamlA, /bg_color: '#161b22'/);
+});
