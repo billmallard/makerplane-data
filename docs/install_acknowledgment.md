@@ -127,8 +127,31 @@ flight.
 
 ### Reading it from pyEfis
 
-The startup banner (L3) and the About screen (L4) read the file directly or
-call `pyefis-data notice --json`. A pack-only update by the timer adds no
-record, because nobody accepted anything. Matching on `packs` therefore treats
-every new data cycle as unacknowledged. Matching on `notice_sha256` plus the
-software version does not. Which one to use is L3's decision.
+The startup banner (L3) and the About screen (L4) read the file directly (no
+updater install needed) or call `pyefis-data notice --json`. A reader should:
+
+- Resolve the path the way the writer does: `MAKERPLANE_ACK_LOG` if set, else
+  `$XDG_STATE_HOME/makerplane/acknowledgments.jsonl`, else
+  `~/.local/state/makerplane/acknowledgments.jsonl`. A systemd user unit may
+  not see the shell's environment, so in practice the last form is the one
+  that matters.
+- Count a line only if `schema == 1` and `event == "accept"`. Later schemas
+  may add other event types that are not acceptances.
+- Treat the record as covering the notice it shows only if `notice_sha256`
+  equals the sha256 of the text it displays. A changed wording then counts as
+  not yet accepted.
+- Skip unparseable lines, including a torn last line. Every record is written
+  as one `write()` of a complete line followed by fsync.
+
+What to match on is L3's decision. Two facts constrain it:
+
+- **`software.pyefis` is only present when the accept names it**: the pyEfis
+  installer records it with `--software pyefis=<ver>`. A record written by
+  `pyefis-data update` carries only `pyefis-data`, because pyEfis is normally
+  not importable from the updater's own environment.
+- **`packs` is what was installed at the moment of accept**, which comes before
+  the install it gates (on a fresh box, `{}`). A pack-only update by the timer
+  adds no record, because nobody accepted anything. It also differs in shape
+  from `status.json`, which lists every tracked pack including missing ones
+  (cycle `""`). Matching on an exact `packs` equality will therefore almost
+  never succeed. Matching on `notice_sha256` plus the software version will.
