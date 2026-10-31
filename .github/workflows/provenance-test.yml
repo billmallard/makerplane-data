@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: Apache-2.0
+name: provenance-test
+
+# ONE-OFF (AER-4399): the single test attestation Bill asked for before the
+# first real publish carries one (#125, TV10). It lives only on branch
+# aer-4399/provenance-test and is never merged.
+#
+# It builds a throwaway pack -- id provenance-test, cycle aer4399, a one-row
+# sqlite that says it is not navigation data -- signed with a key generated
+# in this run, and does NOT upload: no R2 or minisign secret is referenced, so
+# this run cannot touch the live catalog. The attest job is a copy of the one
+# in cyclical/roads/water, so this exercises the same OIDC -> Sigstore ->
+# GitHub attestation store path. The pack is kept as a run artifact so it can
+# be checked with `gh attestation verify` (docs/provenance.md).
+on:
+  push:
+    branches: [aer-4399/provenance-test]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: ${{ github.ref == 'refs/heads/aer-4399/provenance-test' }}
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.published.outputs.published }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      - name: Build a throwaway test pack (no upload)
+        run: |
+          python - <<'EOF'
+          import sqlite3
+          c = sqlite3.connect("provenance-test.sqlite")
+          c.execute("create table note(t text)")
+          c.execute("insert into note values ('AER-4399 provenance test artifact. Not navigation data.')")
+          c.commit()
+          EOF
+          packtool genkey --out throwaway-keys
+          packtool build-pack provenance-test.sqlite --id provenance-test --kind airports \
+            --cycle aer4399 --sec throwaway-keys/minisign.sec --out work \
+            --url-base https://example.invalid/packs \
+            --attribution "AER-4399 provenance test artifact, not navigation data"
+
+      - name: List the test pack
+        id: published
+        run: |
+          { echo 'published<<END_PUBLISHED'; (cd work/packs && sha256sum provenance-test-aer4399.pack); echo 'END_PUBLISHED'; } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: provenance-test-pack
+          path: work/packs/provenance-test-aer4399.pack
+
+  # Same as the attest job in cyclical.yml / roads.yml / water.yml.
+  attest:
+    needs: build
+    if: ${{ always() && needs.build.outputs.published != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Subjects (the packs the build job published)
+        env:
+          PUBLISHED: ${{ needs.build.outputs.published }}
+        run: printf '%s\n' "$PUBLISHED" > published.sha256
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: published.sha256
