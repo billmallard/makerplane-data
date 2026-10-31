@@ -74,7 +74,9 @@ def _require_acceptance(args, up: Updater, trigger: str) -> int | None:
 
     Unattended runs (timer, USB import) never prompt: they proceed on a
     recorded accept and otherwise stop. A caller that displayed the notice
-    itself (the pyEfis installer or picker) passes --accept-notice."""
+    itself (the pyEfis installer or picker) passes --accept-notice. A bench
+    unit (``bench_auto_accept: true``) never waits on a person: it accepts
+    automatically, once per pyefis-data version, recorded as ``via: bench``."""
     from . import acknowledge as ack
     extra = _software_args(args)
     if extra is None:
@@ -85,6 +87,10 @@ def _require_acceptance(args, up: Updater, trigger: str) -> int | None:
         via = "caller"
     elif ack.find_acceptance(path=path) is not None:
         return None
+    elif up.config.bench_auto_accept:
+        if ack.find_acceptance(path=path, include_bench=True) is not None:
+            return None
+        via = ack.BENCH_VIA
     elif sys.stdin.isatty():
         if not ack.prompt(sys.stdin, sys.stdout):
             print("notice not accepted; nothing installed", file=sys.stderr)
@@ -107,7 +113,10 @@ def _require_acceptance(args, up: Updater, trigger: str) -> int | None:
         print(f"could not record the acknowledgment at {path}: {e}; "
               f"nothing installed", file=sys.stderr)
         return 2
-    print(f"notice accepted; recorded in {path}", file=sys.stderr)
+    if via == ack.BENCH_VIA:
+        print(f"notice auto-accepted (bench unit); recorded in {path}", file=sys.stderr)
+    else:
+        print(f"notice accepted; recorded in {path}", file=sys.stderr)
     return None
 
 
@@ -391,17 +400,24 @@ def cmd_notice(args) -> int:
     path = ack.default_log_path()
     records = ack.read_records(path)
     current = ack.find_acceptance(path=path)
+    bench = Config.load(args.config).bench_auto_accept
+    bench_rec = ack.find_acceptance(path=path, include_bench=True) if bench else None
     if args.json:
+        # `accepted` is a person's accept only; a bench auto-accept is reported
+        # separately so no reader mistakes it for one.
         print(json.dumps({
             "notice_id": ack.NOTICE_ID, "notice_sha256": ack.NOTICE_SHA256,
             "notice": ack.NOTICE_TEXT, "software": ack.software_versions(),
-            "accepted": current is not None, "log": str(path),
-            "records": records}, indent=2))
+            "accepted": current is not None, "bench_auto_accept": bench,
+            "log": str(path), "records": records}, indent=2))
         return 0
     print(ack.NOTICE_TEXT + "\n")
     if current:
         print(f"accepted for pyefis-data {ack.__version__} on {current['timestamp']} "
               f"by {current['user']}@{current['host']}")
+    elif bench_rec:
+        print(f"auto-accepted for pyefis-data {ack.__version__} on "
+              f"{bench_rec['timestamp']} (bench unit; not a pilot's accept)")
     else:
         print(f"not yet accepted for pyefis-data {ack.__version__}")
     print(f"{len(records)} acknowledgment record(s) in {path}")
@@ -682,6 +698,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    # Bench mode must never be silent: every run says so while it is on.
+    if Config.load(args.config).bench_auto_accept:
+        print(f"pyefis-data: BENCH UNIT: bench_auto_accept is on in "
+              f"{args.config or '~/.makerplane/pyefis/data.yaml'}; the software "
+              f"notice is accepted automatically and recorded as a bench accept. "
+              f"This must never be set on an aircraft.", file=sys.stderr)
     return args.func(args)
 
 

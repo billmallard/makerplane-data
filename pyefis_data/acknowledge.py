@@ -50,9 +50,12 @@ NOTICE_SHA256 = hashlib.sha256(NOTICE_TEXT.encode("utf-8")).hexdigest()
 # The component whose version an updater-side accept is keyed on.
 COMPONENT = "pyefis-data"
 
-# How the accept was given: typed at a terminal, or asserted by a caller (the
-# pyEfis installer / on-device picker) that displayed NOTICE_TEXT itself.
-VIA = ("tty", "caller")
+# How the accept was given: typed at a terminal, asserted by a caller (the
+# pyEfis installer / on-device picker) that displayed NOTICE_TEXT itself, or
+# given automatically on a bench unit (`bench_auto_accept: true` in data.yaml).
+# A bench accept is not a pilot's: nobody read the notice.
+VIA = ("tty", "caller", "bench")
+BENCH_VIA = "bench"
 
 # The word a terminal user must type. An explicit word, not a default-yes key.
 ACCEPT_WORD = "accept"
@@ -205,13 +208,17 @@ def read_records(path: Path | None = None) -> list[dict]:
     return out
 
 
-def find_acceptance(version: str | None = None, path: Path | None = None) -> dict | None:
+def find_acceptance(version: str | None = None, path: Path | None = None, *,
+                    include_bench: bool = False) -> dict | None:
     """The latest record accepting the current notice for this updater version,
-    or None. A new software version or a changed notice text needs a new accept."""
+    or None. A new software version or a changed notice text needs a new accept.
+    Bench accepts count only with ``include_bench`` (a bench unit asking), so a
+    box that leaves bench mode is asked again like any real install."""
     version = version or __version__
     for rec in reversed(read_records(path)):
         if (rec["notice_sha256"] == NOTICE_SHA256
-                and rec["software"].get(COMPONENT) == version):
+                and rec["software"].get(COMPONENT) == version
+                and (include_bench or rec["via"] != BENCH_VIA)):
             return rec
     return None
 

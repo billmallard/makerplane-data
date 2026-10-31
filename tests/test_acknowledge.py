@@ -293,3 +293,111 @@ def test_notice_reports_not_accepted_on_a_fresh_box(log, capsys):
     assert cli.main(["notice", "--json"]) == 0
     doc = json.loads(capsys.readouterr().out)
     assert doc["accepted"] is False and doc["records"] == []
+
+
+# ---- bench units (Bill's ruling, AER-4388) --------------------------------
+
+def _bench(tmp_path, value="true"):
+    (tmp_path / "data.yaml").write_text(f"bench_auto_accept: {value}\n")
+
+
+def test_bench_setting_is_off_by_default(tmp_path):
+    from pyefis_data.config import Config
+    assert Config().bench_auto_accept is False
+    assert Config.load(tmp_path / "missing.yaml").bench_auto_accept is False
+
+
+@pytest.mark.parametrize("value", ["yes", "on", "True", "1", "'true'", "[true]"])
+def test_bench_setting_honours_only_a_literal_true(tmp_path, value):
+    from pyefis_data.config import Config
+    _bench(tmp_path, value)
+    assert Config.load(tmp_path / "data.yaml").bench_auto_accept is False
+
+
+def test_installer_and_picker_never_write_the_bench_setting(tmp_path, store, log,
+                                                             monkeypatch):
+    """The picker persists its selection through write_config; the bench key
+    must not appear, and nothing shipped to a device carries it."""
+    _stdin(monkeypatch)
+    assert _update(tmp_path, store, "--accept-notice", "--only", "airports-conus") == 0
+    assert "bench" not in (tmp_path / "data.yaml").read_text()
+    repo = pyefis_data.__file__.rsplit("/", 2)[0]
+    from pathlib import Path
+    shipped = [Path(repo, "site", "data.yaml.sample"),
+               *Path(repo, "pyefis_data", "systemd").iterdir()]
+    for f in shipped:
+        assert "bench_auto_accept" not in f.read_text(), f
+
+
+def test_bench_unit_auto_accepts_without_a_terminal(tmp_path, store, log, monkeypatch,
+                                                     capsys):
+    _bench(tmp_path)
+    _stdin(monkeypatch)
+    assert _update(tmp_path, store) == 0
+    assert _installed(tmp_path)
+    (rec,) = [json.loads(x) for x in _lines(log)]
+    assert not ack.validate_record(rec)
+    assert rec["via"] == "bench" and rec["trigger"] == "update"
+    # Recorded as a bench accept, never as a pilot's.
+    assert ack.find_acceptance(path=log) is None
+    assert ack.find_acceptance(path=log, include_bench=True) == rec
+
+
+def test_bench_unit_never_prompts_even_at_a_terminal(tmp_path, store, log, monkeypatch):
+    _bench(tmp_path)
+    _stdin(monkeypatch, "")        # a terminal that would decline if asked
+    assert _update(tmp_path, store) == 0
+    assert [json.loads(x)["via"] for x in _lines(log)] == ["bench"]
+
+
+def test_bench_timer_keeps_installing_across_a_version_bump(tmp_path, store, log,
+                                                            monkeypatch):
+    _bench(tmp_path)
+    _stdin(monkeypatch)
+    assert _update(tmp_path, store) == 0
+    assert _update(tmp_path, store) == 0          # same version: no second record
+    assert len(_lines(log)) == 1
+    monkeypatch.setattr(ack, "__version__", "99.0.0")
+    assert _update(tmp_path, store) == 0          # bumped: accepts again, unattended
+    recs = [json.loads(x) for x in _lines(log)]
+    assert [r["via"] for r in recs] == ["bench", "bench"]
+    assert recs[-1]["software"]["pyefis-data"] == "99.0.0"
+
+
+def test_bench_accept_does_not_carry_over_to_a_real_install(tmp_path, store, log,
+                                                            monkeypatch):
+    """A box taken out of bench mode is asked like any real install."""
+    _bench(tmp_path)
+    _stdin(monkeypatch)
+    assert _update(tmp_path, store) == 0
+    (tmp_path / "data.yaml").write_text("")
+    assert _update(tmp_path, store) == cli.NOTICE_RC
+    assert len(_lines(log)) == 1
+
+
+def test_real_install_keeps_the_blocking_accept(tmp_path, store, log, monkeypatch):
+    _bench(tmp_path, "false")
+    _stdin(monkeypatch)
+    assert _update(tmp_path, store) == cli.NOTICE_RC
+    assert not _installed(tmp_path) and not _lines(log)
+
+
+def test_bench_setting_is_logged_at_startup_when_on(tmp_path, log, capsys):
+    cfg = str(tmp_path / "data.yaml")
+    assert cli.main(["--config", cfg, "notice"]) == 0
+    assert "BENCH UNIT" not in capsys.readouterr().err
+    _bench(tmp_path)
+    assert cli.main(["--config", cfg, "notice"]) == 0
+    err = capsys.readouterr().err
+    assert "BENCH UNIT" in err and "bench_auto_accept is on" in err
+
+
+def test_notice_json_keeps_bench_out_of_accepted(tmp_path, store, log, monkeypatch, capsys):
+    _bench(tmp_path)
+    _stdin(monkeypatch)
+    assert _update(tmp_path, store) == 0
+    capsys.readouterr()
+    assert cli.main(["--config", str(tmp_path / "data.yaml"), "notice", "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["accepted"] is False and out["bench_auto_accept"] is True
+    assert [r["via"] for r in out["records"]] == ["bench"]
