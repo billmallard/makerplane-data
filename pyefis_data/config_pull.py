@@ -194,27 +194,41 @@ def _sanitize(name: str) -> str:
     return s
 
 
+def _svs_enabled(opts: dict) -> bool:
+    """Whether a ``virtual_vfr``'s SVS is on, resolved the way pyEfis's
+    ``screenbuilder_factory`` does: the nested ``svs:`` dict overlaid by the
+    flat ``svs_*`` editor options, so an explicit ``svs_enabled: false`` wins
+    over the injected block. A missing ``enabled`` counts as off."""
+    svs = opts.get("svs")
+    cfg = dict(svs) if isinstance(svs, dict) else {}
+    cfg.update({k[4:]: v for k, v in opts.items() if k.startswith("svs_")})
+    return bool(cfg.get("enabled"))
+
+
 def _prep_screen(screen_def: dict) -> dict:
     """Inject the device-side bits the editor can't know into one screen:
 
     * a ``virtual_vfr`` gets an ``svs`` options block (terrain/airport/water data
-      paths) so it renders synthetic vision, and the stock
-      ``screens/virtualvfr_db.yaml`` include (a screen-level ``dbpath`` -- without
-      it the widget crashes on a ``None``).
+      paths) so it renders synthetic vision.
+    * only a ``virtual_vfr`` whose SVS ends up OFF gets the stock
+      ``screens/virtualvfr_db.yaml`` include (a screen-level ``dbpath`` -- the
+      deprecated legacy CIFP overlay crashes on a ``None`` without it). With SVS
+      on, pyEfis (#349, CIFP1) never builds that overlay and reads no ``dbpath``.
     Returns a new screen dict (the input is not mutated)."""
     screen_def = dict(screen_def)
-    has_vfr = False
+    legacy_vfr = False
     insts = []
     for inst in screen_def.get("instruments", []):
         if isinstance(inst, dict) and inst.get("type") == "virtual_vfr":
-            has_vfr = True
             inst = dict(inst)
             opts = dict(inst.get("options") or {})
             opts.setdefault("svs", dict(_SVS_OPTS))   # keep an explicit svs if present
             inst["options"] = opts
+            if not _svs_enabled(opts):
+                legacy_vfr = True
         insts.append(inst)
     screen_def["instruments"] = insts
-    if has_vfr:
+    if legacy_vfr:
         inc = list(screen_def.get("include") or [])
         if "screens/virtualvfr_db.yaml" not in inc:
             inc.append("screens/virtualvfr_db.yaml")
