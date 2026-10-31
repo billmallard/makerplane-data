@@ -51,6 +51,10 @@ ARINC's own design guarantees a procedure only ever cites its own
 airport's terminal waypoints/runways -- see ``build_fix_index`` and
 ``_resolve``.
 
+Section U (``UC`` controlled / ``UR`` restrictive airspace) carries
+coordinates on every record and references no fix, so it needs no index;
+see ``iter_airspace_records``.
+
 Airport-as-waypoint fixes (Waypoint Description Code type ``A``) are not
 resolved -- no golden fixture in this pack exercises one, and guessing an
 unverified column offset for Airport Reference Point coordinates would
@@ -500,6 +504,168 @@ def iter_procedure_legs(path: str | Path,
             centre_lat=centre_lat,
             centre_lon=centre_lon,
         )
+
+
+# --- UC/UR: Controlled and Restrictive Airspace (Sec. 4.1.25 / 4.1.18) ----
+# Offsets verified against FAACIFP18 cycle 2611 (KSBA Class C, KLAX Class B,
+# R-2508, BIRCH MOA). The two sections share every position except cols
+# 10-19: UC splits them into the airspace centre (10-14) plus the centre's
+# own section/subsection (15-16) and the airspace classification (17); UR
+# holds a single 10-char restrictive airspace designation there.
+_ASP = dict(
+    area=slice(1, 4),
+    subsection=slice(5, 6),            # C = controlled, R = restrictive
+    icao=slice(6, 8),
+    airspace_type=slice(8, 9),         # UC: T/A/Z (Class B/C/D); UR: R/P/M/W/A/U...
+    multiple_code=slice(19, 20),       # sector letter within one airspace
+    seq=slice(20, 24),
+    continuation=slice(24, 25),
+    level=slice(25, 26),               # UR: B/H/L (all/high/low); blank on UC
+    time_code=slice(26, 27),
+    notam=slice(27, 28),
+    boundary_via=slice(30, 32),        # G/H/L/R/C + E on the closing record
+    lat=slice(32, 41),
+    lon=slice(41, 51),
+    arc_origin_lat=slice(51, 60),
+    arc_origin_lon=slice(60, 70),
+    arc_distance=slice(70, 74),        # NM, 1 implied decimal
+    arc_bearing=slice(74, 78),         # true, origin -> this point, 1 implied decimal
+    rnp=slice(78, 81),
+    lower_limit=slice(81, 86),
+    lower_unit=slice(86, 87),          # A = AGL, M = MSL
+    upper_limit=slice(87, 92),
+    upper_unit=slice(92, 93),
+    name=slice(93, 123),
+    file_record=slice(124, 128),
+    cycle=slice(128, 132),
+)
+_UC_CENTRE = slice(9, 14)
+_UC_CENTRE_SECTION = slice(14, 15)
+_UC_CENTRE_SUBSECTION = slice(15, 16)
+_UC_CLASS = slice(16, 17)
+_UR_DESIGNATION = slice(9, 19)
+# UR continuation record, application type "C" (call sign / controlling
+# agency): the agency sits where the primary record carries the name. The
+# only application type seen in 2611 (1,176 of 1,176 continuations).
+_UR_CONT_APPLICATION = slice(25, 26)
+_UR_CONT_AGENCY = slice(93, 123)
+
+
+@dataclass
+class AirspaceRecord:
+    """One ``UC``/``UR`` primary record -- one boundary vertex of one
+    sector -- with every field as read (blank fields as ``None``). The sector
+    key is :attr:`sector_key`; a sector's records arrive contiguous and in
+    sequence order, its first carrying the name and the vertical limits and
+    its last carrying a boundary-via ending in ``E``."""
+    section: str                # "UC" | "UR"
+    area: str | None
+    icao: str
+    airspace_type: str
+    designation: str            # UC: airspace centre; UR: restrictive designation
+    centre_section: str | None  # UC only
+    centre_subsection: str | None
+    classification: str | None  # UC only: B/C/D
+    multiple_code: str | None
+    seq: int
+    continuation: str
+    level: str | None
+    time_code: str | None
+    notam: str | None
+    boundary_via: str
+    lat: float | None
+    lon: float | None
+    arc_origin_lat: float | None
+    arc_origin_lon: float | None
+    arc_distance_nm: float | None
+    arc_bearing: float | None
+    rnp: float | None
+    lower_limit: str | None
+    lower_unit: str | None
+    upper_limit: str | None
+    upper_unit: str | None
+    name: str | None
+    file_record: str | None
+    cycle: str | None
+    raw: str
+    #: UR only: the controlling agency from the record's "C" continuation,
+    #: attached to the primary it continues.
+    controlling_agency: str | None = None
+
+    @property
+    def sector_key(self) -> tuple:
+        return (self.section, self.icao, self.airspace_type, self.designation,
+                self.multiple_code or "")
+
+
+def iter_airspace_records(path: str | Path) -> Iterator[AirspaceRecord]:
+    """Every Controlled (``UC``) and Restrictive (``UR``) airspace primary
+    record, in source order, from every Customer/Area Code -- the FAA files
+    Alaska under ``CAN``, Hawaii and Guam under ``PAC``, Puerto Rico and the
+    USVI under ``LAM`` (2611). A ``UR`` "C" continuation is folded into the
+    primary it follows as :attr:`AirspaceRecord.controlling_agency`; any other
+    continuation application type is unknown here and raises rather than
+    being dropped."""
+    f = _ASP
+    pending: AirspaceRecord | None = None
+    for line in read_records(path):
+        if line[4:5] != "U" or line[f["subsection"]] not in ("C", "R"):
+            continue
+        cont = line[f["continuation"]]
+        if cont not in ("0", "1"):
+            app = line[_UR_CONT_APPLICATION]
+            if pending is None or app != "C":
+                raise ValueError(f"unhandled airspace continuation (application type "
+                                 f"{app!r}): {line!r}")
+            pending.controlling_agency = _strip(line[_UR_CONT_AGENCY])
+            continue
+        if pending is not None:
+            yield pending
+        sub = line[f["subsection"]]
+        if sub == "C":
+            designation = line[_UC_CENTRE]
+            centre_section = _strip(line[_UC_CENTRE_SECTION])
+            centre_subsection = _strip(line[_UC_CENTRE_SUBSECTION])
+            classification = _strip(line[_UC_CLASS])
+        else:
+            designation = line[_UR_DESIGNATION]
+            centre_section = centre_subsection = classification = None
+        latlon = _parse_latlon(line[f["lat"]], line[f["lon"]])
+        origin = _parse_latlon(line[f["arc_origin_lat"]], line[f["arc_origin_lon"]])
+        pending = AirspaceRecord(
+            section="U" + sub,
+            area=_strip(line[f["area"]]),
+            icao=line[f["icao"]].strip(),
+            airspace_type=line[f["airspace_type"]].strip(),
+            designation=designation.strip(),
+            centre_section=centre_section,
+            centre_subsection=centre_subsection,
+            classification=classification,
+            multiple_code=_strip(line[f["multiple_code"]]),
+            seq=int(line[f["seq"]]),
+            continuation=cont,
+            level=_strip(line[f["level"]]),
+            time_code=_strip(line[f["time_code"]]),
+            notam=_strip(line[f["notam"]]),
+            boundary_via=line[f["boundary_via"]].strip(),
+            lat=latlon[0] if latlon else None,
+            lon=latlon[1] if latlon else None,
+            arc_origin_lat=origin[0] if origin else None,
+            arc_origin_lon=origin[1] if origin else None,
+            arc_distance_nm=_decode_tenths(line[f["arc_distance"]]),
+            arc_bearing=_decode_tenths(line[f["arc_bearing"]]),
+            rnp=_decode_rnp(line[f["rnp"]]),
+            lower_limit=_strip(line[f["lower_limit"]]),
+            lower_unit=_strip(line[f["lower_unit"]]),
+            upper_limit=_strip(line[f["upper_limit"]]),
+            upper_unit=_strip(line[f["upper_unit"]]),
+            name=_strip(line[f["name"]]),
+            file_record=_strip(line[f["file_record"]]),
+            cycle=_strip(line[f["cycle"]]),
+            raw=line,
+        )
+    if pending is not None:
+        yield pending
 
 
 def transition_role(kind: str, route_type: str, transition: str | None) -> str:
