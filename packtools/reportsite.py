@@ -14,7 +14,9 @@ the generator owns only the ``.html`` pages beside them and
     reports/index.html                     every pack with a record
     reports/check.html                     check it yourself (plan 5.5)
     reports/<id>/index.html                history of one pack (plan 5.3)
-    reports/<id>/<cycle>/report.html       one edition (plan 5.2)
+    reports/<id>/<cycle>/report.html       one edition (plan 5.2); its "known
+                                           since" section reads status.json
+                                           (packtools/community.py, TV8)
 
 Ported from efis-voice-lab's ``report.py``/``site.py``: one self-contained
 page per record, one table of per-edition numbers (:func:`edition_row`)
@@ -36,6 +38,7 @@ import json
 import os
 import re
 import subprocess
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -405,6 +408,48 @@ def auspex_html(rec: dict) -> str:
             f"<p class=sub>{e(a.get('what_a_pass_means'))}</p></section>")
 
 
+def known_html(pack_id: str, cycle: str) -> str:
+    """The "known since" section (plan 4.5, TV8). Everything else on the page
+    is the build record; this is filled in the browser from the unsigned
+    nightly ``status.json`` beside the page, so the page bytes do not change
+    when an issue does, and issue titles (the community's words, not ours)
+    never pass through :func:`lint`. Without the overlay it still links the
+    label query and the form."""
+    q = urllib.parse.urlencode
+    issues = f"{REPO_URL}/issues?" + q({"q": f'label:"pack:{pack_id}"'})
+    form = f"{REPO_URL}/issues/new?" + q({"template": "data_problem.yml",
+                                          "pack": pack_id, "cycle": cycle})
+    return f"""<section id="known"><h2>Known since this edition was built</h2>
+<p class="sub">Everything above is the build record: fixed at publish and covered by the
+catalog signature. This section is not. It is read from <a href="status.json">status.json</a>,
+rewritten nightly from the live catalog and from makerplane-data issues labelled
+<span class="mono">pack:{e(pack_id)}</span>.</p>
+<div id="overlay"><p>See the {link(issues, f"issues labelled pack:{pack_id}")}.</p></div>
+<p>Found something wrong in this data? {link(form, "Report a data problem")}.</p>
+<script>
+fetch("status.json", {{cache: "no-store"}}).then(r => r.ok ? r.json() : Promise.reject())
+.then(s => {{
+  const box = document.getElementById("overlay"); box.textContent = "";
+  const add = (tag, text, parent) => {{ const n = document.createElement(tag);
+    if (text != null) n.textContent = text; (parent || box).appendChild(n); return n; }};
+  const a = (href, text, parent) => {{ const n = add("a", text, parent);
+    if (/^https:\\/\\/(github\\.com|navdata\\.aerocommons\\.org)\\//.test(href)) n.href = href;
+    return n; }};
+  const st = add("p"); st.append("As of " + s.as_of + ": "); add("b", s.state, st);
+  st.append(" \\u2014 " + s.state_reason + ".");
+  add("h3", "Issues labelled pack:" + s.pack.id);
+  if (!s.known_issues.length) add("p", "None.");
+  else {{ const ul = add("ul"); s.known_issues.forEach(i => {{ const li = add("li", null, ul);
+    a(i.url, "#" + i.number + " " + i.title, li);
+    li.append(" (" + i.state + (i.closed ? " " + i.closed : "") + ", opened " + i.opened +
+      (i.reported_cycle ? ", reported against " + i.reported_cycle : "") + ")"); }}); }}
+  if (s.auspex_addenda.length) {{ add("h3", "Auspex addenda (run after publish)");
+    const ul = add("ul"); s.auspex_addenda.forEach(x => {{ const li = add("li", null, ul);
+      a(x.url, x.name, li); li.append(" sha256 " + x.sha256); }}); }}
+}}).catch(() => {{}});
+</script></section>"""
+
+
 def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
                 *, commit: str) -> str:
     rec, p, b = ed["rec"], ed["rec"]["pack"], ed["rec"].get("built") or {}
@@ -470,9 +515,7 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
 </table>
 <h3>Sources</h3>{sources_html(rec)}</section>
 
-<section><h2>Known issues</h2><p>Issues found after this edition was built are not listed
-here yet. Until they are, see the
-<a href="{REPO_URL}/issues">makerplane-data issues</a>.</p></section>
+{known_html(p['id'], p['cycle'])}
 
 {standing_block()}
 
