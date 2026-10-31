@@ -38,7 +38,7 @@ from pathlib import Path
 from . import build as _build
 from . import cycles, fetch, gate, report, schema_guard, signing, summary
 from .manifest import Manifest
-from .packmeta import PackMeta, embed_sqlite
+from .packmeta import PackMeta, detect_schema_version, embed_sqlite
 from .manifest import PackEntry
 from .publish import sign_and_put
 from .regions import load_regions, manifest_regions_block
@@ -163,7 +163,8 @@ class CyclicalRunner:
                         effective=c.effective.isoformat(),
                         expires=c.expires.isoformat(),
                         attribution=source.attribution,
-                        license=source.license, license_url=source.license_url)
+                        license=source.license, license_url=source.license_url,
+                        schema_version=detect_schema_version(source.kind, pack_path))
         embed_sqlite(pack_path, meta)
         url = f"{self.url_base}/{pack_path.name}"
         entry = PackEntry.from_pack(pack_path, meta, url=url, regions=list(source.regions))

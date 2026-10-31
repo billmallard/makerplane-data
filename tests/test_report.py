@@ -26,11 +26,14 @@ LICENSE = dict(attribution="FAA CIFP (public domain)", license="LicenseRef-us-pu
 # --- fixtures -----------------------------------------------------------------
 
 def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=400,
-               jet=False):
+               jet=False, mora_bands=120, mora_unk=0,
+               mora_ft=3000, mora_cells=30):
     """A procedures pack: ``airways`` airways of 5 legs, ``collide`` of
     them carrying a second area's legs with the same sequence numbers (the
     AER-1979 merge), and ``legs`` procedure legs of which ``unresolved``
-    name a fix with no coordinates. ``jet`` names the last airway J80."""
+    name a fix with no coordinates. ``jet`` names the last airway J80.
+    ``mora_bands`` Grid MORA bands of ``mora_cells`` cells each, all
+    ``mora_ft`` except the first ``mora_unk`` cells, which are UNK."""
     con = sqlite3.connect(path)
     con.executescript(PROC_SCHEMA)
     for a in range(1, airways + 1):
@@ -50,6 +53,18 @@ def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=
         con.execute("INSERT INTO legs (transition_id, seq, path_term, fix_id, fix_lat, "
                     "fix_lon, fix_type, flags) VALUES (1, ?, 'TF', ?, ?, ?, 'airport', 0)",
                     (i, f"FX{i}", lat, None if lat is None else -104.7))
+    n = 0
+    for b in range(1, mora_bands + 1):
+        lat_sw, lon_sw = b % 60, -180 + 30 * (b // 60)
+        con.execute("INSERT INTO grid_mora_bands (id, lat_sw, lon_sw, raw) VALUES (?, ?, ?, '')",
+                    (b, lat_sw, lon_sw))
+        for i in range(mora_cells):
+            unk = n < mora_unk
+            n += 1
+            con.execute("INSERT INTO grid_mora (band_id, lat_sw, lon_sw, mora_ft, raw) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (b, lat_sw, lon_sw + i, None if unk else mora_ft,
+                         "UNK" if unk else f"{mora_ft // 100:03d}"))
     con.commit()
     con.close()
     packmeta.embed_sqlite(path, PackMeta(id="procedures-conus", kind="procedures",
@@ -203,7 +218,7 @@ def test_a_table_that_disappears_fails_unless_the_schema_version_moved(tmp_path)
     assert kept["ROW-003"]["status"] == "fail"
     same = _by_id(_rep(_proc_pack(tmp_path / "y.pack"),
                        previous=report.previous_from(_proc_pack(tmp_path / "z.pack", "2610"))))
-    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 5 tables gone")
+    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 7 tables gone")
 
 
 def test_unmeasured_thresholds_are_labelled_provisional_in_the_record(tmp_path):

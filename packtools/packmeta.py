@@ -190,3 +190,49 @@ def detect_highways_schema_version(path: str | Path) -> int:
             f"{sorted(cols)}) -- add this shape to HIGHWAYS_TABLE_SCHEMAS "
             "(packtools/packmeta.py) with the next schema_version before "
             "packing (AER-1715)")
+
+
+# The "procedures" kind moves the same way, keyed on its *table* set rather
+# than one table's columns: AER-4447 added grid_mora_bands + grid_mora
+# (Grid MORA, CIFP AS records) beside the five PA1 tables. The change is
+# additive -- a reader of the old five tables is unaffected -- but the
+# version still moves so a consumer that wants the grid can gate on it.
+# pack_meta and sqlite's own tables are not part of the payload schema.
+PROCEDURES_TABLE_SCHEMAS: dict[frozenset[str], int] = {
+    frozenset({"airways", "airway_legs", "procedures", "transitions", "legs"}): 1,
+    frozenset({"airways", "airway_legs", "procedures", "transitions", "legs",
+               "grid_mora_bands", "grid_mora"}): 2,   # AER-4447
+}
+
+
+def detect_procedures_schema_version(path: str | Path) -> int:
+    """The schema_version a built procedures sqlite's table set implies.
+    Raises on an unknown set, for the same reason as the highways
+    detector."""
+    con = sqlite3.connect(str(path))
+    try:
+        tables = frozenset(
+            r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            if r[0] != "pack_meta" and not r[0].startswith("sqlite_"))
+    finally:
+        con.close()
+    try:
+        return PROCEDURES_TABLE_SCHEMAS[tables]
+    except KeyError:
+        raise ValueError(
+            f"unrecognised procedures schema in {path} (tables: {sorted(tables)}) "
+            "-- add this shape to PROCEDURES_TABLE_SCHEMAS (packtools/packmeta.py) "
+            "with the next schema_version before packing (AER-4447)")
+
+
+#: Kinds whose payload schema_version is detected from the built pack.
+_SCHEMA_DETECTORS = {"highways": detect_highways_schema_version,
+                     "procedures": detect_procedures_schema_version}
+
+
+def detect_schema_version(kind: str, path: str | Path) -> int:
+    """The schema_version to embed for a built sqlite pack of ``kind``:
+    detected from the pack where a detector exists, else the package-wide
+    :data:`SCHEMA_VERSION`."""
+    detector = _SCHEMA_DETECTORS.get(kind)
+    return detector(path) if detector else SCHEMA_VERSION
