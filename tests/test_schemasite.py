@@ -298,6 +298,14 @@ def test_the_renderer_writes_only_pages_and_the_index(tmp_path):
         ["unchanged"]
 
 
+def test_site_deploy_refuses_schema_keys(tmp_path):
+    root = tmp_path / "site"
+    (root / "schema").mkdir(parents=True)
+    (root / "schema" / "index.html").write_bytes(b"<p>")
+    with pytest.raises(ValueError, match="reserved for the pack pipeline"):
+        site_files(root)
+
+
 # --- bootstrap -----------------------------------------------------------------
 
 def _bytes_fetch(blob, calls):
