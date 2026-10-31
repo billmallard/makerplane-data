@@ -230,3 +230,31 @@ def test_iter_procedure_legs_all_fixes_resolve():
 
 def test_file_cycle():
     assert a.file_cycle(FIXTURE) == "2609"
+
+
+# --- fix families added for MSA centres (AER-4446, 2611 records) ------------
+
+def test_fix_index_airport_reference_point():
+    # KSBA's PA record: the airport is its own fix, keyed by itself.
+    idx = a.build_fix_index(FIXTURE)
+    assert idx[("KSBA", "KSBA", "P", "A")] == (34.42619167, -119.84149167)
+
+
+def test_fix_index_terminal_ndb_subsection_sits_in_column_6():
+    # KABR's "AB" (RENEY) PN record: subsection at [5:6], not [12:13].
+    idx = a.build_fix_index(FIXTURE)
+    assert idx[("AB", "KABR", "P", "N")] == (45.38610556, -98.32851111)
+
+
+def test_fix_index_dme_only_navaid_uses_its_dme_position():
+    # MSP has no VOR position on its D record, only a DME one.
+    idx = a.build_fix_index(FIXTURE)
+    assert idx[("MSP", "K3", "D", "")] == (44.8965, -93.23653056)
+
+
+def test_fix_index_prefers_the_vor_position_when_both_are_present():
+    # GVO's VOR and DME positions are the same point; RZS's are too. A
+    # navaid with both keeps [32:51], so no existing key moves.
+    idx = a.build_fix_index(FIXTURE)
+    assert idx[("GVO", "K2", "D", "")] == (34.53131944, -120.09108889)
+

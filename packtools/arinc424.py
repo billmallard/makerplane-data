@@ -51,11 +51,23 @@ ARINC's own design guarantees a procedure only ever cites its own
 airport's terminal waypoints/runways -- see ``build_fix_index`` and
 ``_resolve``.
 
-Airport-as-waypoint fixes (Waypoint Description Code type ``A``) are not
-resolved -- no golden fixture in this pack exercises one, and guessing an
-unverified column offset for Airport Reference Point coordinates would
-risk a silently wrong (not missing) fix. Such legs get ``fix_lat``/
-``fix_lon`` = ``NULL``, same as any other unresolved fix.
+Three more fix families resolve since AER-4446 (MSA centres need all
+three; procedure legs naming one used to be left unresolved). Offsets
+verified against the live 2611 cycle:
+
+- Airport Reference Points (``PA``): the airport is its own fix, ident and
+  owning airport both ``[6:10]``, position at the shared ``[32:51]``
+  (KSBA reads N34253429 W119502937, the published ARP). Airport-scoped.
+- Terminal NDBs (``PN``): subsection at ``[5:6]`` like the D section, not
+  ``[12:13]`` like the rest of P; ident ``[13:18]``, owning airport
+  ``[6:10]``, position ``[32:51]``. Airport-scoped.
+- DME-only navaids (TACAN, DME, ILS-DME): 1,266 of 2,458 D records carry
+  no VOR position at ``[32:51]``, only a DME position at ``[55:74]``. For
+  those the DME position is the facility's position, so it is used; a
+  record that has both keeps the VOR position.
+
+A fix that still does not resolve gets ``NULL`` coordinates, never a
+guessed one.
 """
 
 from __future__ import annotations
@@ -75,7 +87,9 @@ _FIX_IDENT = slice(13, 18)
 _FIX_LAT = slice(32, 41)
 _FIX_LON = slice(41, 51)
 _FIX_ICAO_AREA_SCOPED = slice(19, 21)      # VOR/NDB navaids, enroute waypoints
-_FIX_OWNING_AIRPORT = slice(6, 10)         # terminal waypoints, runways
+_FIX_OWNING_AIRPORT = slice(6, 10)         # terminal waypoints, runways, ARPs, terminal NDBs
+_DME_LAT = slice(55, 64)                   # D section: DME position, used when the
+_DME_LON = slice(64, 74)                   # record carries no VOR position (DME-only)
 
 # --- ER: Enroute Airways primary record (ARINC 424-17 Sec. 4.1.6.1) ------
 _ER = dict(
@@ -295,7 +309,7 @@ FixKey = tuple[str, str, str, str]  # (ident, scope, section, subsection)
 
 #: (section, subsection) pairs whose ident is unique only per-airport, not
 #: per-ICAO-region -- see module docstring.
-_AIRPORT_SCOPED = frozenset({("P", "C"), ("P", "G")})
+_AIRPORT_SCOPED = frozenset({("P", "C"), ("P", "G"), ("P", "A"), ("P", "N")})
 
 
 def build_fix_index(path: str | Path) -> dict[FixKey, tuple[float, float]]:
@@ -310,6 +324,7 @@ def build_fix_index(path: str | Path) -> dict[FixKey, tuple[float, float]]:
     index: dict[FixKey, tuple[float, float]] = {}
     for line in read_records(path):
         section = line[4:5]
+        ident = _strip(line[_FIX_IDENT])
         if section == "D":
             subsection = line[5:6].strip()
             scope = _strip(line[_FIX_ICAO_AREA_SCOPED])
@@ -319,17 +334,22 @@ def build_fix_index(path: str | Path) -> dict[FixKey, tuple[float, float]]:
             subsection = "A"
             scope = _strip(line[_FIX_ICAO_AREA_SCOPED])
         elif section == "P":
-            subsection = line[12:13]
+            # PN carries its subsection where the D section does; every
+            # other P record carries it at [12:13].
+            subsection = "N" if line[5:6] == "N" else line[12:13]
             if (section, subsection) not in _AIRPORT_SCOPED:
                 continue
             scope = _strip(line[_FIX_OWNING_AIRPORT])
+            if subsection == "A":
+                ident = scope
         else:
             continue
 
-        ident = _strip(line[_FIX_IDENT])
         if ident is None or scope is None:
             continue
         latlon = _parse_latlon(line[_FIX_LAT], line[_FIX_LON])
+        if latlon is None and section == "D" and not line[_FIX_LAT].strip():
+            latlon = _parse_latlon(line[_DME_LAT], line[_DME_LON])
         if latlon is None:
             continue
         index[(ident, scope, section, subsection)] = latlon
@@ -514,3 +534,4 @@ def transition_role(kind: str, route_type: str, transition: str | None) -> str:
     if not transition:
         return "common"
     return "enroute"
+
