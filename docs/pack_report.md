@@ -42,7 +42,8 @@ bytes.
 
 A record is **immutable**. Things learned after publish (a defect found
 later, superseded, expired, retracted, an after-publish Auspex run) go in the
-separate, unsigned `status.json` overlay (TV8), never into the record.
+separate, unsigned `status.json` overlay (TV8, [community_loop.md](community_loop.md)),
+never into the record.
 
 ## Top-level fields
 
