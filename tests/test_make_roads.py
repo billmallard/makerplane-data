@@ -299,3 +299,72 @@ def test_build_highways_invokes_pyefis_builder_with_every_state(tmp_path, monkey
 def test_build_highways_refuses_empty_input(tmp_path):
     with pytest.raises(BuildError, match="no gis_osm_roads_free_1.shp"):
         make_roads.build_highways(tmp_path / "empty", tmp_path / "out.sqlite")
+
+
+def _extracted_with(tmp_path, good=("colorado",), empty=(), zero_byte=()):
+    extracted = tmp_path / "cache" / "extracted"
+    for state in good:
+        (extracted / state).mkdir(parents=True)
+        (extracted / state / "gis_osm_roads_free_1.shp").write_bytes(b"fake")
+    for state in empty:
+        (extracted / state).mkdir(parents=True)
+    for state in zero_byte:
+        (extracted / state).mkdir(parents=True)
+        (extracted / state / "gis_osm_roads_free_1.shp").write_bytes(b"")
+    return extracted
+
+
+def test_build_highways_refuses_an_empty_state_extract_dir(tmp_path, monkeypatch):
+    """makerplane-data#17: a state dir that is present but empty is a failed
+    extract. Globbing for shapefiles walks straight past it, so without this
+    guard the pack builds short that state and nothing says so."""
+    extracted = _extracted_with(tmp_path, good=("colorado", "texas"),
+                                empty=("california-norcal",))
+    calls = []
+    monkeypatch.setattr("packtools.build._run_tool",
+                        lambda script, args: calls.append((script, args)))
+
+    from packtools.build import build_highways
+    with pytest.raises(BuildError, match="california-norcal"):
+        build_highways(extracted, tmp_path / "highways.sqlite")
+    assert calls == []   # the pyEfis builder never runs on a short input set
+
+
+def test_build_highways_refuses_a_zero_byte_state_shapefile(tmp_path, monkeypatch):
+    extracted = _extracted_with(tmp_path, zero_byte=("california-socal",))
+    monkeypatch.setattr("packtools.build._run_tool",
+                        lambda script, args: pytest.fail("builder must not run"))
+
+    from packtools.build import build_highways
+    with pytest.raises(BuildError, match="california-socal"):
+        build_highways(extracted, tmp_path / "highways.sqlite")
+
+
+def test_build_highways_lists_every_empty_state_dir(tmp_path, monkeypatch):
+    extracted = _extracted_with(tmp_path, empty=("delaware", "idaho"))
+    monkeypatch.setattr("packtools.build._run_tool", lambda script, args: None)
+
+    from packtools.build import build_highways
+    with pytest.raises(BuildError) as exc:
+        build_highways(extracted, tmp_path / "highways.sqlite")
+    assert "delaware" in str(exc.value) and "idaho" in str(exc.value)
+    assert "colorado" not in str(exc.value)
+
+
+def test_build_na_roads_fails_on_stale_empty_state_dir(tmp_path, monkeypatch):
+    """End to end: every requested state fetches cleanly, but the cache
+    already holds an empty extract dir from an earlier failed run. The build
+    still has to stop rather than quietly dropping that state."""
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "extracted" / "california-norcal").mkdir(parents=True)
+
+    def fake_download(url, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _write_state_zip(dest)
+
+    monkeypatch.setattr("packtools.build._run_tool",
+                        lambda script, args: pytest.fail("builder must not run"))
+    with pytest.raises(BuildError, match="california-norcal"):
+        make_roads.build_na_roads("colorado", tmp_path / "highways.sqlite",
+                                  cache_dir, downloader=fake_download,
+                                  log=lambda *a: None)
