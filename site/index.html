@@ -179,7 +179,11 @@
       <a href="https://github.com/billmallard/pyEfis">pyEfis</a>.
       Each pack edition also has a public record of the tests it passed:
       <a href="reports/index.html">Test reports</a> &middot;
-      <a href="reports/check.html">Check it yourself</a>.</p>
+      <a href="reports/check.html">Check it yourself</a>.
+      Packs built by our GitHub Actions workflows also carry a build provenance attestation
+      naming the workflow and commit that built them, which <code>gh attestation verify</code>
+      checks independently of our key. Terrain packs do not: they are built from a private
+      repository, where GitHub does not issue attestations on our plan.</p>
 
     <p class="disclaimer">For Experimental / Amateur-Built use. This data is provided as-is with no warranty and <b>any use of the data is at your own risk</b>. You are responsible for keeping current data &mdash; the EFIS annunciates when a pack has expired, but verify against official publications.</p>
 

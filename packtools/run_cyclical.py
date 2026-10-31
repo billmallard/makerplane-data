@@ -68,6 +68,7 @@ class CyclicalRunner:
                  guard=schema_guard.DEFAULT,
                  reporter=report.build_report,
                  notes: dict | None = None,
+                 published_checksums: str | Path | None = None,
                  today: _dt.date | None = None):
         self.store = store
         self.secret = secret
@@ -86,6 +87,10 @@ class CyclicalRunner:
         # edition (``<pack id>@<cycle>:<CHECK>``) so a note cannot carry over
         # to the next cycle. The scheduled run has none.
         self.notes = _edition_notes(notes)
+        # Where to list the packs this run put in the signed manifest, as
+        # sha256sum lines: the subjects the workflow's build-provenance
+        # attestation covers (TV10). None writes nothing.
+        self.published_checksums = Path(published_checksums) if published_checksums else None
         self.today = today or _dt.date.today()
         self.log = print
         # One row per (source, cycle) decision, for the job summary.
@@ -181,6 +186,7 @@ class CyclicalRunner:
             dry_run: bool = False) -> Manifest:
         sources = sources if sources is not None else cyclical_sources()
         self.checks = []
+        self.accepted = {}
         try:
             return self._load_and_run(sources, dry_run=dry_run)
         finally:
@@ -263,6 +269,7 @@ class CyclicalRunner:
         sign_and_put(self.store, self.secret, m, previous=self.previous, sign=signing.sign,
                      comment=f"generated {self.today.isoformat()}")
         self.log(f"manifest: {len(m.packs)} pack(s), {built} new, signed + uploaded")
+        self._write_published_checksums()
 
         # Healthy sources have published; now surface any hard failures as a
         # nonzero exit (a red run is the whole point of the guard).
@@ -272,6 +279,19 @@ class CyclicalRunner:
                 f"healthy sources were still published:\n  - "
                 + "\n  - ".join(failures))
         return m
+
+    def _write_published_checksums(self) -> None:
+        """One ``<sha256>  <pack file>`` line per pack this run accepted, written
+        only once the manifest listing them is signed and uploaded. A pack the
+        gate refused, or one that failed to build, is not listed, so it gets no
+        attestation. The file is written even when empty, so the workflow can
+        tell "nothing new" from "never ran"."""
+        if self.published_checksums is None:
+            return
+        lines = [f"{e.sha256}  {e.id}-{e.cycle}.pack\n"
+                 for e, _record in self.accepted.values()]
+        self.published_checksums.parent.mkdir(parents=True, exist_ok=True)
+        self.published_checksums.write_text("".join(lines))
 
     def summary_markdown(self, *, dry_run: bool = False) -> str:
         """``$GITHUB_STEP_SUMMARY``: one row per (pack, cycle) decision, then
@@ -343,6 +363,9 @@ def main(argv=None) -> int:
                     help="build notes a person wrote for a check that warned: a JSON object "
                          "or KEY=TEXT lines, KEY = <pack id>@<cycle>:<CHECK>. Never set this "
                          "on the scheduled run")
+    ap.add_argument("--published-checksums", dest="published_checksums",
+                    help="write a sha256sum-format list of the packs this run published "
+                         "(the build-provenance attestation's subjects)")
     args = ap.parse_args(argv)
 
     today = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
@@ -356,7 +379,8 @@ def main(argv=None) -> int:
     secret = None if args.dry_run else _secret(args)
     runner = CyclicalRunner(store=store, secret=secret,
                             url_base=args.url_base, work_dir=work, today=today,
-                            notes=gate.read_notes_file(args.notes_file))
+                            notes=gate.read_notes_file(args.notes_file),
+                            published_checksums=args.published_checksums)
     srcs = cyclical_sources()
     if args.only:
         srcs = [s for s in srcs if s.pack_id in set(args.only)]

@@ -293,3 +293,14 @@ def test_analytics_uses_the_zone_token_and_never_loads_twice():
     assert 'var TOKEN = "3522e4f857de4e05b4384a6a5777c4ed";' in js
     # The guard runs before the beacon is created.
     assert js.index('querySelector("script[data-cf-beacon]")') < js.index("createElement")
+
+
+def test_check_page_shows_attestation_check_and_terrain_gap():
+    # TV10: the check page carries the `gh attestation verify` command and
+    # says plainly that terrain packs have none, and why.
+    page = rs.check_page(commit="")
+    assert "gh attestation verify" in page
+    assert "--signer-workflow billmallard/makerplane-data/.github/workflows/" in page
+    assert "Terrain packs have no attestation" in page
+    assert "private repository" in page
+    assert rs.lint(page) == []
