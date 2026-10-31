@@ -164,8 +164,15 @@ python -m packtools.run_cyclical --no-upload --only airports-conus \
   untouched.
 - **`systemd/`** — user service + daily timer, and a udev rule + templated
   service for the USB-stick import path (hangars without WiFi).
+- **`acknowledge.py`** — the software notice. `update` and `import` install
+  nothing until the notice is accepted for the installed `pyefis-data`
+  version. A terminal is asked to type `accept`; unattended runs proceed only
+  on a recorded accept. Each accept is appended to
+  `~/.local/state/makerplane/acknowledgments.jsonl`, outside the config trees.
+  See [docs/install_acknowledgment.md](docs/install_acknowledgment.md).
 
 ```bash
+pyefis-data accept                 # accept the software notice (first install / new version)
 pyefis-data verify                 # check the live manifest signature
 pyefis-data status                 # installed vs catalog, per-pack currency
 pyefis-data catalog                # every available pack (the picker view)
