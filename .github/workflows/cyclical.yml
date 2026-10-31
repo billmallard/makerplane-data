@@ -34,6 +34,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     concurrency: cyclical-packs        # never two builds racing the manifest
+    outputs:
+      published: ${{ steps.published.outputs.published }}
     steps:
       - uses: actions/checkout@v4
 
@@ -65,4 +67,38 @@ jobs:
           args=()
           if [ -n "$ONLY" ]; then read -ra ids <<< "$ONLY"; args+=(--only "${ids[@]}"); fi
           if [ -n "$NOTES" ]; then printf '%s' "$NOTES" > notes.json; args+=(--notes-file notes.json); fi
-          python -m packtools.run_cyclical "${args[@]}"
+          python -m packtools.run_cyclical --published-checksums work/published.sha256 "${args[@]}"
+
+      # The packs this run published, as sha256sum lines, for the attest job.
+      # always(): a run that turned red on one source still published the
+      # healthy ones, and those are attested.
+      - name: List published packs
+        id: published
+        if: ${{ always() }}
+        run: |
+          f=work/published.sha256
+          [ -s "$f" ] || exit 0
+          { echo 'published<<END_PUBLISHED'; cat "$f"; echo 'END_PUBLISHED'; } >> "$GITHUB_OUTPUT"
+
+  # Build provenance (TV10): a Sigstore-signed statement, kept in GitHub's
+  # public attestation store, that this workflow at this commit built each
+  # pack the build job published. It is a separate job so the OIDC token
+  # that signs it is never in reach of the build steps, which run pyEfis
+  # tools from another repo's dev branch. How to check one:
+  # docs/provenance.md (`gh attestation verify`).
+  attest:
+    needs: build
+    if: ${{ always() && needs.build.outputs.published != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Subjects (the packs the build job published)
+        env:
+          PUBLISHED: ${{ needs.build.outputs.published }}
+        run: printf '%s\n' "$PUBLISHED" > published.sha256
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: published.sha256

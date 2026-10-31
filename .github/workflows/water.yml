@@ -34,6 +34,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.published.outputs.published }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,6 +75,16 @@ jobs:
             --regions conus --url-base https://navdata.aerocommons.org/packs \
             --upload --bucket makerplane-data
 
+      # The pack this run published, as a sha256sum line, for the attest job.
+      # Only after the gate accepted it and the manifest listing it is signed.
+      - name: List published pack
+        id: published
+        if: ${{ steps.publish.outcome == 'success' }}
+        env:
+          CYCLE: ${{ inputs.cycle }}
+        run: |
+          { echo 'published<<END_PUBLISHED'; (cd work/packs && sha256sum "water-conus-$CYCLE.pack"); echo 'END_PUBLISHED'; } >> "$GITHUB_OUTPUT"
+
       # The public run page's record of what this run checked, rendered from
       # the test record the publish gate wrote (AER-4101). always(): a failed
       # or refused build still says what it checked and why it stopped.
@@ -90,3 +102,26 @@ jobs:
             --file water.sqlite --file "work/packs/water-conus-$CYCLE.pack" \
             --input "states=$STATES" --input "cycle=$CYCLE" \
             --input "fetch + build=$BUILD" --input "gate + sign + upload=$UPLOAD"
+
+  # Build provenance (TV10): a Sigstore-signed statement, kept in GitHub's
+  # public attestation store, that this workflow at this commit built each
+  # pack the build job published. It is a separate job so the OIDC token
+  # that signs it is never in reach of the build steps, which run pyEfis
+  # tools from another repo's dev branch. How to check one:
+  # docs/provenance.md (`gh attestation verify`).
+  attest:
+    needs: build
+    if: ${{ always() && needs.build.outputs.published != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Subjects (the packs the build job published)
+        env:
+          PUBLISHED: ${{ needs.build.outputs.published }}
+        run: printf '%s\n' "$PUBLISHED" > published.sha256
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: published.sha256
