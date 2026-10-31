@@ -53,6 +53,19 @@ CANCELED_RC = 130
 NOTICE_RC = 3
 
 
+def _software_args(args) -> dict | None:
+    """``--software name=ver`` (repeatable) as a dict, or None (after printing
+    why) when one is malformed."""
+    extra = {}
+    for item in getattr(args, "software", None) or []:
+        name, sep, ver = item.partition("=")
+        if not sep or not name or not ver:
+            print(f"--software expects name=version, got {item!r}", file=sys.stderr)
+            return None
+        extra[name] = ver
+    return extra
+
+
 def _require_acceptance(args, up: Updater, trigger: str) -> int | None:
     """The install/update gate: proceed only once the software notice is
     accepted for this pyefis-data version, appending a record on each new
@@ -63,6 +76,9 @@ def _require_acceptance(args, up: Updater, trigger: str) -> int | None:
     recorded accept and otherwise stop. A caller that displayed the notice
     itself (the pyEfis installer or picker) passes --accept-notice."""
     from . import acknowledge as ack
+    extra = _software_args(args)
+    if extra is None:
+        return 2
     path = ack.default_log_path()
     via = None
     if getattr(args, "accept_notice", False):
@@ -83,6 +99,7 @@ def _require_acceptance(args, up: Updater, trigger: str) -> int | None:
               f"terminal; nothing installed.", file=sys.stderr)
         return NOTICE_RC
     rec = ack.make_record(via=via, trigger=trigger,
+                          software=ack.software_versions(extra),
                           packs=ack.pack_versions(up.inventory))
     try:
         ack.append_record(rec, path)
@@ -397,13 +414,9 @@ def cmd_accept(args) -> int:
     that has displayed the full notice itself and collected the accept."""
     from . import acknowledge as ack
     from .core import Inventory
-    extra = {}
-    for item in args.software or []:
-        name, sep, ver = item.partition("=")
-        if not sep or not name or not ver:
-            print(f"--software expects name=version, got {item!r}", file=sys.stderr)
-            return 2
-        extra[name] = ver
+    extra = _software_args(args)
+    if extra is None:
+        return 2
     if args.yes:
         via = "caller"
     elif sys.stdin.isatty():
@@ -581,6 +594,8 @@ def cmd_config_pull(args) -> int:
     return 1
 
 
+_SOFTWARE_HELP = ("also record this component version in an accept (repeatable), "
+                  "e.g. --software pyefis=2.1.0")
 _ACCEPT_NOTICE_HELP = ("the caller displayed the full software notice and the user "
                        "accepted it; record that and proceed (no prompt)")
 
@@ -619,12 +634,16 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--progress", action="store_true",
                    help="emit JSON progress events on stdout (for the on-device picker)")
     u.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
+    u.add_argument("--software", action="append", metavar="NAME=VERSION",
+                   help=_SOFTWARE_HELP)
     u.set_defaults(func=cmd_update)
 
     i = sub.add_parser("import", help="install from a USB/local directory")
     i.add_argument("path")
     i.add_argument("--dry-run", action="store_true")
     i.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
+    i.add_argument("--software", action="append", metavar="NAME=VERSION",
+                   help=_SOFTWARE_HELP)
     i.set_defaults(func=cmd_import)
 
     v = sub.add_parser("verify", help="verify a manifest signature")
@@ -640,8 +659,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="record an accept the caller collected after displaying the "
                         "full notice itself (no prompt)")
     a.add_argument("--software", action="append", metavar="NAME=VERSION",
-                   help="also record this component version (repeatable), "
-                        "e.g. --software pyefis=2.1.0")
+                   help=_SOFTWARE_HELP)
     a.add_argument("--trigger", default="install",
                    help="what prompted the accept, recorded as-is (default: install)")
     a.set_defaults(func=cmd_accept)

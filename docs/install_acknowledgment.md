@@ -61,11 +61,14 @@ terminal. They display the full notice text themselves (from
 it through:
 
 ```bash
-pyefis-data update --accept-notice ...           # picker: accept, then install
+pyefis-data update --accept-notice --software pyefis=2.1.0 ...   # picker: accept, then install
 pyefis-data accept --yes --trigger pyefis-install --software pyefis=2.1.0
 ```
 
-These are recorded with `"via": "caller"`. A caller must not pass them without
+These are recorded with `"via": "caller"`. `--software NAME=VERSION` (repeatable,
+on `update`, `import` and `accept`) adds a component version to the record. The
+picker should pass `pyefis=<version>`, because pyEfis is not importable from the
+updater's own environment and would otherwise be absent from `software`. A caller must not pass them without
 having shown the full text and received an explicit accept; the record asserts
 that it did.
 

@@ -209,6 +209,23 @@ def test_caller_accept_flag_records_then_installs(tmp_path, store, log, monkeypa
     assert (rec["via"], rec["trigger"]) == ("caller", "update")
 
 
+def test_caller_accept_can_name_other_software(tmp_path, store, log, monkeypatch):
+    """The picker runs in the updater's environment, where pyEfis is not
+    importable; --software lets it record the pyEfis version it is part of."""
+    _stdin(monkeypatch)
+    assert _update(tmp_path, store, "--accept-notice", "--software", "pyefis=2.2.1") == 0
+    [rec] = ack.read_records(log)
+    assert rec["software"]["pyefis"] == "2.2.1"
+    assert rec["software"]["pyefis-data"] == pyefis_data.__version__
+
+
+def test_malformed_software_installs_nothing(tmp_path, store, log, monkeypatch):
+    _stdin(monkeypatch)
+    assert _update(tmp_path, store, "--accept-notice", "--software", "pyefis") == 2
+    assert not _installed(tmp_path)
+    assert not log.exists()
+
+
 def test_recorded_accept_lets_unattended_update_run(tmp_path, store, log, monkeypatch):
     _stdin(monkeypatch, "accept\n")
     assert _update(tmp_path, store, "--dry-run") == 0      # dry run: no gate, no record
