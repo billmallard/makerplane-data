@@ -112,6 +112,15 @@ them individually. That's intentional: the file is pure pyEfis.
 `preview_scene` (on `virtual_vfr`) only selects which synthetic-vision *preview
 image* the editor shows; it has no meaning on the device and is removed on save.
 
+## Numeric options are written as numbers
+
+An option the schema types `number` or `integer` is saved as a YAML number even
+if it was entered as a quoted string (`bg_opacity: '5'` in the Code pane, or a
+legacy save) — it is written `bg_opacity: 5`. A blank or non-numeric string on
+such an option is dropped on save, so the device uses the option's default.
+Options typed `string` (e.g. `font_mask: '00000'`) and options the schema doesn't
+declare are written exactly as entered.
+
 ## Round-trip + backward compatibility
 
 The editor reads the same format back when you open a device. For older devices
