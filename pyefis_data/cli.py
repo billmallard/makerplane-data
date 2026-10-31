@@ -10,6 +10,8 @@
         [--root path]                    install to + persist this data root
     pyefis-data import <dir>         install from a USB stick (same verify path)
     pyefis-data verify [path]        check a manifest's signature
+    pyefis-data notice [--json]      the software notice + acknowledgment history
+    pyefis-data accept [--yes]       accept the notice (update/import require it)
 
 The signing public key is embedded below so verification needs no file and
 no network — the Pi trusts this key and nothing else. If the key is ever
@@ -45,6 +47,77 @@ _ATTENTION = {EXPIRED, EXPIRES, UPDATE, MISSING}
 # when the user taps Cancel on the progress screen). Distinct from the
 # verification-error code (2) so the caller can tell "interrupted" from "broke".
 CANCELED_RC = 130
+
+# Exit code when the software notice has not been accepted for this version
+# (no terminal to ask at, or the user declined). Nothing was installed.
+NOTICE_RC = 3
+
+
+def _software_args(args) -> dict | None:
+    """``--software name=ver`` (repeatable) as a dict, or None (after printing
+    why) when one is malformed."""
+    extra = {}
+    for item in getattr(args, "software", None) or []:
+        name, sep, ver = item.partition("=")
+        if not sep or not name or not ver:
+            print(f"--software expects name=version, got {item!r}", file=sys.stderr)
+            return None
+        extra[name] = ver
+    return extra
+
+
+def _require_acceptance(args, up: Updater, trigger: str) -> int | None:
+    """The install/update gate: proceed only once the software notice is
+    accepted for this pyefis-data version, appending a record on each new
+    accept. Returns None to proceed, or an exit code to stop. Runs before any
+    selection is persisted or any pack fetched, so a decline changes nothing.
+
+    Unattended runs (timer, USB import) never prompt: they proceed on a
+    recorded accept and otherwise stop. A caller that displayed the notice
+    itself (the pyEfis installer or picker) passes --accept-notice. A bench
+    unit (``bench_auto_accept: true``) never waits on a person: it accepts
+    automatically, once per pyefis-data version, recorded as ``via: bench``."""
+    from . import acknowledge as ack
+    extra = _software_args(args)
+    if extra is None:
+        return 2
+    path = ack.default_log_path()
+    via = None
+    if getattr(args, "accept_notice", False):
+        via = "caller"
+    elif ack.find_acceptance(path=path) is not None:
+        return None
+    elif up.config.bench_auto_accept:
+        if ack.find_acceptance(path=path, include_bench=True) is not None:
+            return None
+        via = ack.BENCH_VIA
+    elif sys.stdin.isatty():
+        if not ack.prompt(sys.stdin, sys.stdout):
+            print("notice not accepted; nothing installed", file=sys.stderr)
+            return NOTICE_RC
+        via = "tty"
+    else:
+        if getattr(args, "progress", False):
+            print(json.dumps({"event": "notice_required", "notice": ack.NOTICE_TEXT,
+                              "notice_id": ack.NOTICE_ID}), flush=True)
+        print(f"{ack.NOTICE_TEXT}\n\nThis notice has not been accepted for "
+              f"pyefis-data {ack.__version__}. Run `pyefis-data accept` at a "
+              f"terminal; nothing installed.", file=sys.stderr)
+        return NOTICE_RC
+    rec = ack.make_record(via=via, trigger=trigger,
+                          software=ack.software_versions(extra),
+                          packs=ack.pack_versions(up.inventory))
+    try:
+        ack.append_record(rec, path)
+    except Exception as e:
+        print(f"could not record the acknowledgment at {path}: {e}; "
+              f"nothing installed", file=sys.stderr)
+        return 2
+    if via == ack.BENCH_VIA:
+        print(f"notice auto-accepted (bench unit); recorded in {path}", file=sys.stderr)
+    else:
+        print(f"notice accepted; recorded in {path}", file=sys.stderr)
+    return None
 
 
 class UpdateCancelled(Exception):
@@ -216,6 +289,10 @@ def cmd_update(args) -> int:
     # data.yaml so the next auto-update tracks the same set (the on-device
     # picker uses this; it turns the picker into the yaml editor). A --root
     # given alongside --only is also persisted (the picker's storage chooser).
+    if not args.dry_run:
+        rc = _require_acceptance(args, _updater(args), "update")
+        if rc is not None:
+            return rc
     override = None
     only = getattr(args, "only", None)
     if only is not None:
@@ -284,6 +361,10 @@ def cmd_import(args) -> int:
     if not (src / "manifest.json").exists():
         print(f"no manifest.json under {src}", file=sys.stderr)
         return 2
+    if not args.dry_run:
+        rc = _require_acceptance(args, up, "import")
+        if rc is not None:
+            return rc
     rows = up.import_dir(src, dry_run=args.dry_run)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
@@ -309,6 +390,72 @@ def cmd_verify(args) -> int:
         print(f"INVALID or unreachable: {e}", file=sys.stderr)
         return 2
     print(f"OK  signature valid; {len(m.packs)} pack(s); generated {m.generated}")
+    return 0
+
+
+def cmd_notice(args) -> int:
+    """Print the software notice and the acknowledgment history (the pyEfis
+    About screen and startup banner read --json)."""
+    from . import acknowledge as ack
+    path = ack.default_log_path()
+    records = ack.read_records(path)
+    current = ack.find_acceptance(path=path)
+    bench = Config.load(args.config).bench_auto_accept
+    bench_rec = ack.find_acceptance(path=path, include_bench=True) if bench else None
+    if args.json:
+        # `accepted` is a person's accept only; a bench auto-accept is reported
+        # separately so no reader mistakes it for one.
+        print(json.dumps({
+            "notice_id": ack.NOTICE_ID, "notice_sha256": ack.NOTICE_SHA256,
+            "notice": ack.NOTICE_TEXT, "software": ack.software_versions(),
+            "accepted": current is not None, "bench_auto_accept": bench,
+            "log": str(path), "records": records}, indent=2))
+        return 0
+    print(ack.NOTICE_TEXT + "\n")
+    if current:
+        print(f"accepted for pyefis-data {ack.__version__} on {current['timestamp']} "
+              f"by {current['user']}@{current['host']}")
+    elif bench_rec:
+        print(f"auto-accepted for pyefis-data {ack.__version__} on "
+              f"{bench_rec['timestamp']} (bench unit; not a pilot's accept)")
+    else:
+        print(f"not yet accepted for pyefis-data {ack.__version__}")
+    print(f"{len(records)} acknowledgment record(s) in {path}")
+    return 0
+
+
+def cmd_accept(args) -> int:
+    """Record an accept of the software notice. At a terminal it shows the
+    notice and asks; --yes is for a caller (the pyEfis installer or picker)
+    that has displayed the full notice itself and collected the accept."""
+    from . import acknowledge as ack
+    from .core import Inventory
+    extra = _software_args(args)
+    if extra is None:
+        return 2
+    if args.yes:
+        via = "caller"
+    elif sys.stdin.isatty():
+        if not ack.prompt(sys.stdin, sys.stdout):
+            print("notice not accepted", file=sys.stderr)
+            return NOTICE_RC
+        via = "tty"
+    else:
+        print("no terminal to show the notice on; a caller that displayed it "
+              "itself passes --yes", file=sys.stderr)
+        return NOTICE_RC
+    cfg = Config.load(args.config)
+    if getattr(args, "root", None):
+        cfg = _replace(cfg, root=Path(args.root))
+    rec = ack.make_record(
+        via=via, trigger=args.trigger, software=ack.software_versions(extra),
+        packs=ack.pack_versions(Inventory.load(cfg.root / "installed.json")))
+    try:
+        path = ack.append_record(rec)
+    except Exception as e:
+        print(f"could not record the acknowledgment: {e}", file=sys.stderr)
+        return 2
+    print(f"notice accepted; recorded in {path}")
     return 0
 
 
@@ -463,6 +610,12 @@ def cmd_config_pull(args) -> int:
     return 1
 
 
+_SOFTWARE_HELP = ("also record this component version in an accept (repeatable), "
+                  "e.g. --software pyefis=2.1.0")
+_ACCEPT_NOTICE_HELP = ("the caller displayed the full software notice and the user "
+                       "accepted it; record that and proceed (no prompt)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="pyefis-data")
     ap.add_argument("--config", help="path to data.yaml (default ~/.makerplane/pyefis/data.yaml)")
@@ -496,16 +649,36 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--source", help="install from a USB/local dir instead of the network")
     u.add_argument("--progress", action="store_true",
                    help="emit JSON progress events on stdout (for the on-device picker)")
+    u.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
+    u.add_argument("--software", action="append", metavar="NAME=VERSION",
+                   help=_SOFTWARE_HELP)
     u.set_defaults(func=cmd_update)
 
     i = sub.add_parser("import", help="install from a USB/local directory")
     i.add_argument("path")
     i.add_argument("--dry-run", action="store_true")
+    i.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
+    i.add_argument("--software", action="append", metavar="NAME=VERSION",
+                   help=_SOFTWARE_HELP)
     i.set_defaults(func=cmd_import)
 
     v = sub.add_parser("verify", help="verify a manifest signature")
     v.add_argument("path", nargs="?", help="manifest file (default: fetch live)")
     v.set_defaults(func=cmd_verify)
+
+    n = sub.add_parser("notice", help="show the software notice and acknowledgment history")
+    n.add_argument("--json", action="store_true")
+    n.set_defaults(func=cmd_notice)
+
+    a = sub.add_parser("accept", help="accept the software notice and record it")
+    a.add_argument("--yes", action="store_true",
+                   help="record an accept the caller collected after displaying the "
+                        "full notice itself (no prompt)")
+    a.add_argument("--software", action="append", metavar="NAME=VERSION",
+                   help=_SOFTWARE_HELP)
+    a.add_argument("--trigger", default="install",
+                   help="what prompted the accept, recorded as-is (default: install)")
+    a.set_defaults(func=cmd_accept)
 
     pr = sub.add_parser("pair", help="redeem a claim code from the configurator dashboard")
     pr.add_argument("code", help="the claim code shown in the dashboard")
@@ -525,6 +698,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    # Bench mode must never be silent: every run says so while it is on.
+    if Config.load(args.config).bench_auto_accept:
+        print(f"pyefis-data: BENCH UNIT: bench_auto_accept is on in "
+              f"{args.config or '~/.makerplane/pyefis/data.yaml'}; the software "
+              f"notice is accepted automatically and recorded as a bench accept. "
+              f"This must never be set on an aircraft.", file=sys.stderr)
     return args.func(args)
 
 
