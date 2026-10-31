@@ -2173,7 +2173,12 @@ function buildButton(inst) {
   const txt = (o.text != null && o.text !== "" ? String(o.text) : "Button")
                 .replace(/\\n/g, "\n");
   const lines = Math.max(1, txt.split("\n").length);
-  el.style.fontSize = Math.max(8, (0.45 / lines) * rect(inst).h) + "px";
+  // Font size multiplies the label size (button/__init__.py setStyle, pyEfis
+  // #229). The device's font_mask clamp (multiplier <= 1) isn't modelled: the
+  // inline Button never reads font_mask from its config, so the clamp branch
+  // is unreachable from a configurator design.
+  const scale = fontScale(o.font_percent);
+  el.style.fontSize = Math.max(8, (0.45 / lines) * rect(inst).h * scale) + "px";
   el.textContent = txt;
   return el;
 }
@@ -2434,7 +2439,7 @@ canvas.addEventListener("drop", (e) => {
       // the screen's -- the same nested-space math buildContainerTwin uses.
       // cbox is the content area within box, net of the tab bar on whichever
       // edge tab_position names (AER-665) -- top-only was the sec-4b original.
-      const cbox = tabContentGeom(box, tabPosition(sel));
+      const cbox = tabContentGeom(box, tabPosition(sel), tabBarThickness(sel));
       const gw = cbox.w / (tabLayout.columns || 1);
       const gh = cbox.h / (tabLayout.rows || 1);
       dropped.column = clamp(snapTo((mx - box.x - cbox.x) / gw), 0, tabLayout.columns - 1);
@@ -2837,6 +2842,41 @@ function buildContainerEditor(inst, slot) {
 // size). One constant approximates sizeHint on whichever axis it reserves.
 const TAB_BAR_THICKNESS = 22;
 
+// Font size on tab_section scales the tab LABELS only (pyEfis #223): label px
+// = max(TAB_MIN_LABEL_PX, round(TAB_LABEL_PX * scale)) when set, the inherited
+// size when unset. The device bar is the label plus a fixed padding at every
+// size (offscreen render: 8 px label -> 20 px bar, 12 -> 24, 18 -> 30, 36 -> 48),
+// so the strip grows by the label's change, not proportionally.
+const TAB_LABEL_PX = 11;       // .tab-twin-chip font-size
+const TAB_MIN_LABEL_PX = 8;    // tab_section._MIN_TAB_LABEL_PX
+
+// The common Font size option as a multiplier on a widget's own built-in text
+// size (pyEfis helpers.font_scale), normalised from raw YAML the way
+// screenbuilder_preferences.normalize_font_percent does: > 1 is a whole-number
+// percent (150 -> 1.5), <= 1 already a fraction. Unset, zero, negative or
+// non-numeric means 1.0 -- today's size.
+function fontScale(v) {
+  if (v == null || v === "") return 1;
+  let n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  if (n > 1) n = n / 100;
+  return n;
+}
+
+// The tab label size in px, or null when Font size leaves it at the
+// inherited .tab-twin-chip size.
+function tabLabelPx(inst) {
+  const scale = fontScale(inst?.options?.font_percent);
+  if (scale === 1) return null;
+  return Math.max(TAB_MIN_LABEL_PX, Math.round(TAB_LABEL_PX * scale));
+}
+
+// The strip's thickness on whichever axis it reserves.
+function tabBarThickness(inst) {
+  const px = tabLabelPx(inst);
+  return px == null ? TAB_BAR_THICKNESS : TAB_BAR_THICKNESS + px - TAB_LABEL_PX;
+}
+
 // Which edge the tab bar sits on (tab_position option, AER-665; default
 // "top" matches both the schema default and pyEfis's own `_TAB_BAR_SHAPE`
 // fallback for an unrecognised value).
@@ -2847,8 +2887,7 @@ function tabPosition(inst) {
 
 // The tab bar's own box within the container, box-local px -- mirrors
 // tab_section/__init__.py _layout_pages' `bar_geom` exactly.
-function tabStripGeom(box, position) {
-  const t = TAB_BAR_THICKNESS;
+function tabStripGeom(box, position, t = TAB_BAR_THICKNESS) {
   if (position === "bottom") return { x: 0, y: Math.max(0, box.h - t), w: box.w, h: t };
   if (position === "left") return { x: 0, y: 0, w: t, h: box.h };
   if (position === "right") return { x: Math.max(0, box.w - t), y: 0, w: t, h: box.h };
@@ -2857,8 +2896,7 @@ function tabStripGeom(box, position) {
 
 // The active tab's own content box, box-local px -- mirrors _layout_pages'
 // `stack_geom`: whatever the strip doesn't occupy.
-function tabContentGeom(box, position) {
-  const t = TAB_BAR_THICKNESS;
+function tabContentGeom(box, position, t = TAB_BAR_THICKNESS) {
   if (position === "bottom") return { x: 0, y: 0, w: box.w, h: Math.max(0, box.h - t) };
   if (position === "left") return { x: t, y: 0, w: Math.max(0, box.w - t), h: box.h };
   if (position === "right") return { x: 0, y: 0, w: Math.max(0, box.w - t), h: box.h };
@@ -2880,8 +2918,10 @@ function buildContainerTwin(inst, meta, ci) {
   const position = tabPosition(inst);
   const vertical = position === "left" || position === "right";
   const box = rect(inst);   // a container is always top-level -> root space
-  const stripGeom = tabStripGeom(box, position);
-  const contentGeom = tabContentGeom(box, position);
+  const thickness = tabBarThickness(inst);
+  const stripGeom = tabStripGeom(box, position, thickness);
+  const contentGeom = tabContentGeom(box, position, thickness);
+  const labelPx = tabLabelPx(inst);
 
   // fg_color/bg_color (AER-665): a fixed override applied uniformly to every
   // chip, active or not -- matches the device's stylesheet rule, which has
@@ -2909,6 +2949,7 @@ function buildContainerTwin(inst, meta, ci) {
     // rotation for RoundedWest/RoundedEast (tab_section/__init__.py
     // _TAB_BAR_SHAPE). vertical-rl alone gives the East reading; West flips it.
     if (position === "left") chip.style.transform = "rotate(180deg)";
+    if (labelPx != null) chip.style.fontSize = labelPx + "px";
     if (fg) chip.style.color = fg;
     if (bg) chip.style.background = bg;
     chip.addEventListener("mousedown", (e) => {
