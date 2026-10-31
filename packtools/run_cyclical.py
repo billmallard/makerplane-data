@@ -36,7 +36,7 @@ import tempfile
 from pathlib import Path
 
 from . import build as _build
-from . import cycles, fetch, gate, report, schema_guard, signing, summary
+from . import cycles, fetch, gate, report, schema_guard, schemasite, signing, summary
 from .manifest import Manifest
 from .packmeta import PackMeta, embed_sqlite
 from .manifest import PackEntry
@@ -212,6 +212,7 @@ class CyclicalRunner:
     def _run(self, sources: list[Source], m: Manifest, *, dry_run: bool) -> Manifest:
         built = 0
         failures: list[str] = []
+        published: list[tuple[Path, dict]] = []
 
         for source in sources:
             for c in self._cycles_for(source):
@@ -254,6 +255,7 @@ class CyclicalRunner:
                 self.store.put_file(key, pack_path, content_type="application/octet-stream")
                 m.upsert(entry)
                 self.accepted[(entry.id, entry.cycle)] = (entry, self._cur["gate"].record)
+                published.append((pack_path, self._cur["gate"].record))
                 built += 1
                 self.log(f"built+uploaded {source.pack_id} {c.cycle} "
                          f"sha256={entry.sha256[:12]}… {entry.bytes:,} B")
@@ -270,6 +272,7 @@ class CyclicalRunner:
                      comment=f"generated {self.today.isoformat()}")
         self.log(f"manifest: {len(m.packs)} pack(s), {built} new, signed + uploaded")
         self._write_published_checksums()
+        schemasite.put_captures(self.store, published, log=self.log)
 
         # Healthy sources have published; now surface any hard failures as a
         # nonzero exit (a red run is the whole point of the guard).

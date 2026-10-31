@@ -125,6 +125,55 @@ def test_column_comments_ignores_lines_without_a_column():
 
 # --- capture at publish time ---------------------------------------------------
 
+def test_publish_writes_the_capture_after_signing(tmp_path):
+    store = LocalStore(tmp_path / "r2")
+    sk, _ = signing.generate_keypair()
+    entry, path = _sqlite_pack(tmp_path / "b")
+    publish(store, sk, [(entry, path)], generated=GEN, sign=signing.sign, gate=STANDIN, **quiet)
+    doc = json.loads(store.get_bytes("schema/navdata.json"))
+    assert doc["schema"] == "pack-schema/1" and doc["kind"] == "navdata"
+    cap = doc["packs"]["airports-conus"]
+    assert cap["pack"]["cycle"] == "2612" and cap["source"] == "publish"
+    assert cap["builder"]["makerplane_data_commit"] == "c" * 40   # from the record
+
+
+def test_a_refused_publish_writes_no_capture(tmp_path):
+    from packtools import gate
+    store = LocalStore(tmp_path / "r2")
+    sk, _ = signing.generate_keypair()
+    entry, path = _sqlite_pack(tmp_path / "b")
+
+    def refuse(p, **kw):
+        rec = STANDIN.reporter(p, **kw)
+        rec["checks"][0]["status"] = "fail"
+        rec["checks"][0]["blocking"] = True
+        return rec
+    with pytest.raises(gate.GateRefused):
+        publish(store, sk, [(entry, path)], generated=GEN, sign=signing.sign,
+                gate=gate.Options(reporter=refuse), **quiet)
+    assert store.list_keys("schema/") == []
+
+
+def test_the_cyclical_publish_writes_the_capture_after_signing(tmp_path):
+    import datetime as dt
+    from packtools.run_cyclical import CyclicalRunner
+    from packtools.schema_guard import NULL_GUARD
+    from packtools.sources import SOURCES
+    from tests.gatefake import standin_reporter
+    from tests.test_gate import _fake_build, _fake_fetch
+    store = LocalStore(tmp_path / "r2")
+    sk, _ = signing.generate_keypair()
+    CyclicalRunner(store=store, secret=sk, work_dir=tmp_path / "work",
+                   url_base=f"{ORIGIN}/packs", fetcher=_fake_fetch,
+                   builders={"obstacles": _fake_build}, guard=NULL_GUARD,
+                   reporter=standin_reporter, today=dt.date(2026, 6, 14)
+                   ).run([SOURCES["obstacles-conus"]])
+    cap = json.loads(store.get_bytes("schema/obstacles.json"))["packs"]["obstacles-conus"]
+    assert cap["tables"]["t"]["sql"] == "CREATE TABLE t (x INTEGER)"
+    assert cap["pack"]["cycle"] in {p.cycle for p in Manifest.from_bytes(
+        store.get_bytes("manifest.json")).packs}
+
+
 def test_a_later_publish_replaces_only_its_own_id(tmp_path):
     store = LocalStore(tmp_path / "r2")
     a = _terrain_pack(tmp_path / "a", id="terrain-us-west")

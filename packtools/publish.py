@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 from . import gate as _gate
+from . import schemasite as _schema
 from .manifest import Manifest, PackEntry, validate
 
 MANIFEST_KEY = _gate.MANIFEST_KEY
@@ -77,6 +78,9 @@ def publish(store, secret, pairs: list[tuple[PackEntry, str | Path]], *,
     sign_and_put(store, secret, m, previous=previous, sign=sign,
                  comment=comment or f"published {generated}")
     log(f"manifest: {len(m.packs)} pack(s), +{len(pairs)} new, records bound, signed + uploaded")
+    # Only once the manifest naming them is signed: the pack format pages
+    # (schema/<kind>.json, SCH1) describe published packs, never refused ones.
+    _schema.put_captures(store, [(g.path, g.record) for g in gated], log=log)
     return m
 
 
