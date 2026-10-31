@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import jsyaml from "js-yaml";
 import { editorSource, extractFunction } from "./support/extract.mjs";
 
-const FUNCS = ["round1", "expandGroups", "toScreenInstrument", "toPyefisDoc", "fromStoredDoc"];
+const FUNCS = ["round1", "expandGroups", "coerceNumericOptions", "toScreenInstrument", "toPyefisDoc", "fromStoredDoc"];
 const body = FUNCS.map((f) => extractFunction(editorSource(), f)).join("\n\n");
 
 // A fresh sandbox per scenario -- `state` is a free variable the extracted
