@@ -701,9 +701,11 @@ def main(argv=None) -> int:
     # Bench mode must never be silent: every run says so while it is on.
     if Config.load(args.config).bench_auto_accept:
         print(f"pyefis-data: BENCH UNIT: bench_auto_accept is on in "
-              f"{args.config or '~/.makerplane/pyefis/data.yaml'}; the software "
-              f"notice is accepted automatically and recorded as a bench accept. "
-              f"This must never be set on an aircraft.", file=sys.stderr)
+              f"{args.config or '~/.makerplane/pyefis/data.yaml'}; `update` and "
+              f"`import` accept the software notice automatically and record it "
+              f"as a bench accept (an explicit `accept` still asks, and records "
+              f"a person's accept). This must never be set on an aircraft.",
+              file=sys.stderr)
     return args.func(args)
 
 
