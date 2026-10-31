@@ -91,8 +91,23 @@ def build_highways(input_dir: Path, out_path: Path, *, overwrite: bool = True) -
     ``gis_osm_roads_free_1.shp`` (packtools.make_roads lays it out this way) --
     multi-state multi-file input, like build_navaids's NAV+FIX+AWY. Not part
     of BUILDERS/the cyclical orchestrator: highways is a manually-triggered,
-    non-cyclical rebuild (docs/roads.md), same as terrain/water."""
-    shapefiles = sorted(Path(input_dir).rglob("gis_osm_roads_free_1.shp"))
+    non-cyclical rebuild (docs/roads.md), same as terrain/water.
+
+    Every state subdirectory must hold a non-empty roads layer: a state dir
+    that is present but empty is a failed extract, and globbing past it
+    would silently build a pack short that state (makerplane-data#17)."""
+    input_dir = Path(input_dir)
+    empty = []
+    if input_dir.is_dir():
+        for d in sorted(input_dir.iterdir()):
+            shp = d / "gis_osm_roads_free_1.shp"
+            if d.is_dir() and not (shp.is_file() and shp.stat().st_size > 0):
+                empty.append(d.name)
+    if empty:
+        raise BuildError(
+            f"{len(empty)} state extract dir(s) under {input_dir} have no "
+            f"gis_osm_roads_free_1.shp: {', '.join(empty)}")
+    shapefiles = sorted(input_dir.rglob("gis_osm_roads_free_1.shp"))
     if not shapefiles:
         raise BuildError(f"no gis_osm_roads_free_1.shp found under {input_dir}")
     out_path.parent.mkdir(parents=True, exist_ok=True)
