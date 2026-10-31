@@ -3056,7 +3056,7 @@ function optionField(inst, name, spec) {
     inp = document.createElement("input"); inp.type = "color";
     inp.value = (cur ?? spec.default ?? "#000000").slice(0, 7);
     inp.addEventListener("input", () => setOpt(inst, name, inp.value));
-  } else if (spec.type === "number") {
+  } else if (spec.type === "number" || spec.type === "integer") {
     inp = document.createElement("input"); inp.type = "number"; if (spec.step) inp.step = spec.step;
     inp.placeholder = spec.default ?? "";
     if (cur !== undefined) inp.value = cur;
