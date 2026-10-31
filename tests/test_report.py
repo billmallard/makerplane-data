@@ -26,7 +26,7 @@ LICENSE = dict(attribution="FAA CIFP (public domain)", license="LicenseRef-us-pu
 # --- fixtures -----------------------------------------------------------------
 
 def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=400,
-               jet=False, mora_bands=120, mora_unk=0,
+               jet=False, mora_bands=report.PROC_MORA_BAND_FLOOR, mora_unk=0,
                mora_ft=3000, mora_cells=30):
     """A procedures pack: ``airways`` airways of 5 legs, ``collide`` of
     them carrying a second area's legs with the same sequence numbers (the
@@ -856,3 +856,76 @@ def test_http_get_never_sends_the_default_python_user_agent(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     assert fetch.http_get("https://navdata.aerocommons.org/manifest.json") == b"ok"
     assert seen["ua"] == fetch.USER_AGENT and "Python-urllib" not in seen["ua"]
+
+
+# --- Grid MORA (AER-4447) -------------------------------------------------------------
+
+def test_a_clean_grid_passes_every_mora_check(tmp_path):
+    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack", mora_unk=7)))
+    for cid in ("PROC-MORA-001", "PROC-MORA-002", "PROC-MORA-003"):
+        assert c[cid]["status"] == "pass", (cid, c[cid])
+        assert c[cid]["blocking"] is True
+    assert c["PROC-MORA-004"]["status"] == "pass"
+    assert c["PROC-MORA-004"]["measured"].startswith("7 of 3,600 cells UNK")
+
+
+def test_short_band_fails_the_cell_count(tmp_path):
+    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack", mora_cells=29)))["PROC-MORA-001"]
+    assert c["status"] == "fail"
+    assert "3,480 cells for 120 bands (expected 3,600)" in c["measured"]
+
+
+def test_too_few_bands_fails_the_floor(tmp_path):
+    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack",
+                               mora_bands=report.PROC_MORA_BAND_FLOOR - 1)))
+    assert c["PROC-MORA-001"]["status"] == "fail"
+
+
+def test_missing_grid_fails(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.executescript("DROP TABLE grid_mora; DROP TABLE grid_mora_bands;")
+    con.close()
+    c = _by_id(_rep(pack))
+    assert all(c[f"PROC-MORA-00{i}"]["status"] == "fail" for i in (1, 2, 3, 4))
+
+
+def test_duplicate_cell_fails(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.execute("DROP INDEX idx_mora_cell")
+    con.execute("UPDATE grid_mora SET lon_sw = lon_sw - 1 WHERE rowid = 2")
+    con.commit()
+    con.close()
+    c = _by_id(_rep(pack))["PROC-MORA-002"]
+    assert (c["status"], c["measured"]) == ("fail", "1 duplicate cells")
+
+
+@pytest.mark.parametrize("ft, raw", [(900, "009"), (25100, "251")])
+def test_out_of_range_value_fails(tmp_path, ft, raw):
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.execute("UPDATE grid_mora SET mora_ft = ?, raw = ? WHERE rowid = 1", (ft, raw))
+    con.commit()
+    con.close()
+    c = _by_id(_rep(pack))["PROC-MORA-003"]
+    assert c["status"] == "fail" and c["measured"].startswith("1 cells outside")
+
+
+def test_garbled_field_fails(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.execute("UPDATE grid_mora SET mora_ft = NULL, raw = '1 3' WHERE rowid = 1")
+    con.commit()
+    con.close()
+    c = _by_id(_rep(pack))["PROC-MORA-003"]
+    assert c["status"] == "fail" and "1 fields neither digits nor UNK" in c["measured"]
+
+
+def test_more_unk_than_last_edition_warns(tmp_path):
+    prev = report.previous_from(_proc_pack(tmp_path / "2610.pack", "2610", mora_unk=5))
+    more = _by_id(_rep(_proc_pack(tmp_path / "a.pack", mora_unk=6), previous=prev))
+    same = _by_id(_rep(_proc_pack(tmp_path / "b.pack", mora_unk=5), previous=prev))
+    assert more["PROC-MORA-004"]["status"] == "warn"
+    assert more["PROC-MORA-004"]["blocking"] is False
+    assert same["PROC-MORA-004"]["status"] == "pass"
