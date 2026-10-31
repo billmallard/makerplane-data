@@ -117,7 +117,42 @@ def test_status_json_is_rich(tmp_path):
     d = a.as_dict()
     assert set(d) >= {"id", "name", "kind", "status", "severity", "cycle",
                       "expires", "days", "detail", "effective", "next_cycle",
-                      "next_effective", "next_staged"}
+                      "next_effective", "next_staged", "notice"}
+
+
+def test_status_rows_carry_installed_entry_notice(tmp_path):
+    """Each status row carries the notice of the manifest entry for the
+    INSTALLED cycle (pyEfis's About screen reads it from status.json): ""
+    before install, the installed cycle's text after -- not the pre-staged
+    next cycle's -- and "" for an entry that predates the field or carries
+    a malformed value."""
+    sk, pub = signing.generate_keypair()
+    root, _ = build_store(tmp_path, keypair=(sk, pub))
+    mpath = root / "manifest.json"
+    obj = json.loads(mpath.read_bytes())
+    for p in obj["packs"]:
+        if p["id"] == "airports-conus":
+            p["notice"] = f"airports notice for {p['cycle']}"
+        else:
+            p["notice"] = None          # malformed; must not leak or raise
+    mpath.write_bytes((json.dumps(obj, indent=2, sort_keys=True) + "\n").encode())
+    signing.sign_file(mpath, sk)
+
+    up = make_updater(tmp_path, pub, remote_root=root)
+    before = {r.pack_id: r for r in up.status()}
+    assert all(r.cycle == "" and r.notice == "" for r in before.values())
+    assert all(d["notice"] == "" for d in cli._status_doc(up)["packs"])
+
+    up.update()
+    up2 = make_updater(tmp_path, pub, remote_root=root)
+    rows = {r.pack_id: r for r in up2.status()}
+    a, o = rows["airports-conus"], rows["obstacles-conus"]
+    assert a.cycle == "2606" and a.next_cycle == "2607"
+    assert a.notice == "airports notice for 2606"
+    assert o.cycle and o.notice == ""
+    doc = {d["id"]: d for d in cli._status_doc(up2)["packs"]}
+    assert doc["airports-conus"]["notice"] == "airports notice for 2606"
+    assert doc["obstacles-conus"]["notice"] == ""
 
 
 def test_status_detail_spells_out_cycle_dates(tmp_path):

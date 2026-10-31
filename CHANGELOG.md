@@ -4,6 +4,15 @@ Notable changes to the `makerplane-data` packages (`packtools`, `pyefis_data`)
 and the `configurator`. Semver on the Python package; process in
 [docs/release_process.md](docs/release_process.md).
 
+## Unreleased
+
+### Device updater (pyefis_data)
+- **`notice` on every `status` row (AER-4351).** `pyefis-data status --json`
+  and the `status.json` written after `update` now carry `packs[i].notice`:
+  the `notice` of the manifest entry for the installed cycle. It is `""` when
+  no cycle is installed or the entry predates the field. Additive; existing
+  readers are unaffected. pyEfis's About screen reads it from `status.json`.
+
 ## 0.4.0 — 2026-10-30
 
 Promotes the `dev` work since 0.3.0. Its core is testing visibility (TV0 to
