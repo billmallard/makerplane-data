@@ -62,6 +62,17 @@ GEO_OUTSIDE_GROWTH_FRACTION = 0.10
 #: PROC-FIX-001: legs naming a fix the build could not place. 2610 measured
 #: 950 of 201,030 and 2611 measured 941 of 200,853 (both 0.47%).
 PROC_UNRESOLVED_MAX_FRACTION = 0.005
+#: PROC-MSA-003: plausible MSA sector values. An MSA is 1,000 ft above the
+#: highest obstacle in the sector, so nothing lower is possible; 2611 runs
+#: 1,300 to 16,000 ft. Radii are 25 nm unless extended to take in the
+#: airport; 2611 runs 25 to 37 nm (KASX, centred on IWD).
+MSA_ALT_MIN_FT = 1000
+MSA_ALT_MAX_FT = 20000
+MSA_RADIUS_MIN_NM = 10
+MSA_RADIUS_MAX_NM = 50
+#: PROC-MSA-004: MSA records whose centre fix the build could not place.
+#: 2611 measured 1 of 6,058 (KHRJ's HQT, an NDB the file does not define).
+MSA_UNRESOLVED_MAX_FRACTION = 0.001
 #: OSM-001: a region's feature count dropping by more than this warns; a
 #: region that had at least OSM_REGION_MIN features and now has none fails.
 OSM_REGION_DROP_WARN = 0.10
@@ -117,13 +128,14 @@ _COORDS = {
                 ("awy_segments", "lat1", "lon1"), ("awy_segments", "lat2", "lon2")],
     "obstacles": [("obstacles", "lat", "lon")],
     "procedures": [("legs", "fix_lat", "fix_lon"), ("legs", "centre_lat", "centre_lon"),
-                   ("airway_legs", "fix_lat", "fix_lon")],
+                   ("airway_legs", "fix_lat", "fix_lon"), ("msa", "centre_lat", "centre_lon")],
 }
 
 # Tables whose NULL coordinates GEO-001 tolerates: a procedure or airway
 # leg may name no fix, and PROC-FIX-001 counts the legs whose fix the build
-# could not place. On every other (point) table a NULL position is bad.
-_NULL_COORDS_OK = ("legs", "airway_legs")
+# could not place; PROC-MSA-004 does the same for MSA centres. On every
+# other (point) table a NULL position is bad.
+_NULL_COORDS_OK = ("legs", "airway_legs", "msa")
 
 # Where FAA data is expected: CONUS, Alaska (both sides of the antimeridian),
 # Hawaii, Puerto Rico / USVI, Guam / CNMI, American Samoa, Wake, Midway.
@@ -142,7 +154,9 @@ _UNIQUE = {
     "airports": [("airports", ("icao",))],
     "navaids": [("fixes", ("id",))],
     "obstacles": [("obstacles", ("oas_no",))],
-    "procedures": [("procedures", ("airport", "kind", "ident"))],
+    "procedures": [("procedures", ("airport", "kind", "ident")),
+                   ("msa", ("airport", "area", "centre_ident", "centre_icao", "centre_section",
+                            "centre_subsection", "multiple_code", "sector_seq"))],
 }
 _REUSED = {
     "navaids": [("navaids", ("id", "type")), ("awy_segments", ("awy_id", "seq"))],
@@ -590,6 +604,116 @@ def _c_awy_collision(ctx):
     return ("fail" if n else "pass", n, "")
 
 
+def _msa_records(ctx):
+    """The pack's MSA records, one per source PS record: ``record`` is the
+    verbatim JSON every sector row of one record shares."""
+    out = {}
+    for rec, seq, start, end, alt, radius in ctx.con.execute(
+            "SELECT record, sector_seq, bearing_start, bearing_end, altitude_ft, radius_nm "
+            "FROM msa ORDER BY rowid"):
+        out.setdefault(rec, []).append((seq, start, end, alt, radius))
+    return out
+
+
+def _msa_label(record: str) -> str:
+    f = json.loads(record)["fields"]
+    code = f["multiple_code"].strip()
+    return f"{f['airport'].strip()} {f['centre_ident'].strip()}{'/' + code if code else ''}"
+
+
+def _c_msa_census(ctx):
+    if "msa" not in ctx.tables:
+        return ("fail", "no msa table", "")
+    if ctx.inputs is None:
+        return _not_run("Needs the source FAACIFP18 (--inputs) to count its PS records. The "
+                        "nightly gate passes the extracted CIFP.")
+    from . import arinc424
+    from .build.procedures import ProceduresBuildError, _find_cifp_file
+    try:
+        cifp = _find_cifp_file(Path(ctx.inputs))
+    except ProceduresBuildError as e:
+        return ("fail", str(e).replace(str(ctx.inputs), "<inputs>"), "")
+    primaries = continuations = 0
+    for line in arinc424.read_records(cifp):
+        if line[4:5] == "P" and line[12:13] == "S":
+            if line[38:39] in ("0", "1"):
+                primaries += 1
+            else:
+                continuations += 1
+    records = _msa_records(ctx)
+    stored_cont = sum(len(json.loads(r)["continuations"]) for r in records)
+    ctx.metrics["PROC-MSA-001"] = {"source_primaries": primaries,
+                                   "source_continuations": continuations,
+                                   "records": len(records), "continuations": stored_cont}
+    measured = (f"{len(records):,} of {primaries:,} PS records; {stored_cont:,} of "
+                f"{continuations:,} continuations")
+    ok = len(records) == primaries and stored_cont == continuations
+    return ("pass" if ok else "fail", measured, "")
+
+
+def _msa_coverage_fault(sectors) -> str | None:
+    seqs = [s[0] for s in sectors]
+    if seqs != list(range(1, len(sectors) + 1)):
+        return f"sector numbers {seqs}"
+    bounds = [(s[1], s[2]) for s in sectors]
+    if any(b is None or not 0 <= b <= 360 for pair in bounds for b in pair):
+        return f"bearing missing or outside 0-360 {bounds}"
+    if len(bounds) == 1:
+        return None if bounds[0][0] % 360 == bounds[0][1] % 360 else f"one sector {bounds[0]}"
+    if any(start % 360 == end % 360 for start, end in bounds):
+        return f"zero-width sector {bounds}"
+    for i, (_, end) in enumerate(bounds):
+        if end % 360 != bounds[(i + 1) % len(bounds)][0] % 360:
+            return f"gap or overlap {bounds}"
+    span = sum((end - start) % 360 for start, end in bounds)
+    return None if span == 360 else f"sectors span {span} degrees {bounds}"
+
+
+def _c_msa_coverage(ctx):
+    if "msa" not in ctx.tables:
+        return ("fail", "no msa table", "")
+    bad = []
+    for record, sectors in _msa_records(ctx).items():
+        fault = _msa_coverage_fault(sectors)
+        if fault:
+            bad.append(f"{_msa_label(record)}: {fault}")
+    measured = f"{len(bad)} records" + (f" ({'; '.join(bad[:5])})" if bad else "")
+    return ("fail" if bad else "pass", measured, "")
+
+
+def _c_msa_values(ctx):
+    if "msa" not in ctx.tables:
+        return ("fail", "no msa table", "")
+
+    def count(where):
+        return ctx.con.execute(f"SELECT COUNT(*) FROM msa WHERE {where}").fetchone()[0]
+
+    alt_bad = count(f"altitude_ft IS NULL OR altitude_ft NOT BETWEEN {MSA_ALT_MIN_FT} "
+                    f"AND {MSA_ALT_MAX_FT}")
+    rad_bad = count(f"radius_nm IS NULL OR radius_nm NOT BETWEEN {MSA_RADIUS_MIN_NM} "
+                    f"AND {MSA_RADIUS_MAX_NM}")
+    ref_bad = count("mag_true IS NULL OR mag_true NOT IN ('M', 'T')")
+    lo, hi, rlo, rhi = ctx.con.execute(
+        "SELECT MIN(altitude_ft), MAX(altitude_ft), MIN(radius_nm), MAX(radius_nm) "
+        "FROM msa").fetchone()
+    measured = (f"{alt_bad} altitudes, {rad_bad} radii, {ref_bad} bearing references out of "
+                f"bounds (altitudes {lo}-{hi} ft, radii {rlo}-{rhi} nm)")
+    return ("fail" if alt_bad or rad_bad or ref_bad else "pass", measured, "")
+
+
+def _c_msa_unresolved(ctx):
+    if "msa" not in ctx.tables:
+        return ("fail", "no msa table", "")
+    records = _msa_records(ctx)
+    unresolved = sorted({_msa_label(r) for r, in ctx.con.execute(
+        "SELECT DISTINCT record FROM msa WHERE centre_lat IS NULL OR centre_lon IS NULL")})
+    ctx.metrics["PROC-MSA-004"] = {"unresolved": len(unresolved), "records": len(records)}
+    frac = len(unresolved) / len(records) if records else 0.0
+    measured = (f"{len(unresolved):,} of {len(records):,} records"
+                + (f" ({', '.join(unresolved[:10])})" if unresolved else ""))
+    return ("warn" if frac > MSA_UNRESOLVED_MAX_FRACTION else "pass", measured, "")
+
+
 # --- checks: terrain --------------------------------------------------------
 
 _TILE = r"[NS]\d{2}[EW]\d{3}"
@@ -971,6 +1095,28 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "Two areas' legs merged with sequence numbers that do not collide, and an "
               "airway whose legs are all present but in the wrong order.",
               _c_awy_collision, "AER-1979"),
+        Check("PROC-MSA-001", "Every PS record in the source file is in the msa table", True,
+              "as many MSA records (and continuation records) in the pack as PS records in "
+              "the source FAACIFP18",
+              "A record that is present but decoded wrong; PROC-MSA-002 and -003 look for "
+              "that.", _c_msa_census, "AER-4446"),
+        Check("PROC-MSA-002", "Each MSA's sectors cover 360 degrees with no gap or overlap",
+              True, "0 records: every sector ends where the next begins, the last closes "
+              "on the first, and together they span 360 degrees (one sector: start equals "
+              "end)",
+              "A consistent set of sectors with the wrong altitude in one of them, and a "
+              "column shift that keeps the bearings contiguous.", _c_msa_coverage, "AER-4446"),
+        Check("PROC-MSA-003", "MSA altitudes, radii and bearing references are plausible",
+              True, f"altitudes {MSA_ALT_MIN_FT:,}-{MSA_ALT_MAX_FT:,} ft, radii "
+              f"{MSA_RADIUS_MIN_NM}-{MSA_RADIUS_MAX_NM} nm, bearings referenced M or T",
+              "A wrong value inside the bounds, such as 5200 coded where the plate says "
+              "5900.", _c_msa_values, "AER-4446"),
+        Check("PROC-MSA-004", "MSA centre fixes the build could not place", False,
+              f"at most {MSA_UNRESOLVED_MAX_FRACTION:.1%} of MSA records, every one listed: "
+              "a regression bound that carries forward the 1 of 6,058 observed in 2611 "
+              "(KHRJ HQT, an NDB the file does not define). It does not accept those "
+              "records as correct; they are stored with no position, never a guessed one",
+              "A centre placed at the wrong coordinates.", _c_msa_unresolved, "AER-4446"),
         Check("PROC-GLD-001", "FAACIFP18 golden fixture", False,
               "the fixture's procedures decode to their published legs",
               "Everything outside the fixture's handful of procedures.",
