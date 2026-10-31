@@ -25,6 +25,7 @@ from __future__ import annotations
 import array
 import datetime as _dt
 import json
+import math
 import os
 import re
 import sqlite3
@@ -89,7 +90,8 @@ UNGATED = {
               "probe before it can gate",
     "cifp": "no content check beyond the common and SQLite ones, and no device probe "
             "(the CIFP build itself is deferred)",
-    "airspace": "no content check beyond the common and SQLite ones, and no device probe",
+    "airspace": "ASP-001..003 are new (AER-4445) and QA has not accepted them as a gate; "
+                "no device probe (pyEfis has no airspace reader yet)",
     "plates": "a zip pack: only PACK-001..004 and a not-run ACC-001; no content check and "
               "no device probe",
 }
@@ -590,6 +592,180 @@ def _c_awy_collision(ctx):
     return ("fail" if n else "pass", n, "")
 
 
+# --- checks: airspace -------------------------------------------------------
+
+def _segments_cross(a, b, c, d) -> bool:
+    """Whether segment ab and segment cd share a point (collinear overlap
+    included)."""
+    def orient(p, q, r):
+        v = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        return (v > 0) - (v < 0)
+
+    def on(p, q, r):
+        return (min(p[0], r[0]) <= q[0] <= max(p[0], r[0])
+                and min(p[1], r[1]) <= q[1] <= max(p[1], r[1]))
+    o1, o2, o3, o4 = orient(a, b, c), orient(a, b, d), orient(c, d, a), orient(c, d, b)
+    if o1 != o2 and o3 != o4:
+        return True
+    return ((o1 == 0 and on(a, c, b)) or (o2 == 0 and on(a, d, b))
+            or (o3 == 0 and on(c, a, d)) or (o4 == 0 and on(c, b, d)))
+
+
+def _ring_problem(ring) -> str | None:
+    """Why a GeoJSON linear ring is not closed and simple, or None."""
+    if not isinstance(ring, list) or len(ring) < 4:
+        return "fewer than 4 positions"
+    pts = []
+    for p in ring:
+        if (not isinstance(p, list) or len(p) < 2
+                or not all(isinstance(v, (int, float)) for v in p[:2])):
+            return "a position is not [lon, lat]"
+        if not (-180 <= p[0] <= 180 and -90 <= p[1] <= 90):
+            return "a position is out of range"
+        pts.append((float(p[0]), float(p[1])))
+    if pts[0] != pts[-1]:
+        return "not closed"
+    # Drop repeated consecutive positions: legal, but they are zero-length
+    # edges the crossing test would report against their neighbours.
+    pts = [p for i, p in enumerate(pts) if i == 0 or p != pts[i - 1]]
+    if len(pts) < 4:
+        return "fewer than 3 distinct vertices"
+    segs = list(zip(pts, pts[1:]))
+    n = len(segs)
+    order = sorted(range(n), key=lambda i: min(segs[i][0][0], segs[i][1][0]))
+    active: list[int] = []
+    for i in order:
+        (a, b) = segs[i]
+        lo_x = min(a[0], b[0])
+        active = [j for j in active if max(segs[j][0][0], segs[j][1][0]) >= lo_x]
+        for j in active:
+            if abs(i - j) in (1, n - 1):    # neighbours share a vertex by design
+                continue
+            c, d = segs[j]
+            if (max(a[1], b[1]) < min(c[1], d[1]) or max(c[1], d[1]) < min(a[1], b[1])):
+                continue
+            if _segments_cross(a, b, c, d):
+                return "self-intersects"
+        active.append(i)
+    return None
+
+
+def _c_asp_polygons(ctx):
+    if "airspaces" not in ctx.tables:
+        return ("fail", "no airspaces table", "")
+    bad: dict[str, list[str]] = {}
+    total = 0
+    for rid, geom in ctx.con.execute("SELECT id, geometry FROM airspaces ORDER BY id"):
+        total += 1
+        try:
+            g = json.loads(geom)
+        except (TypeError, ValueError):
+            bad.setdefault("not JSON", []).append(rid)
+            continue
+        if not isinstance(g, dict) or g.get("type") != "Polygon" or not g.get("coordinates"):
+            bad.setdefault("not a Polygon", []).append(rid)
+            continue
+        for ring in g["coordinates"]:
+            why = _ring_problem(ring)
+            if why:
+                bad.setdefault(why, []).append(rid)
+                break
+    n = sum(len(v) for v in bad.values())
+    if not n:
+        return ("pass", f"0 of {total:,} polygons", "")
+    detail = "; ".join(f"{why}: {len(ids)} ({', '.join(ids[:3])}{', ...' if len(ids) > 3 else ''})"
+                       for why, ids in sorted(bad.items()))
+    return ("fail", f"{n:,} of {total:,} polygons: {detail}", "")
+
+
+def _asp_feet(value, unit, ref):
+    """A limit as (feet, comparable class), or None if it cannot be placed.
+    Classes: "gnd" (the surface), "unl" (unlimited), "agl", "alt" (MSL feet
+    or a flight level, compared as feet)."""
+    if value == "UNLTD":
+        return (math.inf, "unl")
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    unit, ref = str(unit), str(ref)
+    if unit == "6":
+        return (v * 100, "alt")
+    if unit != "1":
+        return None
+    if ref == "0":
+        return (v, "gnd" if v == 0 else "agl")
+    if ref in ("1", "2"):
+        return (v, "alt")
+    return None
+
+
+def _c_asp_limits(ctx):
+    if "airspaces" not in ctx.tables:
+        return ("fail", "no airspaces table", "")
+    inverted, equal, unplaced, apart, compared = [], 0, 0, 0, 0
+    for row in ctx.con.execute(
+            "SELECT id, lower_limit, lower_limit_unit, lower_limit_reference, upper_limit, "
+            "upper_limit_unit, upper_limit_reference FROM airspaces ORDER BY id"):
+        lo, hi = _asp_feet(*row[1:4]), _asp_feet(*row[4:7])
+        if lo is None or hi is None:
+            unplaced += 1
+            continue
+        same = lo[1] == hi[1] or "gnd" in (lo[1], hi[1]) or "unl" in (lo[1], hi[1])
+        if not same:         # AGL against MSL: depends on the terrain beneath
+            apart += 1
+            continue
+        compared += 1
+        if lo[0] > hi[0]:
+            inverted.append(row[0])
+        elif lo[0] == hi[0]:
+            equal += 1
+    measured = (f"{len(inverted)} floor above ceiling of {compared:,} compared; {equal} floor "
+                f"equal to ceiling; {apart:,} not comparable (AGL against MSL); {unplaced} "
+                "with a limit the check cannot read")
+    if inverted:
+        measured += " -- " + ", ".join(inverted[:5])
+    return ("fail" if inverted or unplaced else "pass", measured, "")
+
+
+#: ASP-003's declared exemption: an openAIP pack has no CIFP rows to reconcile.
+ASP_NOT_CIFP = ("not-cifp", "the pack holds no CIFP-built rows (an openAIP pack)")
+
+
+def _c_asp_reconcile(ctx):
+    if "airspaces" not in ctx.tables:
+        return ("fail", "no airspaces table", "")
+    built = dict(ctx.con.execute(
+        "SELECT substr(id, 7, 1), COUNT(*) FROM airspaces WHERE id LIKE 'cifp-U%' "
+        "GROUP BY 1").fetchall())
+    if not built:
+        return _not_run("No CIFP-built rows in this pack.", ASP_NOT_CIFP[0])
+    src = None
+    if ctx.inputs is not None:
+        src = ctx.inputs / "FAACIFP18"
+        if not src.is_file():
+            src = next(iter(sorted(ctx.inputs.rglob("FAACIFP18"))), None)
+    if src is None:
+        return _not_run("Needs the extracted CIFP (--inputs) to count the source file's "
+                        "sectors.", "no-inputs")
+    from .build.airspace_cifp import iter_sectors
+    counts: dict[str, int] = {}
+    records: dict[str, int] = {}
+    by_type: dict[str, int] = {}
+    for recs in iter_sectors(src):
+        r = recs[0]
+        counts[r.section[1]] = counts.get(r.section[1], 0) + 1
+        records[r.section] = records.get(r.section, 0) + len(recs)
+        k = f"{r.section}-{r.airspace_type}"
+        by_type[k] = by_type.get(k, 0) + 1
+    ctx.metrics["ASP-003"] = {"source_sectors": counts, "source_primary_records": records,
+                              "rows": built, "by_type": by_type}
+    parts = [f"U{s} {built.get(s, 0):,} rows / {counts.get(s, 0):,} source sectors"
+             for s in ("C", "R")]
+    ok = all(built.get(s, 0) == counts.get(s, 0) for s in set(built) | set(counts))
+    return ("pass" if ok else "fail", "; ".join(parts), "")
+
+
 # --- checks: terrain --------------------------------------------------------
 
 _TILE = r"[NS]\d{2}[EW]\d{3}"
@@ -983,6 +1159,26 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               _fixed_not_run("Not yet run (AER-1702). Until it is, nothing independent "
                              "of the FAA source has been compared against this pack's "
                              "procedures.")),
+    ],
+    "airspace": [
+        Check("ASP-001", "Every airspace geometry is a closed, simple polygon", True,
+              "0 bad polygons: GeoJSON Polygon, every ring at least 4 positions, first equal "
+              "to last, positions in range, no edge crossing another",
+              "A valid polygon in the wrong place or of the wrong shape (an arc drawn the "
+              "wrong way round still closes). Edges are tested as straight lines in "
+              "longitude/latitude, the way the ring is stored.", _c_asp_polygons, "AER-4445"),
+        Check("ASP-002", "No sector's floor is above its ceiling", True,
+              "0 inverted sectors, and every limit readable. Feet MSL and flight levels are "
+              "compared as feet; a surface floor or an unlimited ceiling compares with "
+              "anything",
+              "A floor below its ceiling that is still wrong, and any sector with an AGL "
+              "limit against an MSL one (counted, not compared: which is higher depends on "
+              "the terrain beneath).", _c_asp_limits, "AER-4445"),
+        Check("ASP-003", "CIFP sectors reconcile with the source file", True,
+              "one row per UC and per UR sector in the FAACIFP18 the pack was built from",
+              "A sector that is present but wrong, and a record the parser never "
+              "recognised as section U at all (the count and the rows come from the same "
+              "reader).", _c_asp_reconcile, "AER-4445", exempt=(ASP_NOT_CIFP,)),
     ],
     "terrain": [
         Check("TER-001", "Every member is a known terrain file of a valid size", True,
