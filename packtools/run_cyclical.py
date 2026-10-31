@@ -172,7 +172,8 @@ class CyclicalRunner:
         mine = {k: v for (pid, cyc, k), v in self.notes.items()
                 if (pid, cyc) == (source.pack_id, c.cycle)}
         g = gate.gate_one(self.store, self.live, entry, pack_path, local=self.accepted,
-                          opts=gate.Options(notes=mine, inputs=Path(extracted),
+                          opts=gate.Options(notes=mine, origin=source.origin or None,
+                                            inputs=Path(extracted),
                                             sources=self._sources(urls, cycle_work, c),
                                             record_dir=self.work_dir / "reports",
                                             reporter=self.reporter),
