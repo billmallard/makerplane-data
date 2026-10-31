@@ -353,3 +353,25 @@ def test_bootstrap_skips_a_pack_whose_bytes_do_not_match_the_manifest(tmp_path):
 
 
 # --- the command ---------------------------------------------------------------
+
+def test_schema_site_command_renders_a_preview(tmp_path, monkeypatch):
+    nav = _sqlite_pack(tmp_path / "n")
+    store, pub, _ = _signed_store(tmp_path, [nav])
+    (tmp_path / "pub").write_text(pub)
+    out = tmp_path / "preview"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
+    rc = cli.main(["schema-site", "--from", str(store.root), "--out", str(out),
+                   "--pub", str(tmp_path / "pub"), "--bootstrap"])
+    assert rc == 0
+    assert (out / "schema" / "navdata.html").exists()
+    assert json.loads((out / "schema" / "index.json").read_text())["kinds"]["navdata"]
+    assert (out / "index.html").exists()        # the site itself, for browsing
+
+
+def test_schema_site_command_refuses_an_unsigned_manifest(tmp_path):
+    nav = _sqlite_pack(tmp_path / "n")
+    store, _, _ = _signed_store(tmp_path, [nav])
+    _, other_pub = signing.generate_keypair()
+    (tmp_path / "pub").write_text(other_pub)
+    assert cli.main(["schema-site", "--from", str(store.root), "--out", str(tmp_path / "o"),
+                     "--pub", str(tmp_path / "pub")]) == 1

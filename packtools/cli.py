@@ -265,6 +265,43 @@ def cmd_report_site(args) -> int:
     return 0
 
 
+def cmd_schema_site(args) -> int:
+    """Render the pack format pages from the schema captures and upload the
+    changed ones (SCH1), or render a local preview with --from/--out."""
+    from . import community, reportsite, schemasite, sitedeploy, summary
+    from .upload import LocalStore
+    if args.source:
+        src = LocalStore(args.source)
+    else:
+        from .upload import R2Store
+        src = R2Store.from_env(args.bucket)
+    pub = Path(args.pub).read_text(encoding="utf-8") if args.pub else None
+    try:
+        manifest = community.load_live_manifest(src, pub)
+        if args.bootstrap and not args.dry_run:
+            schemasite.bootstrap(src, manifest)
+        objects = schemasite.build(schemasite.load_kinds(src), manifest,
+                                   commit=reportsite.generator_commit())
+    except (community.CommunityError, reportsite.SiteError) as e:
+        print(f"schema-site: {e}", file=sys.stderr)
+        return 1
+    if args.out:
+        # A browsable preview: the site itself, the catalog and the captures.
+        dst = LocalStore(args.out)
+        for key, path, _ in sitedeploy.site_files(args.root):
+            dst.put_file(key, path)
+        dst.put_bytes("manifest.json", src.get_bytes("manifest.json"))
+        for key in src.list_keys(schemasite.PREFIX):
+            dst.put_bytes(key, src.get_bytes(key))
+    else:
+        dst = src
+    rows = schemasite.publish(dst, objects, dry_run=args.dry_run)
+    md = (f"## schema-site (dry_run={args.dry_run})\n\n"
+          + summary.table(["key", "bytes", "status"], rows))
+    summary.write(md)
+    return 0
+
+
 def cmd_status_overlay(args) -> int:
     """Write the nightly status.json beside every published record (TV8),
     and with --ensure-labels create a pack:<id> label for each live id."""
@@ -734,6 +771,24 @@ def build_parser() -> argparse.ArgumentParser:
     rs.add_argument("--dry-run", action="store_true",
                     help="compare against the live objects; write nothing")
     rs.set_defaults(func=cmd_report_site)
+
+    sc = sub.add_parser("schema-site", help="render the pack format pages (/schema/) from "
+                        "the schema captures and upload the changed ones")
+    sc.add_argument("--bucket", default="makerplane-data")
+    sc.add_argument("--from", dest="source", metavar="DIR",
+                    help="read captures and the signed manifest from this directory "
+                    "instead of the bucket")
+    sc.add_argument("--out", metavar="DIR", help="write a browsable preview here "
+                    "instead of uploading")
+    sc.add_argument("--root", default="site", help="site directory for --out (default: site)")
+    sc.add_argument("--pub", help="public key to check manifest.json against "
+                    "(default: keys/minisign.pub)")
+    sc.add_argument("--bootstrap", action="store_true",
+                    help="first capture each live pack id that has no capture yet, from "
+                    "the published pack (never replaces a publish-path capture)")
+    sc.add_argument("--dry-run", action="store_true",
+                    help="compare against the live objects; write nothing (skips --bootstrap)")
+    sc.set_defaults(func=cmd_schema_site)
 
     so = sub.add_parser("status-overlay", help="write the nightly unsigned status.json "
                         "beside every published test record (state, pack:<id> issues, "
