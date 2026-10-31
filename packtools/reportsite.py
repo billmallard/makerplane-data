@@ -625,6 +625,28 @@ pack yourself.</li></ul></section>
 <pre>minisign -Vm manifest.json -P RWQXjK7+q8WvsWtCd+QPQNxO7OcI5XuF1uxY7MGp+R2JidxFSO/20AR4</pre>
 <p>or, with the tools from step 1, <code>packtool verify manifest.json --pub minisign.pub</code>.</p></section>
 
+<section><h2>5. Check which code built a pack</h2>
+<p>A pack built by one of our GitHub Actions workflows carries a build provenance
+attestation: a statement, signed for that one workflow run through Sigstore and kept in a
+public transparency log, of which workflow, commit and run produced the pack's sha256. Our
+signing key cannot make one. With the <a href="https://cli.github.com">GitHub CLI</a>,
+signed in to any GitHub account:</p>
+<pre>gh attestation verify highways-conus-2026q3r1.pack \
+  --repo billmallard/makerplane-data \
+  --signer-workflow billmallard/makerplane-data/.github/workflows/roads.yml \
+  --deny-self-hosted-runners</pre>
+<p>It exits nonzero if the signature, the signer or the file does not match, or if the pack
+has no attestation. The workflow is <code>cyclical.yml</code> for airports, navaids,
+obstacles and procedures, <code>roads.yml</code> for roads and <code>water.yml</code> for
+<code>water-conus</code>. It says which public code made the bytes, not that the data is
+right.</p>
+<p><b>Terrain packs have no attestation.</b> They are built on our own build machine from a
+private repository, and GitHub issues these attestations from private repositories only
+on its paid Enterprise plan. Packs built on a workstation (today <code>water-na</code> and
+<code>airports-canada</code>) and editions published before attestations began have none either. For
+those, the signed catalog and the test record are what you can check.
+<a href="{REPO_URL}/blob/main/docs/provenance.md">Details</a>.</p></section>
+
 <section><h2>If your numbers differ</h2>
 <p>Please <a href="{REPO_URL}/issues/new">open an issue</a> with the pack id and edition,
 the command you ran and its output. A published number that does not reproduce is a
