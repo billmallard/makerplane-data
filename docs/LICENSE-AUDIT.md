@@ -90,6 +90,16 @@ network/CLI/file boundary; (c) fully greenfield.
   AGPL components once outside contributions land — a deliberate,
   eyes-open trade in favour of community trust.
 
+## Third-party code dependencies
+
+Libraries a stack component imports in-process (and so combines with) are
+recorded here when they are added, with the licence checked from primary
+sources and its compatibility with the importing component's licence.
+
+| Component | Dependency | License | Compatible? | Checked |
+|---|---|---|---|---|
+| `billmallard/fix-gateway` (DroneCAN-in plugin, fix-gateway#85, AER-4338) | [`dronecan`](https://pypi.org/project/dronecan/) `==1.0.27` (PyPI, pure Python, no further runtime deps); bundles DroneCAN DSDL message definitions | **MIT** — `LICENSE` in the 1.0.27 sdist ("Copyright (c) 2014-2015 Pavel Kirienko"), PyPI classifier `License :: OSI Approved :: MIT License`; the bundled DSDL comes from [DroneCAN/DSDL](https://github.com/dronecan/DSDL), also MIT | Yes — MIT is GPL-compatible, so the combined work stays GPL-2.0-or-later; obligation is to keep the MIT notice with any redistribution | 2026-10-31 (AER-4402) |
+
 ## Sourced third-party pack *data* (tracked separately from repo code)
 
 The classification above is the repo's own code. Packaged **data** carries
