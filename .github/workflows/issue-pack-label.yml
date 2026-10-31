@@ -1,0 +1,33 @@
+name: issue-pack-label
+
+# TV8: when a "Data problem" or "Tested on my hardware" form is filed or
+# edited, add the pack:<id> label for each pack its "Pack id" field names,
+# so the edition's status.json lists it from the next nightly run. Only
+# labels that already exist are added; they are created nightly from the
+# signed catalog (site.yml), so a typo in a form cannot mint one, and no
+# label is ever removed here.
+#
+# The issue body is untrusted input. It reaches the script only through an
+# environment variable and is parsed as data (packtools/community.py,
+# stdlib only, so nothing is installed).
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  label:
+    if: >-
+      contains(github.event.issue.labels.*.name, 'data-problem') ||
+      contains(github.event.issue.labels.*.name, 'tested-on-hardware')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add pack labels
+        env:
+          ISSUE_BODY:   ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN:     ${{ github.token }}
+        run: python3 -m packtools.community label-issue

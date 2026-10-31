@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: Apache-2.0
+# "Data problem": something in a published data pack is wrong. A maintainer
+# (or the issue-pack-label workflow, from the "Pack id" field) adds the
+# pack:<id> label, and the edition's status.json lists the issue from the
+# next nightly run (docs/community_loop.md). The "Pack id" and
+# "Edition (cycle)" labels are read by packtools/community.py: keep them in
+# step with PACK_FIELD and CYCLE_FIELD there.
+name: Data problem
+description: Something in a navigation data pack is wrong, missing or out of date.
+title: "[data] "
+labels: ["data-problem"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Each pack has a test report at
+        https://navdata.aerocommons.org/reports/index.html listing what was
+        checked and what the checks cannot catch. The most useful report
+        names one place we can look at and says what an official source shows
+        there.
+  - type: input
+    id: pack
+    attributes:
+      label: Pack id
+      description: As shown in the catalog or by `pyefis-data status`, e.g. `airports-conus`, `obstacles-conus`, `water-na`.
+      placeholder: airports-conus
+    validations:
+      required: true
+  - type: input
+    id: cycle
+    attributes:
+      label: Edition (cycle)
+      description: The edition you have installed, e.g. `2611`, `2026q2r6`. `pyefis-data status` prints it.
+      placeholder: "2611"
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: An identifier (airport, navaid, fix) or coordinates, so we can find the spot.
+      placeholder: KOSH runway 18/36, or 43.98N 88.56W
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What the pack shows
+      description: What you see on the EFIS or in the pack, and how you saw it.
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: What the official source shows
+      description: The publication and edition you compared against (Chart Supplement, sectional, FAA NASR, CFS, OSM), with a link or page if you have one.
+    validations:
+      required: true
+  - type: dropdown
+    id: found
+    attributes:
+      label: How you found it
+      options:
+        - On the EFIS display
+        - In the catalog or a test report
+        - "`packtool report --check` or my own query"
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, the pyEfis version, related issues.
+    validations:
+      required: false
