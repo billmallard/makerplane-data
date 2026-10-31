@@ -215,3 +215,21 @@ def test_build_procedures_raises_on_empty_input(tmp_path):
     )
     with pytest.raises(ProceduresBuildError, match="no airway legs"):
         build_procedures(empty_input, tmp_path / "out.pack")
+
+
+def test_build_procedures_arc_radius_only_on_rf_legs(input_dir, tmp_path):
+    """On a non-RF leg the centre columns name the procedure's MSA centre
+    (KSBA I07 names RZS, the MSA on its plate), and a radius to it would be
+    meaningless."""
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    msa_ref = con.execute(
+        "SELECT l.centre_fix, l.centre_lat, l.arc_radius_nm FROM legs l "
+        "JOIN transitions t ON l.transition_id = t.id JOIN procedures p ON t.proc_id = p.id "
+        "WHERE p.airport = 'KSBA' AND p.ident = 'I07' AND l.centre_fix IS NOT NULL").fetchall()
+    n_non_rf_radius = con.execute(
+        "SELECT COUNT(*) FROM legs WHERE path_term <> 'RF' AND arc_radius_nm IS NOT NULL"
+    ).fetchone()[0]
+    con.close()
+    assert msa_ref == [("RZS", 34.50953333, None)]
+    assert n_non_rf_radius == 0

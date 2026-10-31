@@ -92,10 +92,11 @@ CREATE TABLE legs (
     turn_dir        TEXT,
     rnp             REAL,
     flags           INTEGER NOT NULL,
-    centre_fix      TEXT,       -- RF (radius-to-fix) arc centre; NULL for every other leg type
+    centre_fix      TEXT,       -- RF legs: the arc centre. Other legs: the procedure's MSA centre
+                                -- (one leg per procedure carries it)
     centre_lat      REAL,
     centre_lon      REAL,
-    arc_radius_nm   REAL        -- derived: great_circle(centre, fix); convenience for the renderer
+    arc_radius_nm   REAL        -- RF legs only: great_circle(centre, fix); convenience for the renderer
 );
 CREATE INDEX idx_proc_airport ON procedures(airport, kind);
 CREATE INDEX idx_trans_proc ON transitions(proc_id);
@@ -232,8 +233,12 @@ def _build_procedures(con: sqlite3.Connection, path: Path,
             trans_id = cur.lastrowid
             trans_ids[trans_key] = trans_id
 
+        # Only an RF leg's centre is an arc centre; on any other leg the
+        # same columns name the procedure's MSA centre (AER-4446), and a
+        # "radius" to it means nothing.
         arc_radius_nm = None
-        if leg.centre_lat is not None and leg.fix_lat is not None:
+        if (leg.path_term == "RF" and leg.centre_lat is not None
+                and leg.fix_lat is not None):
             arc_radius_nm = great_circle_nm(
                 (leg.centre_lat, leg.centre_lon), (leg.fix_lat, leg.fix_lon))
         con.execute(
