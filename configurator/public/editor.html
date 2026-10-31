@@ -3056,7 +3056,7 @@ function optionField(inst, name, spec) {
     inp = document.createElement("input"); inp.type = "color";
     inp.value = (cur ?? spec.default ?? "#000000").slice(0, 7);
     inp.addEventListener("input", () => setOpt(inst, name, inp.value));
-  } else if (spec.type === "number") {
+  } else if (spec.type === "number" || spec.type === "integer") {
     inp = document.createElement("input"); inp.type = "number"; if (spec.step) inp.step = spec.step;
     inp.placeholder = spec.default ?? "";
     if (cur !== undefined) inp.value = cur;
@@ -3740,6 +3740,23 @@ function expandGroups(instruments) {
   return out;
 }
 
+// A quoted scalar from the Code pane ("5") or a legacy save would otherwise
+// reach the device as a string (makerplane-data#10). Coerce string values of
+// schema number/integer options with Number(); a blank or non-numeric string is
+// dropped so the device falls back to its default. Every other type -- and any
+// option the schema doesn't declare -- passes through untouched.
+function coerceNumericOptions(options, specs) {
+  const out = { ...options };
+  for (const [name, v] of Object.entries(out)) {
+    const t = specs?.[name]?.type;
+    if ((t !== "number" && t !== "integer") || typeof v !== "string") continue;
+    const n = v.trim() === "" ? NaN : Number(v);
+    if (Number.isFinite(n)) out[name] = n;
+    else delete out[name];
+  }
+  return out;
+}
+
 // One editor instrument -> one pyEfis screenbuilder instrument. Recurses into
 // any container slots the schema declares for this type (e.g. tab_section's
 // "tabs") -- each tab is its own {label, layout, instruments} nested screen,
@@ -3753,10 +3770,10 @@ function toScreenInstrument(inst) {
     column: round1(inst.column),
     span: { rows: round1(inst.span.rows), columns: round1(inst.span.columns) },
   };
-  const opts = { ...(inst.options || {}) };
+  const meta = state.schema.instruments[inst.type];
+  const opts = coerceNumericOptions(inst.options || {}, { ...state.schema.common_options, ...meta?.options });
   delete opts.preview_scene;          // editor-only: which SVS preview image to show
   if (Object.keys(opts).length) out.options = opts;
-  const meta = state.schema.instruments[inst.type];
   for (const slot of (meta?.containers || [])) {
     const tabs = inst[slot.name];
     if (!Array.isArray(tabs)) continue;
