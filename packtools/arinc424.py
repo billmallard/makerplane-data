@@ -51,6 +51,9 @@ ARINC's own design guarantees a procedure only ever cites its own
 airport's terminal waypoints/runways -- see ``build_fix_index`` and
 ``_resolve``.
 
+Grid MORA (``AS``) records carry their own position (a band's SW corner)
+and need no fix index -- see ``iter_grid_mora``.
+
 Airport-as-waypoint fixes (Waypoint Description Code type ``A``) are not
 resolved -- no golden fixture in this pack exercises one, and guessing an
 unverified column offset for Airport Reference Point coordinates would
@@ -499,6 +502,97 @@ def iter_procedure_legs(path: str | Path,
             centre_fix=centre_fix,
             centre_lat=centre_lat,
             centre_lon=centre_lon,
+        )
+
+
+# --- AS: Grid MORA record (ARINC 424-17 Sec. 4.1.18.1) --------------------
+# Verified against all 241 AS records of live cycle 2611: every one is
+# 132 chars with Customer/Area Code blank, a 3-char Starting Latitude
+# ("N39") at [13:16], a 4-char Starting Longitude ("W120") at [16:20],
+# blanks to col 30, then exactly 30 three-char MORA fields at [30:120]
+# (hundreds of feet, or the literal "UNK"), a blank reserved field
+# [120:123], the file record number [123:128] and the cycle [128:132].
+_AS = dict(
+    start_lat=slice(13, 16),
+    start_lon=slice(16, 20),
+    moras=slice(30, 120),
+    cycle=slice(128, 132),
+)
+MORA_CELLS_PER_BAND = 30
+MORA_UNKNOWN = "UNK"
+
+
+@dataclass
+class GridMoraBand:
+    """One ``AS`` record: 30 one-degree cells running east along a
+    latitude band. ``lat_sw``/``lon_sw`` are the signed south-west corner
+    of the first cell; cell ``i`` covers ``[lat_sw, lat_sw+1)`` x
+    ``[lon_sw+i, lon_sw+i+1)``. The SW-corner reading was verified on the
+    live file against three summits (Whitney, Rainier, Denali), each of
+    which lands in the band and column whose value is the highest of its
+    neighbours. It is untested for the southern hemisphere: every S-band
+    cell in 2611 is ``UNK``.
+
+    ``raw_moras`` holds the 30 fields verbatim; ``moras`` is the decoded
+    value in feet, ``None`` where the source says ``UNK``. Nothing here
+    ever fills an ``UNK`` -- a MORA nobody published is not one we may
+    invent."""
+    lat_sw: int
+    lon_sw: int
+    raw_moras: list[str]
+    moras: list[int | None]
+    cycle: str | None
+    raw: str
+
+    def cells(self) -> Iterator[tuple[int, int, int | None, str]]:
+        """``(lat_sw, lon_sw, mora_ft, raw)`` per cell, with longitude
+        wrapped into [-180, 180). Defensive: no 2611 band crosses the
+        antimeridian (E150 ends at 179, W180 starts at -180)."""
+        for i, (ft, raw) in enumerate(zip(self.moras, self.raw_moras)):
+            lon = self.lon_sw + i
+            if lon >= 180:
+                lon -= 360
+            yield (self.lat_sw, lon, ft, raw)
+
+
+def _decode_band_corner(lat_raw: str, lon_raw: str) -> tuple[int, int] | None:
+    if (len(lat_raw) != 3 or len(lon_raw) != 4 or lat_raw[0] not in "NS"
+            or lon_raw[0] not in "EW" or not lat_raw[1:].isdigit()
+            or not lon_raw[1:].isdigit()):
+        return None
+    lat = int(lat_raw[1:]) * (1 if lat_raw[0] == "N" else -1)
+    lon = int(lon_raw[1:]) * (1 if lon_raw[0] == "E" else -1)
+    return (lat, lon)
+
+
+def _decode_mora(raw: str) -> int | None:
+    """Hundreds of feet ("130" -> 13,000 ft). ``UNK`` -- or anything else
+    that is not three digits -- is ``None``: the gate reports the count,
+    the table never guesses."""
+    return int(raw) * 100 if raw.isdigit() else None
+
+
+def iter_grid_mora(path: str | Path) -> Iterator[GridMoraBand]:
+    """Every Grid MORA (``AS``) band in the file, in source order. A record
+    whose corner does not decode is skipped rather than placed somewhere
+    wrong; the publish gate's cell-count check (30 per band) is what would
+    notice a band lost that way."""
+    f = _AS
+    for line in read_records(path):
+        if line[4:6] != "AS":
+            continue
+        corner = _decode_band_corner(line[f["start_lat"]], line[f["start_lon"]])
+        if corner is None:
+            continue
+        field = line[f["moras"]]
+        raw_moras = [field[3 * i:3 * i + 3] for i in range(MORA_CELLS_PER_BAND)]
+        yield GridMoraBand(
+            lat_sw=corner[0],
+            lon_sw=corner[1],
+            raw_moras=raw_moras,
+            moras=[_decode_mora(r) for r in raw_moras],
+            cycle=_strip(line[f["cycle"]]),
+            raw=line,
         )
 
 
