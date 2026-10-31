@@ -51,7 +51,38 @@ log the notice and the instruction to run `pyefis-data accept`, and install
 nothing. On a fresh box that means data starts arriving only after someone has
 accepted. After a `pyefis-data` upgrade, automatic updates pause until the new
 version is accepted, and the EFIS DATA flag shows the data ageing in the
-meantime.
+meantime. Bench units are the one exception (next section).
+
+## Bench units
+
+The agents' test boxes (the Pi 5 and the Beelink) deploy and restart at any
+time and must never wait on a person. On those boxes only, `data.yaml` carries:
+
+```yaml
+bench_auto_accept: true
+```
+
+With it, `update` and `import` never prompt and never stop for the notice. The
+first run of each `pyefis-data` version appends a record with
+`"via": "bench"`, and later runs of that version proceed on it, so the timer
+keeps installing across version bumps. A bench record is not a pilot's accept:
+nobody read the notice. It satisfies the gate only while the setting is on. If
+the setting is removed, the box is asked like any real install, and
+`notice --json` keeps `accepted` false (it reports `bench_auto_accept`
+separately).
+
+The setting cannot be reached by accident on a real install:
+
+- It is off by default and honoured only as the literal line
+  `bench_auto_accept: true`. `yes`, `on`, `True`, `1` or a quoted string are
+  ignored.
+- Nothing writes it. The installer, the picker (`write_config`), the systemd
+  units and `data.yaml.sample` never carry it; a test asserts this.
+- Every `pyefis-data` run prints `pyefis-data: BENCH UNIT: bench_auto_accept is
+  on ...` to stderr (the journal, for the timer) while it is on.
+
+An explicit `--accept-notice` still records `via: caller`, and an existing
+person's accept is used in preference to a bench one.
 
 ## Callers that show the notice themselves
 
@@ -119,7 +150,7 @@ Schema 1, one line per accept (pretty-printed here):
 | `software` | Component versions at accept. `pyefis-data` is always present; `pyefis` when it is pip-installed or the caller names it with `--software`. |
 | `packs` | Pack id to installed cycle at the moment of accept. On a fresh install this is empty, because the accept comes before the first pack. |
 | `user`, `host` | The local account and hostname that accepted. |
-| `via` | `tty` (typed at a terminal) or `caller` (a caller that showed the notice itself). |
+| `via` | `tty` (typed at a terminal), `caller` (a caller that showed the notice itself), or `bench` (auto-accepted on a bench unit; not a person's accept). |
 | `trigger` | What asked: `update`, `import`, `install`, or the `--trigger` given to `accept`. |
 
 `pyefis_data.acknowledge.validate_record` is the reference check, and
@@ -143,6 +174,8 @@ updater install needed) or call `pyefis-data notice --json`. A reader should:
 - Treat the record as covering the notice it shows only if `notice_sha256`
   equals the sha256 of the text it displays. A changed wording then counts as
   not yet accepted.
+- Not count `"via": "bench"` as a pilot's accept. It is written only on a test
+  box with `bench_auto_accept: true`; nobody read the notice.
 - Skip unparseable lines, including a torn last line. Every record is written
   as one `write()` of a complete line followed by fsync.
 
