@@ -265,6 +265,55 @@ def cmd_report_site(args) -> int:
     return 0
 
 
+def cmd_status_overlay(args) -> int:
+    """Write the nightly status.json beside every published record (TV8),
+    and with --ensure-labels create a pack:<id> label for each live id."""
+    from . import community, reportsite, summary
+    from .upload import LocalStore, R2Store
+    store = LocalStore(args.source) if args.source else R2Store.from_env(args.bucket)
+    today = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    pub = Path(args.pub).read_text(encoding="utf-8") if args.pub else None
+    try:
+        manifest = community.load_live_manifest(store, pub)
+        if args.ensure_labels:
+            community.ensure_labels({p["id"] for p in manifest.get("packs") or []},
+                                    args.repo, token, dry_run=args.dry_run)
+        issues = (json.loads(Path(args.issues).read_text(encoding="utf-8")) if args.issues
+                  else community.fetch_pack_issues(args.repo, token))
+        objects = community.build_status(store, reportsite.load_records(store), manifest,
+                                         issues, today)
+        rows = community.publish_status(store, objects, dry_run=args.dry_run)
+    except (community.CommunityError, reportsite.SiteError) as e:
+        print(f"status-overlay: {e}", file=sys.stderr)
+        return 1
+    summary.write(f"## status-overlay (dry_run={args.dry_run}, as of {today})\n\n"
+                  + summary.table(["key", "bytes", "status"], rows))
+    return 0
+
+
+def cmd_release_assets(args) -> int:
+    """After a publish: the files for one GitHub Release per publish event
+    (TV8). Writes nothing when this job published no edition."""
+    from . import community, reportsite
+    from .upload import LocalStore, R2Store
+    store = LocalStore(args.source) if args.source else R2Store.from_env(args.bucket)
+    pub = Path(args.pub).read_text(encoding="utf-8") if args.pub else None
+    server, repo, run = (os.environ.get(k, "") for k in
+                         ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"))
+    try:
+        community.release_assets(
+            args.records, community.load_live_manifest(store, pub), args.out,
+            today=_dt.date.fromisoformat(args.date) if args.date else _dt.date.today(),
+            run_id=run, run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+            run_url=f"{server}/{repo}/actions/runs/{run}" if server and repo and run else "",
+            commit=reportsite.generator_commit())
+    except (community.CommunityError, reportsite.SiteError) as e:
+        print(f"release-assets: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _records_markdown(record_dir: str) -> str | None:
     """The job summary's test records, rendered from the JSON the publish
     gate wrote (``<id>-<cycle>.gate.json`` beside the record). None if no
@@ -685,6 +734,36 @@ def build_parser() -> argparse.ArgumentParser:
     rs.add_argument("--dry-run", action="store_true",
                     help="compare against the live objects; write nothing")
     rs.set_defaults(func=cmd_report_site)
+
+    so = sub.add_parser("status-overlay", help="write the nightly unsigned status.json "
+                        "beside every published test record (state, pack:<id> issues, "
+                        "Auspex addenda)")
+    so.add_argument("--bucket", default="makerplane-data")
+    so.add_argument("--from", dest="source", metavar="DIR",
+                    help="read and write this directory instead of the bucket")
+    so.add_argument("--repo", default="billmallard/makerplane-data",
+                    help="GitHub repo whose pack:<id> issues are listed")
+    so.add_argument("--issues", metavar="JSON", help="read the issues from this file "
+                    "(GitHub REST shape) instead of the API")
+    so.add_argument("--ensure-labels", action="store_true",
+                    help="create a pack:<id> label for every id in the live catalog")
+    so.add_argument("--pub", help="public key file (default: keys/minisign.pub)")
+    so.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
+    so.add_argument("--dry-run", action="store_true",
+                    help="compare against the live objects; write nothing")
+    so.set_defaults(func=cmd_status_overlay)
+
+    ra = sub.add_parser("release-assets", help="after a publish: the files for a GitHub "
+                        "Release holding each published edition's test record")
+    ra.add_argument("--records", required=True, metavar="DIR",
+                    help="the publish gate's record directory (<out>/reports)")
+    ra.add_argument("--out", required=True, metavar="DIR")
+    ra.add_argument("--bucket", default="makerplane-data")
+    ra.add_argument("--from", dest="source", metavar="DIR",
+                    help="read the signed manifest from this directory instead of the bucket")
+    ra.add_argument("--pub", help="public key file (default: keys/minisign.pub)")
+    ra.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
+    ra.set_defaults(func=cmd_release_assets)
 
     js = sub.add_parser("job-summary", help="write a dispatch build's check table "
                         "to the GitHub Actions job summary")

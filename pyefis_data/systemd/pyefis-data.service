@@ -14,6 +14,9 @@ Type=oneshot
 # means "no new data", which the DATA annunciation surfaces.
 # NB: ExecStart path is the pyefis-data entry point. With a venv install,
 # symlink it: ln -s ~/pyefis-data-venv/bin/pyefis-data ~/.local/bin/pyefis-data
+# Exit 3 = the software notice is not yet accepted for this pyefis-data version;
+# nothing is installed until someone runs `pyefis-data accept` at a terminal
+# (docs/install_acknowledgment.md).
 ExecStart=%h/.local/bin/pyefis-data update
 # Refresh the status JSON the EFIS reads (fixed path, not under the data root).
 ExecStartPost=-%h/.local/bin/pyefis-data status --json --out %h/.makerplane/pyefis/status.json
