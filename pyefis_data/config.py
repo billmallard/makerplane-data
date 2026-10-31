@@ -9,6 +9,7 @@ works with zero configuration and a typo can never brick the updater.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -27,6 +28,9 @@ DEFAULT_CONFIGURATOR_URL = "https://pyefis.aerocommons.org"
 DEFAULT_TRACK_KINDS = ("navdata", "navaids", "obstacles", "cifp", "procedures")
 DEFAULT_PACKS: tuple[str, ...] = ()      # explicit extra ids (none by default)
 DEFAULT_REGIONS: tuple[str, ...] = ()    # opted-in bulk regions (none by default)
+
+
+_BENCH_TRUE = re.compile(r"^bench_auto_accept:[ \t]*true[ \t]*(#.*)?$", re.M)
 
 
 def _default_root() -> Path:
@@ -65,6 +69,13 @@ class Config:
     # 'system' = a system service (e.g. the x86 appliance). None = auto-detect
     # whichever scope has a loaded pyefis unit (#23).
     pyefis_unit_scope: str | None = None
+    # Bench units only (the agents' Pi 5 / Beelink test boxes). When on, the
+    # software-notice gate accepts automatically and records the accept as
+    # `"via": "bench"`, never as a pilot's, so the timer keeps installing across
+    # pyefis-data version bumps with nobody at a terminal. Off by default, never
+    # written by the installer or the picker, honoured only as a literal YAML
+    # `true`, and announced on stderr by every pyefis-data run while on.
+    bench_auto_accept: bool = False
 
     @property
     def manifest_url(self) -> str:
@@ -84,7 +95,8 @@ class Config:
         cfg = Config()
         try:
             import yaml
-            data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            text = p.read_text(encoding="utf-8")
+            data = yaml.safe_load(text) or {}
         except FileNotFoundError:
             return cfg
         except Exception as e:  # malformed yaml, perms, etc. — degrade, don't die
@@ -124,6 +136,11 @@ class Config:
         # can never point the restart at a scope that doesn't exist.
         if data.get("pyefis_unit_scope") in ("user", "system"):
             kw["pyefis_unit_scope"] = data["pyefis_unit_scope"]
+        # Literal `true` only, as a top-level key: "yes"/"on" (which YAML 1.1
+        # also reads as true), 1, or a quoted string are ignored, so the bench
+        # path cannot be switched on by a sloppy edit.
+        if data.get("bench_auto_accept") is True and _BENCH_TRUE.search(text):
+            kw["bench_auto_accept"] = True
         return replace(cfg, **kw)
 
 
