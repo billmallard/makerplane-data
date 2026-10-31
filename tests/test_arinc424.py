@@ -258,3 +258,79 @@ def test_fix_index_prefers_the_vor_position_when_both_are_present():
     idx = a.build_fix_index(FIXTURE)
     assert idx[("GVO", "K2", "D", "")] == (34.53131944, -120.09108889)
 
+
+# --- MSA (PS) records (AER-4446) ---------------------------------------------
+
+def _msa():
+    return {(m.airport, m.centre_ident, m.multiple_code): m
+            for m in a.iter_msa(FIXTURE, a.build_fix_index(FIXTURE))}
+
+
+def _sectors(m):
+    return [(s.bearing_start, s.bearing_end, s.altitude_ft, s.radius_nm) for s in m.sectors]
+
+
+def test_msa_multi_sector_matches_the_ksba_ils_rwy_7_plate():
+    # The plate's "MSA RZS 25 NM" circle: 030-120 5900, 120-210 8100,
+    # 210-300 8800, 300-030 5200 (bearings to the VORTAC, magnetic).
+    m = _msa()[("KSBA", "RZS", None)]
+    assert _sectors(m) == [(30, 120, 5900, 25), (120, 210, 8100, 25),
+                           (210, 300, 8800, 25), (300, 30, 5200, 25)]
+    assert (m.mag_true, m.centre_type) == ("M", "vor")
+    assert (m.centre_lat, m.centre_lon) == (34.50953333, -119.77098889)
+
+
+def test_msa_single_sector_matches_the_ksba_rnav_rwy_7_plate():
+    # "MSA RW07 25 NM", 8100 all round: one sector coded start == end.
+    m = _msa()[("KSBA", "RW07", None)]
+    assert _sectors(m) == [(180, 180, 8100, 25)]
+    assert m.centre_type == "runway" and m.centre_lat is not None
+
+
+def test_msa_centre_types_resolve_against_their_own_airport_or_region():
+    msa = _msa()
+    assert msa[("KSBA", "KSBA", None)].centre_type == "airport"
+    assert (msa[("KSBA", "KSBA", None)].centre_lat,
+            msa[("KSBA", "KSBA", None)].centre_lon) == (34.42619167, -119.84149167)
+    assert msa[("KABR", "AB", None)].centre_type == "ndb"
+    assert msa[("KABR", "AB", None)].centre_lat == 45.38610556
+    assert msa[("KMSP", "MSP", None)].centre_lat == 44.8965
+
+
+def test_msa_multiple_code_keeps_two_msas_on_one_centre_apart():
+    msa = _msa()
+    assert _sectors(msa[("KABQ", "ABQ", None)])[0] == (20, 200, 9100, 25)
+    assert _sectors(msa[("KABQ", "ABQ", "A")])[0] == (20, 200, 9000, 25)
+
+
+def test_msa_alaska_is_coded_under_the_can_area_and_is_kept():
+    m = _msa()[("PABE", "BET", None)]
+    assert m.area == "CAN" and _sectors(m) == [(270, 360, 2200, 25), (360, 270, 1500, 25)]
+
+
+def test_msa_centre_the_file_does_not_define_stays_null():
+    # KHRJ's MSA names NDB HQT, which has no record in the 2611 file.
+    m = _msa()[("KHRJ", "HQT", None)]
+    assert (m.centre_lat, m.centre_lon) == (None, None)
+    assert _sectors(m) == [(180, 180, 3400, 25)]
+
+
+def test_msa_fields_cover_every_nonblank_column():
+    # Lossless: every character a PS record carries lands in a named field.
+    covered = set()
+    for s in a._MSA.values():
+        covered |= set(range(s.start, s.stop))
+    for line in a.read_records(FIXTURE):
+        if line[4] == "P" and line[12] == "S":
+            assert all(ch == " " or i in covered for i, ch in enumerate(line)), line
+    m = _msa()[("KSBA", "RZS", None)]
+    assert m.fields["sectors"].startswith("03012005925") and m.fields["cycle"] == "2502"
+
+
+def test_msa_continuation_records_are_kept_verbatim(tmp_path):
+    lines = [l for l in a.read_records(FIXTURE) if l[4] == "P" and l[12] == "S"][:1]
+    cont = lines[0][:38] + "2" + "X" * 93
+    f = tmp_path / "FAACIFP18"
+    f.write_text("\n".join([lines[0], cont]) + "\n", encoding="latin-1")
+    (m,) = list(a.iter_msa(f, {}))
+    assert m.continuations == [cont]

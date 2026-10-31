@@ -25,6 +25,18 @@ LICENSE = dict(attribution="FAA CIFP (public domain)", license="LicenseRef-us-pu
 
 # --- fixtures -----------------------------------------------------------------
 
+def _msa_row(con, cycle, *, airport="KSBA", centre="RW07", seq=1, start=180, end=180,
+             alt=8100, radius=25, lat=34.4275, record=None):
+    con.execute(
+        "INSERT INTO msa (airport, area, centre_ident, centre_icao, centre_section, "
+        "centre_subsection, centre_type, centre_lat, centre_lon, mag_true, sector_seq, "
+        "bearing_start, bearing_end, altitude_ft, radius_nm, cycle, record) "
+        "VALUES (?, 'USA', ?, 'K2', 'P', 'G', 'runway', ?, ?, 'M', ?, ?, ?, ?, ?, ?, ?)",
+        (airport, centre, lat, None if lat is None else -119.8546, seq, start, end, alt,
+         radius, cycle, record or json.dumps({"continuations": [], "fields": {
+             "airport": airport, "centre_ident": centre, "multiple_code": " "}})))
+
+
 def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=400,
                jet=False):
     """A procedures pack: ``airways`` airways of 5 legs, ``collide`` of
@@ -50,6 +62,7 @@ def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=
         con.execute("INSERT INTO legs (transition_id, seq, path_term, fix_id, fix_lat, "
                     "fix_lon, fix_type, flags) VALUES (1, ?, 'TF', ?, ?, ?, 'airport', 0)",
                     (i, f"FX{i}", lat, None if lat is None else -104.7))
+    _msa_row(con, cycle)
     con.commit()
     con.close()
     packmeta.embed_sqlite(path, PackMeta(id="procedures-conus", kind="procedures",
@@ -203,7 +216,7 @@ def test_a_table_that_disappears_fails_unless_the_schema_version_moved(tmp_path)
     assert kept["ROW-003"]["status"] == "fail"
     same = _by_id(_rep(_proc_pack(tmp_path / "y.pack"),
                        previous=report.previous_from(_proc_pack(tmp_path / "z.pack", "2610"))))
-    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 5 tables gone")
+    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 6 tables gone")
 
 
 def test_unmeasured_thresholds_are_labelled_provisional_in_the_record(tmp_path):
