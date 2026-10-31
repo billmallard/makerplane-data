@@ -190,3 +190,48 @@ def detect_highways_schema_version(path: str | Path) -> int:
             f"{sorted(cols)}) -- add this shape to HIGHWAYS_TABLE_SCHEMAS "
             "(packtools/packmeta.py) with the next schema_version before "
             "packing (AER-1715)")
+
+
+#: procedures (AER-4446): the same idea keyed on the pack's *table set*.
+#: Every published procedures pack before AER-4446 carried these five
+#: tables under the package-wide schema_version 1; the msa table is
+#: additive, so a reader that only knows the first five is unaffected, but
+#: the version moves so one that wants MSAs can tell from pack_meta alone.
+PROCEDURES_TABLE_SCHEMAS: dict[frozenset[str], int] = {
+    frozenset({"airways", "airway_legs", "procedures", "transitions", "legs"}): 1,
+    frozenset({"airways", "airway_legs", "procedures", "transitions", "legs", "msa"}): 2,
+}
+
+
+def detect_procedures_schema_version(path: str | Path) -> int:
+    """The schema_version a built procedures sqlite's table set implies.
+    Raises on a table set this map does not know, for the same reason
+    :func:`detect_highways_schema_version` does."""
+    con = sqlite3.connect(str(path))
+    try:
+        tables = frozenset(
+            row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            if not row[0].startswith("sqlite_") and row[0] != "pack_meta")
+    finally:
+        con.close()
+    try:
+        return PROCEDURES_TABLE_SCHEMAS[tables]
+    except KeyError:
+        raise ValueError(
+            f"unrecognised procedures table set in {path} ({sorted(tables)}) -- add it to "
+            "PROCEDURES_TABLE_SCHEMAS (packtools/packmeta.py) with the next schema_version "
+            "before packing (AER-4446)")
+
+
+#: Kinds whose schema_version is read from the built pack, not defaulted.
+_CONTENT_SCHEMA_DETECTORS = {
+    "highways": detect_highways_schema_version,
+    "procedures": detect_procedures_schema_version,
+}
+
+
+def detect_content_schema_version(kind: str, path: str | Path) -> int | None:
+    """schema_version for a built sqlite pack of ``kind``, or ``None`` for a
+    kind whose content schema is not tracked (it keeps the default)."""
+    detect = _CONTENT_SCHEMA_DETECTORS.get(kind)
+    return detect(path) if detect else None

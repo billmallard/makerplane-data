@@ -10,7 +10,7 @@ import pytest
 
 from packtools.build import BUILDERS
 from packtools.build.procedures import ProceduresBuildError, build_procedures
-from packtools.packmeta import KINDS
+from packtools.packmeta import KINDS, detect_procedures_schema_version
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "cifp" / "FAACIFP18"
 
@@ -281,3 +281,8 @@ def test_build_procedures_refuses_a_file_with_no_msa_records(input_dir, tmp_path
                    encoding="latin-1")
     with pytest.raises(ProceduresBuildError, match="no MSA records"):
         build_procedures(input_dir, tmp_path / "out.pack")
+
+
+def test_built_pack_declares_procedures_schema_version_2(input_dir, tmp_path):
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    assert detect_procedures_schema_version(out) == 2
