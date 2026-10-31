@@ -36,6 +36,8 @@ jobs:
     concurrency: cyclical-packs        # never two builds racing the manifest
     outputs:
       published: ${{ steps.published.outputs.published }}
+    permissions:
+      contents: write      # the publish event's GitHub Release (TV8)
     steps:
       - uses: actions/checkout@v4
 
@@ -79,6 +81,28 @@ jobs:
           f=work/published.sha256
           [ -s "$f" ] || exit 0
           { echo 'published<<END_PUBLISHED'; cat "$f"; echo 'END_PUBLISHED'; } >> "$GITHUB_OUTPUT"
+
+      # TV8: one GitHub Release per publish event, holding each published
+      # edition's report.json (the bytes its signed report_sha256 binds) and
+      # report.html. Only editions the live signed catalog now lists with that
+      # binding are included, so a refused or failed publish cuts no release,
+      # and a no-op run writes nothing. Tags are data/<date>/<run>, never v*.
+      - name: GitHub Release for this publish
+        if: ${{ !cancelled() }}
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GH_TOKEN:             ${{ github.token }}
+        run: |
+          mkdir -p work/reports
+          packtool release-assets --records work/reports --out work/release \
+            --bucket "${{ vars.R2_BUCKET || 'makerplane-data' }}"
+          if [ -f work/release/tag.txt ]; then
+            gh release create "$(cat work/release/tag.txt)" work/release/assets/* \
+              --target "$GITHUB_SHA" --title "$(cat work/release/title.txt)" \
+              --notes-file work/release/notes.md --latest=false
+          fi
 
   # Build provenance (TV10): a Sigstore-signed statement, kept in GitHub's
   # public attestation store, that this workflow at this commit built each

@@ -13,7 +13,9 @@ name: site
 #   schedule      -- daily, two hours after the cyclical build: re-renders the
 #                    test-report pages (reports/**.html, reports/index.json)
 #                    from whatever records the publish paths have uploaded,
-#                    so a new record gets its page without anyone deploying.
+#                    so a new record gets its page without anyone deploying,
+#                    and rewrites each record's unsigned status.json overlay
+#                    (TV8: state, pack:<id> issues, Auspex addenda).
 #   dispatch      -- an out-of-band deploy from the chosen branch, e.g. a fix
 #                    merged to dev that should not wait for the next release.
 #                    `dry_run` (default on) lists what would change and
@@ -21,7 +23,7 @@ name: site
 on:
   push:
     branches: [main]
-    paths: ["site/**", "packtools/reportsite.py"]
+    paths: ["site/**", "packtools/reportsite.py", "packtools/community.py"]
   schedule:
     - cron: "20 11 * * *"
   workflow_dispatch:
@@ -35,6 +37,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     concurrency: site-deploy
+    # issues: write creates a pack:<id> label for each id in the live
+    # catalog; nothing else here writes to GitHub.
+    permissions:
+      contents: read
+      issues: write
     env:
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
     steps:
@@ -65,6 +72,19 @@ jobs:
           packtool report-site --bucket makerplane-data \
             ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
 
+      # Learned after publish, never written into the record (plan 4.5). The
+      # catalog signature is checked against keys/minisign.pub first, and a
+      # failed issues fetch fails the step rather than listing no issues.
+      - name: Status overlay and pack labels
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GITHUB_TOKEN:         ${{ github.token }}
+        run: |
+          packtool status-overlay --bucket makerplane-data --repo "$GITHUB_REPOSITORY" \
+            --ensure-labels ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
+
       # The upload succeeding is not the proof; the public URL serving the
       # committed bytes is.
       - name: Verify the public site serves site/
@@ -84,5 +104,20 @@ jobs:
             echo "ok    reports/index.json"
           else
             echo "BAD   reports/index.json"; fail=1
+          fi
+          # Every edition the index lists serves an overlay written today.
+          if curl -fsS "https://navdata.aerocommons.org/reports/index.json?run=$GITHUB_RUN_ID" \
+              | python -c "
+          import datetime, json, sys, urllib.request
+          idx = json.load(sys.stdin)['packs']
+          for pid, cycles in sorted(idx.items()):
+              for cyc in sorted(cycles):
+                  url = f'https://navdata.aerocommons.org/reports/{pid}/{cyc}/status.json?run=$GITHUB_RUN_ID'
+                  req = urllib.request.Request(url, headers={'User-Agent': 'makerplane-data-site-check'})
+                  s = json.load(urllib.request.urlopen(req, timeout=30))
+                  assert s['schema'] == 'pack-status/1' and s['as_of'] == datetime.date.today().isoformat(), url
+                  print(f'ok    reports/{pid}/{cyc}/status.json  {s[\"state\"]}, {len(s[\"known_issues\"])} issue(s)')
+          "; then :; else
+            echo "BAD   status.json overlays"; fail=1
           fi
           exit $fail
