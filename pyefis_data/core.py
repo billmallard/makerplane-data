@@ -341,6 +341,10 @@ class PackStatus:
     next_cycle: str | None = None
     next_effective: str | None = None
     next_staged: bool = False
+    # The installed cycle's manifest ``notice`` (L1), so pyEfis's About
+    # screen can show it from status.json without reading the manifest.
+    # "" when nothing is installed or the entry predates the field.
+    notice: str = ""
 
     @property
     def severity(self) -> str:
@@ -354,8 +358,16 @@ class PackStatus:
             "effective": self.effective, "next_cycle": self.next_cycle,
             "next_effective": self.next_effective,
             "next_staged": self.next_staged,
+            "notice": self.notice,
             "detail": self.detail,
         }
+
+
+def _entry_notice(entry: PackEntry | None) -> str:
+    """The entry's notice, or "" -- a missing entry, a pre-TV1 entry, or a
+    malformed (non-string) value never raises."""
+    notice = getattr(entry, "notice", "") if entry is not None else ""
+    return notice if isinstance(notice, str) else ""
 
 
 class Updater:
@@ -492,7 +504,8 @@ class Updater:
                           effective=inst_entry.effective if inst_entry else None,
                           next_cycle=nxt.cycle if nxt else None,
                           next_effective=nxt.effective if nxt else None,
-                          next_staged=bool(nxt and inv.get("staged") == nxt.cycle))
+                          next_staged=bool(nxt and inv.get("staged") == nxt.cycle),
+                          notice=_entry_notice(inst_entry))
 
     def _classify(self, m, pid, entries, inv, installed, inst_entry, days,
                   nxt=None):
