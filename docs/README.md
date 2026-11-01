@@ -28,7 +28,7 @@ in the workspace ledger (`makerplane/STATE.md`, local umbrella dir).
 
 | Doc | Status |
 |---|---|
-| [pack_report.md](pack_report.md) | SCHEMA 2026-10-28 — `pack-report/1` per-pack test record + the five additive manifest fields (TV1); the `auspex` section is **pending Bill's sign-off at TV14** |
+| [pack_report.md](pack_report.md) | SCHEMA 2026-10-28 — `pack-report/1` per-pack test record + the five additive manifest fields (TV1); the `auspex` section approved 2026-11-01, AER-4581 (`packtool report --auspex`) |
 | [environments.md](environments.md) | SPEC, §9 locked 2026-07-08 — DEV/QA/PROD env split; **implementation not started** |
 | [dev_navdata_environment.md](dev_navdata_environment.md) | DESIGN NOTE 2026-08-01 — a DEV pack origin (`dev.navdata`); fills the "navdata OUT" gap in environments.md; **open decisions for Bill** |
 | [canfix_configurator.md](canfix_configurator.md) | SPEC — V-speed/gauge-band profiles → fixgw init_data; **awaiting Bill's review** |

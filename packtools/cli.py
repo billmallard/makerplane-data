@@ -683,6 +683,24 @@ def _load_against(spec: str) -> dict:
     return json.loads(Path(spec).read_text(encoding="utf-8"))
 
 
+def _load_auspex(spec: str) -> dict:
+    """QA's ``auspex`` section, checked against the closed schema before any
+    record is written: a section that does not validate writes nothing."""
+    import json
+    from . import report
+    try:
+        obj = json.loads(Path(spec).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"report: cannot read --auspex {spec}: {e}")
+    errs = report.validate_auspex(obj)
+    if errs:
+        for e in errs:
+            print(f"  MALFORMED {e}", file=sys.stderr)
+        raise SystemExit(f"report: --auspex {spec} does not match the auspex schema "
+                         "(docs/pack_report.md); no record written")
+    return obj
+
+
 def cmd_report(args) -> int:
     from . import report
     if args.list_checks:
@@ -721,6 +739,10 @@ def cmd_report(args) -> int:
               f"{sum(1 for r in rows if r.outcome == 'not reproducible here')} not reproducible here")
         return 1 if bad else 0
 
+    if args.check and args.auspex:
+        raise SystemExit("report: --auspex writes a record; it does not go with --check")
+    auspex = _load_auspex(args.auspex) if args.auspex else None
+
     sources = []
     if args.sources:
         import json
@@ -730,6 +752,9 @@ def cmd_report(args) -> int:
         notes=_kv_list(args.note, "--note"), commit=args.build_commit,
         builder_refs=_kv_list(args.builder_ref, "--builder-ref"),
         first_edition=args.first_edition, **common)
+    if auspex is not None:
+        # Verbatim, inside the record the manifest's report_sha256 binds.
+        rec["auspex"] = auspex
     errs = report.validate_report(rec)
     out = Path(args.out or f"{rec['pack']['id']}-{rec['pack']['cycle']}.report.json")
     out.write_bytes(report.to_bytes(rec))
@@ -1041,6 +1066,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="build note for a check (a warn without one blocks a publish)")
     rep.add_argument("--builder-ref", action="append", metavar="NAME=SHA")
     rep.add_argument("--build-commit", help="makerplane-data commit (default: git HEAD)")
+    rep.add_argument("--auspex", metavar="AUSPEX_JSON",
+                     help="QA's pre-publish auspex section, carried verbatim into the record; "
+                          "refused, with no record written, unless it matches the closed "
+                          "schema in docs/pack_report.md")
     rep.add_argument("-o", "--out", help="output path (default: <id>-<cycle>.report.json)")
     rep.add_argument("--manifest-url", default=_DEFAULT_URL_BASE.rsplit("/", 1)[0] + "/manifest.json")
     rep.add_argument("--pub", default="keys/minisign.pub")
