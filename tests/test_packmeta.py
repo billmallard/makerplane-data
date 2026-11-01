@@ -198,11 +198,23 @@ def _make_tables(db, names):
 _PROC_TABLES = ("airways", "airway_legs", "procedures", "transitions", "legs")
 
 
-def test_detect_procedures_schema_version_before_and_after_msa(tmp_path):
+def test_detect_procedures_schema_version_before_and_after_msa_and_grid_mora(tmp_path):
     _make_tables(tmp_path / "v1.sqlite", _PROC_TABLES)
     _make_tables(tmp_path / "v2.sqlite", _PROC_TABLES + ("msa",))
+    _make_tables(tmp_path / "v3.sqlite", _PROC_TABLES + ("msa", "grid_mora_bands", "grid_mora"))
     assert packmeta.detect_procedures_schema_version(tmp_path / "v1.sqlite") == 1
     assert packmeta.detect_procedures_schema_version(tmp_path / "v2.sqlite") == 2
+    assert packmeta.detect_procedures_schema_version(tmp_path / "v3.sqlite") == 3
+
+
+def test_grid_mora_without_msa_is_not_a_known_table_set(tmp_path):
+    # The builder always writes msa beside the grid, so this set is never
+    # built; it must not borrow msa's version 2 (AER-4446 and AER-4447 each
+    # claimed 2 for their own table before both landed).
+    db = tmp_path / "p.sqlite"
+    _make_tables(db, _PROC_TABLES + ("grid_mora_bands", "grid_mora"))
+    with pytest.raises(ValueError, match="unrecognised procedures table set"):
+        packmeta.detect_procedures_schema_version(db)
 
 
 def test_detect_procedures_schema_version_ignores_pack_meta(tmp_path):

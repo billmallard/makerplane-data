@@ -283,6 +283,6 @@ def test_build_procedures_refuses_a_file_with_no_msa_records(input_dir, tmp_path
         build_procedures(input_dir, tmp_path / "out.pack")
 
 
-def test_built_pack_declares_procedures_schema_version_2(input_dir, tmp_path):
+def test_built_pack_declares_procedures_schema_version_3(input_dir, tmp_path):
     out = build_procedures(input_dir, tmp_path / "out.pack")
-    assert detect_procedures_schema_version(out) == 2
+    assert detect_procedures_schema_version(out) == 3

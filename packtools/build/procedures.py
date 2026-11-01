@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """ARINC 424 CIFP -> sqlite ``procedures`` pack (AER-1600 / PA1).
 
-Builds six tables from one FAACIFP18-format file: ``airways`` +
+Builds eight tables from one FAACIFP18-format file: ``airways`` +
 ``airway_legs`` (Enroute Airways, ``ER``), ``procedures`` +
-``transitions`` + ``legs`` (SID/STAR/Approach, ``PD``/``PE``/``PF``) and
-``msa`` (Airport MSA, ``PS``; AER-4446, additive -- see ``_build_msa``).
+``transitions`` + ``legs`` (SID/STAR/Approach, ``PD``/``PE``/``PF``),
+``msa`` (Airport MSA, ``PS``; AER-4446, additive -- see ``_build_msa``) and
+``grid_mora_bands`` + ``grid_mora`` (Grid MORA, ``AS``; AER-4447, additive).
+Each addition moves schema_version, see ``packmeta.PROCEDURES_TABLE_SCHEMAS``.
 Schema is brief section 3.3/3.4's, with one addition: ``idx_awy_ident`` is a
 UNIQUE index (AER-1979) so a route ident colliding across areas fails the
 build loudly instead of silently merging two airways into one row -- see
@@ -104,6 +106,21 @@ CREATE INDEX idx_proc_airport ON procedures(airport, kind);
 CREATE INDEX idx_trans_proc ON transitions(proc_id);
 CREATE INDEX idx_legs_trans ON legs(transition_id, seq);
 
+CREATE TABLE grid_mora_bands (
+    id      INTEGER PRIMARY KEY,
+    lat_sw  INTEGER NOT NULL,
+    lon_sw  INTEGER NOT NULL,
+    cycle   TEXT,            -- the record's own last-revised cycle stamp
+    raw     TEXT NOT NULL    -- the 132-char AS record, verbatim
+);
+CREATE TABLE grid_mora (
+    band_id INTEGER NOT NULL REFERENCES grid_mora_bands(id),
+    lat_sw  INTEGER NOT NULL,
+    lon_sw  INTEGER NOT NULL,
+    mora_ft INTEGER,         -- NULL where the source says UNK; never filled
+    raw     TEXT NOT NULL    -- the 3-char field as read ("130", "UNK")
+);
+CREATE UNIQUE INDEX idx_mora_cell ON grid_mora(lat_sw, lon_sw);
 CREATE TABLE msa (
     airport             TEXT NOT NULL,
     area                TEXT,          -- Customer/Area Code; Alaska is coded CAN
@@ -281,6 +298,32 @@ def _build_procedures(con: sqlite3.Connection, path: Path,
     return n
 
 
+def _build_grid_mora(con: sqlite3.Connection, path: Path) -> int:
+    """Grid MORA (``AS``) bands and their one-degree cells (AER-4447).
+    Every band in the file is kept, not just USA: AS records carry no
+    Customer/Area Code at all, and an off-route altitude is wanted exactly
+    where the airways stop. ``idx_mora_cell`` is UNIQUE so two bands
+    claiming one cell fail the build rather than one silently winning."""
+    n = 0
+    try:
+        for band in arinc424.iter_grid_mora(path):
+            cur = con.execute(
+                "INSERT INTO grid_mora_bands (lat_sw, lon_sw, cycle, raw) "
+                "VALUES (?, ?, ?, ?)", (band.lat_sw, band.lon_sw, band.cycle, band.raw))
+            band_id = cur.lastrowid
+            con.executemany(
+                "INSERT INTO grid_mora (band_id, lat_sw, lon_sw, mora_ft, raw) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [(band_id, lat, lon, ft, raw) for lat, lon, ft, raw in band.cells()])
+            n += 1
+    except sqlite3.IntegrityError as e:
+        raise ProceduresBuildError(
+            f"two Grid MORA bands in {path} claim the same cell ({e}) -- "
+            f"refusing to pick one.") from e
+    con.commit()
+    return n
+
+
 def _build_msa(con: sqlite3.Connection, path: Path, fix_index, cycle: str) -> int:
     """One row per MSA sector. Not filtered by area like the airways are:
     the procedures this pack carries are not either, and Alaska's MSAs are
@@ -329,6 +372,7 @@ def build_procedures(input_dir: str | Path, out_path: str | Path) -> Path:
         con.executescript(_SCHEMA)
         n_airway_legs = _build_airways(con, cifp_path, fix_index, cycle)
         n_proc_legs = _build_procedures(con, cifp_path, fix_index, cycle)
+        _build_grid_mora(con, cifp_path)
         n_msa = _build_msa(con, cifp_path, fix_index, cycle)
     finally:
         con.close()

@@ -192,14 +192,19 @@ def detect_highways_schema_version(path: str | Path) -> int:
             "packing (AER-1715)")
 
 
-#: procedures (AER-4446): the same idea keyed on the pack's *table set*.
-#: Every published procedures pack before AER-4446 carried these five
-#: tables under the package-wide schema_version 1; the msa table is
-#: additive, so a reader that only knows the first five is unaffected, but
-#: the version moves so one that wants MSAs can tell from pack_meta alone.
+#: procedures: the same idea keyed on the pack's *table set*. Every
+#: published procedures pack before AER-4446 carried these five tables under
+#: the package-wide schema_version 1. AER-4446 added ``msa`` (Airport MSA,
+#: CIFP PS records) and AER-4447 ``grid_mora_bands`` + ``grid_mora`` (Grid
+#: MORA, CIFP AS records). Both are additive, so a reader that only knows the
+#: first five is unaffected, but the version moves so one that wants the new
+#: tables can tell from pack_meta alone. Each set a build can produce gets its
+#: own entry: five + msa alone is what dev built between the two landing.
 PROCEDURES_TABLE_SCHEMAS: dict[frozenset[str], int] = {
     frozenset({"airways", "airway_legs", "procedures", "transitions", "legs"}): 1,
     frozenset({"airways", "airway_legs", "procedures", "transitions", "legs", "msa"}): 2,
+    frozenset({"airways", "airway_legs", "procedures", "transitions", "legs", "msa",
+               "grid_mora_bands", "grid_mora"}): 3,   # AER-4447
 }
 
 
