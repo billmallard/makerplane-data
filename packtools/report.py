@@ -25,6 +25,7 @@ from __future__ import annotations
 import array
 import datetime as _dt
 import json
+import math
 import os
 import re
 import sqlite3
@@ -35,7 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import device_probe, packmeta
+from . import arinc424, device_probe, packmeta
 from .manifest import NOTICE, ORIGINS
 from .packmeta import KINDS
 from .regions import load_regions, tile_sw_corner
@@ -62,6 +63,26 @@ GEO_OUTSIDE_GROWTH_FRACTION = 0.10
 #: PROC-FIX-001: legs naming a fix the build could not place. 2610 measured
 #: 950 of 201,030 and 2611 measured 941 of 200,853 (both 0.47%).
 PROC_UNRESOLVED_MAX_FRACTION = 0.005
+#: PROC-MSA-003: plausible MSA sector values. An MSA is 1,000 ft above the
+#: highest obstacle in the sector, so nothing lower is possible; 2611 runs
+#: 1,300 to 16,000 ft. Radii are 25 nm unless extended to take in the
+#: airport; 2611 runs 25 to 37 nm (KASX, centred on IWD).
+MSA_ALT_MIN_FT = 1000
+MSA_ALT_MAX_FT = 20000
+MSA_RADIUS_MIN_NM = 10
+MSA_RADIUS_MAX_NM = 50
+#: PROC-MSA-004: MSA records whose centre fix the build could not place.
+#: 2611 measured 1 of 6,058 (KHRJ's HQT, an NDB the file does not define).
+MSA_UNRESOLVED_MAX_FRACTION = 0.001
+#: PROC-MORA-001: Grid MORA band floor, 50% of the 241 bands in 2611
+#: (rounded down), by the SG-004 convention.
+PROC_MORA_BAND_FLOOR = 120
+#: PROC-MORA-003: plausible Grid MORA range in feet. Floor: the 1,000 ft
+#: non-mountainous buffer over sea level. Ceiling: Denali (20,310 ft) plus
+#: the 2,000 ft mountainous buffer, with room to spare. 2611 spans 1,400 to
+#: 22,700.
+PROC_MORA_MIN_FT = 1_000
+PROC_MORA_MAX_FT = 25_000
 #: OSM-001: a region's feature count dropping by more than this warns; a
 #: region that had at least OSM_REGION_MIN features and now has none fails.
 OSM_REGION_DROP_WARN = 0.10
@@ -89,7 +110,8 @@ UNGATED = {
               "probe before it can gate",
     "cifp": "no content check beyond the common and SQLite ones, and no device probe "
             "(the CIFP build itself is deferred)",
-    "airspace": "no content check beyond the common and SQLite ones, and no device probe",
+    "airspace": "ASP-001..003 are new (AER-4445) and QA has not accepted them as a gate; "
+                "no device probe (pyEfis has no airspace reader yet)",
     "plates": "a zip pack: only PACK-001..004 and a not-run ACC-001; no content check and "
               "no device probe",
 }
@@ -117,13 +139,14 @@ _COORDS = {
                 ("awy_segments", "lat1", "lon1"), ("awy_segments", "lat2", "lon2")],
     "obstacles": [("obstacles", "lat", "lon")],
     "procedures": [("legs", "fix_lat", "fix_lon"), ("legs", "centre_lat", "centre_lon"),
-                   ("airway_legs", "fix_lat", "fix_lon")],
+                   ("airway_legs", "fix_lat", "fix_lon"), ("msa", "centre_lat", "centre_lon")],
 }
 
 # Tables whose NULL coordinates GEO-001 tolerates: a procedure or airway
 # leg may name no fix, and PROC-FIX-001 counts the legs whose fix the build
-# could not place. On every other (point) table a NULL position is bad.
-_NULL_COORDS_OK = ("legs", "airway_legs")
+# could not place; PROC-MSA-004 does the same for MSA centres. On every
+# other (point) table a NULL position is bad.
+_NULL_COORDS_OK = ("legs", "airway_legs", "msa")
 
 # Where FAA data is expected: CONUS, Alaska (both sides of the antimeridian),
 # Hawaii, Puerto Rico / USVI, Guam / CNMI, American Samoa, Wake, Midway.
@@ -142,7 +165,9 @@ _UNIQUE = {
     "airports": [("airports", ("icao",))],
     "navaids": [("fixes", ("id",))],
     "obstacles": [("obstacles", ("oas_no",))],
-    "procedures": [("procedures", ("airport", "kind", "ident"))],
+    "procedures": [("procedures", ("airport", "kind", "ident")),
+                   ("msa", ("airport", "area", "centre_ident", "centre_icao", "centre_section",
+                            "centre_subsection", "multiple_code", "sector_seq"))],
 }
 _REUSED = {
     "navaids": [("navaids", ("id", "type")), ("awy_segments", ("awy_id", "seq"))],
@@ -590,6 +615,336 @@ def _c_awy_collision(ctx):
     return ("fail" if n else "pass", n, "")
 
 
+# --- checks: airspace -------------------------------------------------------
+
+def _segments_cross(a, b, c, d) -> bool:
+    """Whether segment ab and segment cd share a point (collinear overlap
+    included)."""
+    def orient(p, q, r):
+        v = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        return (v > 0) - (v < 0)
+
+    def on(p, q, r):
+        return (min(p[0], r[0]) <= q[0] <= max(p[0], r[0])
+                and min(p[1], r[1]) <= q[1] <= max(p[1], r[1]))
+    o1, o2, o3, o4 = orient(a, b, c), orient(a, b, d), orient(c, d, a), orient(c, d, b)
+    if o1 != o2 and o3 != o4:
+        return True
+    return ((o1 == 0 and on(a, c, b)) or (o2 == 0 and on(a, d, b))
+            or (o3 == 0 and on(c, a, d)) or (o4 == 0 and on(c, b, d)))
+
+
+def _ring_problem(ring) -> str | None:
+    """Why a GeoJSON linear ring is not closed and simple, or None."""
+    if not isinstance(ring, list) or len(ring) < 4:
+        return "fewer than 4 positions"
+    pts = []
+    for p in ring:
+        if (not isinstance(p, list) or len(p) < 2
+                or not all(isinstance(v, (int, float)) for v in p[:2])):
+            return "a position is not [lon, lat]"
+        if not (-180 <= p[0] <= 180 and -90 <= p[1] <= 90):
+            return "a position is out of range"
+        pts.append((float(p[0]), float(p[1])))
+    if pts[0] != pts[-1]:
+        return "not closed"
+    # Drop repeated consecutive positions: legal, but they are zero-length
+    # edges the crossing test would report against their neighbours.
+    pts = [p for i, p in enumerate(pts) if i == 0 or p != pts[i - 1]]
+    if len(pts) < 4:
+        return "fewer than 3 distinct vertices"
+    segs = list(zip(pts, pts[1:]))
+    n = len(segs)
+    order = sorted(range(n), key=lambda i: min(segs[i][0][0], segs[i][1][0]))
+    active: list[int] = []
+    for i in order:
+        (a, b) = segs[i]
+        lo_x = min(a[0], b[0])
+        active = [j for j in active if max(segs[j][0][0], segs[j][1][0]) >= lo_x]
+        for j in active:
+            if abs(i - j) in (1, n - 1):    # neighbours share a vertex by design
+                continue
+            c, d = segs[j]
+            if (max(a[1], b[1]) < min(c[1], d[1]) or max(c[1], d[1]) < min(a[1], b[1])):
+                continue
+            if _segments_cross(a, b, c, d):
+                return "self-intersects"
+        active.append(i)
+    return None
+
+
+def _c_asp_polygons(ctx):
+    if "airspaces" not in ctx.tables:
+        return ("fail", "no airspaces table", "")
+    bad: dict[str, list[str]] = {}
+    total = 0
+    for rid, geom in ctx.con.execute("SELECT id, geometry FROM airspaces ORDER BY id"):
+        total += 1
+        try:
+            g = json.loads(geom)
+        except (TypeError, ValueError):
+            bad.setdefault("not JSON", []).append(rid)
+            continue
+        if not isinstance(g, dict) or g.get("type") != "Polygon" or not g.get("coordinates"):
+            bad.setdefault("not a Polygon", []).append(rid)
+            continue
+        for ring in g["coordinates"]:
+            why = _ring_problem(ring)
+            if why:
+                bad.setdefault(why, []).append(rid)
+                break
+    n = sum(len(v) for v in bad.values())
+    if not n:
+        return ("pass", f"0 of {total:,} polygons", "")
+    detail = "; ".join(f"{why}: {len(ids)} ({', '.join(ids[:3])}{', ...' if len(ids) > 3 else ''})"
+                       for why, ids in sorted(bad.items()))
+    return ("fail", f"{n:,} of {total:,} polygons: {detail}", "")
+
+
+def _asp_feet(value, unit, ref):
+    """A limit as (feet, comparable class), or None if it cannot be placed.
+    Classes: "gnd" (the surface), "unl" (unlimited), "agl", "alt" (MSL feet
+    or a flight level, compared as feet)."""
+    if value == "UNLTD":
+        return (math.inf, "unl")
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    unit, ref = str(unit), str(ref)
+    if unit == "6":
+        return (v * 100, "alt")
+    if unit != "1":
+        return None
+    if ref == "0":
+        return (v, "gnd" if v == 0 else "agl")
+    if ref in ("1", "2"):
+        return (v, "alt")
+    return None
+
+
+def _c_asp_limits(ctx):
+    if "airspaces" not in ctx.tables:
+        return ("fail", "no airspaces table", "")
+    inverted, equal, unplaced, apart, compared = [], 0, 0, 0, 0
+    for row in ctx.con.execute(
+            "SELECT id, lower_limit, lower_limit_unit, lower_limit_reference, upper_limit, "
+            "upper_limit_unit, upper_limit_reference FROM airspaces ORDER BY id"):
+        lo, hi = _asp_feet(*row[1:4]), _asp_feet(*row[4:7])
+        if lo is None or hi is None:
+            unplaced += 1
+            continue
+        same = lo[1] == hi[1] or "gnd" in (lo[1], hi[1]) or "unl" in (lo[1], hi[1])
+        if not same:         # AGL against MSL: depends on the terrain beneath
+            apart += 1
+            continue
+        compared += 1
+        if lo[0] > hi[0]:
+            inverted.append(row[0])
+        elif lo[0] == hi[0]:
+            equal += 1
+    measured = (f"{len(inverted)} floor above ceiling of {compared:,} compared; {equal} floor "
+                f"equal to ceiling; {apart:,} not comparable (AGL against MSL); {unplaced} "
+                "with a limit the check cannot read")
+    if inverted:
+        measured += " -- " + ", ".join(inverted[:5])
+    return ("fail" if inverted or unplaced else "pass", measured, "")
+
+
+#: ASP-003's declared exemption: an openAIP pack has no CIFP rows to reconcile.
+ASP_NOT_CIFP = ("not-cifp", "the pack holds no CIFP-built rows (an openAIP pack)")
+
+
+def _c_asp_reconcile(ctx):
+    if "airspaces" not in ctx.tables:
+        return ("fail", "no airspaces table", "")
+    built = dict(ctx.con.execute(
+        "SELECT substr(id, 7, 1), COUNT(*) FROM airspaces WHERE id LIKE 'cifp-U%' "
+        "GROUP BY 1").fetchall())
+    if not built:
+        return _not_run("No CIFP-built rows in this pack.", ASP_NOT_CIFP[0])
+    src = None
+    if ctx.inputs is not None:
+        src = ctx.inputs / "FAACIFP18"
+        if not src.is_file():
+            src = next(iter(sorted(ctx.inputs.rglob("FAACIFP18"))), None)
+    if src is None:
+        return _not_run("Needs the extracted CIFP (--inputs) to count the source file's "
+                        "sectors.", "no-inputs")
+    from .build.airspace_cifp import iter_sectors
+    counts: dict[str, int] = {}
+    records: dict[str, int] = {}
+    by_type: dict[str, int] = {}
+    for recs in iter_sectors(src):
+        r = recs[0]
+        counts[r.section[1]] = counts.get(r.section[1], 0) + 1
+        records[r.section] = records.get(r.section, 0) + len(recs)
+        k = f"{r.section}-{r.airspace_type}"
+        by_type[k] = by_type.get(k, 0) + 1
+    ctx.metrics["ASP-003"] = {"source_sectors": counts, "source_primary_records": records,
+                              "rows": built, "by_type": by_type}
+    parts = [f"U{s} {built.get(s, 0):,} rows / {counts.get(s, 0):,} source sectors"
+             for s in ("C", "R")]
+    ok = all(built.get(s, 0) == counts.get(s, 0) for s in set(built) | set(counts))
+    return ("pass" if ok else "fail", "; ".join(parts), "")
+
+
+def _msa_records(ctx):
+    """The pack's MSA records, one per source PS record: ``record`` is the
+    verbatim JSON every sector row of one record shares."""
+    out = {}
+    for rec, seq, start, end, alt, radius in ctx.con.execute(
+            "SELECT record, sector_seq, bearing_start, bearing_end, altitude_ft, radius_nm "
+            "FROM msa ORDER BY rowid"):
+        out.setdefault(rec, []).append((seq, start, end, alt, radius))
+    return out
+
+
+def _msa_label(record: str) -> str:
+    f = json.loads(record)["fields"]
+    code = f["multiple_code"].strip()
+    return f"{f['airport'].strip()} {f['centre_ident'].strip()}{'/' + code if code else ''}"
+
+
+def _c_msa_census(ctx):
+    if "msa" not in ctx.tables:
+        return ("fail", "no msa table", "")
+    if ctx.inputs is None:
+        return _not_run("Needs the source FAACIFP18 (--inputs) to count its PS records. The "
+                        "nightly gate passes the extracted CIFP.")
+    from . import arinc424
+    from .build.procedures import ProceduresBuildError, _find_cifp_file
+    try:
+        cifp = _find_cifp_file(Path(ctx.inputs))
+    except ProceduresBuildError as e:
+        return ("fail", str(e).replace(str(ctx.inputs), "<inputs>"), "")
+    primaries = continuations = 0
+    for line in arinc424.read_records(cifp):
+        if line[4:5] == "P" and line[12:13] == "S":
+            if line[38:39] in ("0", "1"):
+                primaries += 1
+            else:
+                continuations += 1
+    records = _msa_records(ctx)
+    stored_cont = sum(len(json.loads(r)["continuations"]) for r in records)
+    ctx.metrics["PROC-MSA-001"] = {"source_primaries": primaries,
+                                   "source_continuations": continuations,
+                                   "records": len(records), "continuations": stored_cont}
+    measured = (f"{len(records):,} of {primaries:,} PS records; {stored_cont:,} of "
+                f"{continuations:,} continuations")
+    ok = len(records) == primaries and stored_cont == continuations
+    return ("pass" if ok else "fail", measured, "")
+
+
+def _msa_coverage_fault(sectors) -> str | None:
+    seqs = [s[0] for s in sectors]
+    if seqs != list(range(1, len(sectors) + 1)):
+        return f"sector numbers {seqs}"
+    bounds = [(s[1], s[2]) for s in sectors]
+    if any(b is None or not 0 <= b <= 360 for pair in bounds for b in pair):
+        return f"bearing missing or outside 0-360 {bounds}"
+    if len(bounds) == 1:
+        return None if bounds[0][0] % 360 == bounds[0][1] % 360 else f"one sector {bounds[0]}"
+    if any(start % 360 == end % 360 for start, end in bounds):
+        return f"zero-width sector {bounds}"
+    for i, (_, end) in enumerate(bounds):
+        if end % 360 != bounds[(i + 1) % len(bounds)][0] % 360:
+            return f"gap or overlap {bounds}"
+    span = sum((end - start) % 360 for start, end in bounds)
+    return None if span == 360 else f"sectors span {span} degrees {bounds}"
+
+
+def _c_msa_coverage(ctx):
+    if "msa" not in ctx.tables:
+        return ("fail", "no msa table", "")
+    bad = []
+    for record, sectors in _msa_records(ctx).items():
+        fault = _msa_coverage_fault(sectors)
+        if fault:
+            bad.append(f"{_msa_label(record)}: {fault}")
+    measured = f"{len(bad)} records" + (f" ({'; '.join(bad[:5])})" if bad else "")
+    return ("fail" if bad else "pass", measured, "")
+
+
+def _c_msa_values(ctx):
+    if "msa" not in ctx.tables:
+        return ("fail", "no msa table", "")
+
+    def count(where):
+        return ctx.con.execute(f"SELECT COUNT(*) FROM msa WHERE {where}").fetchone()[0]
+
+    alt_bad = count(f"altitude_ft IS NULL OR altitude_ft NOT BETWEEN {MSA_ALT_MIN_FT} "
+                    f"AND {MSA_ALT_MAX_FT}")
+    rad_bad = count(f"radius_nm IS NULL OR radius_nm NOT BETWEEN {MSA_RADIUS_MIN_NM} "
+                    f"AND {MSA_RADIUS_MAX_NM}")
+    ref_bad = count("mag_true IS NULL OR mag_true NOT IN ('M', 'T')")
+    lo, hi, rlo, rhi = ctx.con.execute(
+        "SELECT MIN(altitude_ft), MAX(altitude_ft), MIN(radius_nm), MAX(radius_nm) "
+        "FROM msa").fetchone()
+    measured = (f"{alt_bad} altitudes, {rad_bad} radii, {ref_bad} bearing references out of "
+                f"bounds (altitudes {lo}-{hi} ft, radii {rlo}-{rhi} nm)")
+    return ("fail" if alt_bad or rad_bad or ref_bad else "pass", measured, "")
+
+
+def _c_msa_unresolved(ctx):
+    if "msa" not in ctx.tables:
+        return ("fail", "no msa table", "")
+    records = _msa_records(ctx)
+    unresolved = sorted({_msa_label(r) for r, in ctx.con.execute(
+        "SELECT DISTINCT record FROM msa WHERE centre_lat IS NULL OR centre_lon IS NULL")})
+    ctx.metrics["PROC-MSA-004"] = {"unresolved": len(unresolved), "records": len(records)}
+    frac = len(unresolved) / len(records) if records else 0.0
+    measured = (f"{len(unresolved):,} of {len(records):,} records"
+                + (f" ({', '.join(unresolved[:10])})" if unresolved else ""))
+    return ("warn" if frac > MSA_UNRESOLVED_MAX_FRACTION else "pass", measured, "")
+
+
+def _c_mora_count(ctx):
+    if "grid_mora" not in ctx.tables or "grid_mora_bands" not in ctx.tables:
+        return ("fail", "no grid_mora / grid_mora_bands table", "")
+    bands, cells = ctx.tables["grid_mora_bands"], ctx.tables["grid_mora"]
+    expect = bands * arinc424.MORA_CELLS_PER_BAND
+    bad = cells != expect or bands < PROC_MORA_BAND_FLOOR
+    measured = (f"{cells:,} cells for {bands} bands (expected {expect:,}); "
+                f"band floor {PROC_MORA_BAND_FLOOR}")
+    return ("fail" if bad else "pass", measured, "")
+
+
+def _c_mora_unique(ctx):
+    if "grid_mora" not in ctx.tables:
+        return ("fail", "no grid_mora table", "")
+    n = _dup_count(ctx.con, "grid_mora", ("lat_sw", "lon_sw"))
+    return ("fail" if n else "pass", f"{n} duplicate cells", "")
+
+
+def _c_mora_bounds(ctx):
+    if "grid_mora" not in ctx.tables:
+        return ("fail", "no grid_mora table", "")
+    lo, hi, n_out, n_garbled = ctx.con.execute(
+        "SELECT MIN(mora_ft), MAX(mora_ft), "
+        "SUM(mora_ft IS NOT NULL AND (mora_ft < ? OR mora_ft > ?)), "
+        "SUM(mora_ft IS NULL AND raw <> ?) FROM grid_mora",
+        (PROC_MORA_MIN_FT, PROC_MORA_MAX_FT, arinc424.MORA_UNKNOWN)).fetchone()
+    n_out, n_garbled = n_out or 0, n_garbled or 0
+    measured = (f"{n_out} cells outside {PROC_MORA_MIN_FT:,}-{PROC_MORA_MAX_FT:,} ft "
+                f"(range {lo}-{hi}); {n_garbled} fields neither digits nor UNK")
+    return ("fail" if n_out or n_garbled else "pass", measured, "")
+
+
+def _c_mora_unknown(ctx):
+    if "grid_mora" not in ctx.tables:
+        return ("fail", "no grid_mora table", "")
+    total = ctx.tables["grid_mora"]
+    unk = ctx.con.execute("SELECT COUNT(*) FROM grid_mora WHERE mora_ft IS NULL").fetchone()[0]
+    ctx.metrics["PROC-MORA-004"] = {"unknown": unk, "cells": total}
+    measured = f"{unk:,} of {total:,} cells UNK (stored NULL, not filled)"
+    prev = ctx.prev_metric("PROC-MORA-004")
+    if prev is None:
+        return ("pass", measured, "")
+    grew = unk > prev.get("unknown", 0)
+    return ("warn" if grew else "pass", f"{measured} (previous {prev.get('unknown', 0):,})", "")
+
+
 # --- checks: terrain --------------------------------------------------------
 
 _TILE = r"[NS]\d{2}[EW]\d{3}"
@@ -971,6 +1326,44 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "Two areas' legs merged with sequence numbers that do not collide, and an "
               "airway whose legs are all present but in the wrong order.",
               _c_awy_collision, "AER-1979"),
+        Check("PROC-MSA-001", "Every PS record in the source file is in the msa table", True,
+              "as many MSA records (and continuation records) in the pack as PS records in "
+              "the source FAACIFP18",
+              "A record that is present but decoded wrong; PROC-MSA-002 and -003 look for "
+              "that.", _c_msa_census, "AER-4446"),
+        Check("PROC-MSA-002", "Each MSA's sectors cover 360 degrees with no gap or overlap",
+              True, "0 records: every sector ends where the next begins, the last closes "
+              "on the first, and together they span 360 degrees (one sector: start equals "
+              "end)",
+              "A consistent set of sectors with the wrong altitude in one of them, and a "
+              "column shift that keeps the bearings contiguous.", _c_msa_coverage, "AER-4446"),
+        Check("PROC-MSA-003", "MSA altitudes, radii and bearing references are plausible",
+              True, f"altitudes {MSA_ALT_MIN_FT:,}-{MSA_ALT_MAX_FT:,} ft, radii "
+              f"{MSA_RADIUS_MIN_NM}-{MSA_RADIUS_MAX_NM} nm, bearings referenced M or T",
+              "A wrong value inside the bounds, such as 5200 coded where the plate says "
+              "5900.", _c_msa_values, "AER-4446"),
+        Check("PROC-MSA-004", "MSA centre fixes the build could not place", False,
+              f"at most {MSA_UNRESOLVED_MAX_FRACTION:.1%} of MSA records, every one listed: "
+              "a regression bound that carries forward the 1 of 6,058 observed in 2611 "
+              "(KHRJ HQT, an NDB the file does not define). It does not accept those "
+              "records as correct; they are stored with no position, never a guessed one",
+              "A centre placed at the wrong coordinates.", _c_msa_unresolved, "AER-4446"),
+        Check("PROC-MORA-001", "Grid MORA has 30 cells per band", True,
+              f"cells = 30 x bands, and at least {PROC_MORA_BAND_FLOOR} bands (half the "
+              "241 in 2611)",
+              "A band dropped whole because its corner did not decode, if fewer than "
+              "half go; a band placed at the wrong corner.", _c_mora_count, "AER-4447"),
+        Check("PROC-MORA-002", "No Grid MORA cell appears twice", True, "0 duplicate cells",
+              "A band placed at a wrong but unclaimed corner.", _c_mora_unique, "AER-4447"),
+        Check("PROC-MORA-003", "Grid MORA values are plausible", True,
+              f"every published value within {PROC_MORA_MIN_FT:,}-{PROC_MORA_MAX_FT:,} ft, "
+              "and every field either three digits or UNK",
+              "A plausible but wrong value, and a right value in the wrong cell.",
+              _c_mora_bounds, "AER-4447"),
+        Check("PROC-MORA-004", "Grid MORA cells the FAA marks UNK", False,
+              "reported; warns if more cells are UNK than in the previous edition",
+              "Whether any one UNK is expected. UNK cells are stored as NULL and never "
+              "filled.", _c_mora_unknown, "AER-4447"),
         Check("PROC-GLD-001", "FAACIFP18 golden fixture", False,
               "the fixture's procedures decode to their published legs",
               "Everything outside the fixture's handful of procedures.",
@@ -983,6 +1376,26 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               _fixed_not_run("Not yet run (AER-1702). Until it is, nothing independent "
                              "of the FAA source has been compared against this pack's "
                              "procedures.")),
+    ],
+    "airspace": [
+        Check("ASP-001", "Every airspace geometry is a closed, simple polygon", True,
+              "0 bad polygons: GeoJSON Polygon, every ring at least 4 positions, first equal "
+              "to last, positions in range, no edge crossing another",
+              "A valid polygon in the wrong place or of the wrong shape (an arc drawn the "
+              "wrong way round still closes). Edges are tested as straight lines in "
+              "longitude/latitude, the way the ring is stored.", _c_asp_polygons, "AER-4445"),
+        Check("ASP-002", "No sector's floor is above its ceiling", True,
+              "0 inverted sectors, and every limit readable. Feet MSL and flight levels are "
+              "compared as feet; a surface floor or an unlimited ceiling compares with "
+              "anything",
+              "A floor below its ceiling that is still wrong, and any sector with an AGL "
+              "limit against an MSL one (counted, not compared: which is higher depends on "
+              "the terrain beneath).", _c_asp_limits, "AER-4445"),
+        Check("ASP-003", "CIFP sectors reconcile with the source file", True,
+              "one row per UC and per UR sector in the FAACIFP18 the pack was built from",
+              "A sector that is present but wrong, and a record the parser never "
+              "recognised as section U at all (the count and the rows come from the same "
+              "reader).", _c_asp_reconcile, "AER-4445", exempt=(ASP_NOT_CIFP,)),
     ],
     "terrain": [
         Check("TER-001", "Every member is a known terrain file of a valid size", True,

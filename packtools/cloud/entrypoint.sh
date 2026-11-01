@@ -47,6 +47,12 @@ if [ ! -d "$TILE_ROOT" ] || [ -z "$(ls -A "$TILE_ROOT" 2>/dev/null)" ]; then
   echo "       /share/<POOL>/... path — see README (empty-volume gotcha)."
   exit 2
 fi
+# One packtools cloud job at a time on this /data: retro.sh (TV4) holds the
+# same lock, and both rewrite the manifest.
+LOCK="${CLOUD_LOCK:-/data/.packtools-cloud.lock}"
+mkdir -p "$(dirname "$LOCK")"
+exec 9>"$LOCK"
+flock -n 9 || { echo "ERROR: $LOCK is held: another packtools cloud job (retro records?) is running."; exit 3; }
 
 # ---- code: pyEfis is cloned fresh each run so map iterations are always
 #      current. makerplane-data: when this script runs from inside a checkout

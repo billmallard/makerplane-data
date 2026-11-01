@@ -23,13 +23,15 @@ MANIFEST_KEY = _gate.MANIFEST_KEY
 SIG_KEY = _gate.SIG_KEY
 
 
-def sign_and_put(store, secret, m: Manifest, *, previous: dict, sign, comment: str) -> bytes:
+def sign_and_put(store, secret, m: Manifest, *, previous: dict, sign, comment: str,
+                 retro: dict | None = None) -> bytes:
     """Validate, sign and upload ``m``. ``previous`` is the signed manifest
     object this write replaces (``{"packs": []}`` if none): every entry new
     relative to it must carry a pack report, and no entry it bound to a
-    report may change that binding (``manifest.validate``). Returns the
-    signed bytes."""
-    validate(m.to_obj(), previous=previous)
+    report may change that binding (``manifest.validate``). An entry it
+    listed with no binding may gain one only for a ``retro`` record in
+    ``retro`` (``{(id, cycle): raw bytes}``, TV4). Returns the signed bytes."""
+    validate(m.to_obj(), previous=previous, retro=retro)
     raw = m.to_bytes()
     sig = sign(raw, secret, trusted_comment=comment)
     store.put_bytes(MANIFEST_KEY, raw, content_type="application/json")

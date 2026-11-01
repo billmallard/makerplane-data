@@ -38,7 +38,7 @@ from pathlib import Path
 from . import build as _build
 from . import cycles, fetch, gate, report, schema_guard, schemasite, signing, summary
 from .manifest import Manifest
-from .packmeta import PackMeta, embed_sqlite
+from .packmeta import PackMeta, detect_content_schema_version, embed_sqlite
 from .manifest import PackEntry
 from .publish import sign_and_put
 from .regions import load_regions, manifest_regions_block
@@ -164,6 +164,9 @@ class CyclicalRunner:
                         expires=c.expires.isoformat(),
                         attribution=source.attribution,
                         license=source.license, license_url=source.license_url)
+        detected = detect_content_schema_version(source.kind, pack_path)
+        if detected is not None:
+            meta.schema_version = detected
         embed_sqlite(pack_path, meta)
         url = f"{self.url_base}/{pack_path.name}"
         entry = PackEntry.from_pack(pack_path, meta, url=url, regions=list(source.regions))
@@ -172,7 +175,8 @@ class CyclicalRunner:
         mine = {k: v for (pid, cyc, k), v in self.notes.items()
                 if (pid, cyc) == (source.pack_id, c.cycle)}
         g = gate.gate_one(self.store, self.live, entry, pack_path, local=self.accepted,
-                          opts=gate.Options(notes=mine, inputs=Path(extracted),
+                          opts=gate.Options(notes=mine, origin=source.origin or None,
+                                            inputs=Path(extracted),
                                             sources=self._sources(urls, cycle_work, c),
                                             record_dir=self.work_dir / "reports",
                                             reporter=self.reporter),

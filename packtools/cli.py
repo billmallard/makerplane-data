@@ -131,12 +131,13 @@ def cmd_build_pack(args) -> int:
     if zipfile.is_zipfile(pack_path):
         packmeta.embed_zip(pack_path, meta)
     else:
-        # highways: schema_version has to speak for the on-disk
-        # highway_lines table, not just PackMeta's own fields -- detect it
-        # from the built pack rather than trusting the package-wide default
-        # (AER-1715).
-        if args.kind == "highways":
-            meta.schema_version = packmeta.detect_highways_schema_version(pack_path)
+        # highways, procedures: schema_version has to speak for the
+        # on-disk tables, not just PackMeta's own fields -- detect it from
+        # the built pack rather than trusting the package-wide default
+        # (AER-1715, AER-4446).
+        detected = packmeta.detect_content_schema_version(args.kind, pack_path)
+        if detected is not None:
+            meta.schema_version = detected
         packmeta.embed_sqlite(pack_path, meta)
     print(f"embedded pack_meta: {read_packmeta(pack_path).as_dict()}")
 
@@ -214,6 +215,62 @@ def cmd_backfill_licenses(args) -> int:
     backfill_licenses(store, sk, generated=_utc_stamp(date), sign=signing.sign,
                       dry_run=args.dry_run)
     return 0
+
+
+def cmd_retro(args) -> int:
+    """Write and bind a retro record for every live edition that has none
+    (TV4), one pack at a time; --dry-run writes the records locally only."""
+    from . import retro, summary
+    if args.from_url:
+        if not args.dry_run:
+            raise SystemExit("--from-url is read-only; pass --dry-run")
+        store = _PublicStore(args.from_url)
+    elif args.source:
+        from .upload import LocalStore
+        store = LocalStore(args.source)
+    else:
+        from .upload import R2Store
+        store = R2Store.from_env(args.bucket)
+    sk = None if args.dry_run and not os.environ.get("MINISIGN_SECRET_KEY") and not args.sec \
+        else _load_secret(args)
+    if not args.dry_run and not args.no_device:
+        _require_device_reader(args)
+    only = [x for x in (args.only or "").split(",") if x] or None
+    results = retro.run(store, sk, scratch=Path(args.scratch), only=only,
+                        out_dir=Path(args.out) if args.out else None,
+                        pyefis_src=args.pyefis_src, probe=not args.no_device,
+                        schema=not args.no_schema, dry_run=args.dry_run)
+    md = retro.summary_markdown(results)
+    print(md)
+    summary.write(md)
+    return 1 if any(r.outcome == "error" for r in results) else 0
+
+
+class _PublicStore:
+    """Read-only store over the public origin (navdata.aerocommons.org), for
+    a dry run with no credentials."""
+
+    def __init__(self, base: str):
+        self.base = base.rstrip("/")
+
+    def get_bytes(self, key):
+        import requests
+        r = requests.get(f"{self.base}/{key}", timeout=120)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.content
+
+    def get_file(self, key, dest) -> bool:
+        import requests
+        with requests.get(f"{self.base}/{key}", stream=True, timeout=120) as r:
+            if r.status_code == 404:
+                return False
+            r.raise_for_status()
+            with open(dest, "wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+        return True
 
 
 def cmd_deploy_site(args) -> int:
@@ -749,6 +806,28 @@ def build_parser() -> argparse.ArgumentParser:
     bl.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     bl.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
     bl.set_defaults(func=cmd_backfill_licenses)
+
+    rt = sub.add_parser("retro", help="write and bind a retro pack-report/1 record for "
+                        "every live edition published without one (TV4)")
+    rt.add_argument("--only", help="comma list of pack ids (default: every unbound edition)")
+    rt.add_argument("--scratch", default="work/retro-scratch",
+                    help="where each pack is downloaded; deleted before the next")
+    rt.add_argument("--out", help="also write each record, schema and the run summary here")
+    rt.add_argument("--dry-run", action="store_true",
+                    help="write records locally only; upload nothing, sign nothing")
+    rt.add_argument("--from-url", help="with --dry-run: read the manifest and packs from "
+                    "this public origin, e.g. https://navdata.aerocommons.org")
+    rt.add_argument("--from", dest="source", metavar="DIR",
+                    help="use this directory as the store instead of the bucket")
+    rt.add_argument("--pyefis-src", dest="pyefis_src",
+                    help="pyEfis src/ for the device probe (default: PYEFIS_SRC_DIR)")
+    rt.add_argument("--no-device", action="store_true",
+                    help="skip the device probe (ACC-001 is then not-run in the record)")
+    rt.add_argument("--no-schema", action="store_true",
+                    help="do not write schema/<kind>.json (SCH1)")
+    rt.add_argument("--bucket", default="makerplane-data")
+    rt.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    rt.set_defaults(func=cmd_retro)
 
     ds = sub.add_parser("deploy-site", help="upload changed site/ files to the "
                         "bucket root (navdata.aerocommons.org)")

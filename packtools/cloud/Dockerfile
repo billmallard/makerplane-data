@@ -15,15 +15,16 @@ FROM python:3.13-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates curl \
-       libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 \
+       libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0t64 \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir numpy boto3 "PyNaCl>=1.5" "PyYAML>=6.0" "requests>=2.28" PyQt6
 
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY entrypoint.sh retro.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/retro.sh
 
 # Code (pyEfis + makerplane-data) is cloned fresh at runtime so re-runs pick up
 # ongoing map/rendering work without an image rebuild — this build context only
-# supplies entrypoint.sh. The tile tree + pack scratch are bind mounts.
+# supplies entrypoint.sh (and retro.sh, the TV4 retro-record run:
+# docker-compose.retro.yml). The tile tree + pack scratch are bind mounts.
 WORKDIR /opt
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """ARINC 424 CIFP -> sqlite ``procedures`` pack builder (AER-1600 / PA1)."""
 
+import json
 import shutil
 import sqlite3
 from pathlib import Path
@@ -9,7 +10,7 @@ import pytest
 
 from packtools.build import BUILDERS
 from packtools.build.procedures import ProceduresBuildError, build_procedures
-from packtools.packmeta import KINDS
+from packtools.packmeta import KINDS, detect_procedures_schema_version
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "cifp" / "FAACIFP18"
 
@@ -36,12 +37,12 @@ def test_build_procedures_writes_all_tables(input_dir, tmp_path):
     try:
         counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                   for t in ("airways", "airway_legs", "procedures",
-                            "transitions", "legs")}
+                            "transitions", "legs", "msa")}
     finally:
         con.close()
     assert counts == {
         "airways": 2, "airway_legs": 17,
-        "procedures": 5, "transitions": 22, "legs": 76,
+        "procedures": 5, "transitions": 22, "legs": 76, "msa": 21,
     }
 
 
@@ -215,3 +216,73 @@ def test_build_procedures_raises_on_empty_input(tmp_path):
     )
     with pytest.raises(ProceduresBuildError, match="no airway legs"):
         build_procedures(empty_input, tmp_path / "out.pack")
+
+
+# --- MSA (AER-4446) ------------------------------------------------------------
+
+def test_build_procedures_msa_rows_one_per_sector(input_dir, tmp_path):
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    rows = con.execute(
+        "SELECT sector_seq, bearing_start, bearing_end, altitude_ft, radius_nm, mag_true, "
+        "centre_type, centre_lat, centre_lon, cycle FROM msa "
+        "WHERE airport = 'KSBA' AND centre_ident = 'RZS' ORDER BY sector_seq").fetchall()
+    n_records = con.execute("SELECT COUNT(DISTINCT record) FROM msa").fetchone()[0]
+    con.close()
+    assert [r[:6] for r in rows] == [(1, 30, 120, 5900, 25, "M"), (2, 120, 210, 8100, 25, "M"),
+                                     (3, 210, 300, 8800, 25, "M"), (4, 300, 30, 5200, 25, "M")]
+    assert {r[6:] for r in rows} == {("vor", 34.50953333, -119.77098889, "2609")}
+    assert n_records == 10
+
+
+def test_build_procedures_msa_record_column_keeps_the_fields_as_read(input_dir, tmp_path):
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    (record,) = con.execute("SELECT DISTINCT record FROM msa WHERE airport = 'KABQ' "
+                            "AND multiple_code = 'A'").fetchone()
+    con.close()
+    rec = json.loads(record)
+    assert rec["continuations"] == []
+    assert rec["fields"]["centre_ident"] == "ABQ  " and rec["fields"]["multiple_code"] == "A"
+    assert rec["fields"]["sectors"].startswith("02020009025")
+
+
+def test_build_procedures_unresolved_msa_centre_is_stored_without_a_position(input_dir, tmp_path):
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    rows = con.execute("SELECT centre_ident FROM msa WHERE centre_lat IS NULL").fetchall()
+    con.close()
+    assert rows == [("HQT",)]
+
+
+def test_build_procedures_arc_radius_only_on_rf_legs(input_dir, tmp_path):
+    """On a non-RF leg the centre columns name the procedure's MSA centre
+    (KSBA I07 names RZS, the MSA on its plate), and a radius to it would be
+    meaningless."""
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    msa_ref = con.execute(
+        "SELECT l.centre_fix, l.centre_lat, l.arc_radius_nm FROM legs l "
+        "JOIN transitions t ON l.transition_id = t.id JOIN procedures p ON t.proc_id = p.id "
+        "WHERE p.airport = 'KSBA' AND p.ident = 'I07' AND l.centre_fix IS NOT NULL").fetchall()
+    n_non_rf_radius = con.execute(
+        "SELECT COUNT(*) FROM legs WHERE path_term <> 'RF' AND arc_radius_nm IS NOT NULL"
+    ).fetchone()[0]
+    con.close()
+    assert msa_ref == [("RZS", 34.50953333, None)]
+    assert n_non_rf_radius == 0
+
+
+def test_build_procedures_refuses_a_file_with_no_msa_records(input_dir, tmp_path):
+    src = input_dir / "FAACIFP18"
+    lines = src.read_text(encoding="latin-1").splitlines()
+    src.write_text("\n".join(l for l in lines if not (len(l) == 132 and l[4] == "P"
+                                                       and l[12] == "S")) + "\n",
+                   encoding="latin-1")
+    with pytest.raises(ProceduresBuildError, match="no MSA records"):
+        build_procedures(input_dir, tmp_path / "out.pack")
+
+
+def test_built_pack_declares_procedures_schema_version_3(input_dir, tmp_path):
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    assert detect_procedures_schema_version(out) == 3
