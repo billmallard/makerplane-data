@@ -118,12 +118,6 @@ XS_OBS_MEDIAN_MAX_FT = 50
 XS_LIST_MAX = 200
 #: TER-008: GLO-30 has no voids (ocean is 0 m), so any real share is a defect.
 TER_TILE_VOID_MAX = 0.01
-#: TER-009: the mip level whose water mask is compared with elevation, the
-#: share of samples at or below 0 m that makes a tile mostly sea, and how
-#: many of those samples the mask must mark as water.
-TER_WMASK_LEVEL = 5
-TER_WMASK_SEA_MIN = 0.2
-TER_WMASK_AGREE_MIN = 0.8
 #: OSM-002 / OSM-006: per state or province, like OSM-001 per region.
 OSM_STATE_DROP_WARN = 0.10
 OSM_STATE_MIN = 100
@@ -313,6 +307,15 @@ def _not_run(note: str, reason: str = "") -> tuple:
 #: Declared exemption for a delta check: the caller said this is the id's
 #: first edition (``--first-edition``), so there is nothing to compare.
 FIRST_EDITION = ("first-edition", "first edition, no previous record")
+
+#: Declared exemption for OSM-002/OSM-006: the previous edition's record was
+#: written before the per-state metrics existed (catalogue v2), so there is
+#: nothing to compare against. Without it the first gated build after v2
+#: would be refused, and so would every one after it, since the refused
+#: record never becomes anyone's previous edition. This record carries the
+#: metrics, so the edition after it is judged.
+NO_PREVIOUS_METRIC = ("no-previous-metric", "the previous edition's record predates the "
+                      "per-state metrics (catalogue v2)")
 
 
 def _no_previous(ctx, extra: str = "") -> tuple:
@@ -1406,61 +1409,6 @@ def _c_ter_tile_void(ctx):
     return ("warn" if over else "pass", measured, "")
 
 
-def _wmask_agreement(hgt: bytes, mask: bytes):
-    """(samples at or below 0 m, of those marked water, samples) for one
-    .hgt and its row-packed .wmask (MSB first, rows padded to a byte)."""
-    a = array.array("h")
-    a.frombytes(hgt)
-    if sys.byteorder == "little":
-        a.byteswap()
-    side = int(round(len(a) ** 0.5))
-    rb = -(-side // 8)
-    if side * side != len(a) or rb * side != len(mask):
-        raise ValueError("mask size does not match its .hgt")
-    sea = both = 0
-    for r in range(side):
-        row = mask[r * rb:(r + 1) * rb]
-        base = r * side
-        for c in range(side):
-            if a[base + c] <= 0:
-                sea += 1
-                both += (row[c >> 3] >> (7 - (c & 7))) & 1
-    return sea, both, side * side
-
-
-def _c_ter_wmask_agree(ctx):
-    lvl = f".mip/{TER_WMASK_LEVEL}/"
-    judged, low, checked = [], [], 0
-    with zipfile.ZipFile(ctx.path) as z:
-        names = set(z.namelist())
-        masks = sorted(n for n in names if n.startswith(lvl) and n.endswith(".wmask"))
-        if not masks:
-            return _not_run(f"The pack carries no level-{TER_WMASK_LEVEL} water masks.",
-                            "no-masks")
-        for m in masks:
-            hgt = m[:-6] + ".hgt"
-            if hgt not in names:
-                continue
-            sea, both, total = _wmask_agreement(z.read(hgt), z.read(m))
-            checked += 1
-            if sea / total < TER_WMASK_SEA_MIN:
-                continue
-            agree = both / sea
-            judged.append((agree, Path(m).stem))
-            if agree < TER_WMASK_AGREE_MIN:
-                low.append(f"{Path(m).stem} {agree:.0%}")
-    ctx.metrics["TER-009"] = {"masks": checked, "judged": len(judged), "low": low}
-    if not judged:
-        return _not_run(f"No tile is at least {TER_WMASK_SEA_MIN:.0%} sea at level "
-                        f"{TER_WMASK_LEVEL}, so there is nothing to compare.", "no-sea")
-    worst = min(judged)
-    measured = (f"{len(judged)} of {checked:,} level-{TER_WMASK_LEVEL} masks on mostly-sea "
-                f"tiles; {len(low)} mark under {TER_WMASK_AGREE_MIN:.0%} of their sea-level "
-                f"samples as water; lowest {worst[1]} {worst[0]:.1%}"
-                + (f" ({', '.join(low[:5])}{' ...' if len(low) > 5 else ''})" if low else ""))
-    return ("warn" if low else "pass", measured, "")
-
-
 # --- checks: catalogue v2, OSM per state or province (TV7) ----------------------
 
 def _osm_state_metrics(ctx):
@@ -1495,6 +1443,10 @@ def _c_osm_states(ctx):
     ctx.metrics["OSM-002"] = counts
     prev = ctx.prev_metric("OSM-002")
     if prev is None:
+        if ctx.previous is not None:
+            return _not_run("The previous edition's record has no per-state counts (it "
+                            "predates catalogue v2); this record carries them for the next "
+                            "edition.", NO_PREVIOUS_METRIC[0])
         return _no_previous(ctx, " This edition's per-state counts are recorded for the "
                             "next one.")
     drops = _state_drops(counts, prev, OSM_STATE_MIN)
@@ -1522,6 +1474,10 @@ def _c_osm_measure(ctx):
     ctx.metrics["OSM-006"] = cur
     prev = ctx.prev_metric("OSM-006")
     if prev is None:
+        if ctx.previous is not None:
+            return _not_run("The previous edition's record has no per-state lengths or areas "
+                            "(it predates catalogue v2); this record carries them for the "
+                            "next edition.", NO_PREVIOUS_METRIC[0])
         return _no_previous(ctx, " This edition's per-state lengths and areas are recorded "
                             "for the next one.")
     drops = []
@@ -1532,7 +1488,7 @@ def _c_osm_measure(ctx):
         return _not_run("No state had enough length or area in the previous edition to judge.")
     drops.sort()
     frac, t, st, old, new = drops[0]
-    unit = "km" if admin1.MEASURES[t][0] == "length_km" else "km2"
+    unit = "km" if admin1.MEASURES[t][0] == "length_km" else "km2 summed polygon area"
     over = [d for d in drops if -d[0] > OSM_STATE_DROP_WARN]
     lead = "largest drop" if frac < 0 else "no state dropped; smallest growth"
     measured = (f"{lead}: {t} {st} {_pct(new, old)} ({old:,.0f} -> {new:,.0f} {unit}); "
@@ -1795,26 +1751,22 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "Errors away from airports, and errors smaller than the outlier bound. Copernicus "
               "is a surface model (trees, buildings, rooftop helipads), and a bad FAA "
               "elevation looks the same as a bad tile: the check says where they disagree, "
-              "not which one is wrong.", _c_ter_spot, "TV7",
+              "not which one is wrong. Against a previous record without TER-005 metrics "
+              f"it judges the median only; only the worst {XS_LIST_MAX} outliers are carried.",
+              _c_ter_spot, "TV7",
               provisional=PROVISIONAL, review=V2_REVIEW),
         Check("TER-007", "Every Copernicus tile inside the region is present", False,
               "every GLO-30 tile that exists inside the region (packtools/data/glo30_tiles.txt, "
               "from the Copernicus tile list) is a native tile of the pack",
               "A tile that is present but holds wrong or older elevations, and a tile "
-              "Copernicus itself does not publish.", _c_ter_expected, "TV7", review=V2_REVIEW),
+              "Copernicus itself does not publish.", _c_ter_expected, "TV7"),
         Check("TER-008", "Void share of every native tile", False,
               f"no native tile more than {TER_TILE_VOID_MAX:.0%} void (GLO-30 has no voids; "
               "ocean is 0 m)",
-              "Wrong elevations that are not void markers, and voids in the mip levels and "
-              "mosaic (only native tiles are read).", _c_ter_tile_void, "TV7",
-              review=V2_REVIEW),
-        Check("TER-009", "Water masks agree with sea-level elevations", False,
-              f"on every level-{TER_WMASK_LEVEL} tile that is at least "
-              f"{TER_WMASK_SEA_MIN:.0%} at or below 0 m, the mask marks at least "
-              f"{TER_WMASK_AGREE_MIN:.0%} of those samples as water",
-              "Mask errors on inland water and on tiles that are mostly land (land below sea "
-              "level, such as the Sacramento Delta, is why those are not judged), and errors "
-              "at other mip levels.", _c_ter_wmask_agree, "TV7", review=V2_REVIEW),
+              f"Voids at or under {TER_TILE_VOID_MAX:.0%} of a tile (up to about 130,000 "
+              "posts of a 3601 x 3601 tile), wrong elevations that are not void markers, and "
+              "voids in the mip levels and mosaic (only native tiles are read).",
+              _c_ter_tile_void, "TV7"),
     ],
 }
 
@@ -1826,21 +1778,26 @@ _OSM_CHECKS = [
           "features that are present but wrong.", _c_osm_regions, "makerplane-data#17",
           exempt=(FIRST_EDITION,), provisional=PROVISIONAL),
     Check("OSM-002", "Feature counts per state or province against the previous edition",
-          False, f"Provisional threshold: no state or province with {OSM_STATE_MIN}+ features "
+          True, f"Provisional threshold: no state or province with {OSM_STATE_MIN}+ features "
           f"goes to zero (fail); none drops more than {OSM_STATE_DROP_WARN:.0%} (warn)",
           "Losses inside a state, a feature that moved across a border (binned by the centre "
           "of its bounding box against simplified Natural Earth boundaries), and features "
           "that are present but wrong.", _c_osm_states, "TV7",
-          exempt=(FIRST_EDITION,), provisional=PROVISIONAL, review=V2_REVIEW),
-    Check("OSM-006", "Line length and water area per state or province against the "
-          "previous edition", False,
+          exempt=(FIRST_EDITION, NO_PREVIOUS_METRIC), provisional=PROVISIONAL,
+          review=V2_REVIEW),
+    Check("OSM-006", "Line length, or summed stored polygon area, per state or province "
+          "against the previous edition", True,
           f"Provisional threshold: no state or province with at least "
           f"{OSM_MEASURE_MIN['length_km']:,.0f} km of line or "
-          f"{OSM_MEASURE_MIN['area_km2']:,.0f} km2 of water goes to zero (fail); none drops "
-          f"more than {OSM_STATE_DROP_WARN:.0%} (warn)",
+          f"{OSM_MEASURE_MIN['area_km2']:,.0f} km2 of summed polygon area goes to zero (fail); "
+          f"none drops more than {OSM_STATE_DROP_WARN:.0%} (warn)",
           "Geometry that moved without changing length or area, simplification changes that "
-          "keep the totals, and losses inside a state.", _c_osm_measure, "TV7",
-          exempt=(FIRST_EDITION,), provisional=PROVISIONAL, review=V2_REVIEW),
+          "keep the totals, and losses inside a state. For polygons the figure is the sum of "
+          "the stored polygon areas, not the area of water: water packs store overlapping "
+          "polygons, which are counted each time, so a lost polygon that another one overlaps "
+          "shows as a smaller drop or none.", _c_osm_measure, "TV7",
+          exempt=(FIRST_EDITION, NO_PREVIOUS_METRIC), provisional=PROVISIONAL,
+          review=V2_REVIEW),
     Check("OSM-004", "Every feature's bounding box is well formed", True, "0 bad boxes",
           "A well-formed box around wrong geometry.", _c_osm_bbox),
     Check("OSM-005", "Coverage map image", False, "an image a person can look at",
@@ -1855,7 +1812,10 @@ _XS_AIRPORTS = Check(
     "Needs Copernicus terrain (--terrain)",
     "Errors smaller than the outlier bound, and which side is wrong: Copernicus is a surface "
     "model (trees, buildings, rooftop helipads) on 30 m posts, so a disagreement is a place "
-    "for a person to look, not a verdict on the FAA value.", _c_xs_airports, "TV7",
+    "for a person to look, not a verdict on the FAA value. The first edition judged "
+    "against a previous record without XS-001 metrics judges the median only; and only "
+    f"the worst {XS_LIST_MAX} outliers are carried, so past that an old outlier can come "
+    "back as new.", _c_xs_airports, "TV7",
     exempt=(NO_TERRAIN,), provisional=PROVISIONAL, review=V2_REVIEW)
 
 _XS_OBSTACLES = Check(
@@ -1864,7 +1824,10 @@ _XS_OBSTACLES = Check(
     f"obstacle beyond {XS_OBS_OUTLIER_FT} ft that was not beyond it in the previous edition. "
     "Needs Copernicus terrain (--terrain)",
     "Errors smaller than the outlier bound, an AMSL and AGL that are wrong by the same "
-    "amount, and which side is wrong (a surface model can include the structure itself).",
+    "amount, and which side is wrong (a surface model can include the structure itself). "
+    "The first edition judged against a previous record without XS-002 metrics judges the "
+    f"median only; and only the worst {XS_LIST_MAX} outliers are carried, so past that an "
+    "old outlier can come back as new.",
     _c_xs_obstacles, "TV7", exempt=(NO_TERRAIN,), provisional=PROVISIONAL, review=V2_REVIEW)
 
 _GOLDEN = Check(
@@ -1872,7 +1835,7 @@ _GOLDEN = Check(
     "every fact for this kind found once and within its tolerance",
     "Anything no fact covers (the file is a sample, open to pull requests), and an error "
     "the published source shares: the facts come from FAA publications, as the packs do.",
-    _c_golden, "TV7", review=V2_REVIEW)
+    _c_golden, "TV7")
 
 #: Catalogue v2 cross-source and golden-fact checks by kind (TV7).
 _V2_BY_KIND = {

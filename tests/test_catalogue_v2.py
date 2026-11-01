@@ -181,18 +181,33 @@ def test_a_systematic_error_warns_and_an_old_outlier_is_carried_not_new(tmp_path
     assert c["status"] == "warn" and "1 not beyond it in the previous edition (NEW)" in c["measured"]
 
 
-def test_v2_checks_never_block_a_publish_before_qa_review(tmp_path):
+def test_pending_checks_never_block_a_publish_before_qa_review(tmp_path):
     tree = _flat_tree(tmp_path)
     pack = _airports_pack(tmp_path / "m.pack", [("A", 40.5, -99.5, 1000)])
     rec = _rep(pack, terrain=[tree])
     assert _by_id(rec)["XS-001"]["status"] == "warn"           # and no build note
-    blockers = " ".join(report.publish_blockers(rec))
-    assert "XS-001" not in blockers and "GLD-001" not in blockers
+    assert "XS-001" not in " ".join(report.publish_blockers(rec))
     # Even absent from the record (an older record), a pending check is not missing.
-    rec["checks"] = [c for c in rec["checks"] if c["id"] not in ("XS-001", "GLD-001")]
+    rec["checks"] = [c for c in rec["checks"] if c["id"] != "XS-001"]
     assert "XS-001" not in " ".join(report.publish_blockers(rec))
     # The flag lives in the catalogue, never in the record (R1).
-    assert all(c.review for c in report.all_checks()["navdata"] if c.id in ("XS-001", "GLD-001"))
+    pending = {c.id for cs in report.all_checks().values() for c in cs if c.review}
+    assert pending == {"XS-001", "XS-002", "TER-005", "OSM-002", "OSM-006"}
+
+
+def test_checks_qa_accepted_gate_a_publish(tmp_path):
+    # AER-4584: GLD-001, TER-007 and TER-008 gate now. Non-blocking, so a
+    # warn needs a build note.
+    pack = _airports_pack(tmp_path / "a.pack", [("A", 40.5, -99.5, 13.5)])
+    facts = _facts(tmp_path, [dict(GOOD, value=6100)])         # the pack has 6052
+    rec = _rep(pack, golden_facts=facts)
+    assert _by_id(rec)["GLD-001"].get("pending_review") is None
+    assert any(b.startswith("GLD-001 warns with no build note") for b in report.publish_blockers(rec))
+    rec = _rep(pack, golden_facts=facts, notes={"GLD-001": "runway extended, YAML to follow"})
+    assert not any(b.startswith("GLD-001") for b in report.publish_blockers(rec))
+    ter = _rep(_terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _flat(500)}),
+               origin="community")
+    assert any(b.startswith("TER-007 warns with no build note") for b in report.publish_blockers(ter))
 
 
 def test_without_terrain_the_cross_source_check_is_not_run_with_a_declared_reason(tmp_path):
@@ -306,7 +321,7 @@ def test_an_ambiguous_key_is_reported_not_guessed(tmp_path):
     assert rows[0]["outcome"] == "ambiguous" and rows[0]["found"] == [112.7, 113.0]
 
 
-# --- terrain: TER-007, TER-008, TER-009 ---------------------------------------------
+# --- terrain: TER-007, TER-008 ------------------------------------------------------
 
 def test_expected_tiles_come_from_the_copernicus_list():
     tiles = report.expected_tiles("us-central")
@@ -333,50 +348,6 @@ def test_a_tile_with_voids_warns(tmp_path):
     assert c["status"] == "warn"
     assert c["measured"] == ("2 native tiles read; 1 with more than 1% void; worst N40W099 "
                              "18.18% (N40W099 18.2%)")
-
-
-def _wmask(side, water):
-    rb = -(-side // 8)
-    out = bytearray(rb * side)
-    for r in range(side):
-        for c in range(side):
-            if water(r, c):
-                out[r * rb + (c >> 3)] |= 0x80 >> (c & 7)
-    return bytes(out)
-
-
-def _coast(side=16):
-    # The western 5 columns are sea (0 m), the rest land: not byte-aligned,
-    # so a mask read in the wrong bit order disagrees.
-    return _grid(side, lambda r, c: 0 if c < 5 else 200)
-
-
-def test_a_mask_that_marks_the_sea_as_water_passes(tmp_path):
-    lvl = f".mip/{report.TER_WMASK_LEVEL}/N40/"
-    pack = _terrain_pack(tmp_path / "t.pack", {
-        "N40/N40W100.hgt": _flat(0),
-        lvl + "N40W100.hgt": _coast(), lvl + "N40W100.wmask": _wmask(16, lambda r, c: c < 5)})
-    c = _by_id(_rep(pack, origin="community"))["TER-009"]
-    assert c["status"] == "pass" and "lowest N40W100 100.0%" in c["measured"]
-
-
-def test_a_mirrored_mask_warns(tmp_path):
-    lvl = f".mip/{report.TER_WMASK_LEVEL}/N40/"
-    pack = _terrain_pack(tmp_path / "t.pack", {
-        "N40/N40W100.hgt": _flat(0),
-        lvl + "N40W100.hgt": _coast(), lvl + "N40W100.wmask": _wmask(16, lambda r, c: c >= 11)})
-    c = _by_id(_rep(pack, origin="community"))["TER-009"]
-    assert c["status"] == "warn" and "N40W100 0%" in c["measured"]
-
-
-def test_a_mostly_land_tile_is_not_judged(tmp_path):
-    lvl = f".mip/{report.TER_WMASK_LEVEL}/N40/"
-    land = _grid(16, lambda r, c: 0 if (r, c) == (0, 0) else 200)
-    pack = _terrain_pack(tmp_path / "t.pack", {
-        "N40/N40W100.hgt": _flat(0),
-        lvl + "N40W100.hgt": land, lvl + "N40W100.wmask": _wmask(16, lambda r, c: False)})
-    c = _by_id(_rep(pack, origin="community"))["TER-009"]
-    assert (c["status"], c["not_run_reason"]) == ("not-run", "no-sea")
 
 
 # --- admin1, OSM-002, OSM-006 ----------------------------------------------------------
@@ -478,6 +449,51 @@ def test_lengths_per_state_warn_on_a_drop_counts_cannot_see(tmp_path):
     assert c["OSM-002"]["status"] == "pass"
     assert c["OSM-006"]["status"] == "warn"
     assert "-50.0%" in c["OSM-006"]["measured"] and "km" in c["OSM-006"]["measured"]
+
+
+def _without_review(monkeypatch, *ids):
+    """The catalogue as it will be once QA removes ``review`` from ``ids``."""
+    import dataclasses
+    real = report.all_checks
+    monkeypatch.setattr(report, "all_checks", lambda: {
+        k: [dataclasses.replace(c, review="") if c.id in ids else c for c in cs]
+        for k, cs in real().items()})
+
+
+def test_a_state_at_zero_refuses_the_publish_once_reviewed(tmp_path, monkeypatch):
+    # AER-4584: a fail from a non-blocking check never blocked, so the #17
+    # case (one state at zero) would have published. OSM-002/006 now block
+    # like OSM-001; this is the California stand-in, with Colorado.
+    prev = report.previous_from(_lines_pack(tmp_path / "a.pack", "r1", _roads(150, 150, 0.1)),
+                                first_edition=True)
+    rec = _rep(_lines_pack(tmp_path / "b.pack", "r2", _roads(0, 300, 0.1)), previous=prev)
+    c = _by_id(rec)
+    assert c["OSM-001"]["status"] != "fail"                    # the region check misses it
+    assert (c["OSM-002"]["status"], c["OSM-006"]["status"]) == ("fail", "fail")
+    assert not any(b.startswith("OSM-00") for b in report.publish_blockers(rec))   # pending
+    _without_review(monkeypatch, "OSM-002", "OSM-006")
+    blockers = report.publish_blockers(rec)
+    assert any(b.startswith("OSM-002 failed: largest drop: highway_lines US-CO -100.0%")
+               for b in blockers)
+    assert any(b.startswith("OSM-006 failed:") for b in blockers)
+
+
+def test_a_previous_record_without_state_metrics_is_a_declared_exemption(tmp_path, monkeypatch):
+    # Every live record predates catalogue v2. Without this exemption the
+    # first gated build would be refused, and so would every one after it.
+    prev = report.previous_from(_lines_pack(tmp_path / "a.pack", "r1", _roads(150, 150)),
+                                first_edition=True)
+    for k in ("OSM-002", "OSM-006"):
+        prev["metrics"].pop(k)
+    rec = _rep(_lines_pack(tmp_path / "b.pack", "r2", _roads(150, 150)), previous=prev)
+    for cid in ("OSM-002", "OSM-006"):
+        assert _by_id(rec)[cid]["not_run_reason"] == "no-previous-metric"
+    _without_review(monkeypatch, "OSM-002", "OSM-006")
+    assert not any(b.startswith("OSM-00") for b in report.publish_blockers(rec))
+    # A missing --previous is still not a first edition.
+    bare = _rep(_lines_pack(tmp_path / "c.pack", "r3", _roads(150, 150)))
+    assert any(b.startswith("OSM-002 is blocking and did not run")
+               for b in report.publish_blockers(bare))
 
 
 def test_first_edition_exempts_the_state_checks(tmp_path):

@@ -160,9 +160,10 @@ def page(cur_rec: dict, prev_rec: dict) -> str:
         if not cur or not prev:
             continue
         for table in sorted(cur):
-            unit = what or {"length_km": "km", "area_km2": "km2"}.get(
+            unit = what or {"length_km": "km", "area_km2": "km2 (summed polygons)"}.get(
                 (admin1.MEASURES.get(table) or ("",))[0], "")
-            label = "features" if what else ("length" if unit == "km" else "area")
+            label = "features" if what else ("length" if unit == "km"
+                                             else "summed polygon area")
             out.append(render(cur, prev, table, unit=unit,
                               title=f"{table}: {label} by state or province against "
                                     f"{pcycle} ({check})"))
