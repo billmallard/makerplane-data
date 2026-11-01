@@ -41,6 +41,8 @@ plates = [
 ]
 dev = [
     "pytest>=7.0",
+    # tests/test_impact.py writes and reads the synthetic roads fixture (TV9).
+    "pyshp>=2.3",
 ]
 
 [project.scripts]

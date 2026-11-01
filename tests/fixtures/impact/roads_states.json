@@ -1,0 +1,236 @@
+{
+ "_comment": "Synthetic roads input for the PR impact report (TV9, AER-4572). One entry per Geofabrik slug in make_roads.CONUS_STATES: an approximate state centroid [lat, lon]. Not OSM data. See README.md.",
+ "half_width_deg": 0.08,
+ "roads": [
+  [
+   "motorway",
+   3
+  ],
+  [
+   "trunk",
+   1
+  ],
+  [
+   "primary",
+   2
+  ],
+  [
+   "secondary",
+   2
+  ],
+  [
+   "motorway_link",
+   1
+  ],
+  [
+   "residential",
+   2
+  ],
+  [
+   "track",
+   1
+  ]
+ ],
+ "states": {
+  "alabama": [
+   32.8,
+   -86.8
+  ],
+  "arizona": [
+   34.3,
+   -111.7
+  ],
+  "arkansas": [
+   34.9,
+   -92.4
+  ],
+  "california/norcal": [
+   39.5,
+   -121.5
+  ],
+  "california/socal": [
+   34.5,
+   -117.5
+  ],
+  "colorado": [
+   39.0,
+   -105.5
+  ],
+  "connecticut": [
+   41.6,
+   -72.7
+  ],
+  "delaware": [
+   39.0,
+   -75.5
+  ],
+  "district-of-columbia": [
+   38.9,
+   -77.03
+  ],
+  "florida": [
+   28.6,
+   -82.4
+  ],
+  "georgia": [
+   32.7,
+   -83.4
+  ],
+  "idaho": [
+   44.4,
+   -114.6
+  ],
+  "illinois": [
+   40.0,
+   -89.2
+  ],
+  "indiana": [
+   39.9,
+   -86.3
+  ],
+  "iowa": [
+   42.1,
+   -93.5
+  ],
+  "kansas": [
+   38.5,
+   -98.4
+  ],
+  "kentucky": [
+   37.5,
+   -85.3
+  ],
+  "louisiana": [
+   31.1,
+   -92.0
+  ],
+  "maine": [
+   45.4,
+   -69.2
+  ],
+  "maryland": [
+   39.3,
+   -76.8
+  ],
+  "massachusetts": [
+   42.3,
+   -71.8
+  ],
+  "michigan": [
+   44.3,
+   -85.4
+  ],
+  "minnesota": [
+   46.3,
+   -94.3
+  ],
+  "mississippi": [
+   32.7,
+   -89.7
+  ],
+  "missouri": [
+   38.4,
+   -92.5
+  ],
+  "montana": [
+   47.0,
+   -109.6
+  ],
+  "nebraska": [
+   41.5,
+   -99.8
+  ],
+  "nevada": [
+   39.3,
+   -116.6
+  ],
+  "new-hampshire": [
+   43.7,
+   -71.6
+  ],
+  "new-jersey": [
+   40.2,
+   -74.7
+  ],
+  "new-mexico": [
+   34.4,
+   -106.1
+  ],
+  "new-york": [
+   42.9,
+   -75.5
+  ],
+  "north-carolina": [
+   35.6,
+   -79.4
+  ],
+  "north-dakota": [
+   47.5,
+   -100.5
+  ],
+  "ohio": [
+   40.3,
+   -82.8
+  ],
+  "oklahoma": [
+   35.6,
+   -97.5
+  ],
+  "oregon": [
+   43.9,
+   -120.6
+  ],
+  "pennsylvania": [
+   40.9,
+   -77.8
+  ],
+  "rhode-island": [
+   41.7,
+   -71.5
+  ],
+  "south-carolina": [
+   33.9,
+   -80.9
+  ],
+  "south-dakota": [
+   44.4,
+   -100.2
+  ],
+  "tennessee": [
+   35.9,
+   -86.4
+  ],
+  "texas": [
+   31.5,
+   -99.3
+  ],
+  "utah": [
+   39.3,
+   -111.7
+  ],
+  "vermont": [
+   44.1,
+   -72.7
+  ],
+  "virginia": [
+   37.5,
+   -78.8
+  ],
+  "washington": [
+   47.4,
+   -120.5
+  ],
+  "west-virginia": [
+   38.6,
+   -80.6
+  ],
+  "wisconsin": [
+   44.6,
+   -89.9
+  ],
+  "wyoming": [
+   43.0,
+   -107.5
+  ]
+ }
+}
