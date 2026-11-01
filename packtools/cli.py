@@ -694,7 +694,8 @@ def cmd_report(args) -> int:
         raise SystemExit(f"pack not found: {pack}")
     previous = report.previous_from(args.previous) if args.previous else None
     common = dict(previous=previous, inputs=args.inputs, pyefis_src=args.pyefis_src,
-                  probe=not args.no_device)
+                  probe=not args.no_device, terrain=args.terrain, airports=args.airports,
+                  golden_facts=args.golden_facts)
 
     if args.check:
         published = (_load_against(args.against) if args.against
@@ -745,6 +746,28 @@ def cmd_report(args) -> int:
     for b in blockers:
         print(f"  BLOCKS PUBLISH  {b}")
     return 1 if (blockers or errs) else 0
+
+
+def cmd_diffmap(args) -> int:
+    """Write the per-state diff maps (OSM-002/OSM-006) for two records as
+    one standalone HTML page: the same figures the report site renders."""
+    import html
+    from . import diffmap
+    cur, prev = _load_against(args.report), _load_against(args.previous)
+    body = diffmap.page(cur, prev)
+    if not body:
+        print("diffmap: the two records carry no per-state metrics to compare "
+              "(OSM-002/OSM-006)", file=sys.stderr)
+        return 1
+    p = cur.get("pack") or {}
+    title = html.escape(f"{p.get('id')} {p.get('cycle')}: changes by state or province")
+    Path(args.out).write_text(
+        f"<!doctype html><meta charset=utf-8><title>{title}</title><style>"
+        "body{font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;"
+        f"color:#1c2430;max-width:1000px;margin:20px auto;padding:0 16px}}{diffmap.CSS}"
+        f"</style><h1>{title}</h1>{body}\n", encoding="utf-8")
+    print(f"{args.out}: {body.count('<figure')} maps")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -992,7 +1015,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="re-run the open checks and diff against the published record")
     rep.add_argument("--against", help="published report.json (path or URL) for --check; "
                      "default: look the pack up in the signed live manifest")
-    rep.add_argument("--list-checks", action="store_true", help="print the v1 catalogue")
+    rep.add_argument("--list-checks", action="store_true", help="print the check catalogue")
     rep.add_argument("--kind", choices=KINDS, help="with --list-checks: one kind only")
     rep.add_argument("--previous", help="previous edition: its pack file or its report.json")
     rep.add_argument("--first-edition", action="store_true",
@@ -1003,6 +1026,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help="pyEfis checkout's src/ dir for device acceptance "
                           "(default: PYEFIS_SRC_DIR, or PYEFIS_TOOLS_DIR/../src)")
     rep.add_argument("--no-device", action="store_true", help="skip device acceptance")
+    rep.add_argument("--terrain", action="append", metavar="SOURCE",
+                     help="Copernicus terrain for XS-001/XS-002: a terrain pack, a directory "
+                          "of <N44>/<N44W122>.hgt tiles, or a published pack's https URL "
+                          "(read by range request). Repeatable")
+    rep.add_argument("--airports", help="an airports/navdata pack, for TER-005 on a terrain pack")
+    rep.add_argument("--golden-facts", dest="golden_facts",
+                     help="golden facts file for GLD-001 (default: the packaged one)")
     rep.add_argument("--record", choices=("build", "retro", "rejected"), default="build")
     rep.add_argument("--origin", help="federal / community / user-supplied "
                      "(default: by kind; required for terrain)")
@@ -1015,6 +1045,13 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument("--manifest-url", default=_DEFAULT_URL_BASE.rsplit("/", 1)[0] + "/manifest.json")
     rep.add_argument("--pub", default="keys/minisign.pub")
     rep.set_defaults(func=cmd_report)
+
+    dm = sub.add_parser("diffmap", help="per-state diff maps (OSM-002/OSM-006) for two "
+                        "records of an OSM pack, as one HTML page")
+    dm.add_argument("report", help="this edition's report.json (path or URL)")
+    dm.add_argument("previous", help="the previous edition's report.json (path or URL)")
+    dm.add_argument("-o", "--out", default="diffmap.html")
+    dm.set_defaults(func=cmd_diffmap)
 
     return ap
 
