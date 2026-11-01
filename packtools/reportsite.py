@@ -42,6 +42,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from . import diffmap
 from .manifest import NOTICE
 from .report import publish_blockers, validate_report
 
@@ -450,8 +451,22 @@ fetch("status.json", {{cache: "no-store"}}).then(r => r.ok ? r.json() : Promise.
 </script></section>"""
 
 
+def diffmap_html(rec: dict, prev_rec: dict | None) -> str:
+    """The per-state diff maps (TV7) for an OSM edition against the record
+    it was compared with, or nothing."""
+    if not prev_rec:
+        return ""
+    maps = diffmap.page(rec, prev_rec)
+    if not maps:
+        return ""
+    return ('<section><h2>Changes by state or province</h2>'
+            '<p>Each state or province coloured by its change against the previous edition '
+            '(checks OSM-002 and OSM-006). Hover a state, or open the table, for the '
+            f'numbers.</p>{maps}</section>')
+
+
 def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
-                *, commit: str) -> str:
+                *, commit: str, prev_rec: dict | None = None) -> str:
     rec, p, b = ed["rec"], ed["rec"]["pack"], ed["rec"].get("built") or {}
     t = row["tally"]
     head = [f'<span class="tag">{e(rec["origin"])}</span>', e(p["kind"])]
@@ -509,6 +524,7 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
 
 {auspex_html(rec)}
 {tables_html(rec, prev_cycle)}
+{diffmap_html(rec, prev_rec)}
 
 <section><h2>Identity</h2><table class="kv">
 <tr><th>Pack sha256</th><td class="mono">{e(p['sha256'])}</td></tr>
@@ -727,8 +743,10 @@ def build(records: list[dict], manifest: dict | None, *, commit: str = "") -> di
         for i, (ed, row) in enumerate(pairs):
             prev_cycle = (ed["rec"].get("previous") or {}).get("cycle")
             prev = next((r for r in rows if r["cycle"] == prev_cycle), None)
+            prev_ed = next((x for x in eds if x["cycle"] == prev_cycle), None)
             out[f"{PREFIX}{pack_id}/{ed['cycle']}/report.html"] = report_page(
-                ed, row, entries.get((pack_id, ed["cycle"])), prev, commit=commit)
+                ed, row, entries.get((pack_id, ed["cycle"])), prev, commit=commit,
+                prev_rec=prev_ed["rec"] if prev_ed else None)
             index.setdefault(pack_id, {})[ed["cycle"]] = {
                 "record": row["record"], "origin": row["origin"],
                 "summary": {k.replace("-", "_"): v for k, v in row["tally"].items()},
@@ -821,3 +839,4 @@ vertical-align:top;white-space:nowrap}table.kv td{padding:4px 0;word-break:break
 footer.site{border-top:1px solid var(--line);padding:20px 0 36px;color:var(--muted);font-size:13px}
 footer.site a{color:var(--muted)}
 """
+CSS += diffmap.CSS
