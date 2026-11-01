@@ -1,0 +1,114 @@
+name: pr-impact
+
+# PR impact report for builder changes (TV9, AER-4572; docs/pr_impact.md).
+#
+# A PR that touches a builder builds small fixture-region packs twice -- with
+# the base's builder and with the PR's -- and comments the difference on the
+# PR: rows per table, features per state / airport / airspace type, and any
+# check whose status moved. A state, airport or table that goes to zero, a
+# check that newly fails, or a head build that breaks turns this job red.
+# It is not a required check: a deliberate change is read and merged anyway.
+#
+# Base is the merge commit's first parent, so the diff is exactly what the
+# merge would change. No secrets: nothing here can sign or publish.
+on:
+  pull_request:
+    paths:
+      - "packtools/make_roads.py"
+      - "packtools/fetch.py"
+      - "packtools/arinc424.py"
+      - "packtools/packmeta.py"
+      - "packtools/build/**"
+      - "packtools/impact.py"
+      - "scripts/impact_build.py"
+      - "tests/fixtures/impact/**"
+      - "tests/fixtures/cifp/**"
+      - "tests/fixtures/cifp_airspace/**"
+      - ".github/workflows/impact.yml"
+
+permissions:
+  contents: read
+  pull-requests: write    # the one impact comment, updated in place
+
+concurrency:
+  group: pr-impact-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PYEFIS_REPO: ${{ vars.PYEFIS_REPO || 'billmallard/pyEfis' }}
+  PYEFIS_REF:  ${{ vars.PYEFIS_REF  || 'dev' }}
+
+jobs:
+  impact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: head
+          fetch-depth: 2
+      - name: Base checkout (the merge commit's first parent)
+        id: base
+        shell: bash
+        run: |
+          git -C head worktree add --detach ../base HEAD^1
+          echo "sha=$(git -C base rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PYEFIS_REPO }}
+          ref: ${{ env.PYEFIS_REF }}
+          path: pyefis-src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ./head pyshp numpy
+
+      - name: Build fixture packs on both sides and diff
+        id: impact
+        shell: bash
+        env:
+          PYEFIS_TOOLS_DIR: ${{ github.workspace }}/pyefis-src/tools
+          BASE_LABEL: ${{ github.event.pull_request.base.ref || 'base' }} @ ${{ steps.base.outputs.sha }}
+          HEAD_LABEL: PR head ${{ github.event.pull_request.head.sha || github.sha }}, merged
+        run: |
+          set +e
+          python -m packtools.impact --base base --head head --work work \
+            --out-md impact.md --out-json impact.json \
+            --base-label "$BASE_LABEL" --head-label "$HEAD_LABEL"
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ -f impact.md ]; then
+            cat impact.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Impact report FAILED to render (exit $rc); see the step log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Fork PRs get a read-only token, so they keep the job summary only.
+      - name: Comment on the PR (one comment, updated in place)
+        if: ${{ always() && github.event_name == 'pull_request' && hashFiles('impact.md') != '' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+                 --jq '.[] | select(.body | startswith("<!-- tv9-pr-impact-report -->")) | .id' | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@impact.md > /dev/null
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -F body=@impact.md > /dev/null
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && hashFiles('impact.md') != '' }}
+        with:
+          name: pr-impact
+          path: |
+            impact.md
+            impact.json
+
+      - name: Fail on a regression
+        if: ${{ steps.impact.outputs.rc != '0' }}
+        run: |
+          echo "The impact report found a regression or could not measure (exit ${{ steps.impact.outputs.rc }}); see the PR comment or the job summary."
+          exit 1
