@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """ARINC 424 CIFP -> sqlite ``procedures`` pack (AER-1600 / PA1).
 
-Builds five tables from one FAACIFP18-format file: ``airways`` +
-``airway_legs`` (Enroute Airways, ``ER``) and ``procedures`` +
-``transitions`` + ``legs`` (SID/STAR/Approach, ``PD``/``PE``/``PF``).
+Builds six tables from one FAACIFP18-format file: ``airways`` +
+``airway_legs`` (Enroute Airways, ``ER``), ``procedures`` +
+``transitions`` + ``legs`` (SID/STAR/Approach, ``PD``/``PE``/``PF``) and
+``msa`` (Airport MSA, ``PS``; AER-4446, additive -- see ``_build_msa``).
 Schema is brief section 3.3/3.4's, with one addition: ``idx_awy_ident`` is a
 UNIQUE index (AER-1979) so a route ident colliding across areas fails the
 build loudly instead of silently merging two airways into one row -- see
@@ -27,6 +28,7 @@ decision 2.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -92,14 +94,37 @@ CREATE TABLE legs (
     turn_dir        TEXT,
     rnp             REAL,
     flags           INTEGER NOT NULL,
-    centre_fix      TEXT,       -- RF (radius-to-fix) arc centre; NULL for every other leg type
+    centre_fix      TEXT,       -- RF legs: the arc centre. Other legs: the procedure's MSA centre
+                                -- (one leg per procedure carries it; joins msa on airport + centre_fix)
     centre_lat      REAL,
     centre_lon      REAL,
-    arc_radius_nm   REAL        -- derived: great_circle(centre, fix); convenience for the renderer
+    arc_radius_nm   REAL        -- RF legs only: great_circle(centre, fix); convenience for the renderer
 );
 CREATE INDEX idx_proc_airport ON procedures(airport, kind);
 CREATE INDEX idx_trans_proc ON transitions(proc_id);
 CREATE INDEX idx_legs_trans ON legs(transition_id, seq);
+
+CREATE TABLE msa (
+    airport             TEXT NOT NULL,
+    area                TEXT,          -- Customer/Area Code; Alaska is coded CAN
+    centre_ident        TEXT NOT NULL,
+    centre_icao         TEXT,
+    centre_section      TEXT,
+    centre_subsection   TEXT,
+    centre_type         TEXT,          -- runway | vor | ndb | waypoint | airport
+    centre_lat          REAL,          -- NULL when the centre does not resolve
+    centre_lon          REAL,
+    multiple_code       TEXT,          -- tells apart two MSAs on one centre
+    mag_true            TEXT,          -- M = bearings magnetic, T = true
+    sector_seq          INTEGER NOT NULL,
+    bearing_start       INTEGER,       -- bearing TO the centre, degrees; the sector runs
+    bearing_end         INTEGER,       -- clockwise start -> end; start == end is the full circle
+    altitude_ft         INTEGER,
+    radius_nm           INTEGER,
+    cycle               TEXT NOT NULL,
+    record              TEXT NOT NULL  -- JSON: every field as read, plus continuation records
+);
+CREATE INDEX idx_msa_airport ON msa(airport, centre_ident);
 """
 
 
@@ -232,8 +257,12 @@ def _build_procedures(con: sqlite3.Connection, path: Path,
             trans_id = cur.lastrowid
             trans_ids[trans_key] = trans_id
 
+        # Only an RF leg's centre is an arc centre; on any other leg the
+        # same columns name the procedure's MSA centre (AER-4446), and a
+        # "radius" to it means nothing.
         arc_radius_nm = None
-        if leg.centre_lat is not None and leg.fix_lat is not None:
+        if (leg.path_term == "RF" and leg.centre_lat is not None
+                and leg.fix_lat is not None):
             arc_radius_nm = great_circle_nm(
                 (leg.centre_lat, leg.centre_lon), (leg.fix_lat, leg.fix_lon))
         con.execute(
@@ -247,6 +276,29 @@ def _build_procedures(con: sqlite3.Connection, path: Path,
              leg.dist_nm, leg.time_min, leg.alt_desc, leg.alt1_ft, leg.alt2_ft,
              leg.speed_kt, leg.turn_dir, leg.rnp, leg.flags,
              leg.centre_fix, leg.centre_lat, leg.centre_lon, arc_radius_nm))
+        n += 1
+    con.commit()
+    return n
+
+
+def _build_msa(con: sqlite3.Connection, path: Path, fix_index, cycle: str) -> int:
+    """One row per MSA sector. Not filtered by area like the airways are:
+    the procedures this pack carries are not either, and Alaska's MSAs are
+    coded under the CAN area. Returns the number of PS records stored."""
+    n = 0
+    for rec in arinc424.iter_msa(path, fix_index):
+        record = json.dumps({"fields": rec.fields, "continuations": rec.continuations},
+                            sort_keys=True)
+        for s in rec.sectors:
+            con.execute(
+                "INSERT INTO msa (airport, area, centre_ident, centre_icao, centre_section, "
+                "centre_subsection, centre_type, centre_lat, centre_lon, multiple_code, "
+                "mag_true, sector_seq, bearing_start, bearing_end, altitude_ft, radius_nm, "
+                "cycle, record) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (rec.airport, rec.area, rec.centre_ident, rec.centre_icao, rec.centre_section,
+                 rec.centre_subsection, rec.centre_type, rec.centre_lat, rec.centre_lon,
+                 rec.multiple_code, rec.mag_true, s.seq, s.bearing_start, s.bearing_end,
+                 s.altitude_ft, s.radius_nm, cycle, record))
         n += 1
     con.commit()
     return n
@@ -277,6 +329,7 @@ def build_procedures(input_dir: str | Path, out_path: str | Path) -> Path:
         con.executescript(_SCHEMA)
         n_airway_legs = _build_airways(con, cifp_path, fix_index, cycle)
         n_proc_legs = _build_procedures(con, cifp_path, fix_index, cycle)
+        n_msa = _build_msa(con, cifp_path, fix_index, cycle)
     finally:
         con.close()
 
@@ -288,4 +341,8 @@ def build_procedures(input_dir: str | Path, out_path: str | Path) -> Path:
         raise ProceduresBuildError(
             f"no procedure legs parsed from {cifp_path} -- refusing to ship "
             f"an empty procedures pack.")
+    if n_msa == 0:
+        raise ProceduresBuildError(
+            f"no MSA records parsed from {cifp_path} -- every cycle carries "
+            f"thousands; refusing to ship an empty msa table.")
     return out_path
