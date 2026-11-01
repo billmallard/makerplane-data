@@ -235,6 +235,21 @@ def test_build_renders_a_page_per_kind_and_the_index(tmp_path):
     assert "ROW-003" in home and "Apache License 2.0" in home
 
 
+def test_the_version_rules_come_from_packmeta(monkeypatch):
+    from packtools import packmeta
+    rules = schemasite.version_rules()
+    hw = [r for r in rules if r["kind"] == "highways"]
+    assert [r["schema_version"] for r in hw] == [1, 2]
+    assert hw[1]["content"] == "adds flags, ref"
+    # A new version in packmeta appears with no edit here.
+    monkeypatch.setitem(packmeta.PROCEDURES_TABLE_SCHEMAS,
+                        frozenset({"airways", "airway_legs", "procedures", "transitions",
+                                   "legs", "msa", "grid_mora_bands", "grid_mora",
+                                   "airspace"}), 99)
+    last = [r for r in schemasite.version_rules() if r["kind"] == "procedures"][-1]
+    assert (last["schema_version"], last["content"]) == (99, "adds airspace")
+
+
 def test_a_live_kind_with_no_capture_is_named_on_the_index(tmp_path):
     kinds, manifest = _kinds(tmp_path)
     manifest["packs"].append(dict(manifest["packs"][0], id="water-na", kind="water",

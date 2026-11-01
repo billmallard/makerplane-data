@@ -632,10 +632,10 @@ packs, never written by hand. Machine-readable index: <a href="index.json">index
 <p>Every pack carries a <code>pack_meta</code> header (a <code>pack_meta(key, value)</code>
 table in an SQLite pack, a <code>pack_meta.json</code> member in a zip pack) whose
 <code>schema_version</code> names the version of its format. Today it is the version of the
-<code>pack_meta</code> header itself for every kind. For <code>highways</code> the build
-also sets it from the <code>highway_lines</code> columns: 1 without <code>flags</code> and
-<code>ref</code>, 2 with them. Editions packed before that rule declare 1 whatever their
-columns, so a reader should check for the columns it needs.</p>
+<code>pack_meta</code> header itself, except for the kinds below, whose build reads it from
+the pack's content. Editions packed before a kind's rule existed declare 1 whatever they
+carry, so a reader should still check for the tables and columns it needs.</p>
+{version_rules_html()}
 <p>The tables and columns on these pages are public and versioned. Readers should look up
 columns by name and ignore tables and columns they do not know: new ones are added without
 a <code>schema_version</code> change. Removing or changing one is a format change.</p>
@@ -657,6 +657,38 @@ carries before it is installed. Each entry in <code>packs</code> has these field
 <div class="scroll">{_fields_table("pack_meta", packmeta.PackMeta, desc)}</div></section>
 <section><p class="notice">{e(NOTICE)}</p></section>"""
     return page("Pack formats", body, root="../", commit=commit)
+
+
+#: Kinds whose schema_version the build reads from the pack's content
+#: (packmeta._CONTENT_SCHEMA_DETECTORS), and what each map is keyed on.
+_VERSION_MAPS = (("highways", "columns of highway_lines", "HIGHWAYS_TABLE_SCHEMAS"),
+                 ("procedures", "tables", "PROCEDURES_TABLE_SCHEMAS"))
+
+
+def version_rules() -> list[dict]:
+    """Each content-tracked kind's versions, from packmeta's own maps: the
+    first version's full set, then what each later one adds or drops."""
+    rules = []
+    for kind, keyed_on, attr in _VERSION_MAPS:
+        prev = None
+        for names, version in sorted(getattr(packmeta, attr).items(), key=lambda kv: kv[1]):
+            if prev is None:
+                what = f"{keyed_on}: " + ", ".join(sorted(names))
+            else:
+                added, dropped = sorted(names - prev), sorted(prev - names)
+                what = "; ".join(x for x in (
+                    "adds " + ", ".join(added) if added else "",
+                    "drops " + ", ".join(dropped) if dropped else "") if x)
+            rules.append({"kind": kind, "schema_version": version, "content": what})
+            prev = names
+    return rules
+
+
+def version_rules_html() -> str:
+    rows = "".join(f"<tr><td><code>{e(r['kind'])}</code></td><td>{r['schema_version']}</td>"
+                   f"<td>{e(r['content'])}</td></tr>" for r in version_rules())
+    return ('<div class="scroll"><table class="grid"><tr><th>kind</th><th>schema_version'
+            f'</th><th>what the pack carries</th></tr>{rows}</table></div>')
 
 
 def live_editions(manifest: dict | None) -> tuple[dict[str, list[str]], set[str]]:

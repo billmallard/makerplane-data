@@ -24,7 +24,8 @@ on:
   push:
     branches: [main]
     paths: ["site/**", "packtools/reportsite.py", "packtools/community.py",
-            "packtools/schemasite.py", "docs/schema_descriptions.yaml"]
+            "packtools/schemasite.py", "packtools/packmeta.py",
+            "docs/schema_descriptions.yaml"]
   schedule:
     - cron: "20 11 * * *"
   workflow_dispatch:
