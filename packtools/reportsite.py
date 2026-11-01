@@ -52,7 +52,8 @@ REPO = "billmallard/makerplane-data"
 REPO_URL = f"https://github.com/{REPO}"
 BUILDER_REPOS = {"pyEfis": "https://github.com/billmallard/pyEfis"}
 
-# Plan section 4.7, "What this report is and is not", verbatim (D3).
+# Plan section 4.7 standing text, verbatim (D3). Rendered as the boxed
+# p.standing alone; the section heading was dropped on 2026-11-01 (AER-4532).
 STANDING_TEXT = (
     "These are the checks we ran on this pack, what each one measured, and what "
     "each one cannot catch. It is evidence, not a warranty and not a certification. "
@@ -319,8 +320,7 @@ def page(title: str, body: str, *, root: str, commit: str) -> str:
 
 
 def standing_block() -> str:
-    return (f'<section><h2>What this report is and is not</h2>'
-            f'<p class="standing">{e(STANDING_TEXT)}</p></section>')
+    return f'<section><p class="standing">{e(STANDING_TEXT)}</p></section>'
 
 
 # --- one edition ------------------------------------------------------------
