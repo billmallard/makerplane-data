@@ -327,9 +327,9 @@ Which checks apply:
 | navdata, airports | `XS-001` field elevation against Copernicus terrain (v2) |
 | obstacles | `XS-002` obstacle base against Copernicus terrain (v2) |
 | navdata, navaids, obstacles | `GLD-001` golden facts (v2) |
-| terrain | `TER-001` member layout and sizes; `TER-002` tiles inside the region; `TER-006` no native tile of the previous edition missing; `TER-003` water masks (AER-2287); `TER-004` sampled elevation range; v2: `TER-005` spot heights against field elevations, `TER-007` every Copernicus tile in the region present, `TER-008` void share of every native tile, `TER-009` water masks agree with sea-level elevations |
+| terrain | `TER-001` member layout and sizes; `TER-002` tiles inside the region; `TER-006` no native tile of the previous edition missing; `TER-003` water masks (AER-2287); `TER-004` sampled elevation range; v2: `TER-005` spot heights against field elevations, `TER-007` every Copernicus tile in the region present, `TER-008` void share of every native tile |
 | water, highways | `IDX-001` every R-tree indexes every row of its table, plus `rtreecheck` |
-| water, highways, rivers | `OSM-001` counts per region (#17); v2: `OSM-002` counts per state or province, `OSM-006` length or area per state or province; `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
+| water, highways, rivers | `OSM-001` counts per region (#17); v2: `OSM-002` counts per state or province, `OSM-006` length or summed polygon area per state or province; `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
 | rivers, cifp, airspace, plates | **Ungated** (`report.UNGATED`): the record is written with `gated: false`, and a build record of these kinds never clears the gate |
 
 ### Catalogue v2 (TV7)
@@ -338,13 +338,26 @@ Plan section 4.3's remaining checks: independent-source comparisons, a
 golden-facts file open to pull requests, per-state diffs with maps for the
 OSM packs, and the fuller terrain checks.
 
-**None of them can stop a publish yet.** Each carries `Check.review`
-(`report.V2_REVIEW`), so the record shows `pending_review` and
-`publish_blockers` passes over it: not on a warn without a note, not on a
-fail, not when it raised or is missing from an older record. All are
-non-blocking with provisional thresholds. QA reviews each definition and
-threshold (plan section 4.4); removing `review` from an entry is how one
-starts to gate.
+**QA's verdict (AER-4584, 2026-11-01).** `GLD-001`, `TER-007` and
+`TER-008` gate a publish: they are non-blocking, so a warn needs a build
+note. The rest still carry `Check.review` (`report.V2_REVIEW`): the record
+shows `pending_review` and `publish_blockers` passes over the check (not on
+a warn without a note, not on a fail, not when it raised or is missing from
+an older record). Removing `review` is QA's call:
+
+- `XS-001`, `XS-002`, `TER-005`: accepted; `review` comes off in the change
+  that wires `--terrain` and `--airports` into the gate, which must show the
+  new-outlier counts across two consecutive editions.
+- `OSM-002`, `OSM-006`: blocking, like `OSM-001`, so a state at zero stops
+  a publish (as first written they were non-blocking, and a `fail` from a
+  non-blocking check never blocks: the #17 case would have published). Back
+  with QA for re-review.
+- `TER-009` (water mask against samples at or below 0 m) was **withdrawn**:
+  QA rejected the definition. Coastal marsh that rounds to 0 m in the
+  integer-metre surface model read as sea, and a real defect (the `.wmask`
+  leaves the tile's border posts unset even in open ocean) scored 96% and
+  passed. A redefined check needs a sea reference that is not quantized
+  elevation and must judge the border ring on its own.
 
 | Check | Kind | Compares | Needs |
 |---|---|---|---|
@@ -354,9 +367,8 @@ starts to gate.
 | `GLD-001` | navdata, navaids, obstacles | Each fact in `packtools/data/golden_facts.yaml` for the kind ([golden_facts.md](golden_facts.md)) | nothing |
 | `TER-007` | terrain | Native tiles against every GLO-30 tile that exists inside the region (`packtools/data/glo30_tiles.txt`, from the Copernicus tile list) | nothing |
 | `TER-008` | terrain | Void share of every native tile, not a sample | nothing |
-| `TER-009` | terrain | On level-5 mip tiles that are at least 20% at or below 0 m, the share of those samples the water mask marks as water | nothing |
 | `OSM-002` | water, highways, rivers | Feature counts per US state, Canadian province and Mexican state against the previous edition | `--previous` |
-| `OSM-006` | water, highways, rivers | Line length (km) or water area (km2) per state or province against the previous edition | `--previous` |
+| `OSM-006` | water, highways, rivers | Line length (km), or the sum of stored polygon areas (km2), per state or province against the previous edition | `--previous` |
 
 `--terrain` takes a terrain pack, a directory of `<N44>/<N44W122>.hgt`
 tiles, or the `https://` URL of a published pack, and may be repeated (the
@@ -392,12 +404,8 @@ looks like it lost a digit (IA09 Grinnell, 18 ft on terrain of about
 entries. Neither list is a finding about our builds.
 
 On the same terrain-us-central pack, TER-007 found all 311 expected tiles,
-TER-008 no tile with any void, and TER-009 warned on 5 of the 11
-mostly-sea level-5 tiles: Gulf coast tiles (N29W091 to N29W094, N25W098)
-where the mask marks 57% to 79% of the samples at or below 0 m as water.
-Those are coastal marsh and lagoon tiles; land at or below 0 m that OSM
-does not map as water would read this way, but that is not confirmed. It
-is the kind of case QA's review of the 80% threshold has to settle.
+TER-008 no tile with any void. (The withdrawn TER-009 warned on five Gulf
+coast tiles there; QA traced that to marsh at 0 m, see above.)
 
 **OSM-002 and OSM-006** bin each feature by the centre of its bounding box
 against Natural Earth 1:10m state and province boundaries, simplified to
@@ -408,7 +416,20 @@ what is still in none is binned `outside` and not judged. Both editions
 are binned with the same file, so a border approximation moves nothing
 between them; a change to the file does, so land one with a note.
 Counting catches a state that loses features; lengths and areas also catch
-features that shrank (a simplification bug), which counts cannot see.
+features that shrank (a simplification bug), which counts cannot see. For
+polygons the figure is the **sum of stored polygon areas, not water area**:
+water packs store overlapping polygons (QA measured 231,605 km2 of `water`
+rows inside a 147,000 km2 box over Lake Michigan), so overlaps count each
+time and a lost polygon that another overlaps shows as a smaller drop or
+none. Relative change between editions is still meaningful, since both are
+summed the same way.
+
+Both are blocking. A previous edition whose record predates the per-state
+metrics is a declared exemption (`no-previous-metric`): every live record
+does, and without it the first gated build would be refused, and so would
+every build after it, because a refused record never becomes the previous
+edition. The record carries the metrics, so the next edition is judged.
+A missing `--previous` is still not an exemption.
 
 **Diff maps.** The report page of an OSM edition draws one map per table
 for OSM-002 and OSM-006: each state coloured by its change against the
@@ -420,8 +441,8 @@ Earth (public domain).
 
 Not wired into the publish paths yet: the gate passes no `--terrain` or
 `--airports`, so XS-001, XS-002 and TER-005 are `not-run` with a declared
-reason in gate-written records. GLD-001, TER-007..009 and OSM-002/006 need
-no extra input and run there today.
+reason in gate-written records. GLD-001, TER-007, TER-008 and OSM-002/006 need
+no extra input and run there today; GLD-001, TER-007 and TER-008 gate.
 
 ## The publish gate (TV3)
 
