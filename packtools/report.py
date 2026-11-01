@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import device_probe, packmeta
+from . import arinc424, device_probe, packmeta
 from .manifest import NOTICE, ORIGINS
 from .packmeta import KINDS
 from .regions import load_regions, tile_sw_corner
@@ -74,6 +74,15 @@ MSA_RADIUS_MAX_NM = 50
 #: PROC-MSA-004: MSA records whose centre fix the build could not place.
 #: 2611 measured 1 of 6,058 (KHRJ's HQT, an NDB the file does not define).
 MSA_UNRESOLVED_MAX_FRACTION = 0.001
+#: PROC-MORA-001: Grid MORA band floor, 50% of the 241 bands in 2611
+#: (rounded down), by the SG-004 convention.
+PROC_MORA_BAND_FLOOR = 120
+#: PROC-MORA-003: plausible Grid MORA range in feet. Floor: the 1,000 ft
+#: non-mountainous buffer over sea level. Ceiling: Denali (20,310 ft) plus
+#: the 2,000 ft mountainous buffer, with room to spare. 2611 spans 1,400 to
+#: 22,700.
+PROC_MORA_MIN_FT = 1_000
+PROC_MORA_MAX_FT = 25_000
 #: OSM-001: a region's feature count dropping by more than this warns; a
 #: region that had at least OSM_REGION_MIN features and now has none fails.
 OSM_REGION_DROP_WARN = 0.10
@@ -890,6 +899,52 @@ def _c_msa_unresolved(ctx):
     return ("warn" if frac > MSA_UNRESOLVED_MAX_FRACTION else "pass", measured, "")
 
 
+def _c_mora_count(ctx):
+    if "grid_mora" not in ctx.tables or "grid_mora_bands" not in ctx.tables:
+        return ("fail", "no grid_mora / grid_mora_bands table", "")
+    bands, cells = ctx.tables["grid_mora_bands"], ctx.tables["grid_mora"]
+    expect = bands * arinc424.MORA_CELLS_PER_BAND
+    bad = cells != expect or bands < PROC_MORA_BAND_FLOOR
+    measured = (f"{cells:,} cells for {bands} bands (expected {expect:,}); "
+                f"band floor {PROC_MORA_BAND_FLOOR}")
+    return ("fail" if bad else "pass", measured, "")
+
+
+def _c_mora_unique(ctx):
+    if "grid_mora" not in ctx.tables:
+        return ("fail", "no grid_mora table", "")
+    n = _dup_count(ctx.con, "grid_mora", ("lat_sw", "lon_sw"))
+    return ("fail" if n else "pass", f"{n} duplicate cells", "")
+
+
+def _c_mora_bounds(ctx):
+    if "grid_mora" not in ctx.tables:
+        return ("fail", "no grid_mora table", "")
+    lo, hi, n_out, n_garbled = ctx.con.execute(
+        "SELECT MIN(mora_ft), MAX(mora_ft), "
+        "SUM(mora_ft IS NOT NULL AND (mora_ft < ? OR mora_ft > ?)), "
+        "SUM(mora_ft IS NULL AND raw <> ?) FROM grid_mora",
+        (PROC_MORA_MIN_FT, PROC_MORA_MAX_FT, arinc424.MORA_UNKNOWN)).fetchone()
+    n_out, n_garbled = n_out or 0, n_garbled or 0
+    measured = (f"{n_out} cells outside {PROC_MORA_MIN_FT:,}-{PROC_MORA_MAX_FT:,} ft "
+                f"(range {lo}-{hi}); {n_garbled} fields neither digits nor UNK")
+    return ("fail" if n_out or n_garbled else "pass", measured, "")
+
+
+def _c_mora_unknown(ctx):
+    if "grid_mora" not in ctx.tables:
+        return ("fail", "no grid_mora table", "")
+    total = ctx.tables["grid_mora"]
+    unk = ctx.con.execute("SELECT COUNT(*) FROM grid_mora WHERE mora_ft IS NULL").fetchone()[0]
+    ctx.metrics["PROC-MORA-004"] = {"unknown": unk, "cells": total}
+    measured = f"{unk:,} of {total:,} cells UNK (stored NULL, not filled)"
+    prev = ctx.prev_metric("PROC-MORA-004")
+    if prev is None:
+        return ("pass", measured, "")
+    grew = unk > prev.get("unknown", 0)
+    return ("warn" if grew else "pass", f"{measured} (previous {prev.get('unknown', 0):,})", "")
+
+
 # --- checks: terrain --------------------------------------------------------
 
 _TILE = r"[NS]\d{2}[EW]\d{3}"
@@ -1293,6 +1348,22 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "(KHRJ HQT, an NDB the file does not define). It does not accept those "
               "records as correct; they are stored with no position, never a guessed one",
               "A centre placed at the wrong coordinates.", _c_msa_unresolved, "AER-4446"),
+        Check("PROC-MORA-001", "Grid MORA has 30 cells per band", True,
+              f"cells = 30 x bands, and at least {PROC_MORA_BAND_FLOOR} bands (half the "
+              "241 in 2611)",
+              "A band dropped whole because its corner did not decode, if fewer than "
+              "half go; a band placed at the wrong corner.", _c_mora_count, "AER-4447"),
+        Check("PROC-MORA-002", "No Grid MORA cell appears twice", True, "0 duplicate cells",
+              "A band placed at a wrong but unclaimed corner.", _c_mora_unique, "AER-4447"),
+        Check("PROC-MORA-003", "Grid MORA values are plausible", True,
+              f"every published value within {PROC_MORA_MIN_FT:,}-{PROC_MORA_MAX_FT:,} ft, "
+              "and every field either three digits or UNK",
+              "A plausible but wrong value, and a right value in the wrong cell.",
+              _c_mora_bounds, "AER-4447"),
+        Check("PROC-MORA-004", "Grid MORA cells the FAA marks UNK", False,
+              "reported; warns if more cells are UNK than in the previous edition",
+              "Whether any one UNK is expected. UNK cells are stored as NULL and never "
+              "filled.", _c_mora_unknown, "AER-4447"),
         Check("PROC-GLD-001", "FAACIFP18 golden fixture", False,
               "the fixture's procedures decode to their published legs",
               "Everything outside the fixture's handful of procedures.",
