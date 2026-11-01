@@ -539,7 +539,9 @@ def test_osm_region_counts_and_schema_agreement_pass_on_a_steady_edition(tmp_pat
     c = _by_id(_rep(_hwy_pack(tmp_path / "r2.pack", "r2", {CA: 195, TX: 205}), previous=prev))
     assert c["OSM-001"]["status"] == "pass"
     assert c["OSM-003"]["measured"] == "declared 2, columns say 2"
-    assert c["OSM-002"]["status"] == "not-run" and "TV7" in c["OSM-002"]["note"]
+    # Catalogue v2 (TV7): the per-state counts run too, and pass on the same edition.
+    assert c["OSM-002"]["status"] == "pass"
+    assert "US-CA -2.5% (200 -> 195)" in c["OSM-002"]["measured"]
 
 
 def test_osm_region_wording_when_every_region_grew(tmp_path):

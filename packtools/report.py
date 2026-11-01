@@ -2,8 +2,10 @@
 """Pack test record: ``packtool report`` and ``packtool report --check``.
 
 Writes the ``pack-report/1`` record (docs/pack_report.md) for one pack file:
-the v1 check catalogue for the pack's kind (testing-visibility plan section
-4.3), what each check measured, and what each one **cannot** catch. Then
+the check catalogue for the pack's kind (testing-visibility plan section
+4.3; v1 in TV2, the v2 cross-source, golden-fact, per-state and terrain
+checks in TV7), what each check measured, and what each one **cannot**
+catch. Then
 ``--check`` re-runs the open checks on a downloaded pack and diffs the
 result against the published record (plan section 5.5).
 
@@ -36,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import arinc424, device_probe, packmeta
+from . import admin1, arinc424, device_probe, golden, packmeta, terrain_ref
 from .manifest import NOTICE, ORIGINS
 from .packmeta import KINDS
 from .regions import load_regions, tile_sw_corner
@@ -92,6 +94,40 @@ TER_SAMPLE_TILES = 16
 TER_ELEV_MIN_M = -500
 TER_ELEV_MAX_M = 9000
 TER_VOID_MAX_FRACTION = 0.5
+
+# --- catalogue v2 (TV7) thresholds: proposals pending QA review -------------
+#: The v2 checks are new and QA has not reviewed them (plan section 4.4), so
+#: none of them can stop a publish yet: they carry ``review`` (below) and
+#: publish_blockers passes over them. Removing ``review`` is QA's call.
+V2_REVIEW = ("catalogue v2 (TV7): QA has not reviewed this check's definition or "
+             "threshold, so it cannot stop a publish yet")
+#: XS-001 / TER-005: an airport whose field elevation differs from the
+#: terrain under its ARP by more than this is an outlier. Measured on
+#: airports-conus 2612 against the live Copernicus packs (docs/pack_report.md):
+#: median 8.8 ft, p99 196 ft, 51 of 19,293 airports beyond 500 ft.
+XS_APT_OUTLIER_FT = 500
+#: XS-001 / TER-005: a median difference beyond this means something
+#: systematic (units, datum, swapped coordinates), not a few bad rows.
+XS_APT_MEDIAN_MAX_FT = 50
+#: XS-002: the same two bounds for an obstacle's base (AMSL minus AGL).
+#: Measured on obstacles-conus 261001: median 3.4 ft, p99 53 ft, 95 of
+#: 652,659 beyond 500 ft (mostly Mexican and Canadian DOF entries).
+XS_OBS_OUTLIER_FT = 500
+XS_OBS_MEDIAN_MAX_FT = 50
+#: XS-001 / XS-002: most outliers listed in metrics.
+XS_LIST_MAX = 200
+#: TER-008: GLO-30 has no voids (ocean is 0 m), so any real share is a defect.
+TER_TILE_VOID_MAX = 0.01
+#: TER-009: the mip level whose water mask is compared with elevation, the
+#: share of samples at or below 0 m that makes a tile mostly sea, and how
+#: many of those samples the mask must mark as water.
+TER_WMASK_LEVEL = 5
+TER_WMASK_SEA_MIN = 0.2
+TER_WMASK_AGREE_MIN = 0.8
+#: OSM-002 / OSM-006: per state or province, like OSM-001 per region.
+OSM_STATE_DROP_WARN = 0.10
+OSM_STATE_MIN = 100
+OSM_MEASURE_MIN = {"length_km": 100.0, "area_km2": 10.0}
 
 # Default pedigree label per kind (docs/do200b_applicability.md section 5).
 # Terrain (Copernicus) is neither federal nor community: pass --origin.
@@ -212,6 +248,10 @@ class Check:
     #: Set when the threshold has no measured baseline yet; carried into the
     #: record so a reader knows the number is a placeholder (AER-4102 C7).
     provisional: str = ""
+    #: Set while QA has not reviewed the check (plan section 4.4). Carried
+    #: into the record as ``pending_review``; such a check never stops a
+    #: publish, whatever it finds (publish_blockers).
+    review: str = ""
 
 
 @dataclass
@@ -228,7 +268,15 @@ class Ctx:
     sources: list
     first_edition: bool = False
     origin_given: bool = False
+    #: --terrain sources (packs, HGT trees or URLs) for XS-001/XS-002.
+    terrain: list = field(default_factory=list)
+    #: --airports: an airports/navdata pack, for TER-005.
+    airports: Path | None = None
+    #: --golden-facts: the facts file (default packtools/data/golden_facts.yaml).
+    facts_path: Path | None = None
     metrics: dict = field(default_factory=dict)
+    _terrain_ref: object = None
+    _osm_states: dict | None = None
     _con: sqlite3.Connection | None = None
     _tables: dict | None = None
 
@@ -246,6 +294,11 @@ class Ctx:
 
     def prev_metric(self, check_id: str):
         return ((self.previous or {}).get("metrics") or {}).get(check_id)
+
+    def terrain_ref(self):
+        if self._terrain_ref is None:
+            self._terrain_ref = terrain_ref.TerrainRef(self.terrain)
+        return self._terrain_ref
 
     def close(self):
         if self._con is not None:
@@ -1176,6 +1229,319 @@ def _c_osm_bbox(ctx):
     return ("fail" if bad else "pass", bad, "")
 
 
+# --- checks: catalogue v2, cross-source (TV7) --------------------------------
+
+NO_TERRAIN = ("no-terrain", "no Copernicus terrain source was given (--terrain)")
+
+
+def _xs_compare(pairs, outlier_ft):
+    """``pairs`` is ``[(key, pack_ft, terrain_ft)]``. Returns (median abs
+    difference, p95, outliers as ``{key: rounded difference}``)."""
+    diffs = sorted(abs(a - b) for _k, a, b in pairs)
+    if not diffs:
+        return None, None, {}
+    out = {k: round(a - b) for k, a, b in pairs if abs(a - b) > outlier_ft}
+    return (diffs[len(diffs) // 2], diffs[int(0.95 * (len(diffs) - 1))], out)
+
+
+def _xs_judge(ctx, check_id, what, pairs, total, outlier_ft, median_max):
+    """Shared verdict for XS-001, XS-002 and TER-005: warn on a median
+    beyond ``median_max`` (something systematic) or on an outlier that the
+    previous edition did not have; the outliers it did have are carried,
+    listed, never accepted as right."""
+    med, p95, out = _xs_compare(pairs, outlier_ft)
+    labels = ctx.terrain_ref().labels if ctx.terrain else []
+    worst = sorted(out.items(), key=lambda kv: -abs(kv[1]))
+    ctx.metrics[check_id] = {"compared": len(pairs), "of": total,
+                             "median_abs_ft": None if med is None else round(med, 1),
+                             "p95_abs_ft": None if p95 is None else round(p95, 1),
+                             "outliers": dict(worst[:XS_LIST_MAX]),
+                             "outlier_count": len(out), "terrain": labels}
+    if not pairs:
+        return _not_run(f"No {what} fell on a terrain tile the sources hold "
+                        f"({', '.join(labels) or 'none'}).", "no-overlap")
+    prev = ctx.prev_metric(check_id)
+    new = sorted(k for k in out if prev is not None and k not in (prev.get("outliers") or {}))
+    eg = "; ".join(f"{k} {v:+,} ft" for k, v in worst[:5])
+    measured = (f"{len(pairs):,} of {total:,} {what} compared; median |difference| "
+                f"{med:,.1f} ft, p95 {p95:,.1f} ft; {len(out):,} beyond {outlier_ft:,} ft"
+                + (f" (e.g. {eg})" if eg else ""))
+    if prev is not None:
+        measured += (f"; {len(new)} not beyond it in the previous edition"
+                     + (f" ({', '.join(new[:5])}{' ...' if len(new) > 5 else ''})" if new else ""))
+    return ("warn" if med > median_max or new else "pass", measured, "")
+
+
+def _xs_points(con, table, key, elev_expr):
+    return {r[0]: r[1:] for r in con.execute(
+        f'SELECT {key}, lat, lon, {elev_expr} FROM "{table}" '
+        f"WHERE lat IS NOT NULL AND lon IS NOT NULL AND {elev_expr} IS NOT NULL")}
+
+
+def _xs_sample(ctx, pts):
+    m_per_ft = terrain_ref.M_PER_FT
+    got = ctx.terrain_ref().sample_many((k, v[0], v[1]) for k, v in pts.items())
+    return [(k, pts[k][2], m / m_per_ft) for k, m in got if m is not None]
+
+
+def _c_xs_airports(ctx):
+    if not ctx.terrain:
+        return _not_run("No Copernicus terrain source was given (--terrain), so field "
+                        "elevations were not compared.", NO_TERRAIN[0])
+    if "airports" not in ctx.tables:
+        return _not_run("The pack has no airports table.")
+    pts = _xs_points(ctx.con, "airports", "icao", "elev_ft")
+    return _xs_judge(ctx, "XS-001", "airports", _xs_sample(ctx, pts), len(pts),
+                     XS_APT_OUTLIER_FT, XS_APT_MEDIAN_MAX_FT)
+
+
+def _c_xs_obstacles(ctx):
+    if not ctx.terrain:
+        return _not_run("No Copernicus terrain source was given (--terrain), so obstacle "
+                        "bases were not compared.", NO_TERRAIN[0])
+    if "obstacles" not in ctx.tables:
+        return _not_run("The pack has no obstacles table.")
+    pts = _xs_points(ctx.con, "obstacles", "oas_no", "amsl_ft - agl_ft")
+    return _xs_judge(ctx, "XS-002", "obstacles", _xs_sample(ctx, pts), len(pts),
+                     XS_OBS_OUTLIER_FT, XS_OBS_MEDIAN_MAX_FT)
+
+
+def _c_ter_spot(ctx):
+    if ctx.airports is None:
+        return _not_run("No airports pack was given (--airports) to take field elevations "
+                        "from.", "no-airports")
+    con = sqlite3.connect(f"file:{ctx.airports}?mode=ro", uri=True)
+    try:
+        apts = packmeta.read(ctx.airports)
+        pts = _xs_points(con, "airports", "icao", "elev_ft")
+    finally:
+        con.close()
+    src = terrain_ref.open_source(ctx.path)
+    held = {k: v for k, v in pts.items() if terrain_ref.tile_name(v[0], v[1]) in src.tiles}
+    if not held:
+        return _not_run(f"No airport in {apts.id} {apts.cycle} falls on a native tile of "
+                        "this pack.", "no-overlap")
+    ref = terrain_ref.TerrainRef([src])
+    pairs = [(k, held[k][2], m / terrain_ref.M_PER_FT)
+             for k, m in ref.sample_many((k, v[0], v[1]) for k, v in held.items())
+             if m is not None]
+    ctx.terrain, ctx._terrain_ref = [str(ctx.path)], ref
+    status, measured, note = _xs_judge(ctx, "TER-005", "airports", pairs, len(held),
+                                       XS_APT_OUTLIER_FT, XS_APT_MEDIAN_MAX_FT)
+    ctx.metrics["TER-005"]["airports"] = f"{apts.id} {apts.cycle}"
+    return (status, f"{measured} (field elevations from {apts.id} {apts.cycle})", note)
+
+
+# --- checks: catalogue v2, golden facts (TV7) ---------------------------------
+
+def _c_golden(ctx):
+    facts = golden.for_kind(ctx.kind, golden.load(ctx.facts_path))
+    if not facts:
+        return _not_run(f"The golden facts file has no {ctx.kind} fact yet.", "no-facts")
+    rows = golden.check(ctx.con, facts)
+    ctx.metrics["GLD-001"] = rows
+    bad = [r for r in rows if r["outcome"] != "match"]
+    n = {o: sum(1 for r in rows if r["outcome"] == o)
+         for o in ("match", "differs", "not found", "ambiguous")}
+    measured = (f"{len(rows)} facts: {n['match']} match, {n['differs']} differ, "
+                f"{n['not found']} not found, {n['ambiguous']} ambiguous")
+    if bad:
+        measured += " (" + "; ".join(
+            f"{r['id']}: published {r['expected']:g}, pack "
+            f"{'-' if r['found'] is None else r['found'] if isinstance(r['found'], list) else format(r['found'], 'g')}"
+            for r in bad[:5]) + ")"
+    return ("warn" if bad else "pass", measured, "")
+
+
+# --- checks: catalogue v2, terrain (TV7) ----------------------------------------
+
+def expected_tiles(region_key: str) -> list[str]:
+    """Copernicus GLO-30 tiles that exist inside a region (TER-007), from
+    packtools/data/glo30_tiles.txt."""
+    region = load_regions()[region_key]
+    path = Path(__file__).resolve().parent / "data" / "glo30_tiles.txt"
+    tiles = [ln.strip() for ln in path.read_text(encoding="ascii").splitlines()
+             if ln.strip() and not ln.startswith("#")]
+    return [t for t in tiles if region.contains(*tile_sw_corner(t))]
+
+
+def _c_ter_expected(ctx):
+    native = {Path(n).stem for n in _native_tiles(_terrain_members(ctx))}
+    if not native:
+        return _not_run("The pack carries no native tiles (TER-002 judges that).", "no-tiles")
+    key = ctx.meta.id.removeprefix("terrain-")
+    if key not in load_regions():
+        return _not_run(f"Pack id {ctx.meta.id!r} names no region in regions.yaml.")
+    want = set(expected_tiles(key))
+    missing = sorted(want - native)
+    ctx.metrics["TER-007"] = {"expected": len(want), "present": len(want & native),
+                              "missing": missing}
+    measured = (f"{len(want & native):,} of the {len(want):,} Copernicus tiles inside {key} "
+                f"present; {len(missing)} missing"
+                + (f": {', '.join(missing[:10])}{' ...' if len(missing) > 10 else ''}"
+                   if missing else ""))
+    return ("warn" if missing else "pass", measured, "")
+
+
+def _c_ter_tile_void(ctx):
+    over, n, worst = [], 0, (0.0, "")
+    with zipfile.ZipFile(ctx.path) as z:
+        native = _native_tiles(z.namelist())
+        if not native:
+            return _not_run("The pack carries no native tiles.", "no-tiles")
+        for name in native:
+            a = array.array("h")
+            a.frombytes(z.read(name))
+            if sys.byteorder == "little":
+                a.byteswap()
+            void = sum(a.count(v) for v in _HGT_VOID) / len(a)
+            n += 1
+            worst = max(worst, (void, Path(name).stem))
+            if void > TER_TILE_VOID_MAX:
+                over.append(f"{Path(name).stem} {void:.1%}")
+    ctx.metrics["TER-008"] = {"tiles": n, "over": over[:XS_LIST_MAX]}
+    measured = (f"{n:,} native tiles read; {len(over)} with more than "
+                f"{TER_TILE_VOID_MAX:.0%} void; worst {worst[1]} {worst[0]:.2%}"
+                + (f" ({', '.join(over[:5])}{' ...' if len(over) > 5 else ''})" if over else ""))
+    return ("warn" if over else "pass", measured, "")
+
+
+def _wmask_agreement(hgt: bytes, mask: bytes):
+    """(samples at or below 0 m, of those marked water, samples) for one
+    .hgt and its row-packed .wmask (MSB first, rows padded to a byte)."""
+    a = array.array("h")
+    a.frombytes(hgt)
+    if sys.byteorder == "little":
+        a.byteswap()
+    side = int(round(len(a) ** 0.5))
+    rb = -(-side // 8)
+    if side * side != len(a) or rb * side != len(mask):
+        raise ValueError("mask size does not match its .hgt")
+    sea = both = 0
+    for r in range(side):
+        row = mask[r * rb:(r + 1) * rb]
+        base = r * side
+        for c in range(side):
+            if a[base + c] <= 0:
+                sea += 1
+                both += (row[c >> 3] >> (7 - (c & 7))) & 1
+    return sea, both, side * side
+
+
+def _c_ter_wmask_agree(ctx):
+    lvl = f".mip/{TER_WMASK_LEVEL}/"
+    judged, low, checked = [], [], 0
+    with zipfile.ZipFile(ctx.path) as z:
+        names = set(z.namelist())
+        masks = sorted(n for n in names if n.startswith(lvl) and n.endswith(".wmask"))
+        if not masks:
+            return _not_run(f"The pack carries no level-{TER_WMASK_LEVEL} water masks.",
+                            "no-masks")
+        for m in masks:
+            hgt = m[:-6] + ".hgt"
+            if hgt not in names:
+                continue
+            sea, both, total = _wmask_agreement(z.read(hgt), z.read(m))
+            checked += 1
+            if sea / total < TER_WMASK_SEA_MIN:
+                continue
+            agree = both / sea
+            judged.append((agree, Path(m).stem))
+            if agree < TER_WMASK_AGREE_MIN:
+                low.append(f"{Path(m).stem} {agree:.0%}")
+    ctx.metrics["TER-009"] = {"masks": checked, "judged": len(judged), "low": low}
+    if not judged:
+        return _not_run(f"No tile is at least {TER_WMASK_SEA_MIN:.0%} sea at level "
+                        f"{TER_WMASK_LEVEL}, so there is nothing to compare.", "no-sea")
+    worst = min(judged)
+    measured = (f"{len(judged)} of {checked:,} level-{TER_WMASK_LEVEL} masks on mostly-sea "
+                f"tiles; {len(low)} mark under {TER_WMASK_AGREE_MIN:.0%} of their sea-level "
+                f"samples as water; lowest {worst[1]} {worst[0]:.1%}"
+                + (f" ({', '.join(low[:5])}{' ...' if len(low) > 5 else ''})" if low else ""))
+    return ("warn" if low else "pass", measured, "")
+
+
+# --- checks: catalogue v2, OSM per state or province (TV7) ----------------------
+
+def _osm_state_metrics(ctx):
+    """Per-state counts and measures for every bbox table, computed once
+    for OSM-002 and OSM-006."""
+    if ctx._osm_states is None:
+        ctx._osm_states = {t: admin1.per_state(ctx.con, t) for t in _bbox_tables(ctx)}
+    return ctx._osm_states
+
+
+def _state_drops(cur: dict, prev: dict, floor: float) -> list[tuple]:
+    """``cur`` and ``prev`` are ``{table: {state: number}}``. Returns
+    ``(fraction, table, state, old, new)`` for every state that held at
+    least ``floor`` in the previous edition, worst first. Features binned
+    OUTSIDE every state are not judged."""
+    rows = []
+    for t, by_state in cur.items():
+        for st, old in ((prev or {}).get(t) or {}).items():
+            if st == admin1.OUTSIDE or not isinstance(old, (int, float)) or old < floor:
+                continue
+            new = by_state.get(st, 0)
+            rows.append(((new - old) / old, t, st, old, new))
+    return sorted(rows)
+
+
+def _c_osm_states(ctx):
+    tables = _bbox_tables(ctx)
+    if not tables:
+        return _not_run("No table with a bounding box to bin by state.")
+    per = _osm_state_metrics(ctx)
+    counts = {t: {st: v["features"] for st, v in by.items()} for t, by in per.items()}
+    ctx.metrics["OSM-002"] = counts
+    prev = ctx.prev_metric("OSM-002")
+    if prev is None:
+        return _no_previous(ctx, " This edition's per-state counts are recorded for the "
+                            "next one.")
+    drops = _state_drops(counts, prev, OSM_STATE_MIN)
+    if not drops:
+        return _not_run(f"No state had {OSM_STATE_MIN} or more features in the previous edition.")
+    frac, t, st, old, new = drops[0]
+    emptied = [d for d in drops if d[4] == 0]
+    over = [d for d in drops if -d[0] > OSM_STATE_DROP_WARN]
+    lead = "largest drop" if frac < 0 else "no state dropped; smallest growth"
+    measured = (f"{lead}: {t} {st} {_pct(new, old)} ({old:,} -> {new:,}); "
+                f"{len(over)} states down more than {OSM_STATE_DROP_WARN:.0%}, "
+                f"{len(emptied)} at zero")
+    if emptied:
+        return ("fail", measured, "")
+    return ("warn" if over else "pass", measured, "")
+
+
+def _c_osm_measure(ctx):
+    tables = [t for t in _bbox_tables(ctx) if t in admin1.MEASURES]
+    if not tables:
+        return _not_run("No line or polygon table with vertices to measure.")
+    per = _osm_state_metrics(ctx)
+    cur = {t: {st: v.get(admin1.MEASURES[t][0], 0.0) for st, v in per[t].items()}
+           for t in tables}
+    ctx.metrics["OSM-006"] = cur
+    prev = ctx.prev_metric("OSM-006")
+    if prev is None:
+        return _no_previous(ctx, " This edition's per-state lengths and areas are recorded "
+                            "for the next one.")
+    drops = []
+    for t in tables:
+        drops += _state_drops({t: cur[t]}, {t: prev.get(t) or {}},
+                              OSM_MEASURE_MIN[admin1.MEASURES[t][0]])
+    if not drops:
+        return _not_run("No state had enough length or area in the previous edition to judge.")
+    drops.sort()
+    frac, t, st, old, new = drops[0]
+    unit = "km" if admin1.MEASURES[t][0] == "length_km" else "km2"
+    over = [d for d in drops if -d[0] > OSM_STATE_DROP_WARN]
+    lead = "largest drop" if frac < 0 else "no state dropped; smallest growth"
+    measured = (f"{lead}: {t} {st} {_pct(new, old)} ({old:,.0f} -> {new:,.0f} {unit}); "
+                f"{len(over)} state-table pairs down more than {OSM_STATE_DROP_WARN:.0%}")
+    if any(d[4] == 0 for d in drops):
+        return ("fail", measured, "")
+    return ("warn" if over else "pass", measured, "")
+
+
 # --- the catalogue ----------------------------------------------------------
 
 def _fixed_not_run(note: str):
@@ -1423,9 +1789,32 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "Anything in a tile that was not sampled, and wrong elevations that stay "
               "inside the plausible range.", _c_ter_elev),
         Check("TER-005", "Spot heights against published airport field elevations", False,
-              "within tolerance of the FAA field elevation",
-              "Errors away from airports.",
-              _fixed_not_run("Planned for catalogue v2 (TV7).")),
+              f"Provisional threshold: median |difference| at most {XS_APT_MEDIAN_MAX_FT} ft, "
+              f"and no airport beyond {XS_APT_OUTLIER_FT} ft that was not beyond it in the "
+              "previous edition. Needs an airports pack (--airports)",
+              "Errors away from airports, and errors smaller than the outlier bound. Copernicus "
+              "is a surface model (trees, buildings, rooftop helipads), and a bad FAA "
+              "elevation looks the same as a bad tile: the check says where they disagree, "
+              "not which one is wrong.", _c_ter_spot, "TV7",
+              provisional=PROVISIONAL, review=V2_REVIEW),
+        Check("TER-007", "Every Copernicus tile inside the region is present", False,
+              "every GLO-30 tile that exists inside the region (packtools/data/glo30_tiles.txt, "
+              "from the Copernicus tile list) is a native tile of the pack",
+              "A tile that is present but holds wrong or older elevations, and a tile "
+              "Copernicus itself does not publish.", _c_ter_expected, "TV7", review=V2_REVIEW),
+        Check("TER-008", "Void share of every native tile", False,
+              f"no native tile more than {TER_TILE_VOID_MAX:.0%} void (GLO-30 has no voids; "
+              "ocean is 0 m)",
+              "Wrong elevations that are not void markers, and voids in the mip levels and "
+              "mosaic (only native tiles are read).", _c_ter_tile_void, "TV7",
+              review=V2_REVIEW),
+        Check("TER-009", "Water masks agree with sea-level elevations", False,
+              f"on every level-{TER_WMASK_LEVEL} tile that is at least "
+              f"{TER_WMASK_SEA_MIN:.0%} at or below 0 m, the mask marks at least "
+              f"{TER_WMASK_AGREE_MIN:.0%} of those samples as water",
+              "Mask errors on inland water and on tiles that are mostly land (land below sea "
+              "level, such as the Sacramento Delta, is why those are not judged), and errors "
+              "at other mip levels.", _c_ter_wmask_agree, "TV7", review=V2_REVIEW),
     ],
 }
 
@@ -1437,16 +1826,61 @@ _OSM_CHECKS = [
           "features that are present but wrong.", _c_osm_regions, "makerplane-data#17",
           exempt=(FIRST_EDITION,), provisional=PROVISIONAL),
     Check("OSM-002", "Feature counts per state or province against the previous edition",
-          False, "no state goes to zero",
-          "Losses inside a state.",
-          _fixed_not_run("Needs state and province boundaries; planned for catalogue v2 "
-                         "(TV7). OSM-001 bins by region meanwhile.")),
+          False, f"Provisional threshold: no state or province with {OSM_STATE_MIN}+ features "
+          f"goes to zero (fail); none drops more than {OSM_STATE_DROP_WARN:.0%} (warn)",
+          "Losses inside a state, a feature that moved across a border (binned by the centre "
+          "of its bounding box against simplified Natural Earth boundaries), and features "
+          "that are present but wrong.", _c_osm_states, "TV7",
+          exempt=(FIRST_EDITION,), provisional=PROVISIONAL, review=V2_REVIEW),
+    Check("OSM-006", "Line length and water area per state or province against the "
+          "previous edition", False,
+          f"Provisional threshold: no state or province with at least "
+          f"{OSM_MEASURE_MIN['length_km']:,.0f} km of line or "
+          f"{OSM_MEASURE_MIN['area_km2']:,.0f} km2 of water goes to zero (fail); none drops "
+          f"more than {OSM_STATE_DROP_WARN:.0%} (warn)",
+          "Geometry that moved without changing length or area, simplification changes that "
+          "keep the totals, and losses inside a state.", _c_osm_measure, "TV7",
+          exempt=(FIRST_EDITION,), provisional=PROVISIONAL, review=V2_REVIEW),
     Check("OSM-004", "Every feature's bounding box is well formed", True, "0 bad boxes",
           "A well-formed box around wrong geometry.", _c_osm_bbox),
     Check("OSM-005", "Coverage map image", False, "an image a person can look at",
           "Anything; it is for a person to read, not a test.",
           _fixed_not_run("Rendered by the report site (TV5).")),
 ]
+
+_XS_AIRPORTS = Check(
+    "XS-001", "Airport field elevation against Copernicus terrain at the ARP", False,
+    f"Provisional threshold: median |difference| at most {XS_APT_MEDIAN_MAX_FT} ft, and no "
+    f"airport beyond {XS_APT_OUTLIER_FT} ft that was not beyond it in the previous edition. "
+    "Needs Copernicus terrain (--terrain)",
+    "Errors smaller than the outlier bound, and which side is wrong: Copernicus is a surface "
+    "model (trees, buildings, rooftop helipads) on 30 m posts, so a disagreement is a place "
+    "for a person to look, not a verdict on the FAA value.", _c_xs_airports, "TV7",
+    exempt=(NO_TERRAIN,), provisional=PROVISIONAL, review=V2_REVIEW)
+
+_XS_OBSTACLES = Check(
+    "XS-002", "Obstacle base (AMSL minus AGL) against Copernicus terrain", False,
+    f"Provisional threshold: median |difference| at most {XS_OBS_MEDIAN_MAX_FT} ft, and no "
+    f"obstacle beyond {XS_OBS_OUTLIER_FT} ft that was not beyond it in the previous edition. "
+    "Needs Copernicus terrain (--terrain)",
+    "Errors smaller than the outlier bound, an AMSL and AGL that are wrong by the same "
+    "amount, and which side is wrong (a surface model can include the structure itself).",
+    _c_xs_obstacles, "TV7", exempt=(NO_TERRAIN,), provisional=PROVISIONAL, review=V2_REVIEW)
+
+_GOLDEN = Check(
+    "GLD-001", "Golden facts: published values from packtools/data/golden_facts.yaml", False,
+    "every fact for this kind found once and within its tolerance",
+    "Anything no fact covers (the file is a sample, open to pull requests), and an error "
+    "the published source shares: the facts come from FAA publications, as the packs do.",
+    _c_golden, "TV7", review=V2_REVIEW)
+
+#: Catalogue v2 cross-source and golden-fact checks by kind (TV7).
+_V2_BY_KIND = {
+    "navdata": [_XS_AIRPORTS, _GOLDEN],
+    "airports": [_XS_AIRPORTS],
+    "navaids": [_GOLDEN],
+    "obstacles": [_XS_OBSTACLES, _GOLDEN],
+}
 
 _RTREE_CHECK = Check(
     "IDX-001", "Every spatial index (R-tree) indexes every row of its table", True,
@@ -1463,7 +1897,7 @@ _HWY_SCHEMA = Check(
 
 
 def catalogue(kind: str, *, is_zip: bool) -> list[Check]:
-    """The v1 checks for one pack kind, in report order."""
+    """The checks for one pack kind, in report order."""
     checks = list(_COMMON)
     if not is_zip:
         checks += _SQLITE
@@ -1474,6 +1908,7 @@ def catalogue(kind: str, *, is_zip: bool) -> list[Check]:
     if kind in _FEDERAL_SQLITE:
         checks += _FEDERAL_GEO
     checks += _KIND_CHECKS.get(kind, [])
+    checks += _V2_BY_KIND.get(kind, [])
     if kind in _RTREES and not is_zip:
         checks.append(_RTREE_CHECK)
     if kind in _OSM:
@@ -1567,14 +2002,20 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                  pyefis_src: str | Path | None = None, probe: bool = True,
                  sources: list | None = None, notes: dict | None = None,
                  commit: str | None = None, builder_refs: dict | None = None,
-                 built_at: str | None = None, first_edition: bool = False) -> dict:
-    """Run the kind's v1 catalogue on one pack and return the record.
+                 built_at: str | None = None, first_edition: bool = False,
+                 terrain: list | None = None, airports: str | Path | None = None,
+                 golden_facts: str | Path | None = None) -> dict:
+    """Run the kind's catalogue on one pack and return the record.
 
     ``previous`` is the previous edition's record (see :func:`previous_from`);
     ``notes`` maps a check id to its build note (a ``warn`` without one
     blocks the publish, :func:`publish_blockers`). ``first_edition`` is the
     caller's declaration that the id has no earlier edition; it is the only
-    thing that lets a blocking delta check be ``not-run`` in a build record."""
+    thing that lets a blocking delta check be ``not-run`` in a build record.
+
+    ``terrain`` lists Copernicus terrain sources for XS-001/XS-002
+    (:func:`terrain_ref.open_source`); ``airports`` is an airports pack for
+    TER-005; ``golden_facts`` overrides the facts file for GLD-001."""
     if record not in RECORDS:
         raise ReportError(f"record must be one of {RECORDS}")
     if first_edition and previous is not None:
@@ -1595,7 +2036,10 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
               origin=origin if origin is not None else ORIGIN_BY_KIND.get(meta.kind, ""),
               previous=previous, inputs=Path(inputs) if inputs else None,
               pyefis_src=src, probe=probe, sources=list(sources or []),
-              first_edition=first_edition, origin_given=origin is not None)
+              first_edition=first_edition, origin_given=origin is not None,
+              terrain=[str(t) for t in (terrain or [])],
+              airports=Path(airports) if airports else None,
+              facts_path=Path(golden_facts) if golden_facts else None)
     notes = notes or {}
     checks = []
     try:
@@ -1618,6 +2062,8 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                 entry["since"] = c.since
             if c.provisional:
                 entry["provisional"] = c.provisional
+            if c.review:
+                entry["pending_review"] = c.review
             note = notes.get(c.id) or note
             if note:
                 entry["note"] = note
@@ -1736,6 +2182,10 @@ def publish_blockers(report: dict) -> list[str]:
     by_id = {c.get("id"): c for c in report.get("checks") or []}
     for spec in cat:
         c = by_id.get(spec.id)
+        if spec.review:
+            # Not yet reviewed by QA (plan section 4.4): shown on the record,
+            # never a reason to refuse a publish, even when absent or raised.
+            continue
         if c is None:
             out.append(f"{spec.id} is in the {kind} catalogue but missing from the record")
         elif c.get("raised"):
