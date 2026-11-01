@@ -113,9 +113,12 @@ def _hwy_pack(path, cycle, per_region):
     con.execute("CREATE VIRTUAL TABLE highway_rtree USING rtree(id, min_lat, max_lat, "
                 "min_lon, max_lon)")
     for (lat, lon), n in per_region.items():
+        # A real float32 (lat, lon) line, about 1.5 km, so OSM-006 has a
+        # length to compare (it blocks when no state clears its floor).
+        verts = struct.pack("<4f", lat, lon, lat + 0.01, lon + 0.01)
         con.executemany("INSERT INTO highway_lines (fclass, min_lat, max_lat, min_lon, max_lon, "
-                        "verts) VALUES ('primary', ?, ?, ?, ?, x'00')",
-                        [(lat, lat + 0.01, lon, lon + 0.01)] * n)
+                        "verts) VALUES ('primary', ?, ?, ?, ?, ?)",
+                        [(lat, lat + 0.01, lon, lon + 0.01, verts)] * n)
     con.execute("INSERT INTO highway_rtree SELECT id, min_lat, max_lat, min_lon, max_lon "
                 "FROM highway_lines")
     con.commit()
@@ -563,7 +566,9 @@ def test_osm_region_counts_and_schema_agreement_pass_on_a_steady_edition(tmp_pat
     c = _by_id(_rep(_hwy_pack(tmp_path / "r2.pack", "r2", {CA: 195, TX: 205}), previous=prev))
     assert c["OSM-001"]["status"] == "pass"
     assert c["OSM-003"]["measured"] == "declared 2, columns say 2"
-    assert c["OSM-002"]["status"] == "not-run" and "TV7" in c["OSM-002"]["note"]
+    # Catalogue v2 (TV7): the per-state counts run too, and pass on the same edition.
+    assert c["OSM-002"]["status"] == "pass"
+    assert "US-CA -2.5% (200 -> 195)" in c["OSM-002"]["measured"]
 
 
 def test_osm_region_wording_when_every_region_grew(tmp_path):
@@ -931,6 +936,119 @@ def test_check_prints_auspex_findings_as_not_reproducible():
                       "statement": "ring crosses itself"}]}})
     assert "not reproducible here (Auspex)" in lines[0]
     assert "table=water, row_id=7" in lines[1]
+
+
+# --- the auspex section: carried verbatim, closed schema (AER-4606) -----------
+
+AUSPEX_FIXTURE = Path(__file__).parent / "fixtures" / "auspex" / "water-na.auspex.json"
+
+
+def _auspex(**changes):
+    a = json.loads(AUSPEX_FIXTURE.read_text(encoding="utf-8"))
+    a.update(changes)
+    return a
+
+
+def _report_with_auspex(tmp_path, section):
+    src = tmp_path / "auspex.json"
+    src.write_text(json.dumps(section), encoding="utf-8")
+    out = tmp_path / "out.report.json"
+    try:
+        rc = cli.main(["report", str(_water_pack(tmp_path / "w.pack")), "--first-edition",
+                       "--no-device", "--build-commit", "0" * 40,
+                       "--auspex", str(src), "-o", str(out)])
+    except SystemExit as e:
+        rc = e.code
+    return rc, out
+
+
+def test_a_water_build_record_carries_qas_auspex_section_verbatim(tmp_path):
+    section = _auspex()
+    assert report.validate_auspex(section) == []
+    _, out = _report_with_auspex(tmp_path, section)
+    raw = out.read_bytes()
+    rec = json.loads(raw)
+    assert rec["record"] == "build" and rec["pack"]["kind"] == "water"
+    assert rec["auspex"] == section
+    assert report.validate_report(rec) == []
+    # In the canonical bytes report_sha256 hashes, so the manifest signature covers it.
+    assert raw == report.to_bytes(rec)
+
+
+def _refused(tmp_path, section, capsys, why):
+    rc, out = _report_with_auspex(tmp_path, section)
+    assert rc not in (0, None)
+    assert not out.exists()
+    assert why in capsys.readouterr().err
+
+
+def test_an_auspex_section_with_an_unknown_field_is_refused_and_writes_nothing(tmp_path, capsys):
+    _refused(tmp_path, _auspex(precision=0.97), capsys,
+             "auspex.precision is not a field the schema defines")
+
+
+def test_unknown_fields_are_refused_at_every_level(tmp_path):
+    a = _auspex()
+    a["coverage"]["total_runs"] = 9
+    a["findings"][0]["rubric"] = "x"
+    a["findings"][0]["locator"]["corpus_id"] = 1
+    errs = report.validate_auspex(a)
+    assert "auspex.coverage.total_runs is not a field the schema defines" in errs
+    assert "auspex.findings[0].rubric is not a field the schema defines" in errs
+    assert "auspex.findings[0].locator.corpus_id is not a field the schema defines" in errs
+
+
+def test_a_pass_verdict_with_a_finding_is_refused(tmp_path, capsys):
+    _refused(tmp_path, _auspex(verdict="pass"), capsys,
+             "verdict is pass but findings is not empty")
+
+
+def test_a_fail_verdict_needs_a_finding_and_a_clean_pass_is_accepted():
+    assert "auspex.verdict is fail with no findings" in report.validate_auspex(
+        _auspex(findings=[]))
+    assert report.validate_auspex(_auspex(verdict="pass", findings=[])) == []
+    assert report.validate_auspex(_auspex(verdict="inconclusive", findings=[])) == []
+
+
+def test_a_lone_lat_is_refused(tmp_path, capsys):
+    a = _auspex()
+    del a["findings"][0]["locator"]["lon"]
+    _refused(tmp_path, a, capsys, "has only one of lat / lon")
+
+
+def test_a_bad_engine_build_is_refused(tmp_path, capsys):
+    _refused(tmp_path, _auspex(engine_build="build 7/rubric-v2"), capsys,
+             "engine_build is not [A-Za-z0-9._-]{1,64}")
+    assert report.validate_auspex(_auspex(engine_build="x" * 65))
+    assert report.validate_auspex(_auspex(engine_build=""))
+
+
+def test_the_approved_optional_fields_may_be_left_out():
+    a = _auspex()
+    del a["findings"][0]["issue"]
+    a["findings"][0]["locator"] = {"table": "water_polygons", "row_id": 2}
+    assert report.validate_auspex(a) == []
+    a["findings"][0]["locator"] = {"table": "water_polygons"}
+    assert "auspex.findings[0].locator.row_id is missing" in report.validate_auspex(a)
+
+
+def test_engine_line_capability_statement_and_when_are_fixed():
+    assert report.validate_auspex(_auspex(engine="Auspex v3, an LLM judge"))
+    assert report.validate_auspex(_auspex(what_a_pass_means="The pack is correct."))
+    # after-publish is an addendum beside the record, never inside it.
+    assert report.validate_auspex(_auspex(when="after-publish"))
+    assert report.validate_auspex(_auspex(when="after-publish"), in_record=False) == []
+    assert report.validate_auspex(_auspex(run_at="2026-11-01 14:05"))
+    assert report.validate_auspex(_auspex(coverage={"checked": -1, "covered": 0,
+                                                    "skipped": 0, "unreadable": 0}))
+
+
+def test_a_record_with_a_malformed_auspex_section_is_malformed(tmp_path):
+    # validate_report is what the gate and the report site use, so a hand-edited
+    # record cannot carry an extra field past them either.
+    rec = _rep(_water_pack(tmp_path / "w.pack"), first_edition=True)
+    rec["auspex"] = _auspex(method="...")
+    assert "auspex.method is not a field the schema defines" in report.validate_report(rec)
 
 
 # --- CLI and serialisation ----------------------------------------------------

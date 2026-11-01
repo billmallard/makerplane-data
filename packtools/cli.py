@@ -683,6 +683,24 @@ def _load_against(spec: str) -> dict:
     return json.loads(Path(spec).read_text(encoding="utf-8"))
 
 
+def _load_auspex(spec: str) -> dict:
+    """QA's ``auspex`` section, checked against the closed schema before any
+    record is written: a section that does not validate writes nothing."""
+    import json
+    from . import report
+    try:
+        obj = json.loads(Path(spec).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"report: cannot read --auspex {spec}: {e}")
+    errs = report.validate_auspex(obj)
+    if errs:
+        for e in errs:
+            print(f"  MALFORMED {e}", file=sys.stderr)
+        raise SystemExit(f"report: --auspex {spec} does not match the auspex schema "
+                         "(docs/pack_report.md); no record written")
+    return obj
+
+
 def cmd_report(args) -> int:
     from . import report
     if args.list_checks:
@@ -694,7 +712,8 @@ def cmd_report(args) -> int:
         raise SystemExit(f"pack not found: {pack}")
     previous = report.previous_from(args.previous) if args.previous else None
     common = dict(previous=previous, inputs=args.inputs, pyefis_src=args.pyefis_src,
-                  probe=not args.no_device)
+                  probe=not args.no_device, terrain=args.terrain, airports=args.airports,
+                  golden_facts=args.golden_facts)
 
     if args.check:
         published = (_load_against(args.against) if args.against
@@ -720,6 +739,10 @@ def cmd_report(args) -> int:
               f"{sum(1 for r in rows if r.outcome == 'not reproducible here')} not reproducible here")
         return 1 if bad else 0
 
+    if args.check and args.auspex:
+        raise SystemExit("report: --auspex writes a record; it does not go with --check")
+    auspex = _load_auspex(args.auspex) if args.auspex else None
+
     sources = []
     if args.sources:
         import json
@@ -729,6 +752,9 @@ def cmd_report(args) -> int:
         notes=_kv_list(args.note, "--note"), commit=args.build_commit,
         builder_refs=_kv_list(args.builder_ref, "--builder-ref"),
         first_edition=args.first_edition, **common)
+    if auspex is not None:
+        # Verbatim, inside the record the manifest's report_sha256 binds.
+        rec["auspex"] = auspex
     errs = report.validate_report(rec)
     out = Path(args.out or f"{rec['pack']['id']}-{rec['pack']['cycle']}.report.json")
     out.write_bytes(report.to_bytes(rec))
@@ -745,6 +771,28 @@ def cmd_report(args) -> int:
     for b in blockers:
         print(f"  BLOCKS PUBLISH  {b}")
     return 1 if (blockers or errs) else 0
+
+
+def cmd_diffmap(args) -> int:
+    """Write the per-state diff maps (OSM-002/OSM-006) for two records as
+    one standalone HTML page: the same figures the report site renders."""
+    import html
+    from . import diffmap
+    cur, prev = _load_against(args.report), _load_against(args.previous)
+    body = diffmap.page(cur, prev)
+    if not body:
+        print("diffmap: the two records carry no per-state metrics to compare "
+              "(OSM-002/OSM-006)", file=sys.stderr)
+        return 1
+    p = cur.get("pack") or {}
+    title = html.escape(f"{p.get('id')} {p.get('cycle')}: changes by state or province")
+    Path(args.out).write_text(
+        f"<!doctype html><meta charset=utf-8><title>{title}</title><style>"
+        "body{font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;"
+        f"color:#1c2430;max-width:1000px;margin:20px auto;padding:0 16px}}{diffmap.CSS}"
+        f"</style><h1>{title}</h1>{body}\n", encoding="utf-8")
+    print(f"{args.out}: {body.count('<figure')} maps")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -992,7 +1040,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="re-run the open checks and diff against the published record")
     rep.add_argument("--against", help="published report.json (path or URL) for --check; "
                      "default: look the pack up in the signed live manifest")
-    rep.add_argument("--list-checks", action="store_true", help="print the v1 catalogue")
+    rep.add_argument("--list-checks", action="store_true", help="print the check catalogue")
     rep.add_argument("--kind", choices=KINDS, help="with --list-checks: one kind only")
     rep.add_argument("--previous", help="previous edition: its pack file or its report.json")
     rep.add_argument("--first-edition", action="store_true",
@@ -1003,6 +1051,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help="pyEfis checkout's src/ dir for device acceptance "
                           "(default: PYEFIS_SRC_DIR, or PYEFIS_TOOLS_DIR/../src)")
     rep.add_argument("--no-device", action="store_true", help="skip device acceptance")
+    rep.add_argument("--terrain", action="append", metavar="SOURCE",
+                     help="Copernicus terrain for XS-001/XS-002: a terrain pack, a directory "
+                          "of <N44>/<N44W122>.hgt tiles, or a published pack's https URL "
+                          "(read by range request). Repeatable")
+    rep.add_argument("--airports", help="an airports/navdata pack, for TER-005 on a terrain pack")
+    rep.add_argument("--golden-facts", dest="golden_facts",
+                     help="golden facts file for GLD-001 (default: the packaged one)")
     rep.add_argument("--record", choices=("build", "retro", "rejected"), default="build")
     rep.add_argument("--origin", help="federal / community / user-supplied "
                      "(default: by kind; required for terrain)")
@@ -1011,10 +1066,21 @@ def build_parser() -> argparse.ArgumentParser:
                      help="build note for a check (a warn without one blocks a publish)")
     rep.add_argument("--builder-ref", action="append", metavar="NAME=SHA")
     rep.add_argument("--build-commit", help="makerplane-data commit (default: git HEAD)")
+    rep.add_argument("--auspex", metavar="AUSPEX_JSON",
+                     help="QA's pre-publish auspex section, carried verbatim into the record; "
+                          "refused, with no record written, unless it matches the closed "
+                          "schema in docs/pack_report.md")
     rep.add_argument("-o", "--out", help="output path (default: <id>-<cycle>.report.json)")
     rep.add_argument("--manifest-url", default=_DEFAULT_URL_BASE.rsplit("/", 1)[0] + "/manifest.json")
     rep.add_argument("--pub", default="keys/minisign.pub")
     rep.set_defaults(func=cmd_report)
+
+    dm = sub.add_parser("diffmap", help="per-state diff maps (OSM-002/OSM-006) for two "
+                        "records of an OSM pack, as one HTML page")
+    dm.add_argument("report", help="this edition's report.json (path or URL)")
+    dm.add_argument("previous", help="the previous edition's report.json (path or URL)")
+    dm.add_argument("-o", "--out", default="diffmap.html")
+    dm.set_defaults(func=cmd_diffmap)
 
     return ap
 

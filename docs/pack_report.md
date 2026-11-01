@@ -5,8 +5,11 @@
 **Status:** schema, 2026-10-28 (AER-4099, testing-visibility item TV1).
 `packtool report` writes records and `packtool report --check` re-runs them
 (AER-4100, TV2; see [Writing and checking a record](#writing-and-checking-a-record)).
-Nothing publishes one yet: the publish wiring is TV3. The `auspex` section (below) is **pending Bill's sign-off at the TV14
-schema review** and must not be emitted before then.
+Catalogue v2 (TV7, AER-4571) adds cross-source, golden-fact, per-state and
+terrain checks, pending QA review ([Catalogue v2](#catalogue-v2-tv7)).
+Nothing publishes one yet: the publish wiring is TV3. The `auspex` section
+(below) was approved 2026-11-01, AER-4581; `packtool report --auspex` carries
+it into a record.
 
 Every pack edition gets one test record: the checks that ran on it, what each
 one measured, and what each one **cannot** catch. It is evidence, never a
@@ -63,7 +66,7 @@ never into the record.
 | `metrics` | object | no | Per-check breakdowns keyed by check id (below). |
 | `gated` | boolean | no | `false` when the pack's kind has no check catalogue QA has accepted as a gate (`report.UNGATED`: rivers, cifp, airspace, plates). |
 | `ungated` | string | when `gated` is `false` | Why the kind is ungated. |
-| `auspex` | object | no | At most one. Fixed schema, **pending sign-off** (below). |
+| `auspex` | object | no | At most one. Fixed schema, approved 2026-11-01, AER-4581 (below). |
 
 Consumers ignore unknown top-level fields, so `pack-report/1` may gain
 optional fields. Removing or changing the meaning of a field is
@@ -136,6 +139,7 @@ any delta checks were computed against, or `null`.
 | `not_run_reason` | string | no | For `not-run`, a short reason key, e.g. `first-edition`, `no-previous`, `mosaic-pack`. Only a key the catalogue entry declares can exempt a blocking check (below). |
 | `raised` | boolean | no | `true` when the check crashed. It is recorded as `fail`, and it blocks the publish whatever `blocking` says: it measured nothing. |
 | `provisional` | string | no | The check's threshold has no measured baseline yet; this says so and why. |
+| `pending_review` | string | no | QA has not reviewed the check yet (plan section 4.4). Copied from the catalogue (`Check.review`); while the catalogue entry carries it, the check never stops a publish. |
 
 `not-run` is a first-class status. A check that exists but did not run is
 listed as `not-run` with its `note`. Leaving it out would imply it passed.
@@ -195,12 +199,11 @@ Exactly the manifest `notice` text, `packtools.manifest.NOTICE`:
 > Experimental / Amateur-Built use only. Not certified. This data is provided
 > as-is with no warranty and any use of the data is at your own risk.
 
-## The `auspex` section -- PENDING SIGN-OFF
+## The `auspex` section
 
-> **Pending Bill's sign-off at the TV14 schema review**, including the
-> borderline call on whether the `coverage` figures cross. Until then no
-> report carries this section. The shape below is plan section 4.6
-> transcribed, not a proposal.
+> **Approved 2026-11-01, AER-4581**, at the TV14 schema review: the shape
+> below (plan section 4.6 transcribed), the `coverage` figures included,
+> with the interpretations under [Validation rules](#validation-rules).
 
 Auspex is a proprietary AI test engine, named in pack reports as a black box
 (D2; `oracle_gate.md` firewall rule 3, standing call). Its evidence enters a
@@ -219,7 +222,7 @@ checks it against this shape.
   "check": "pack_check",
   "run_at": "2026-10-28T00:00:00Z",
   "when": "pre-publish",
-  "verdict": "pass",
+  "verdict": "fail",
   "coverage": {"checked": 0, "covered": 0, "skipped": 0, "unreadable": 0},
   "findings": [{
     "locator": {"table": "water", "row_id": 0, "hole": 0, "lat": 0.0, "lon": 0.0},
@@ -230,15 +233,43 @@ checks it against this shape.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `engine` | string | Exactly the string above. The only description of the engine a report ever carries. |
-| `engine_build` | string | An opaque id for which build ran. Nothing about it. |
+| `engine` | string | Exactly the string above, the published line. The only description of the engine a report ever carries. |
+| `engine_build` | string | An opaque id for which build ran, matching `[A-Za-z0-9._-]{1,64}`. Nothing about it. |
 | `check` | string | The named check, e.g. `pack_check`. |
 | `run_at` | string | ISO-8601 UTC. |
 | `when` | string enum | `pre-publish` (section is in the signed record) or `after-publish` (section is a dated addendum, `auspex-<date>.json`, listed with its sha256 in `status.json`; the record is never edited). |
-| `verdict` | string enum | `pass`, `fail` or `inconclusive`. |
-| `coverage` | object | `checked`, `covered`, `skipped`, `unreadable`: this run, on this pack. **Crossing is the borderline call pending sign-off.** |
+| `verdict` | string enum | `pass`, `fail` or `inconclusive`. `pass` carries zero findings, `fail` at least one. |
+| `coverage` | object | `checked`, `covered`, `skipped`, `unreadable`: this run, on this pack. Non-negative integers. These cross (approved with the schema). |
 | `findings[]` | array | Testcase shape: what is wrong, never how it was found. `locator` (where to look), `statement`, `expected`, `actual`, `issue`. Each is checkable without Auspex. |
-| `what_a_pass_means` | string | The capability statement above. |
+| `what_a_pass_means` | string | Exactly the capability statement above. |
+
+### Validation rules
+
+Every field above is required except where stated. A section that breaks any
+of these is malformed: `packtool report --auspex` refuses it and writes no
+record, and `report.validate_report` (used by the publish gate and the report
+site) calls a record carrying it malformed. `packtools.report.validate_auspex`
+is the implementation; this list is the statement.
+
+- **Closed at every level**: the section, `coverage`, each finding and each
+  `locator` have exactly the fields named here and no others.
+- `engine` and `what_a_pass_means` are the exact strings in the example.
+- `engine_build` matches `[A-Za-z0-9._-]{1,64}`.
+- `check` is a non-empty string; `run_at` is ISO-8601 UTC ending in `Z`.
+- `when` is `pre-publish` in a record. `after-publish` is valid only in a
+  dated addendum beside the record.
+- `verdict`: `pass` has no findings; `fail` has at least one;
+  `inconclusive` may have either.
+- `coverage`: all four counts, each a non-negative integer.
+- Each finding: `locator`, `statement`, `expected`, `actual` required;
+  `issue` optional. The four text fields are strings.
+- `locator`: `table` (non-empty string) and `row_id` (integer) required;
+  `hole` (integer), `lat` and `lon` optional, and `lat`/`lon` only as a pair
+  (latitude -90..90, longitude -180..180).
+
+The section is carried verbatim: the bytes QA wrote are re-serialized with
+the rest of the record (sort_keys, 2-space indent), so it sits inside the
+bytes `report_sha256` hashes and the manifest signature covers.
 
 Never in this section, or anywhere else in a report: the method, rubrics,
 labels or corpus; the engine's own performance (precision, recall,
@@ -251,14 +282,22 @@ here (Auspex)", with each finding's locator.
 
 ```bash
 packtool report PACK [--previous PREV.pack|PREV.report.json | --first-edition] \
-                [--inputs DIR] [--note CHECK_ID=TEXT ...] [--sources sources.json] [-o out.json]
+                [--inputs DIR] [--note CHECK_ID=TEXT ...] [--sources sources.json] \
+                [--terrain SOURCE ...] [--airports AIRPORTS.pack] [--golden-facts FILE] \
+                [--auspex auspex.json] [-o out.json]
 packtool report --check PACK [--against report.json|URL] [--previous ...]
 packtool report --list-checks [--kind KIND]
+packtool diffmap THIS.report.json PREV.report.json [-o diffmap.html]
 ```
 
 `packtool report` runs the kind's catalogue and writes the record in the
 canonical bytes above. It exits 1 when the record would stop a publish (the
 rules under [`checks[]`](#checks)). The record is written either way.
+
+`--auspex` takes QA's pre-publish `auspex` section and carries it verbatim
+as the record's `auspex` value. It is checked against the
+[validation rules](#validation-rules) first; a section that does not match
+exits non-zero and writes no record at all.
 
 `--first-edition` declares that the pack's id has no earlier edition. It is
 the only way a blocking delta check may be `not-run` in a build record: a
@@ -317,10 +356,134 @@ Which checks apply:
 | navaids | `UNQ-002` identifiers the FAA reuses, against the previous edition |
 | procedures | `PROC-TBL-001` every table the builder's schema creates is present, blocking, so a first edition with no `ROW-003` baseline still refuses a dropped table (AER-4598); `PROC-FIX-001` unresolved-fix legs; `PROC-AWY-001`, `PROC-AWY-002` airway idents and the AER-1979 area merge; `PROC-MSA-001` every source PS record stored (needs `--inputs`), `PROC-MSA-002` sectors tile 360 degrees, `PROC-MSA-003` altitude and radius bounds, `PROC-MSA-004` unresolved MSA centres (AER-4446); `PROC-MORA-001`..`003` Grid MORA cell count (30 per band, band floor), duplicate cells and value range, all blocking, and `PROC-MORA-004` the `UNK` cell count (AER-4447); `PROC-GLD-001` and `PROC-DIFF-001` (`not-run`) |
 | airspace | `ASP-001` every geometry a closed, simple polygon; `ASP-002` no sector floor above its ceiling; `ASP-003` CIFP sectors reconcile with the source `FAACIFP18` (exempt for an openAIP pack, which has no CIFP rows). AER-4445; airspace stays ungated until QA accepts these |
-| terrain | `TER-001` member layout and sizes; `TER-002` tiles inside the region; `TER-006` no native tile of the previous edition missing; `TER-003` water masks (AER-2287); `TER-004` sampled elevation range; `TER-005` (`not-run`) |
+| navdata, airports | `XS-001` field elevation against Copernicus terrain (v2) |
+| obstacles | `XS-002` obstacle base against Copernicus terrain (v2) |
+| navdata, navaids, obstacles | `GLD-001` golden facts (v2) |
+| terrain | `TER-001` member layout and sizes; `TER-002` tiles inside the region; `TER-006` no native tile of the previous edition missing; `TER-003` water masks (AER-2287); `TER-004` sampled elevation range; v2: `TER-005` spot heights against field elevations, `TER-007` every Copernicus tile in the region present, `TER-008` void share of every native tile |
 | water, highways | `IDX-001` every R-tree indexes every row of its table, plus `rtreecheck` |
-| water, highways, rivers | `OSM-001` counts per region (#17); `OSM-002` per state (`not-run`, TV7); `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
+| water, highways, rivers | `OSM-001` counts per region (#17); v2: `OSM-002` counts per state or province, `OSM-006` length or summed polygon area per state or province; `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
 | rivers, cifp, airspace, plates | **Ungated** (`report.UNGATED`): the record is written with `gated: false`, and a build record of these kinds never clears the gate |
+
+### Catalogue v2 (TV7)
+
+Plan section 4.3's remaining checks: independent-source comparisons, a
+golden-facts file open to pull requests, per-state diffs with maps for the
+OSM packs, and the fuller terrain checks.
+
+**QA's verdict (AER-4584 and AER-4597, 2026-11-01).** `GLD-001`,
+`TER-007` and `TER-008` gate a publish: they are non-blocking, so a warn
+needs a build note. `OSM-002` and `OSM-006` gate as blocking checks. The rest still carry `Check.review` (`report.V2_REVIEW`): the record
+shows `pending_review` and `publish_blockers` passes over the check (not on
+a warn without a note, not on a fail, not when it raised or is missing from
+an older record). Removing `review` is QA's call:
+
+- `XS-001`, `XS-002`, `TER-005`: accepted; `review` comes off in the change
+  that wires `--terrain` and `--airports` into the gate, which must show the
+  new-outlier counts across two consecutive editions.
+- `OSM-002`, `OSM-006`: blocking, like `OSM-001`, so a state at zero stops
+  a publish (as first written they were non-blocking, and a `fail` from a
+  non-blocking check never blocks: the #17 case would have published).
+  Cleared by QA on re-review (AER-4597).
+- `TER-009` (water mask against samples at or below 0 m) was **withdrawn**:
+  QA rejected the definition. Coastal marsh that rounds to 0 m in the
+  integer-metre surface model read as sea, and a real defect (the `.wmask`
+  leaves the tile's border posts unset even in open ocean) scored 96% and
+  passed. A redefined check needs a sea reference that is not quantized
+  elevation and must judge the border ring on its own.
+
+| Check | Kind | Compares | Needs |
+|---|---|---|---|
+| `XS-001` | navdata, airports | Field elevation against Copernicus terrain at the ARP (bilinear between the four posts around it) | `--terrain` |
+| `XS-002` | obstacles | Obstacle base (`amsl_ft - agl_ft`) against Copernicus terrain | `--terrain` |
+| `TER-005` | terrain | The same as XS-001, from the terrain side: this pack's tiles under each airport of an airports pack | `--airports` |
+| `GLD-001` | navdata, navaids, obstacles | Each fact in `packtools/data/golden_facts.yaml` for the kind ([golden_facts.md](golden_facts.md)) | nothing |
+| `TER-007` | terrain | Native tiles against every GLO-30 tile that exists inside the region (`packtools/data/glo30_tiles.txt`, from the Copernicus tile list) | nothing |
+| `TER-008` | terrain | Void share of every native tile, not a sample | nothing |
+| `OSM-002` | water, highways, rivers | Feature counts per US state, Canadian province and Mexican state against the previous edition | `--previous` |
+| `OSM-006` | water, highways, rivers | Line length (km), or the sum of stored polygon areas (km2), per state or province against the previous edition | `--previous` |
+
+`--terrain` takes a terrain pack, a directory of `<N44>/<N44W122>.hgt`
+tiles, or the `https://` URL of a published pack, and may be repeated (the
+eight live regional packs cover every airport in airports-conus). A URL is
+read by HTTP range request, one tile at a time (about 4 MB each), each
+member checked against its zip CRC-32 and pinned to the object the first
+request saw with `If-Match`. The pack's own sha256 is not checked that way,
+so the record names the terrain it used (`metrics.XS-001.terrain`) but does
+not bind it.
+
+**How XS-001, XS-002 and TER-005 judge.** Copernicus is a surface model
+(trees, buildings, rooftop helipads) on 30 m posts, and a wrong FAA value
+looks the same as a wrong tile. So the checks do not call either side
+wrong. They list every point beyond the outlier bound (500 ft) in
+`metrics`, and warn when the median difference is beyond 50 ft (something
+systematic: units, datum, swapped coordinates) or when a point is beyond
+the bound that was not beyond it in the previous edition. The outliers
+the previous edition had are carried forward and listed, not accepted.
+
+Baseline, measured on 2026-11-01 against the eight live 2024edr1 terrain
+packs:
+
+| Pack | Compared | Median abs. difference | p95 | p99 | Beyond 500 ft |
+|---|---|---|---|---|---|
+| airports-conus 2612, field elevation | 19,294 of 19,450 | 8.8 ft | 70 ft | 196 ft | 51 |
+| obstacles-conus 261001, AMSL minus AGL | 652,659 of 657,181 | 3.4 ft | 23 ft | 53 ft | 95 |
+
+| terrain-us-central 2024edr1 (TER-005), field elevation | 5,902 of 5,902 | 7.4 ft | 46 ft | | 9 |
+
+Most of the airport outliers are hospital heliports whose FAA elevation
+looks like it lost a digit (IA09 Grinnell, 18 ft on terrain of about
+1,015 ft). Most of the obstacle outliers are Mexican and Canadian DOF
+entries. Neither list is a finding about our builds.
+
+On the same terrain-us-central pack, TER-007 found all 311 expected tiles,
+TER-008 no tile with any void. (The withdrawn TER-009 warned on five Gulf
+coast tiles there; QA traced that to marsh at 0 m, see above.)
+
+**OSM-002 and OSM-006** bin each feature by the centre of its bounding box
+against Natural Earth 1:10m state and province boundaries, simplified to
+about 1 km (`packtools/data/admin1_na.json`, made by
+`scripts/make_admin1.py`). Natural Earth leaves bays out of its land
+polygons, so a point in none takes the nearest state within 0.1 degree;
+what is still in none is binned `outside` and not judged. Both editions
+are binned with the same file, so a border approximation moves nothing
+between them; a change to the file does, so land one with a note.
+Counting catches a state that loses features; lengths and areas also catch
+features that shrank (a simplification bug), which counts cannot see. For
+polygons the figure is the **sum of stored polygon areas, not water area**:
+water packs store overlapping polygons (QA measured 231,605 km2 of `water`
+rows inside a 147,000 km2 box over Lake Michigan), so overlaps count each
+time and a lost polygon that another overlaps shows as a smaller drop or
+none. Relative change between editions is still meaningful, since both are
+summed the same way.
+
+Both are blocking. A previous edition whose record predates the per-state
+checks (has no OSM-002/OSM-006 entry at all) is a declared exemption
+(`no-previous-metric`): every live record does, and without it the first
+gated build would be refused, and so would every build after it, because a
+refused record never becomes the previous edition. The record carries the
+metrics, so the next edition is judged. A v2 record that lists the check
+but holds no metric (it raised) is not exempt (`previous-metric-missing`),
+and a missing `--previous` is not an exemption either.
+
+Accepted residual (QA and Elon, AER-4597): each OSM pack id's first gated
+edition is judged per region only (OSM-001), so a single state at zero
+inside a growing region would publish that once. Closing it means the gate
+re-reports the previous pack whenever its record lacks the metric, about
+1,000 s plus a 3 GB fetch on a water build, for one edition per id; judged
+not worth it.
+
+**Diff maps.** The report page of an OSM edition draws one map per table
+for OSM-002 and OSM-006: each state coloured by its change against the
+previous edition, red for losses and blue for gains, with a direct label,
+a tooltip and a table of the same numbers (`packtools/diffmap.py`).
+`packtool diffmap` writes the same figures for two records as one HTML
+page. Attribution: OpenStreetMap contributors (ODbL), boundaries Natural
+Earth (public domain).
+
+Not wired into the publish paths yet: the gate passes no `--terrain` or
+`--airports`, so XS-001, XS-002 and TER-005 are `not-run` with a declared
+reason in gate-written records. GLD-001, TER-007, TER-008 and OSM-002/006 need
+no extra input and run there today; GLD-001, TER-007 and TER-008 gate.
 
 ## The publish gate (TV3)
 

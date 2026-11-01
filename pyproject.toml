@@ -57,8 +57,10 @@ packages = ["packtools", "packtools.build", "pyefis_data"]
 [tool.setuptools.package-data]
 # Ship the systemd/udev units so a Pi install can reference them directly.
 pyefis_data = ["systemd/*"]
-# Ship regions.yaml so make-terrain works from an install, not just a checkout.
-packtools = ["regions.yaml"]
+# Ship regions.yaml so make-terrain works from an install, not just a checkout;
+# data/ holds the report's reference files (golden facts, state boundaries,
+# the Copernicus tile list) so `packtool report --check` works from an install.
+packtools = ["regions.yaml", "data/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
