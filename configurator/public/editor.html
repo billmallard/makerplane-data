@@ -1874,6 +1874,20 @@ function mapDevicePx(inst) {
   };
 }
 
+// map_style picks the palette like pyEfis map_layers.map_style():
+// stripped + lower-cased, anything unknown is "standard". The nav_only
+// colours are NAV_ONLY_PALETTE's background / range_ring / range_ring_label.
+// Standard leaves ring/ringLabel null: there range_ring_color and
+// range_ring_opacity style the rings (RangeRingsLayer.colors), while any
+// other style's palette owns its ring colours.
+function movingMapPalette(o) {
+  const style = String((o && o.map_style) || "standard").trim().toLowerCase();
+  if (style === "nav_only") {
+    return { background: "#000000", ring: "rgb(120,120,120)", ringLabel: "rgb(170,170,170)" };
+  }
+  return { background: "#101820", ring: null, ringLabel: null };
+}
+
 // Moving map twin: a port of MovingMap.paintEvent's no-data frame in device
 // pixels -- dark ground, the range-ring layer (rangeRingGeom), the top-down
 // ownship at the configurable anchor, and the status chip. Terrain/airport
@@ -1887,17 +1901,21 @@ function buildMovingMap(inst) {
   const ASC = 0.928, FONT = `font-family="DejaVu Sans Condensed, DejaVu Sans, sans-serif"`;
   const sym = o.symbol_color || "#ffff00";
   const mode = (o.orientation === "north_up") ? "NORTH UP" : "TRK UP";
+  const pal = movingMapPalette(o);
   let ringsSvg = "";
   if (o.layer_range_rings !== false) {
-    const op = (g.alpha / 255).toFixed(4);
+    // Standard: the configured colour at the configured opacity, ring and
+    // label alike. Any other style: the palette's opaque ring / label colours.
+    const op = pal.ring == null ? (g.alpha / 255).toFixed(4) : "1.0000";
+    const ringC = pal.ring ?? g.color, labelC = pal.ringLabel ?? g.color;
     for (const ring of g.rings) {
       ringsSvg += `<circle cx="${g.cx}" cy="${g.cy}" r="${ring.r}" fill="none"
-        stroke="${g.color}" stroke-opacity="${op}" stroke-width="${g.strokeW}"/>`;
+        stroke="${ringC}" stroke-opacity="${op}" stroke-width="${g.strokeW}"/>`;
       if (g.labels) {
         const L = ring.label;   // drawText clips to the label rect
         ringsSvg += `<svg x="${L.x}" y="${L.y}" width="${L.w}" height="${L.h}" overflow="hidden">
           <text x="0" y="${g.labelPx * ASC}" ${FONT} font-size="${g.labelPx}"
-          fill="${g.color}" fill-opacity="${op}">${ring.text}</text></svg>`;
+          fill="${labelC}" fill-opacity="${op}">${ring.text}</text></svg>`;
       }
     }
   }
@@ -1905,7 +1923,7 @@ function buildMovingMap(inst) {
   const chipPx = Math.max(9, Math.trunc(w * 0.03));
   return svgFromString(`
 <svg viewBox="0 0 ${w} ${h}" class="gauge-svg">
-  <rect x="0" y="0" width="${w}" height="${h}" fill="#101820"/>
+  <rect x="0" y="0" width="${w}" height="${h}" fill="${pal.background}"/>
   ${ringsSvg}
   <polygon points="${g.cx},${g.cy - s} ${g.cx + s * 0.6},${g.cy + s * 0.8} ${g.cx},${g.cy + s * 0.35} ${g.cx - s * 0.6},${g.cy + s * 0.8}"
     fill="${sym}" stroke="#000" stroke-width="1"/>
