@@ -64,7 +64,7 @@ _RETRY_PASS_PAUSE = 60.0
 
 CONUS_STATES = [
     "alabama", "arizona", "arkansas",
-    "california/norcal", "california/socal", "colorado",
+    "california/norcal", "colorado",
     "connecticut", "delaware", "district-of-columbia", "florida",
     "georgia", "idaho", "illinois", "indiana", "iowa", "kansas",
     "kentucky", "louisiana", "maine", "maryland", "massachusetts",
