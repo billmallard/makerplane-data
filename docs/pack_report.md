@@ -5,8 +5,9 @@
 **Status:** schema, 2026-10-28 (AER-4099, testing-visibility item TV1).
 `packtool report` writes records and `packtool report --check` re-runs them
 (AER-4100, TV2; see [Writing and checking a record](#writing-and-checking-a-record)).
-Nothing publishes one yet: the publish wiring is TV3. The `auspex` section (below) is **pending Bill's sign-off at the TV14
-schema review** and must not be emitted before then.
+Nothing publishes one yet: the publish wiring is TV3. The `auspex` section
+(below) was approved 2026-11-01, AER-4581; `packtool report --auspex` carries
+it into a record.
 
 Every pack edition gets one test record: the checks that ran on it, what each
 one measured, and what each one **cannot** catch. It is evidence, never a
@@ -63,7 +64,7 @@ never into the record.
 | `metrics` | object | no | Per-check breakdowns keyed by check id (below). |
 | `gated` | boolean | no | `false` when the pack's kind has no check catalogue QA has accepted as a gate (`report.UNGATED`: rivers, cifp, airspace, plates). |
 | `ungated` | string | when `gated` is `false` | Why the kind is ungated. |
-| `auspex` | object | no | At most one. Fixed schema, **pending sign-off** (below). |
+| `auspex` | object | no | At most one. Fixed schema, approved 2026-11-01, AER-4581 (below). |
 
 Consumers ignore unknown top-level fields, so `pack-report/1` may gain
 optional fields. Removing or changing the meaning of a field is
@@ -195,12 +196,11 @@ Exactly the manifest `notice` text, `packtools.manifest.NOTICE`:
 > Experimental / Amateur-Built use only. Not certified. This data is provided
 > as-is with no warranty and any use of the data is at your own risk.
 
-## The `auspex` section -- PENDING SIGN-OFF
+## The `auspex` section
 
-> **Pending Bill's sign-off at the TV14 schema review**, including the
-> borderline call on whether the `coverage` figures cross. Until then no
-> report carries this section. The shape below is plan section 4.6
-> transcribed, not a proposal.
+> **Approved 2026-11-01, AER-4581**, at the TV14 schema review: the shape
+> below (plan section 4.6 transcribed), the `coverage` figures included,
+> with the interpretations under [Validation rules](#validation-rules).
 
 Auspex is a proprietary AI test engine, named in pack reports as a black box
 (D2; `oracle_gate.md` firewall rule 3, standing call). Its evidence enters a
@@ -219,7 +219,7 @@ checks it against this shape.
   "check": "pack_check",
   "run_at": "2026-10-28T00:00:00Z",
   "when": "pre-publish",
-  "verdict": "pass",
+  "verdict": "fail",
   "coverage": {"checked": 0, "covered": 0, "skipped": 0, "unreadable": 0},
   "findings": [{
     "locator": {"table": "water", "row_id": 0, "hole": 0, "lat": 0.0, "lon": 0.0},
@@ -230,15 +230,43 @@ checks it against this shape.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `engine` | string | Exactly the string above. The only description of the engine a report ever carries. |
-| `engine_build` | string | An opaque id for which build ran. Nothing about it. |
+| `engine` | string | Exactly the string above, the published line. The only description of the engine a report ever carries. |
+| `engine_build` | string | An opaque id for which build ran, matching `[A-Za-z0-9._-]{1,64}`. Nothing about it. |
 | `check` | string | The named check, e.g. `pack_check`. |
 | `run_at` | string | ISO-8601 UTC. |
 | `when` | string enum | `pre-publish` (section is in the signed record) or `after-publish` (section is a dated addendum, `auspex-<date>.json`, listed with its sha256 in `status.json`; the record is never edited). |
-| `verdict` | string enum | `pass`, `fail` or `inconclusive`. |
-| `coverage` | object | `checked`, `covered`, `skipped`, `unreadable`: this run, on this pack. **Crossing is the borderline call pending sign-off.** |
+| `verdict` | string enum | `pass`, `fail` or `inconclusive`. `pass` carries zero findings, `fail` at least one. |
+| `coverage` | object | `checked`, `covered`, `skipped`, `unreadable`: this run, on this pack. Non-negative integers. These cross (approved with the schema). |
 | `findings[]` | array | Testcase shape: what is wrong, never how it was found. `locator` (where to look), `statement`, `expected`, `actual`, `issue`. Each is checkable without Auspex. |
-| `what_a_pass_means` | string | The capability statement above. |
+| `what_a_pass_means` | string | Exactly the capability statement above. |
+
+### Validation rules
+
+Every field above is required except where stated. A section that breaks any
+of these is malformed: `packtool report --auspex` refuses it and writes no
+record, and `report.validate_report` (used by the publish gate and the report
+site) calls a record carrying it malformed. `packtools.report.validate_auspex`
+is the implementation; this list is the statement.
+
+- **Closed at every level**: the section, `coverage`, each finding and each
+  `locator` have exactly the fields named here and no others.
+- `engine` and `what_a_pass_means` are the exact strings in the example.
+- `engine_build` matches `[A-Za-z0-9._-]{1,64}`.
+- `check` is a non-empty string; `run_at` is ISO-8601 UTC ending in `Z`.
+- `when` is `pre-publish` in a record. `after-publish` is valid only in a
+  dated addendum beside the record.
+- `verdict`: `pass` has no findings; `fail` has at least one;
+  `inconclusive` may have either.
+- `coverage`: all four counts, each a non-negative integer.
+- Each finding: `locator`, `statement`, `expected`, `actual` required;
+  `issue` optional. The four text fields are strings.
+- `locator`: `table` (non-empty string) and `row_id` (integer) required;
+  `hole` (integer), `lat` and `lon` optional, and `lat`/`lon` only as a pair
+  (latitude -90..90, longitude -180..180).
+
+The section is carried verbatim: the bytes QA wrote are re-serialized with
+the rest of the record (sort_keys, 2-space indent), so it sits inside the
+bytes `report_sha256` hashes and the manifest signature covers.
 
 Never in this section, or anywhere else in a report: the method, rubrics,
 labels or corpus; the engine's own performance (precision, recall,
@@ -251,7 +279,8 @@ here (Auspex)", with each finding's locator.
 
 ```bash
 packtool report PACK [--previous PREV.pack|PREV.report.json | --first-edition] \
-                [--inputs DIR] [--note CHECK_ID=TEXT ...] [--sources sources.json] [-o out.json]
+                [--inputs DIR] [--note CHECK_ID=TEXT ...] [--sources sources.json] \
+                [--auspex auspex.json] [-o out.json]
 packtool report --check PACK [--against report.json|URL] [--previous ...]
 packtool report --list-checks [--kind KIND]
 ```
@@ -259,6 +288,11 @@ packtool report --list-checks [--kind KIND]
 `packtool report` runs the kind's catalogue and writes the record in the
 canonical bytes above. It exits 1 when the record would stop a publish (the
 rules under [`checks[]`](#checks)). The record is written either way.
+
+`--auspex` takes QA's pre-publish `auspex` section and carries it verbatim
+as the record's `auspex` value. It is checked against the
+[validation rules](#validation-rules) first; a section that does not match
+exits non-zero and writes no record at all.
 
 `--first-edition` declares that the pack's id has no earlier edition. It is
 the only way a blocking delta check may be `not-run` in a build record: a
