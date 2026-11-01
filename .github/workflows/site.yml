@@ -23,7 +23,9 @@ name: site
 on:
   push:
     branches: [main]
-    paths: ["site/**", "packtools/reportsite.py", "packtools/community.py"]
+    paths: ["site/**", "packtools/reportsite.py", "packtools/community.py",
+            "packtools/schemasite.py", "packtools/packmeta.py",
+            "docs/schema_descriptions.yaml"]
   schedule:
     - cron: "20 11 * * *"
   workflow_dispatch:
@@ -72,6 +74,21 @@ jobs:
           packtool report-site --bucket makerplane-data \
             ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
 
+      # The pack format pages (SCH1), rendered from the schema/<kind>.json
+      # captures each publish path writes once its manifest is signed.
+      # --bootstrap first captures any live pack id that has none, from the
+      # published pack (never replacing a publish-path capture), so a kind
+      # gets its page without waiting for its next build. Same lint gate as
+      # the report pages.
+      - name: Render the pack format pages
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          packtool schema-site --bucket makerplane-data --bootstrap \
+            ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
+
       # Learned after publish, never written into the record (plan 4.5). The
       # catalog signature is checked against keys/minisign.pub first, and a
       # failed issues fetch fails the step rather than listing no issues.
@@ -104,6 +121,19 @@ jobs:
             echo "ok    reports/index.json"
           else
             echo "BAD   reports/index.json"; fail=1
+          fi
+          # Every live kind has a format page, or is named as not captured yet.
+          if curl -fsS "https://navdata.aerocommons.org/schema/index.json?run=$GITHUB_RUN_ID" \
+              | python -c "
+          import json, sys
+          idx = json.load(sys.stdin)
+          assert idx['schema'] == 'schema-index/1'
+          for kind, k in sorted(idx['kinds'].items()):
+              print(f'ok    {k[\"page\"]}  ({len(k[\"packs\"])} pack id(s))')
+          for kind in idx['uncaptured']:
+              print(f'NOTE  schema/{kind}: no capture yet')
+          "; then :; else
+            echo "BAD   schema/index.json"; fail=1
           fi
           # Every edition the index lists serves an overlay written today.
           if curl -fsS "https://navdata.aerocommons.org/reports/index.json?run=$GITHUB_RUN_ID" \

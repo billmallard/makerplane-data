@@ -86,6 +86,14 @@ def test_every_record_page_carries_the_standing_text_verbatim(site):
             assert block in data.decode(), key
 
 
+def test_no_page_carries_the_standing_text_heading(site):
+    # Bill, 2026-11-01 (AER-4532): the boxed text stands alone, no heading.
+    pages = dict(site, **rs.build([], _manifest()))
+    for key, data in pages.items():
+        if key.endswith(".html"):
+            assert "What this report is and is not" not in data.decode(), key
+
+
 def test_standing_text_is_the_plan_4_7_block():
     # Pinned so an edit to it is a visible diff, not a quiet drift.
     assert rs.STANDING_TEXT.startswith("These are the checks we ran on this pack,")

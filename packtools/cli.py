@@ -131,12 +131,13 @@ def cmd_build_pack(args) -> int:
     if zipfile.is_zipfile(pack_path):
         packmeta.embed_zip(pack_path, meta)
     else:
-        # highways: schema_version has to speak for the on-disk
-        # highway_lines table, not just PackMeta's own fields -- detect it
-        # from the built pack rather than trusting the package-wide default
-        # (AER-1715).
-        if args.kind == "highways":
-            meta.schema_version = packmeta.detect_highways_schema_version(pack_path)
+        # highways, procedures: schema_version has to speak for the
+        # on-disk tables, not just PackMeta's own fields -- detect it from
+        # the built pack rather than trusting the package-wide default
+        # (AER-1715, AER-4446).
+        detected = packmeta.detect_content_schema_version(args.kind, pack_path)
+        if detected is not None:
+            meta.schema_version = detected
         packmeta.embed_sqlite(pack_path, meta)
     print(f"embedded pack_meta: {read_packmeta(pack_path).as_dict()}")
 
@@ -216,6 +217,62 @@ def cmd_backfill_licenses(args) -> int:
     return 0
 
 
+def cmd_retro(args) -> int:
+    """Write and bind a retro record for every live edition that has none
+    (TV4), one pack at a time; --dry-run writes the records locally only."""
+    from . import retro, summary
+    if args.from_url:
+        if not args.dry_run:
+            raise SystemExit("--from-url is read-only; pass --dry-run")
+        store = _PublicStore(args.from_url)
+    elif args.source:
+        from .upload import LocalStore
+        store = LocalStore(args.source)
+    else:
+        from .upload import R2Store
+        store = R2Store.from_env(args.bucket)
+    sk = None if args.dry_run and not os.environ.get("MINISIGN_SECRET_KEY") and not args.sec \
+        else _load_secret(args)
+    if not args.dry_run and not args.no_device:
+        _require_device_reader(args)
+    only = [x for x in (args.only or "").split(",") if x] or None
+    results = retro.run(store, sk, scratch=Path(args.scratch), only=only,
+                        out_dir=Path(args.out) if args.out else None,
+                        pyefis_src=args.pyefis_src, probe=not args.no_device,
+                        schema=not args.no_schema, dry_run=args.dry_run)
+    md = retro.summary_markdown(results)
+    print(md)
+    summary.write(md)
+    return 1 if any(r.outcome == "error" for r in results) else 0
+
+
+class _PublicStore:
+    """Read-only store over the public origin (navdata.aerocommons.org), for
+    a dry run with no credentials."""
+
+    def __init__(self, base: str):
+        self.base = base.rstrip("/")
+
+    def get_bytes(self, key):
+        import requests
+        r = requests.get(f"{self.base}/{key}", timeout=120)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.content
+
+    def get_file(self, key, dest) -> bool:
+        import requests
+        with requests.get(f"{self.base}/{key}", stream=True, timeout=120) as r:
+            if r.status_code == 404:
+                return False
+            r.raise_for_status()
+            with open(dest, "wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+        return True
+
+
 def cmd_deploy_site(args) -> int:
     """Upload changed files under site/ to the bucket root (AER-4098), and
     write what changed to the job summary."""
@@ -260,6 +317,43 @@ def cmd_report_site(args) -> int:
         dst = src
     rows = reportsite.publish(dst, objects, dry_run=args.dry_run)
     md = (f"## report-site (dry_run={args.dry_run})\n\n"
+          + summary.table(["key", "bytes", "status"], rows))
+    summary.write(md)
+    return 0
+
+
+def cmd_schema_site(args) -> int:
+    """Render the pack format pages from the schema captures and upload the
+    changed ones (SCH1), or render a local preview with --from/--out."""
+    from . import community, reportsite, schemasite, sitedeploy, summary
+    from .upload import LocalStore
+    if args.source:
+        src = LocalStore(args.source)
+    else:
+        from .upload import R2Store
+        src = R2Store.from_env(args.bucket)
+    pub = Path(args.pub).read_text(encoding="utf-8") if args.pub else None
+    try:
+        manifest = community.load_live_manifest(src, pub)
+        if args.bootstrap and not args.dry_run:
+            schemasite.bootstrap(src, manifest)
+        objects = schemasite.build(schemasite.load_kinds(src), manifest,
+                                   commit=reportsite.generator_commit())
+    except (community.CommunityError, reportsite.SiteError) as e:
+        print(f"schema-site: {e}", file=sys.stderr)
+        return 1
+    if args.out:
+        # A browsable preview: the site itself, the catalog and the captures.
+        dst = LocalStore(args.out)
+        for key, path, _ in sitedeploy.site_files(args.root):
+            dst.put_file(key, path)
+        dst.put_bytes("manifest.json", src.get_bytes("manifest.json"))
+        for key in src.list_keys(schemasite.PREFIX):
+            dst.put_bytes(key, src.get_bytes(key))
+    else:
+        dst = src
+    rows = schemasite.publish(dst, objects, dry_run=args.dry_run)
+    md = (f"## schema-site (dry_run={args.dry_run})\n\n"
           + summary.table(["key", "bytes", "status"], rows))
     summary.write(md)
     return 0
@@ -713,6 +807,28 @@ def build_parser() -> argparse.ArgumentParser:
     bl.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
     bl.set_defaults(func=cmd_backfill_licenses)
 
+    rt = sub.add_parser("retro", help="write and bind a retro pack-report/1 record for "
+                        "every live edition published without one (TV4)")
+    rt.add_argument("--only", help="comma list of pack ids (default: every unbound edition)")
+    rt.add_argument("--scratch", default="work/retro-scratch",
+                    help="where each pack is downloaded; deleted before the next")
+    rt.add_argument("--out", help="also write each record, schema and the run summary here")
+    rt.add_argument("--dry-run", action="store_true",
+                    help="write records locally only; upload nothing, sign nothing")
+    rt.add_argument("--from-url", help="with --dry-run: read the manifest and packs from "
+                    "this public origin, e.g. https://navdata.aerocommons.org")
+    rt.add_argument("--from", dest="source", metavar="DIR",
+                    help="use this directory as the store instead of the bucket")
+    rt.add_argument("--pyefis-src", dest="pyefis_src",
+                    help="pyEfis src/ for the device probe (default: PYEFIS_SRC_DIR)")
+    rt.add_argument("--no-device", action="store_true",
+                    help="skip the device probe (ACC-001 is then not-run in the record)")
+    rt.add_argument("--no-schema", action="store_true",
+                    help="do not write schema/<kind>.json (SCH1)")
+    rt.add_argument("--bucket", default="makerplane-data")
+    rt.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    rt.set_defaults(func=cmd_retro)
+
     ds = sub.add_parser("deploy-site", help="upload changed site/ files to the "
                         "bucket root (navdata.aerocommons.org)")
     ds.add_argument("--root", default="site", help="site directory (default: site)")
@@ -734,6 +850,24 @@ def build_parser() -> argparse.ArgumentParser:
     rs.add_argument("--dry-run", action="store_true",
                     help="compare against the live objects; write nothing")
     rs.set_defaults(func=cmd_report_site)
+
+    sc = sub.add_parser("schema-site", help="render the pack format pages (/schema/) from "
+                        "the schema captures and upload the changed ones")
+    sc.add_argument("--bucket", default="makerplane-data")
+    sc.add_argument("--from", dest="source", metavar="DIR",
+                    help="read captures and the signed manifest from this directory "
+                    "instead of the bucket")
+    sc.add_argument("--out", metavar="DIR", help="write a browsable preview here "
+                    "instead of uploading")
+    sc.add_argument("--root", default="site", help="site directory for --out (default: site)")
+    sc.add_argument("--pub", help="public key to check manifest.json against "
+                    "(default: keys/minisign.pub)")
+    sc.add_argument("--bootstrap", action="store_true",
+                    help="first capture each live pack id that has no capture yet, from "
+                    "the published pack (never replaces a publish-path capture)")
+    sc.add_argument("--dry-run", action="store_true",
+                    help="compare against the live objects; write nothing (skips --bootstrap)")
+    sc.set_defaults(func=cmd_schema_site)
 
     so = sub.add_parser("status-overlay", help="write the nightly unsigned status.json "
                         "beside every published test record (state, pack:<id> issues, "

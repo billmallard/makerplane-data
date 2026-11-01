@@ -76,7 +76,9 @@ optional fields. Removing or changing the meaning of a field is
 - **`retro`** -- written after the fact for an edition published before
   `pack-report/1` existed (TV4). It describes the published bytes; `built`
   fields that can no longer be recovered are `null`, and any check that
-  cannot be reproduced on the old bytes is `not-run` with its reason.
+  cannot be reproduced on the old bytes is `not-run` with its reason. Who
+  wrote it, and with what code, is in the optional top-level `retro` object
+  (below), never in `built`. See "Retro records (TV4)".
 - **`rejected`** -- a build the gate refused (D4). It is never listed in the
   manifest. It is published because "the gate caught it" is evidence the gate
   works.
@@ -313,7 +315,9 @@ Which checks apply:
 | navdata, airports, navaids, obstacles, procedures | `GEO-001` valid coordinates; `UNQ-001` unique identifiers |
 | FAA kinds | `GEO-002` points outside the US coverage envelope against the previous edition |
 | navaids | `UNQ-002` identifiers the FAA reuses, against the previous edition |
-| procedures | `PROC-FIX-001` unresolved-fix legs; `PROC-AWY-001`, `PROC-AWY-002` airway idents and the AER-1979 area merge; `PROC-GLD-001` and `PROC-DIFF-001` (`not-run`) |
+| procedures | `PROC-FIX-001` unresolved-fix legs; `PROC-AWY-001`, `PROC-AWY-002` airway idents and the AER-1979 area merge; `PROC-MSA-001` every source PS record stored (needs `--inputs`), `PROC-MSA-002` sectors tile 360 degrees, `PROC-MSA-003` altitude and radius bounds, `PROC-MSA-004` unresolved MSA centres (AER-4446); `PROC-MORA-001`..`003` Grid MORA cell count (30 per band, band floor), duplicate cells and value range, all blocking, and `PROC-MORA-004` the `UNK` cell count (AER-4447); `PROC-GLD-001` and `PROC-DIFF-001` (`not-run`) |
+| procedures | `PROC-FIX-001` unresolved-fix legs; `PROC-AWY-001`, `PROC-AWY-002` airway idents and the AER-1979 area merge; `PROC-MSA-001` every source PS record stored (needs `--inputs`), `PROC-MSA-002` sectors tile 360 degrees, `PROC-MSA-003` altitude and radius bounds, `PROC-MSA-004` unresolved MSA centres (AER-4446); `PROC-GLD-001` and `PROC-DIFF-001` (`not-run`) |
+| airspace | `ASP-001` every geometry a closed, simple polygon; `ASP-002` no sector floor above its ceiling; `ASP-003` CIFP sectors reconcile with the source `FAACIFP18` (exempt for an openAIP pack, which has no CIFP rows). AER-4445; airspace stays ungated until QA accepts these |
 | terrain | `TER-001` member layout and sizes; `TER-002` tiles inside the region; `TER-006` no native tile of the previous edition missing; `TER-003` water masks (AER-2287); `TER-004` sampled elevation range; `TER-005` (`not-run`) |
 | water, highways | `IDX-001` every R-tree indexes every row of its table, plus `rtreecheck` |
 | water, highways, rivers | `OSM-001` counts per region (#17); `OSM-002` per state (`not-run`, TV7); `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
@@ -387,6 +391,79 @@ take a `notes` input. The terrain entrypoint reads
 in `run_cyclical` and in `packtool job-summary --records <out>/reports`. A
 run that stopped before any pack reached the gate says it has no record.
 
+## Retro records (TV4)
+
+`packtool retro` (`packtools/retro.py`) gives every live manifest entry that
+has no record a `retro` one, one pack at a time, from the published bytes.
+On the QNAP it runs as `packtools/cloud/retro.sh`
+(`docker-compose.retro.yml`, memory capped, sharing the terrain build's
+lock so the two never run together). Per entry, oldest edition of each id
+first:
+
+1. download the pack and check its sha256 and size against the **signed**
+   live manifest; a mismatch is an error and nothing is written for it;
+2. run the kind's catalogue as a `retro` record, with the device probe;
+3. upload `reports/<id>/<cycle>/report.json` and bind it: reload the signed
+   manifest, fill the entry's `report_url` and `report_sha256` (and a blank
+   `origin` and `notice`), and re-sign through `publish.sign_and_put`;
+4. write `schema/<kind>.json` from the open pack (below);
+5. delete the pack before the next.
+
+What the record finds is published as found, failures included. Nothing
+retracts, re-publishes or edits a pack; the run lists every `fail` in its
+summary for a person to decide on.
+
+**What a retro record says.**
+
+- `built`: `at`, `builder_refs`, `run_url` and `runner` are `null`/empty;
+  `commit` is the entry's `build_commit`, which no pre-gate entry has, so
+  `null`. `built` never names the code that wrote the retro record.
+- `retro` (optional top-level object, retro records only): `written_at`,
+  `commit` (the makerplane-data commit that wrote the record), `probe_refs`
+  (the pyEfis commit the device probe ran), `run_url`, `runner`.
+- `sources` is empty, and PACK-004 is `not-run` with the note that the
+  inputs were not recorded when the edition was built.
+- `previous` is the edition ranked just below in the signed manifest, read
+  from its bound record (the run does the older one first). With none, the
+  delta checks are `not-run` (`no-previous`). A retro record never claims
+  `first-edition`: editions older than the listed ones were pruned.
+
+**The binding exception.** `manifest.validate(obj, previous=..., retro=...)`
+refuses any change to an existing binding, and refuses a new binding on an
+entry `previous` listed without one -- unless `retro` carries that entry's
+record bytes, and those bytes hash to the new `report_sha256`, say `record:
+retro`, and describe the entry's unchanged sha256, size and url. A `retro`
+record offered for an entry that is new, already bound, or not bound in the
+write is refused too. `sign_and_put` passes `retro` through, so there is no
+side route: a build record reaches the manifest only with a new
+`(id, cycle)`, through the gate.
+
+The run is re-runnable: a bound entry is not pending. A publish that loaded
+the manifest before a bind and signed after it (the nightly cyclical run)
+drops that binding; the run re-reads the manifest at the end, reports any
+dropped binding as an error, and a re-run binds it again. Start it after the
+09:20 UTC cyclical publish has finished.
+
+The report page of a retro record says it was written after publication,
+and lists what today's gate would refuse it for as a new build, leaving out
+"record is retro" (true of every retro record).
+
+**Pack formats (`schema/<kind>.json`, makerplane-data#137).** While a pack is
+open the run also writes its format, `pack-schema/1` (`packtools/packschema.py`):
+each table's `sqlite_master` statement verbatim (inline DDL comments
+survive), `PRAGMA table_info`, indexes, R-trees (their shadow tables folded
+under them), the `pack_meta` keys and `schema_version`, and the pack id and
+cycle it came from; for a zip pack, the member layout by name pattern. A kind
+with several ids (terrain) gets the file of the last one processed, which
+`from` names. Rendering it is #137's job.
+
+Dry run, no credentials, nothing written to the bucket:
+
+```bash
+packtool retro --dry-run --from-url https://navdata.aerocommons.org \
+    --only airports-conus,procedures-conus --no-device --out /tmp/retro
+```
+
 ## Report pages (TV5)
 
 `packtool report-site` (`packtools/reportsite.py`) renders the public pages
@@ -436,7 +513,8 @@ default to `""`, with no `manifest_version` bump -- the same pattern as
 entry whose `(id, cycle)` is not in `prior_manifest` unless it has a
 `report_url`, a 64-hex `report_sha256` and a non-empty `notice` (and, if
 `origin` is set, one of the three values). Entries already published stay
-valid without any of these; their records arrive as `retro` reports (TV4).
+valid without any of these; their records arrive as `retro` reports (TV4,
+bound under the narrow exception in "Retro records (TV4)").
 The publish paths start passing `previous` when TV3 gives them a report to
 publish -- passing it before then would refuse every nightly build.
 

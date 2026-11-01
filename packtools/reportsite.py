@@ -52,7 +52,8 @@ REPO = "billmallard/makerplane-data"
 REPO_URL = f"https://github.com/{REPO}"
 BUILDER_REPOS = {"pyEfis": "https://github.com/billmallard/pyEfis"}
 
-# Plan section 4.7, "What this report is and is not", verbatim (D3).
+# Plan section 4.7 standing text, verbatim (D3). Rendered as the boxed
+# p.standing alone; the section heading was dropped on 2026-11-01 (AER-4532).
 STANDING_TEXT = (
     "These are the checks we ran on this pack, what each one measured, and what "
     "each one cannot catch. It is evidence, not a warranty and not a certification. "
@@ -319,8 +320,7 @@ def page(title: str, body: str, *, root: str, commit: str) -> str:
 
 
 def standing_block() -> str:
-    return (f'<section><h2>What this report is and is not</h2>'
-            f'<p class="standing">{e(STANDING_TEXT)}</p></section>')
+    return f'<section><p class="standing">{e(STANDING_TEXT)}</p></section>'
 
 
 # --- one edition ------------------------------------------------------------
@@ -478,7 +478,15 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
     prev_cycle = (rec.get("previous") or {}).get("cycle")
     prev_link = (f'<a href="../{e(prev["cycle"])}/report.html">{e(prev["cycle"])}</a>'
                  if prev else e(prev_cycle) if prev_cycle else "none")
-    blockers = ("".join(f"<li>{e(x)}</li>" for x in row["blockers"]))
+    shown = row["blockers"]
+    stop = "This record would stop a publish:"
+    if rec["record"] == "retro":
+        # Only a build record can clear the gate, so every retro record
+        # "would stop a publish"; say what else today's gate would refuse.
+        shown = [x for x in shown if not x.startswith("record is retro")]
+        stop = ("Judged by today's publish gate as a new build, this edition would be "
+                "refused for:")
+    blockers = ("".join(f"<li>{e(x)}</li>" for x in shown))
     body = f"""
 <section class="lede"><h1>{e(pack_label(rec))} <span class="mono">{e(p['id'])}</span>
 &middot; {e(p['cycle'])}</h1>
@@ -490,7 +498,7 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
 <p class="tallies">{pill('pass')} {t['pass']} &nbsp; {pill('warn')} {t['warn']} &nbsp;
 {pill('fail')} {t['fail']} &nbsp; {pill('not-run')} {t['not-run']}</p>
 {callouts(rec)}
-{f'<p class="banner bad">This record would stop a publish:</p><ul>{blockers}</ul>' if blockers else ''}
+{f'<p class="banner bad">{e(stop)}</p><ul>{blockers}</ul>' if blockers else ''}
 <p class="filter">Show: <label><input type="checkbox" value="pass" checked> pass</label>
 <label><input type="checkbox" value="warn" checked> warn</label>
 <label><input type="checkbox" value="fail" checked> fail</label>
