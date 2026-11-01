@@ -36,7 +36,7 @@
   .btn:hover { border-color:var(--orange); color:var(--orange); }
   .btn.primary { background:var(--orange); border-color:var(--orange); color:#fff; }
   .btn.primary:disabled { background:#cfd4dc; border-color:#cfd4dc; cursor:default; }
-  .errors { color:var(--red); font-size:13px; margin:8px 0 0; }
+  .errors { color:var(--red); font-size:13px; margin:8px 0 0; white-space:pre-line; }
   .ok { color:var(--green); font-size:13.5px; }
   canvas#arc { width:100%; height:44px; border:1px solid var(--line); border-radius:8px;
                background:#fafbfc; margin-top:10px; }
@@ -384,7 +384,7 @@ function validate() {
   if (!box) { box = document.createElement("p"); box.id = "errbox"; box.className = "errors";
               $("groups").prepend(box); }
   box.textContent = [hard.length ? "Fix before saving: " + hard.join(" · ") : "",
-                     errs.length ? "Check: " + errs.join(" · ") : ""].filter(Boolean).join("  ");
+                     errs.length ? "Check: " + errs.join(" · ") : ""].filter(Boolean).join("\n");
   $("save").style.background = errs.length && !hard.length ? "var(--amber)" : "";
   $("save").disabled = hard.length > 0;
   return { errs, hard };
