@@ -1671,9 +1671,125 @@ def to_bytes(report: dict) -> bytes:
 
 # --- validating a record ----------------------------------------------------
 
+# --- the auspex section (docs/pack_report.md; approved 2026-11-01, AER-4581) ---
+
+AUSPEX_ENGINE = "Auspex -- proprietary AI test engine; method not published"
+AUSPEX_WHAT_A_PASS_MEANS = ("The pack does not contradict itself. It never means the "
+                            "pack is right about the world.")
+AUSPEX_WHEN = ("pre-publish", "after-publish")
+AUSPEX_VERDICTS = ("pass", "fail", "inconclusive")
+_AUSPEX_FIELDS = ("engine", "engine_build", "check", "run_at", "when", "verdict",
+                  "coverage", "findings", "what_a_pass_means")
+_AUSPEX_COVERAGE = ("checked", "covered", "skipped", "unreadable")
+_AUSPEX_FINDING = ("locator", "statement", "expected", "actual")
+_AUSPEX_FINDING_OPT = ("issue",)
+_AUSPEX_LOCATOR = ("table", "row_id")
+_AUSPEX_LOCATOR_OPT = ("hole", "lat", "lon")
+_ENGINE_BUILD = re.compile(r"[A-Za-z0-9._-]{1,64}")
+_UTC = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z")
+
+
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _is_num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def _closed(obj, where: str, required: tuple, optional: tuple = ()) -> list[str]:
+    """The wall: an object with exactly these keys, no others."""
+    if not isinstance(obj, dict):
+        return [f"{where} is not an object"]
+    errs = [f"{where}.{k} is not a field the schema defines" for k in sorted(obj)
+            if k not in required and k not in optional]
+    errs += [f"{where}.{k} is missing" for k in required if k not in obj]
+    return errs
+
+
+def validate_auspex(a, *, in_record: bool = True) -> list[str]:
+    """Problems with an ``auspex`` section, empty if none.
+
+    The schema is closed at every level: a field it does not define is
+    malformed and must not be published. ``in_record`` is the section as it
+    sits in a signed record, where ``when`` can only be ``pre-publish``; an
+    ``after-publish`` run is a dated addendum, never an edit to the record."""
+    errs = _closed(a, "auspex", _AUSPEX_FIELDS)
+    if not isinstance(a, dict):
+        return errs
+    if "engine" in a and a["engine"] != AUSPEX_ENGINE:
+        errs.append("auspex.engine is not the published engine line")
+    if "engine_build" in a and not (isinstance(a["engine_build"], str)
+                                    and _ENGINE_BUILD.fullmatch(a["engine_build"])):
+        errs.append("auspex.engine_build is not [A-Za-z0-9._-]{1,64}")
+    if "check" in a and not (isinstance(a["check"], str) and a["check"].strip()):
+        errs.append("auspex.check is not a non-empty string")
+    if "run_at" in a:
+        ok = isinstance(a["run_at"], str) and bool(_UTC.fullmatch(a["run_at"]))
+        if ok:
+            try:
+                _dt.datetime.fromisoformat(a["run_at"].replace("Z", "+00:00"))
+            except ValueError:
+                ok = False
+        if not ok:
+            errs.append("auspex.run_at is not an ISO-8601 UTC time (...Z)")
+    if "when" in a:
+        if a["when"] not in AUSPEX_WHEN:
+            errs.append("auspex.when is not pre-publish / after-publish")
+        elif in_record and a["when"] != "pre-publish":
+            errs.append("auspex.when is after-publish: that run is a dated addendum, "
+                        "never part of the signed record")
+    if "verdict" in a and a["verdict"] not in AUSPEX_VERDICTS:
+        errs.append("auspex.verdict is not pass / fail / inconclusive")
+    if "what_a_pass_means" in a and a["what_a_pass_means"] != AUSPEX_WHAT_A_PASS_MEANS:
+        errs.append("auspex.what_a_pass_means is not the capability statement")
+    if "coverage" in a:
+        cov = a["coverage"]
+        errs += _closed(cov, "auspex.coverage", _AUSPEX_COVERAGE)
+        if isinstance(cov, dict):
+            errs += [f"auspex.coverage.{k} is not a non-negative integer"
+                     for k in _AUSPEX_COVERAGE
+                     if k in cov and not (_is_int(cov[k]) and cov[k] >= 0)]
+    findings = a.get("findings")
+    if "findings" in a and not isinstance(findings, list):
+        errs.append("auspex.findings is not an array")
+        findings = None
+    for i, f in enumerate(findings or []):
+        w = f"auspex.findings[{i}]"
+        errs += _closed(f, w, _AUSPEX_FINDING, _AUSPEX_FINDING_OPT)
+        if not isinstance(f, dict):
+            continue
+        errs += [f"{w}.{k} is not a string" for k in _AUSPEX_FINDING[1:] + _AUSPEX_FINDING_OPT
+                 if k in f and not isinstance(f[k], str)]
+        if "locator" not in f:
+            continue
+        loc, lw = f["locator"], f"{w}.locator"
+        errs += _closed(loc, lw, _AUSPEX_LOCATOR, _AUSPEX_LOCATOR_OPT)
+        if not isinstance(loc, dict):
+            continue
+        if "table" in loc and not (isinstance(loc["table"], str) and loc["table"]):
+            errs.append(f"{lw}.table is not a non-empty string")
+        errs += [f"{lw}.{k} is not an integer" for k in ("row_id", "hole")
+                 if k in loc and not _is_int(loc[k])]
+        if ("lat" in loc) != ("lon" in loc):
+            errs.append(f"{lw} has only one of lat / lon; they come as a pair")
+        if "lat" in loc and not (_is_num(loc["lat"]) and -90 <= loc["lat"] <= 90):
+            errs.append(f"{lw}.lat is not a latitude")
+        if "lon" in loc and not (_is_num(loc["lon"]) and -180 <= loc["lon"] <= 180):
+            errs.append(f"{lw}.lon is not a longitude")
+    if isinstance(findings, list):
+        if a.get("verdict") == "pass" and findings:
+            errs.append("auspex.verdict is pass but findings is not empty")
+        if a.get("verdict") == "fail" and not findings:
+            errs.append("auspex.verdict is fail with no findings")
+    return errs
+
+
 def validate_report(obj: dict) -> list[str]:
     """Structural problems with a ``pack-report/1`` record, empty if none."""
     errs = []
+    if "auspex" in obj:
+        errs += validate_auspex(obj["auspex"])
     if obj.get("schema") != SCHEMA:
         errs.append(f"schema is not {SCHEMA}")
     if obj.get("record") not in RECORDS:
