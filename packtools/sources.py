@@ -85,6 +85,10 @@ class Source:
     # zip member to feed the builder, or "" if the archive is the input dir
     archive_member: str = ""
     implemented: bool = True        # CIFP is registered but deferred (see below)
+    # The publish gate's origin label (report.ORIGINS). "" lets the report
+    # default it by kind, which is wrong when one kind has sources of two
+    # pedigrees: airspace is openAIP (community) or FAA CIFP (federal).
+    origin: str = ""
 
 
 # The cyclical sources the daily pipeline builds. Pack ids are stable and
@@ -148,6 +152,24 @@ SOURCES: dict[str, Source] = {
         url_for=cifp_url, builder="procedures",
         attribution="FAA CIFP (public domain)",
         license=_FAA_PUBLIC_DOMAIN,
+    ),
+    # Class B/C/D (UC) and special-use (UR) airspace from the same CIFP zip
+    # (AER-4445/AIRSP1); builder packtools/build/airspace_cifp.py. Same kind
+    # as the openAIP packs below, so one pyEfis reader serves both.
+    #
+    # implemented=False until two things are true, on purpose: the airspace
+    # kind is on main (the new-kind rule -- it has never been published),
+    # and QA has accepted the ASP-001..003 catalogue so airspace leaves
+    # report.UNGATED. Until then every build would be refused at the gate,
+    # turning each nightly run red and uploading a rejected record. Flipping
+    # this is the approval step for the first publish, not a cleanup.
+    "airspace-conus": Source(
+        pack_id="airspace-conus", kind="airspace", cadence="airac",
+        url_for=cifp_url, builder="airspace-cifp",
+        attribution="FAA CIFP (public domain)",
+        license=_FAA_PUBLIC_DOMAIN,
+        origin="federal",
+        implemented=False,
     ),
 }
 

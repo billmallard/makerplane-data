@@ -1,0 +1,26 @@
+{
+  "UC": {
+    "rows": 1281,
+    "matched": 1281,
+    "no-limit-match": 0,
+    "no-adds-airspace": 0,
+    "iou_median": 0.9969,
+    "iou_p05": 0.9918,
+    "iou_ge_0.99": 1239,
+    "iou_ge_0.95": 1273,
+    "hausdorff_nm_median": 0.019,
+    "hausdorff_nm_p95": 0.048
+  },
+  "UR": {
+    "rows": 1586,
+    "matched": 1523,
+    "no-limit-match": 7,
+    "no-adds-airspace": 56,
+    "iou_median": 0.9991,
+    "iou_p05": 0.9901,
+    "iou_ge_0.99": 1447,
+    "iou_ge_0.95": 1513,
+    "hausdorff_nm_median": 0.011,
+    "hausdorff_nm_p95": 0.133
+  }
+}

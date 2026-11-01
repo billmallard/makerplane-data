@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Callable
 
 from .airspace import build_airspace
+from .airspace_cifp import build_airspace_cifp
 from .errors import BuildError
 from .procedures import build_procedures
 
@@ -126,5 +127,6 @@ BUILDERS: dict[str, Builder] = {
     "navaids": build_navaids,
     "cifp": _build_cifp,
     "airspace": build_airspace,
+    "airspace-cifp": build_airspace_cifp,
     "procedures": build_procedures,
 }
