@@ -316,6 +316,7 @@ Which checks apply:
 | FAA kinds | `GEO-002` points outside the US coverage envelope against the previous edition |
 | navaids | `UNQ-002` identifiers the FAA reuses, against the previous edition |
 | procedures | `PROC-FIX-001` unresolved-fix legs; `PROC-AWY-001`, `PROC-AWY-002` airway idents and the AER-1979 area merge; `PROC-MSA-001` every source PS record stored (needs `--inputs`), `PROC-MSA-002` sectors tile 360 degrees, `PROC-MSA-003` altitude and radius bounds, `PROC-MSA-004` unresolved MSA centres (AER-4446); `PROC-GLD-001` and `PROC-DIFF-001` (`not-run`) |
+| airspace | `ASP-001` every geometry a closed, simple polygon; `ASP-002` no sector floor above its ceiling; `ASP-003` CIFP sectors reconcile with the source `FAACIFP18` (exempt for an openAIP pack, which has no CIFP rows). AER-4445; airspace stays ungated until QA accepts these |
 | terrain | `TER-001` member layout and sizes; `TER-002` tiles inside the region; `TER-006` no native tile of the previous edition missing; `TER-003` water masks (AER-2287); `TER-004` sampled elevation range; `TER-005` (`not-run`) |
 | water, highways | `IDX-001` every R-tree indexes every row of its table, plus `rtreecheck` |
 | water, highways, rivers | `OSM-001` counts per region (#17); `OSM-002` per state (`not-run`, TV7); `OSM-004` bounding boxes; `OSM-005` coverage map (`not-run`, TV5); highways also `OSM-003` schema version (AER-1715) |
