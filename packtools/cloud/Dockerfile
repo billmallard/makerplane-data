@@ -15,7 +15,7 @@ FROM python:3.13-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates curl \
-       libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 \
+       libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0t64 \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir numpy boto3 "PyNaCl>=1.5" "PyYAML>=6.0" "requests>=2.28" PyQt6
 
