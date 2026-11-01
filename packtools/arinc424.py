@@ -51,11 +51,23 @@ ARINC's own design guarantees a procedure only ever cites its own
 airport's terminal waypoints/runways -- see ``build_fix_index`` and
 ``_resolve``.
 
-Airport-as-waypoint fixes (Waypoint Description Code type ``A``) are not
-resolved -- no golden fixture in this pack exercises one, and guessing an
-unverified column offset for Airport Reference Point coordinates would
-risk a silently wrong (not missing) fix. Such legs get ``fix_lat``/
-``fix_lon`` = ``NULL``, same as any other unresolved fix.
+Three more fix families resolve since AER-4446 (MSA centres need all
+three; procedure legs naming one used to be left unresolved). Offsets
+verified against the live 2611 cycle:
+
+- Airport Reference Points (``PA``): the airport is its own fix, ident and
+  owning airport both ``[6:10]``, position at the shared ``[32:51]``
+  (KSBA reads N34253429 W119502937, the published ARP). Airport-scoped.
+- Terminal NDBs (``PN``): subsection at ``[5:6]`` like the D section, not
+  ``[12:13]`` like the rest of P; ident ``[13:18]``, owning airport
+  ``[6:10]``, position ``[32:51]``. Airport-scoped.
+- DME-only navaids (TACAN, DME, ILS-DME): 1,266 of 2,458 D records carry
+  no VOR position at ``[32:51]``, only a DME position at ``[55:74]``. For
+  those the DME position is the facility's position, so it is used; a
+  record that has both keeps the VOR position.
+
+A fix that still does not resolve gets ``NULL`` coordinates, never a
+guessed one.
 """
 
 from __future__ import annotations
@@ -75,7 +87,9 @@ _FIX_IDENT = slice(13, 18)
 _FIX_LAT = slice(32, 41)
 _FIX_LON = slice(41, 51)
 _FIX_ICAO_AREA_SCOPED = slice(19, 21)      # VOR/NDB navaids, enroute waypoints
-_FIX_OWNING_AIRPORT = slice(6, 10)         # terminal waypoints, runways
+_FIX_OWNING_AIRPORT = slice(6, 10)         # terminal waypoints, runways, ARPs, terminal NDBs
+_DME_LAT = slice(55, 64)                   # D section: DME position, used when the
+_DME_LON = slice(64, 74)                   # record carries no VOR position (DME-only)
 
 # --- ER: Enroute Airways primary record (ARINC 424-17 Sec. 4.1.6.1) ------
 _ER = dict(
@@ -132,6 +146,37 @@ _PROC = dict(
 )
 
 _KIND_BY_SUBSECTION = {"D": "sid", "E": "star", "F": "approach"}
+
+# --- PS: Airport MSA primary record (Sec. 4.1.20.1) ----------------------
+# Offsets verified against every PS record in the live 2611 cycle (6,058
+# records, all primaries): each one's sectors tile 360 degrees exactly, and
+# KSBA's RW07, GVO and RZS records match the MSA circles printed on the
+# KSBA RNAV (GPS) RWY 7, VOR RWY 25 and ILS OR LOC RWY 7 plates.
+_MSA = dict(
+    record_type=slice(0, 1),
+    area=slice(1, 4),
+    section=slice(4, 5),
+    airport=slice(6, 10),
+    airport_icao=slice(10, 12),
+    subsection=slice(12, 13),
+    centre_ident=slice(13, 18),
+    centre_icao=slice(18, 20),
+    centre_section=slice(20, 21),
+    centre_subsection=slice(21, 22),
+    multiple_code=slice(22, 23),       # tells apart two MSAs on one centre (5.130)
+    continuation=slice(38, 39),
+    sectors=slice(42, 119),            # 7 x 11 chars, see _MSA_SECTOR
+    mag_true=slice(119, 120),          # M = magnetic, T = true (5.165)
+    file_record_no=slice(123, 128),
+    cycle=slice(128, 132),
+)
+#: One MSA sector inside ``_MSA["sectors"]``: bearing start and end (3+3
+#: digits, whole degrees, clockwise), altitude (3 digits, hundreds of feet),
+#: radius (2 digits, nautical miles). The bearings are bearings *to* the
+#: centre fix -- the plates draw them as arrows pointing in at it -- and a
+#: one-sector MSA codes the full circle as start == end ("180180").
+_MSA_SECTOR_WIDTH = 11
+_MSA_SECTORS = 7
 
 # Waypoint Description Code (WDC) flag bits -- Sec. 5.17, Fig. 5-4.
 FLAG_FLYOVER = 1 << 0
@@ -295,7 +340,7 @@ FixKey = tuple[str, str, str, str]  # (ident, scope, section, subsection)
 
 #: (section, subsection) pairs whose ident is unique only per-airport, not
 #: per-ICAO-region -- see module docstring.
-_AIRPORT_SCOPED = frozenset({("P", "C"), ("P", "G")})
+_AIRPORT_SCOPED = frozenset({("P", "C"), ("P", "G"), ("P", "A"), ("P", "N")})
 
 
 def build_fix_index(path: str | Path) -> dict[FixKey, tuple[float, float]]:
@@ -310,6 +355,7 @@ def build_fix_index(path: str | Path) -> dict[FixKey, tuple[float, float]]:
     index: dict[FixKey, tuple[float, float]] = {}
     for line in read_records(path):
         section = line[4:5]
+        ident = _strip(line[_FIX_IDENT])
         if section == "D":
             subsection = line[5:6].strip()
             scope = _strip(line[_FIX_ICAO_AREA_SCOPED])
@@ -319,17 +365,22 @@ def build_fix_index(path: str | Path) -> dict[FixKey, tuple[float, float]]:
             subsection = "A"
             scope = _strip(line[_FIX_ICAO_AREA_SCOPED])
         elif section == "P":
-            subsection = line[12:13]
+            # PN carries its subsection where the D section does; every
+            # other P record carries it at [12:13].
+            subsection = "N" if line[5:6] == "N" else line[12:13]
             if (section, subsection) not in _AIRPORT_SCOPED:
                 continue
             scope = _strip(line[_FIX_OWNING_AIRPORT])
+            if subsection == "A":
+                ident = scope
         else:
             continue
 
-        ident = _strip(line[_FIX_IDENT])
         if ident is None or scope is None:
             continue
         latlon = _parse_latlon(line[_FIX_LAT], line[_FIX_LON])
+        if latlon is None and section == "D" and not line[_FIX_LAT].strip():
+            latlon = _parse_latlon(line[_DME_LAT], line[_DME_LON])
         if latlon is None:
             continue
         index[(ident, scope, section, subsection)] = latlon
@@ -514,3 +565,99 @@ def transition_role(kind: str, route_type: str, transition: str | None) -> str:
     if not transition:
         return "common"
     return "enroute"
+
+
+@dataclass
+class MsaSector:
+    seq: int                   # 1-based position in the record
+    bearing_start: int | None  # degrees, bearing to the centre, clockwise start
+    bearing_end: int | None
+    altitude_ft: int | None
+    radius_nm: int | None
+    raw: str                   # the 11 characters as read
+
+
+@dataclass
+class MsaRecord:
+    area: str | None
+    airport: str
+    airport_icao: str | None
+    centre_ident: str
+    centre_icao: str | None
+    centre_section: str | None
+    centre_subsection: str | None
+    centre_type: str | None
+    centre_lat: float | None
+    centre_lon: float | None
+    multiple_code: str | None
+    mag_true: str | None
+    sectors: list[MsaSector]
+    fields: dict[str, str]     # every named field as read, unstripped
+    continuations: list[str]   # continuation records, verbatim
+
+
+def _msa_sector(seq: int, raw: str) -> MsaSector:
+    hundreds = _to_int(raw[6:9])
+    return MsaSector(seq=seq, bearing_start=_to_int(raw[0:3]), bearing_end=_to_int(raw[3:6]),
+                     altitude_ft=hundreds * 100 if hundreds is not None else None,
+                     radius_nm=_to_int(raw[9:11]), raw=raw)
+
+
+def iter_msa(path: str | Path, fix_index: dict[FixKey, tuple[float, float]]
+             ) -> Iterator[MsaRecord]:
+    """Every Airport MSA (``PS``) record, in source order, from every
+    Customer/Area Code (Alaska is coded under ``CAN``, so filtering by area
+    would drop it). The centre fix resolves against its own airport for the
+    airport-scoped types (runway, terminal waypoint, airport, terminal NDB)
+    and against its ICAO region otherwise -- the same rule as procedure
+    legs. A centre that does not resolve keeps ``NULL`` coordinates.
+
+    Continuation records (continuation number above 1) are kept verbatim on
+    the primary they follow; the 2611 cycle has none, so nothing here
+    decodes them."""
+    f = _MSA
+    current: MsaRecord | None = None
+    for line in read_records(path):
+        if not (line[4:5] == "P" and line[12:13] == "S"):
+            continue
+        if line[f["continuation"]] not in ("0", "1"):
+            if current is not None:
+                current.continuations.append(line)
+            continue
+        if current is not None:
+            yield current
+            current = None
+        airport = _strip(line[f["airport"]])
+        centre_ident = _strip(line[f["centre_ident"]])
+        if not airport or not centre_ident:
+            continue
+        centre_icao = _strip(line[f["centre_icao"]])
+        centre_section = _strip(line[f["centre_section"]])
+        centre_subsection = _strip(line[f["centre_subsection"]])
+        lat, lon = _resolve(fix_index, airport, centre_ident, centre_icao,
+                            centre_section, centre_subsection)
+        block = line[f["sectors"]]
+        sectors = []
+        for i in range(_MSA_SECTORS):
+            raw = block[i * _MSA_SECTOR_WIDTH:(i + 1) * _MSA_SECTOR_WIDTH]
+            if raw.strip():
+                sectors.append(_msa_sector(i + 1, raw))
+        current = MsaRecord(
+            area=_strip(line[f["area"]]),
+            airport=airport,
+            airport_icao=_strip(line[f["airport_icao"]]),
+            centre_ident=centre_ident,
+            centre_icao=centre_icao,
+            centre_section=centre_section,
+            centre_subsection=centre_subsection,
+            centre_type=_fix_type(centre_section, centre_subsection),
+            centre_lat=lat,
+            centre_lon=lon,
+            multiple_code=_strip(line[f["multiple_code"]]),
+            mag_true=_strip(line[f["mag_true"]]),
+            sectors=sectors,
+            fields={k: line[v] for k, v in f.items()},
+            continuations=[],
+        )
+    if current is not None:
+        yield current
