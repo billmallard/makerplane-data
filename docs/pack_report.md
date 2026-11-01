@@ -338,9 +338,9 @@ Plan section 4.3's remaining checks: independent-source comparisons, a
 golden-facts file open to pull requests, per-state diffs with maps for the
 OSM packs, and the fuller terrain checks.
 
-**QA's verdict (AER-4584, 2026-11-01).** `GLD-001`, `TER-007` and
-`TER-008` gate a publish: they are non-blocking, so a warn needs a build
-note. The rest still carry `Check.review` (`report.V2_REVIEW`): the record
+**QA's verdict (AER-4584 and AER-4597, 2026-11-01).** `GLD-001`,
+`TER-007` and `TER-008` gate a publish: they are non-blocking, so a warn
+needs a build note. `OSM-002` and `OSM-006` gate as blocking checks. The rest still carry `Check.review` (`report.V2_REVIEW`): the record
 shows `pending_review` and `publish_blockers` passes over the check (not on
 a warn without a note, not on a fail, not when it raised or is missing from
 an older record). Removing `review` is QA's call:
@@ -350,8 +350,8 @@ an older record). Removing `review` is QA's call:
   new-outlier counts across two consecutive editions.
 - `OSM-002`, `OSM-006`: blocking, like `OSM-001`, so a state at zero stops
   a publish (as first written they were non-blocking, and a `fail` from a
-  non-blocking check never blocks: the #17 case would have published). Back
-  with QA for re-review.
+  non-blocking check never blocks: the #17 case would have published).
+  Cleared by QA on re-review (AER-4597).
 - `TER-009` (water mask against samples at or below 0 m) was **withdrawn**:
   QA rejected the definition. Coastal marsh that rounds to 0 m in the
   integer-metre surface model read as sea, and a real defect (the `.wmask`
@@ -425,11 +425,20 @@ none. Relative change between editions is still meaningful, since both are
 summed the same way.
 
 Both are blocking. A previous edition whose record predates the per-state
-metrics is a declared exemption (`no-previous-metric`): every live record
-does, and without it the first gated build would be refused, and so would
-every build after it, because a refused record never becomes the previous
-edition. The record carries the metrics, so the next edition is judged.
-A missing `--previous` is still not an exemption.
+checks (has no OSM-002/OSM-006 entry at all) is a declared exemption
+(`no-previous-metric`): every live record does, and without it the first
+gated build would be refused, and so would every build after it, because a
+refused record never becomes the previous edition. The record carries the
+metrics, so the next edition is judged. A v2 record that lists the check
+but holds no metric (it raised) is not exempt (`previous-metric-missing`),
+and a missing `--previous` is not an exemption either.
+
+Accepted residual (QA and Elon, AER-4597): each OSM pack id's first gated
+edition is judged per region only (OSM-001), so a single state at zero
+inside a growing region would publish that once. Closing it means the gate
+re-reports the previous pack whenever its record lacks the metric, about
+1,000 s plus a 3 GB fetch on a water build, for one edition per id; judged
+not worth it.
 
 **Diff maps.** The report page of an OSM edition draws one map per table
 for OSM-002 and OSM-006: each state coloured by its change against the
