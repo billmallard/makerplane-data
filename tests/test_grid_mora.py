@@ -111,7 +111,7 @@ def test_builder_writes_grid_mora(tmp_path):
         assert raw.startswith("S   AS       S14W180") and len(raw) == 132
     finally:
         con.close()
-    assert packmeta.detect_procedures_schema_version(out) == 2
+    assert packmeta.detect_procedures_schema_version(out) == 3
 
 
 def test_builder_refuses_two_bands_claiming_one_cell(tmp_path):
@@ -125,26 +125,31 @@ def test_builder_refuses_two_bands_claiming_one_cell(tmp_path):
 
 def test_procedures_schema_version_follows_the_table_set(tmp_path):
     from packtools.build.procedures import _SCHEMA
+    v3 = tmp_path / "v3.pack"
+    con = sqlite3.connect(v3)
+    con.executescript(_SCHEMA)
+    con.close()
+    assert packmeta.detect_content_schema_version("procedures", v3) == 3
     v2 = tmp_path / "v2.pack"
     con = sqlite3.connect(v2)
     con.executescript(_SCHEMA)
+    con.executescript("DROP TABLE grid_mora; DROP TABLE grid_mora_bands;")
     con.close()
-    assert packmeta.detect_schema_version("procedures", v2) == 2
+    assert packmeta.detect_content_schema_version("procedures", v2) == 2
     v1 = tmp_path / "v1.pack"
     con = sqlite3.connect(v1)
     con.executescript(_SCHEMA)
-    con.executescript("DROP TABLE grid_mora; DROP TABLE grid_mora_bands;")
+    con.executescript("DROP TABLE grid_mora; DROP TABLE grid_mora_bands; DROP TABLE msa;")
     con.close()
     packmeta.embed_sqlite(v1, PackMeta(id="procedures-conus", kind="procedures",
                                        cycle="2611"))
-    assert packmeta.detect_schema_version("procedures", v1) == 1   # pack_meta ignored
+    assert packmeta.detect_content_schema_version("procedures", v1) == 1   # pack_meta ignored
     con = sqlite3.connect(v1)
     con.execute("CREATE TABLE surprise (x)")
     con.close()
     with pytest.raises(ValueError, match="PROCEDURES_TABLE_SCHEMAS"):
-        packmeta.detect_schema_version("procedures", v1)
+        packmeta.detect_content_schema_version("procedures", v1)
 
 
 def test_kinds_without_a_detector_keep_the_package_default(tmp_path):
-    assert packmeta.detect_schema_version("obstacles", tmp_path / "x") == \
-        packmeta.SCHEMA_VERSION
+    assert packmeta.detect_content_schema_version("obstacles", tmp_path / "x") is None

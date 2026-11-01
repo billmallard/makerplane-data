@@ -25,15 +25,44 @@ LICENSE = dict(attribution="FAA CIFP (public domain)", license="LicenseRef-us-pu
 
 # --- fixtures -----------------------------------------------------------------
 
+#: KSBA's RW07 MSA, the real 2611 PS record: one sector, 8100 ft, 25 nm.
+PS_RW07 = ("SUSAP KSBAK2SRW07 K2PG                0   18018008125" + " " * 66
+           + "M   096892211")
+
+
+def _proc_inputs(path, records=(PS_RW07,)):
+    """The extracted-CIFP directory PROC-MSA-001 counts PS records in:
+    ``<pack>.inputs/FAACIFP18`` holding ``records``."""
+    d = Path(f"{path}.inputs")
+    d.mkdir(exist_ok=True)
+    (d / "FAACIFP18").write_text("".join(r + "\n" for r in records), encoding="latin-1")
+    return d
+
+
+def _msa_row(con, cycle, *, airport="KSBA", centre="RW07", seq=1, start=180, end=180,
+             alt=8100, radius=25, lat=34.4275, record=None):
+    con.execute(
+        "INSERT INTO msa (airport, area, centre_ident, centre_icao, centre_section, "
+        "centre_subsection, centre_type, centre_lat, centre_lon, mag_true, sector_seq, "
+        "bearing_start, bearing_end, altitude_ft, radius_nm, cycle, record) "
+        "VALUES (?, 'USA', ?, 'K2', 'P', 'G', 'runway', ?, ?, 'M', ?, ?, ?, ?, ?, ?, ?)",
+        (airport, centre, lat, None if lat is None else -119.8546, seq, start, end, alt,
+         radius, cycle, record or json.dumps({"continuations": [], "fields": {
+             "airport": airport, "centre_ident": centre, "multiple_code": " "}})))
+
+
 def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=400,
                jet=False, mora_bands=report.PROC_MORA_BAND_FLOOR, mora_unk=0,
                mora_ft=3000, mora_cells=30):
     """A procedures pack: ``airways`` airways of 5 legs, ``collide`` of
     them carrying a second area's legs with the same sequence numbers (the
-    AER-1979 merge), and ``legs`` procedure legs of which ``unresolved``
-    name a fix with no coordinates. ``jet`` names the last airway J80.
-    ``mora_bands`` Grid MORA bands of ``mora_cells`` cells each, all
-    ``mora_ft`` except the first ``mora_unk`` cells, which are UNK."""
+    AER-1979 merge), ``legs`` procedure legs of which ``unresolved`` name a
+    fix with no coordinates, KSBA's one-sector RW07 MSA (with its source
+    file beside the pack, see ``_proc_inputs``), and ``mora_bands`` Grid
+    MORA bands of ``mora_cells`` cells each, all ``mora_ft`` except the
+    first ``mora_unk`` cells, which are UNK. ``jet`` names the last airway
+    J80."""
+    _proc_inputs(path)
     con = sqlite3.connect(path)
     con.executescript(PROC_SCHEMA)
     for a in range(1, airways + 1):
@@ -65,6 +94,7 @@ def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=
                         "VALUES (?, ?, ?, ?, ?)",
                         (b, lat_sw, lon_sw + i, None if unk else mora_ft,
                          "UNK" if unk else f"{mora_ft // 100:03d}"))
+    _msa_row(con, cycle)
     con.commit()
     con.close()
     packmeta.embed_sqlite(path, PackMeta(id="procedures-conus", kind="procedures",
@@ -121,6 +151,8 @@ def _by_id(rec):
 
 
 def _rep(path, **kw):
+    if Path(f"{path}.inputs").is_dir():
+        kw.setdefault("inputs", Path(f"{path}.inputs"))
     kw.setdefault("probe", False)
     kw.setdefault("commit", "0" * 40)
     return report.build_report(path, **kw)
@@ -177,6 +209,79 @@ def test_airway_area_collision_fails_as_the_aer1979_regression(tmp_path):
     assert bad["PROC-AWY-001"]["status"] == "pass"
 
 
+def test_msa_checks_pass_on_a_well_formed_msa(tmp_path):
+    rec = _by_id(_rep(_proc_pack(tmp_path / "p.pack")))
+    assert {i: rec[i]["status"] for i in ("PROC-MSA-001", "PROC-MSA-002", "PROC-MSA-003",
+                                         "PROC-MSA-004")} == dict.fromkeys(
+        ("PROC-MSA-001", "PROC-MSA-002", "PROC-MSA-003", "PROC-MSA-004"), "pass")
+    assert rec["PROC-MSA-001"]["measured"] == "1 of 1 PS records; 0 of 0 continuations"
+    assert rec["PROC-MSA-003"]["measured"] == ("0 altitudes, 0 radii, 0 bearing references out "
+                                               "of bounds (altitudes 8100-8100 ft, radii 25-25 nm)")
+
+
+def test_msa_census_fails_when_the_pack_is_missing_a_source_record(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    _proc_inputs(pack, (PS_RW07, PS_RW07.replace("RW07 ", "RW25 ")))
+    c = _by_id(_rep(pack))["PROC-MSA-001"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"] == "1 of 2 PS records; 0 of 0 continuations"
+
+
+def test_msa_census_without_the_source_file_blocks(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    rec = _rep(pack, inputs=None)
+    assert _by_id(rec)["PROC-MSA-001"]["status"] == "not-run"
+    assert "PROC-MSA-001" in _blocking_ids(rec)
+
+
+def test_msa_sectors_with_a_gap_fail_coverage(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    rec = json.dumps({"continuations": [], "fields": {
+        "airport": "KSBA", "centre_ident": "RZS", "multiple_code": " "}})
+    con = sqlite3.connect(pack)
+    for seq, (start, end) in enumerate(((30, 120), (130, 30)), 1):
+        _msa_row(con, "2611", centre="RZS", seq=seq, start=start, end=end, record=rec)
+    con.commit()
+    con.close()
+    c = _by_id(_rep(pack))["PROC-MSA-002"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"] == "1 records (KSBA RZS: gap or overlap [(30, 120), (130, 30)])"
+
+
+def test_msa_sectors_that_overlap_fail_coverage(tmp_path):
+    # Contiguous end to start, but wrapping the circle twice.
+    assert report._msa_coverage_fault([(1, 0, 180, 0, 0), (2, 180, 0, 0, 0),
+                                       (3, 0, 180, 0, 0), (4, 180, 0, 0, 0)]) == (
+        "sectors span 720 degrees [(0, 180), (180, 0), (0, 180), (180, 0)]")
+    # A full-circle code inside a multi-sector record.
+    assert report._msa_coverage_fault([(1, 0, 180, 0, 0), (2, 180, 0, 0, 0),
+                                       (3, 0, 0, 0, 0)]).startswith("zero-width sector")
+    assert report._msa_coverage_fault([(1, 30, 120, 0, 0), (2, 120, 210, 0, 0),
+                                       (3, 210, 300, 0, 0), (4, 300, 30, 0, 0)]) is None
+    assert report._msa_coverage_fault([(1, 180, 180, 0, 0)]) is None
+    assert report._msa_coverage_fault([(1, 360, 360, 0, 0)]) is None
+    assert report._msa_coverage_fault([(1, 180, 90, 0, 0)]) == "one sector (180, 90)"
+
+
+def test_msa_altitude_or_radius_out_of_bounds_fails(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    _sql(pack, "UPDATE msa SET altitude_ft = 810")
+    assert _by_id(_rep(pack))["PROC-MSA-003"]["status"] == "fail"
+    _sql(pack, "UPDATE msa SET altitude_ft = 8100, radius_nm = 81")
+    c = _by_id(_rep(pack))["PROC-MSA-003"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"].startswith("0 altitudes, 1 radii, 0 bearing references")
+
+
+def test_msa_unresolved_centre_is_listed_and_bounded(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    _sql(pack, "UPDATE msa SET centre_lat = NULL, centre_lon = NULL")
+    c = _by_id(_rep(pack))["PROC-MSA-004"]
+    assert (c["status"], c["blocking"]) == ("warn", False)
+    assert c["measured"] == "1 of 1 records (KSBA RW07)"
+    assert "does not accept" in c["expected"] and "KHRJ HQT" in c["expected"]
+
+
 def test_foreflight_differential_is_listed_as_not_run(tmp_path):
     c = _by_id(_rep(_proc_pack(tmp_path / "p.pack")))["PROC-DIFF-001"]
     assert c["status"] == "not-run" and c["measured"] is None and "AER-1702" in c["note"]
@@ -218,7 +323,7 @@ def test_a_table_that_disappears_fails_unless_the_schema_version_moved(tmp_path)
     assert kept["ROW-003"]["status"] == "fail"
     same = _by_id(_rep(_proc_pack(tmp_path / "y.pack"),
                        previous=report.previous_from(_proc_pack(tmp_path / "z.pack", "2610"))))
-    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 7 tables gone")
+    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 8 tables gone")
 
 
 def test_unmeasured_thresholds_are_labelled_provisional_in_the_record(tmp_path):
@@ -747,11 +852,13 @@ def test_check_reproduces_the_published_numbers(tmp_path, capsys):
     published = tmp_path / "report.json"
     # Exit 1: device acceptance was switched off, which blocks a build record.
     assert cli.main(["report", str(pack), "--previous", str(prev_pack), "--no-device",
+                     "--inputs", f"{pack}.inputs",
                      "--note", "ROW-002=FAA withdrew airways", "-o", str(published)]) == 1
     printed = capsys.readouterr().out
     assert [ln.split()[2] for ln in printed.splitlines() if "BLOCKS PUBLISH" in ln] == ["ACC-001"]
     assert cli.main(["report", "--check", str(pack), "--against", str(published),
-                     "--previous", str(prev_pack), "--no-device"]) == 0
+                     "--previous", str(prev_pack), "--no-device",
+                     "--inputs", f"{pack}.inputs"]) == 0
     out = capsys.readouterr().out
     assert "0 mismatched" in out and "MISMATCH" not in out
     assert "PROC-FIX-001   reproduced" in out

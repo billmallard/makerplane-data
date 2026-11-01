@@ -131,11 +131,13 @@ def cmd_build_pack(args) -> int:
     if zipfile.is_zipfile(pack_path):
         packmeta.embed_zip(pack_path, meta)
     else:
-        # highways/procedures: schema_version has to speak for the on-disk
-        # payload tables, not just PackMeta's own fields -- detect it from
+        # highways, procedures: schema_version has to speak for the
+        # on-disk tables, not just PackMeta's own fields -- detect it from
         # the built pack rather than trusting the package-wide default
-        # (AER-1715, AER-4447).
-        meta.schema_version = packmeta.detect_schema_version(args.kind, pack_path)
+        # (AER-1715, AER-4446).
+        detected = packmeta.detect_content_schema_version(args.kind, pack_path)
+        if detected is not None:
+            meta.schema_version = detected
         packmeta.embed_sqlite(pack_path, meta)
     print(f"embedded pack_meta: {read_packmeta(pack_path).as_dict()}")
 
