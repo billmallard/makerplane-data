@@ -639,6 +639,21 @@ def _c_reused(ctx):
 
 # --- checks: procedures -----------------------------------------------------
 
+def _proc_tables() -> list[str]:
+    """Every table the procedures builder creates, read from its schema so
+    the list cannot drift from what the builder writes."""
+    from .build.procedures import _SCHEMA
+    return sorted(re.findall(r"^CREATE TABLE (\w+)", _SCHEMA, re.MULTILINE))
+
+
+def _c_proc_tables(ctx):
+    want = _proc_tables()
+    missing = [t for t in want if t not in ctx.tables]
+    if missing:
+        return ("fail", "missing: " + ", ".join(missing), "")
+    return ("pass", f"{len(want)} of {len(want)} present: " + ", ".join(want), "")
+
+
 def _c_unresolved(ctx):
     if "legs" not in ctx.tables:
         return ("fail", "no legs table", "")
@@ -1650,6 +1665,11 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               _c_reused),
     ],
     "procedures": [
+        Check("PROC-TBL-001", "Every table the procedures builder creates is present", True,
+              "0 missing tables, against the CREATE TABLE statements in the builder's "
+              "schema (packtools/build/procedures.py)",
+              "A table that is present but empty (ROW-001) or short of rows, and an "
+              "extra table the builder does not create.", _c_proc_tables, "AER-4598"),
         Check("PROC-FIX-001", "Procedure legs that name a fix the build could not place",
               False,
               f"at most {PROC_UNRESOLVED_MAX_FRACTION:.1%} of legs: a regression bound that "

@@ -202,6 +202,30 @@ def test_unresolved_fix_legs_are_counted_with_their_expectation(tmp_path):
     assert c["status"] == "warn" and not c["blocking"]
 
 
+def test_a_first_edition_with_no_legs_table_is_refused(tmp_path):
+    # AER-4598: PROC-FIX-001 fails on a missing legs table but is
+    # non-blocking, ACC-001's procedures probe reads only airways, and
+    # ROW-003 needs a previous edition. On a first edition nothing blocked.
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.execute("DROP TABLE legs")
+    con.commit()
+    con.close()
+    rec = _rep(pack, first_edition=True)
+    # ACC-001 blocks only because this run has no device (--no-device).
+    assert _blocking_ids(rec) == ["ACC-001", "PROC-TBL-001"]
+    c = _by_id(rec)
+    assert c["PROC-FIX-001"]["status"] == "fail" and not c["PROC-FIX-001"]["blocking"]
+    assert (c["PROC-TBL-001"]["status"], c["PROC-TBL-001"]["measured"]) == ("fail", "missing: legs")
+
+
+def test_every_table_the_procedures_builder_creates_is_required(tmp_path):
+    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack"), first_edition=True))["PROC-TBL-001"]
+    assert c["status"] == "pass"
+    assert c["measured"] == ("8 of 8 present: airway_legs, airways, grid_mora, "
+                             "grid_mora_bands, legs, msa, procedures, transitions")
+
+
 def test_airway_area_collision_fails_as_the_aer1979_regression(tmp_path):
     good = _by_id(_rep(_proc_pack(tmp_path / "good.pack")))
     assert good["PROC-AWY-002"]["status"] == "pass"
