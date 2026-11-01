@@ -313,7 +313,11 @@ FIRST_EDITION = ("first-edition", "first edition, no previous record")
 #: nothing to compare against. Without it the first gated build after v2
 #: would be refused, and so would every one after it, since the refused
 #: record never becomes anyone's previous edition. This record carries the
-#: metrics, so the edition after it is judged.
+#: metrics, so the edition after it is judged. Taken only when the previous
+#: record has no entry for the check at all (it truly predates v2); a v2
+#: record whose check ran but left no metric (it raised) is not exempt
+#: (QA AER-4597). Accepted residual: each OSM pack id's first gated edition
+#: is judged by OSM-001 only (Elon, AER-4597).
 NO_PREVIOUS_METRIC = ("no-previous-metric", "the previous edition's record predates the "
                       "per-state metrics (catalogue v2)")
 
@@ -1411,6 +1415,24 @@ def _c_ter_tile_void(ctx):
 
 # --- checks: catalogue v2, OSM per state or province (TV7) ----------------------
 
+def _predates(ctx, check_id: str) -> bool:
+    """The previous record has no entry for ``check_id``: it was written
+    before the check existed."""
+    return not any(c.get("id") == check_id for c in (ctx.previous or {}).get("checks") or [])
+
+
+def _osm_no_metric(ctx, check_id: str, what: str) -> tuple:
+    """not-run for a previous record without ``check_id``'s metric: exempt
+    only when that record predates the check."""
+    if _predates(ctx, check_id):
+        return _not_run(f"The previous edition's record has no {what} (it predates catalogue "
+                        "v2); this record carries them for the next edition.",
+                        NO_PREVIOUS_METRIC[0])
+    return _not_run(f"The previous edition's record lists {check_id} but holds no {what} "
+                    "(the check did not complete there), so there is nothing to compare "
+                    "against.", "previous-metric-missing")
+
+
 def _osm_state_metrics(ctx):
     """Per-state counts and measures for every bbox table, computed once
     for OSM-002 and OSM-006."""
@@ -1444,9 +1466,7 @@ def _c_osm_states(ctx):
     prev = ctx.prev_metric("OSM-002")
     if prev is None:
         if ctx.previous is not None:
-            return _not_run("The previous edition's record has no per-state counts (it "
-                            "predates catalogue v2); this record carries them for the next "
-                            "edition.", NO_PREVIOUS_METRIC[0])
+            return _osm_no_metric(ctx, "OSM-002", "per-state counts")
         return _no_previous(ctx, " This edition's per-state counts are recorded for the "
                             "next one.")
     drops = _state_drops(counts, prev, OSM_STATE_MIN)
@@ -1475,9 +1495,7 @@ def _c_osm_measure(ctx):
     prev = ctx.prev_metric("OSM-006")
     if prev is None:
         if ctx.previous is not None:
-            return _not_run("The previous edition's record has no per-state lengths or areas "
-                            "(it predates catalogue v2); this record carries them for the "
-                            "next edition.", NO_PREVIOUS_METRIC[0])
+            return _osm_no_metric(ctx, "OSM-006", "per-state lengths or areas")
         return _no_previous(ctx, " This edition's per-state lengths and areas are recorded "
                             "for the next one.")
     drops = []
@@ -1783,8 +1801,7 @@ _OSM_CHECKS = [
           "Losses inside a state, a feature that moved across a border (binned by the centre "
           "of its bounding box against simplified Natural Earth boundaries), and features "
           "that are present but wrong.", _c_osm_states, "TV7",
-          exempt=(FIRST_EDITION, NO_PREVIOUS_METRIC), provisional=PROVISIONAL,
-          review=V2_REVIEW),
+          exempt=(FIRST_EDITION, NO_PREVIOUS_METRIC), provisional=PROVISIONAL),
     Check("OSM-006", "Line length, or summed stored polygon area, per state or province "
           "against the previous edition", True,
           f"Provisional threshold: no state or province with at least "
@@ -1796,8 +1813,7 @@ _OSM_CHECKS = [
           "the stored polygon areas, not the area of water: water packs store overlapping "
           "polygons, which are counted each time, so a lost polygon that another one overlaps "
           "shows as a smaller drop or none.", _c_osm_measure, "TV7",
-          exempt=(FIRST_EDITION, NO_PREVIOUS_METRIC), provisional=PROVISIONAL,
-          review=V2_REVIEW),
+          exempt=(FIRST_EDITION, NO_PREVIOUS_METRIC), provisional=PROVISIONAL),
     Check("OSM-004", "Every feature's bounding box is well formed", True, "0 bad boxes",
           "A well-formed box around wrong geometry.", _c_osm_bbox),
     Check("OSM-005", "Coverage map image", False, "an image a person can look at",

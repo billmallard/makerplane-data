@@ -192,7 +192,7 @@ def test_pending_checks_never_block_a_publish_before_qa_review(tmp_path):
     assert "XS-001" not in " ".join(report.publish_blockers(rec))
     # The flag lives in the catalogue, never in the record (R1).
     pending = {c.id for cs in report.all_checks().values() for c in cs if c.review}
-    assert pending == {"XS-001", "XS-002", "TER-005", "OSM-002", "OSM-006"}
+    assert pending == {"XS-001", "XS-002", "TER-005"}
 
 
 def test_checks_qa_accepted_gate_a_publish(tmp_path):
@@ -436,7 +436,7 @@ def test_a_state_going_to_zero_fails_and_others_are_counted(tmp_path):
                                         "1 states down more than 10%, 1 at zero")
     # OSM-001 bins by region; Wyoming growth hides most of Colorado's loss there.
     assert c["OSM-001"]["status"] != "fail"
-    assert "OSM-002" not in " ".join(report.publish_blockers(rec))
+    assert any(b.startswith("OSM-002 failed:") for b in report.publish_blockers(rec))
 
 
 def test_lengths_per_state_warn_on_a_drop_counts_cannot_see(tmp_path):
@@ -451,16 +451,7 @@ def test_lengths_per_state_warn_on_a_drop_counts_cannot_see(tmp_path):
     assert "-50.0%" in c["OSM-006"]["measured"] and "km" in c["OSM-006"]["measured"]
 
 
-def _without_review(monkeypatch, *ids):
-    """The catalogue as it will be once QA removes ``review`` from ``ids``."""
-    import dataclasses
-    real = report.all_checks
-    monkeypatch.setattr(report, "all_checks", lambda: {
-        k: [dataclasses.replace(c, review="") if c.id in ids else c for c in cs]
-        for k, cs in real().items()})
-
-
-def test_a_state_at_zero_refuses_the_publish_once_reviewed(tmp_path, monkeypatch):
+def test_a_state_at_zero_refuses_the_publish(tmp_path):
     # AER-4584: a fail from a non-blocking check never blocked, so the #17
     # case (one state at zero) would have published. OSM-002/006 now block
     # like OSM-001; this is the California stand-in, with Colorado.
@@ -470,30 +461,45 @@ def test_a_state_at_zero_refuses_the_publish_once_reviewed(tmp_path, monkeypatch
     c = _by_id(rec)
     assert c["OSM-001"]["status"] != "fail"                    # the region check misses it
     assert (c["OSM-002"]["status"], c["OSM-006"]["status"]) == ("fail", "fail")
-    assert not any(b.startswith("OSM-00") for b in report.publish_blockers(rec))   # pending
-    _without_review(monkeypatch, "OSM-002", "OSM-006")
-    blockers = report.publish_blockers(rec)
+    blockers = report.publish_blockers(rec)          # QA cleared them (AER-4597): they gate
     assert any(b.startswith("OSM-002 failed: largest drop: highway_lines US-CO -100.0%")
                for b in blockers)
     assert any(b.startswith("OSM-006 failed:") for b in blockers)
 
 
-def test_a_previous_record_without_state_metrics_is_a_declared_exemption(tmp_path, monkeypatch):
+def test_a_previous_record_that_predates_v2_is_a_declared_exemption(tmp_path):
     # Every live record predates catalogue v2. Without this exemption the
     # first gated build would be refused, and so would every one after it.
     prev = report.previous_from(_lines_pack(tmp_path / "a.pack", "r1", _roads(150, 150)),
                                 first_edition=True)
     for k in ("OSM-002", "OSM-006"):
         prev["metrics"].pop(k)
+    prev["checks"] = [c for c in prev["checks"] if c["id"] not in ("OSM-002", "OSM-006")]
     rec = _rep(_lines_pack(tmp_path / "b.pack", "r2", _roads(150, 150)), previous=prev)
     for cid in ("OSM-002", "OSM-006"):
         assert _by_id(rec)[cid]["not_run_reason"] == "no-previous-metric"
-    _without_review(monkeypatch, "OSM-002", "OSM-006")
     assert not any(b.startswith("OSM-00") for b in report.publish_blockers(rec))
     # A missing --previous is still not a first edition.
     bare = _rep(_lines_pack(tmp_path / "c.pack", "r3", _roads(150, 150)))
-    assert any(b.startswith("OSM-002 is blocking and did not run")
-               for b in report.publish_blockers(bare))
+    for cid in ("OSM-002", "OSM-006"):
+        assert any(b.startswith(f"{cid} is blocking and did not run")
+                   for b in report.publish_blockers(bare))
+
+
+def test_a_v2_record_without_the_metric_is_not_exempt(tmp_path):
+    # QA AER-4597: the exemption is for records that predate v2. A v2 record
+    # whose OSM-002 ran but left no metric (it raised) must not switch the
+    # check off for the next edition, or a state at zero would pass.
+    prev = report.previous_from(_lines_pack(tmp_path / "a.pack", "r1", _roads(150, 150)),
+                                first_edition=True)
+    for k in ("OSM-002", "OSM-006"):
+        prev["metrics"].pop(k)
+    rec = _rep(_lines_pack(tmp_path / "b.pack", "r2", _roads(0, 300)), previous=prev)
+    for cid in ("OSM-002", "OSM-006"):
+        c = _by_id(rec)[cid]
+        assert c["not_run_reason"] == "previous-metric-missing", c
+        assert any(b.startswith(f"{cid} is blocking and did not run")
+                   for b in report.publish_blockers(rec))
 
 
 def test_first_edition_exempts_the_state_checks(tmp_path):
