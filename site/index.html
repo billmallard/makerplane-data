@@ -183,6 +183,9 @@
       The format of every pack &mdash; its SQLite tables, columns and indexes, or its zip layout &mdash;
       is published too, generated from the packs themselves, so anyone can write a tool against it:
       <a href="schema/index.html">Pack formats</a>.
+      To look inside an airports, navaids, obstacles or procedures pack without installing anything,
+      the <a href="inspect.html">pack inspector</a> checks the catalog signature and the pack&rsquo;s hash
+      in your browser, then lets you query it.
       Packs built by our GitHub Actions workflows also carry a build provenance attestation
       naming the workflow and commit that built them, which <code>gh attestation verify</code>
       checks independently of our key. Terrain packs do not: they are built from a private
@@ -204,6 +207,7 @@
     &nbsp;&middot;&nbsp; <a href="manifest.json">catalog</a>
     &nbsp;&middot;&nbsp; <a href="reports/index.html">test reports</a>
     &nbsp;&middot;&nbsp; <a href="schema/index.html">pack formats</a>
+    &nbsp;&middot;&nbsp; <a href="inspect.html">pack inspector</a>
     &nbsp;&middot;&nbsp; <a href="https://github.com/billmallard/makerplane-data">source</a>
     <span id="gen"></span>
   </div>

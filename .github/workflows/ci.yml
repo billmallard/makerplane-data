@@ -16,10 +16,17 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .[dev,plates]
+      # node runs the pack inspector's JS (site/assets/inspect-core.js), both
+      # on its own and against the Python signer in tests/test_inspector.py.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: SPDX license headers present
         run: python scripts/spdx_check.py
       - name: Unit tests
         run: python -m pytest
+      - name: Pack inspector JS tests
+        run: node --test tests/inspector/*.test.mjs
       - name: Pipeline dry-run (no network, no secrets)
         run: python -m packtools.run_cyclical --dry-run --date 2026-06-14
 
