@@ -71,6 +71,10 @@ silently**, and the container aborts with the "TILE_ROOT missing/empty" guard.
 | `PYEFIS_REF` | `CODE_REF` (`dev` when run from a checkout) | branch/tag of pyEfis to clone |
 | `WATER_PACK_ID` | `water-na` | published water pack whose water.sqlite step 2b rasterizes into `.wmask` masks |
 | `WATER_CACHE` | `/data/water-cache` | where that pack is cached (sha-checked, reused across runs) |
+| `STAGE_ONLY` | `0` | `1` = build every pack but upload and sign nothing; packs stay in `$PACK_OUT/packs/`, each is diffed against `PREV_EDITION` and run through a publish-gate preview. Needs no R2 or signing secret. See docs/terrain.md, "Mask-only re-edition" |
+| `PREV_EDITION` | none (required with `STAGE_ONLY=1`) | the published terrain edition the staged packs are diffed against |
+| `FORCE_WMASK` | `0` | `1` = rebuild every `.wmask` (`build_water_masks.py --force`). Refused without `STAGE_ONLY=1` |
+| `WMASK_BORDERS` | `us-central=N27W097:5:SE` | stage mode: `region=TILE:LEVEL:EDGES` border posts that must be water (`packtool wmask-diff --border`) |
 
 ## Retro records (TV4): `docker-compose.retro.yml`
 

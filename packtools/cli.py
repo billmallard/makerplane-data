@@ -747,9 +747,21 @@ def cmd_report(args) -> int:
     if args.sources:
         import json
         sources = json.loads(Path(args.sources).read_text(encoding="utf-8"))
+    notes = {}
+    if args.notes_file:
+        # The gate's own scoping: CHECK, or <pack id>:CHECK for one pack.
+        import zipfile
+        from . import gate, packmeta
+        meta = packmeta.read(pack)
+        try:
+            notes = gate.notes_for(meta.id, meta.kind, gate.read_notes_file(args.notes_file),
+                                   is_zip=zipfile.is_zipfile(pack))
+        except gate.GateError as e:
+            raise SystemExit(f"report: {e}")
+    notes.update(_kv_list(args.note, "--note"))
     rec = report.build_report(
         pack, record=args.record, origin=args.origin, sources=sources,
-        notes=_kv_list(args.note, "--note"), commit=args.build_commit,
+        notes=notes, commit=args.build_commit,
         builder_refs=_kv_list(args.builder_ref, "--builder-ref"),
         first_edition=args.first_edition, **common)
     if auspex is not None:
@@ -793,6 +805,20 @@ def cmd_diffmap(args) -> int:
         f"</style><h1>{title}</h1>{body}\n", encoding="utf-8")
     print(f"{args.out}: {body.count('<figure')} maps")
     return 0
+
+
+def cmd_wmask_diff(args) -> int:
+    """Everything but the water masks must be byte-identical; report what
+    the masks gained and lost, and check named border edges are water."""
+    from . import wmask_diff
+    try:
+        for spec in args.border:
+            wmask_diff.parse_border(spec)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    d = wmask_diff.diff(args.staged, args.against, borders=args.border, jobs=args.jobs)
+    print(wmask_diff.render(d, args.max_lost))
+    return 1 if d.failures(args.max_lost) else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1064,6 +1090,9 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument("--sources", help="JSON file: the record's sources[] array")
     rep.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",
                      help="build note for a check (a warn without one blocks a publish)")
+    rep.add_argument("--notes-file", dest="notes_file",
+                     help="build notes file, as make-terrain/build-pack --notes-file "
+                          "takes it (CHECK or <pack id>:CHECK keys)")
     rep.add_argument("--builder-ref", action="append", metavar="NAME=SHA")
     rep.add_argument("--build-commit", help="makerplane-data commit (default: git HEAD)")
     rep.add_argument("--auspex", metavar="AUSPEX_JSON",
@@ -1081,6 +1110,17 @@ def build_parser() -> argparse.ArgumentParser:
     dm.add_argument("previous", help="the previous edition's report.json (path or URL)")
     dm.add_argument("-o", "--out", default="diffmap.html")
     dm.set_defaults(func=cmd_diffmap)
+
+    wd = sub.add_parser("wmask-diff", help="diff a mask-only terrain re-edition against "
+                        "the published pack it replaces (AER-4595)")
+    wd.add_argument("staged", help="the staged pack (file or URL)")
+    wd.add_argument("--against", required=True, help="the published pack (file or URL)")
+    wd.add_argument("--border", action="append", default=[], metavar="TILE:LEVEL:EDGES",
+                    help="edges of one tile's mip mask that must be all water, "
+                         "e.g. N27W097:5:SE (repeatable)")
+    wd.add_argument("--max-lost", type=int, help="fail if more water posts are lost")
+    wd.add_argument("-j", "--jobs", type=int, default=16, help="parallel member reads")
+    wd.set_defaults(func=cmd_wmask_diff)
 
     return ap
 
