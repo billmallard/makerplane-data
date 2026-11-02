@@ -97,13 +97,46 @@ def test_non_stock_boot_screen_is_woven_into_the_loaded_list(tmp_path):
     assert "SCREEN_PFD_AI_ONLY" in loaded                # stock ballast still kept
 
 
-def test_single_screen_injects_svs_and_db(tmp_path):
+def test_single_screen_injects_svs_without_cifp_include(tmp_path):
+    """An SVS-enabled virtual_vfr is pulled WITHOUT screens/virtualvfr_db.yaml:
+    pyEfis #349 (CIFP1) never builds the legacy CIFP overlay under SVS, so the
+    include's dbpath/indexpath are dead weight (AER-4354)."""
     cd = _config_dir(tmp_path)
     config_pull.install_config(yaml.safe_dump(_doc("PANEL", vfr_on="PANEL")), cd=cd)
     screen = _read(cd, "screens/managed.yaml")["PFD_AI_ONLY"]
     vfr = next(i for i in screen["instruments"] if i["type"] == "virtual_vfr")
     assert vfr["options"]["svs"]["enabled"] is True
-    assert "screens/virtualvfr_db.yaml" in screen["include"]
+    assert "screens/virtualvfr_db.yaml" not in (screen.get("include") or [])
+
+
+def _vfr_screen_with(options):
+    return {"instruments": [{"type": "virtual_vfr", "options": options}]}
+
+
+def test_svs_off_keeps_legacy_cifp_include():
+    """A panel that turns SVS off runs the deprecated legacy overlay, which
+    still crashes on a None dbpath -- it keeps the include. Covers both the
+    flat editor key and an explicit nested svs block."""
+    for opts in ({"svs_enabled": False}, {"svs": {"enabled": False}}):
+        out = config_pull._prep_screen(_vfr_screen_with(opts))
+        assert out["include"] == ["screens/virtualvfr_db.yaml"], opts
+
+
+def test_flat_svs_enabled_overrides_nested_block():
+    """Resolved like pyEfis's screenbuilder_factory: flat svs_* over nested svs."""
+    off = config_pull._prep_screen(_vfr_screen_with(
+        {"svs": {"enabled": True}, "svs_enabled": False}))
+    assert "screens/virtualvfr_db.yaml" in off["include"]
+    on = config_pull._prep_screen(_vfr_screen_with(
+        {"svs": {"enabled": False}, "svs_enabled": True}))
+    assert "screens/virtualvfr_db.yaml" not in (on.get("include") or [])
+
+
+def test_existing_include_is_left_alone_and_not_duplicated():
+    screen = _vfr_screen_with({"svs_enabled": False})
+    screen["include"] = ["screens/virtualvfr_db.yaml", "screens/other.yaml"]
+    out = config_pull._prep_screen(screen)
+    assert out["include"] == ["screens/virtualvfr_db.yaml", "screens/other.yaml"]
 
 
 def test_stock_screen_tokens_fallback_matches_shipped_default(tmp_path):
