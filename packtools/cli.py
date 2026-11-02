@@ -795,6 +795,20 @@ def cmd_diffmap(args) -> int:
     return 0
 
 
+def cmd_wmask_diff(args) -> int:
+    """Everything but the water masks must be byte-identical; report what
+    the masks gained and lost, and check named border edges are water."""
+    from . import wmask_diff
+    try:
+        for spec in args.border:
+            wmask_diff.parse_border(spec)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    d = wmask_diff.diff(args.staged, args.against, borders=args.border, jobs=args.jobs)
+    print(wmask_diff.render(d, args.max_lost))
+    return 1 if d.failures(args.max_lost) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="packtool")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1081,6 +1095,17 @@ def build_parser() -> argparse.ArgumentParser:
     dm.add_argument("previous", help="the previous edition's report.json (path or URL)")
     dm.add_argument("-o", "--out", default="diffmap.html")
     dm.set_defaults(func=cmd_diffmap)
+
+    wd = sub.add_parser("wmask-diff", help="diff a mask-only terrain re-edition against "
+                        "the published pack it replaces (AER-4595)")
+    wd.add_argument("staged", help="the staged pack (file or URL)")
+    wd.add_argument("--against", required=True, help="the published pack (file or URL)")
+    wd.add_argument("--border", action="append", default=[], metavar="TILE:LEVEL:EDGES",
+                    help="edges of one tile's mip mask that must be all water, "
+                         "e.g. N27W097:5:SE (repeatable)")
+    wd.add_argument("--max-lost", type=int, help="fail if more water posts are lost")
+    wd.add_argument("-j", "--jobs", type=int, default=16, help="parallel member reads")
+    wd.set_defaults(func=cmd_wmask_diff)
 
     return ap
 
