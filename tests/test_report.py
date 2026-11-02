@@ -893,6 +893,30 @@ def test_check_reproduces_the_published_numbers(tmp_path, capsys):
     assert "PROC-FIX-001   reproduced" in out
 
 
+def test_notes_file_applies_the_gate_scoping(tmp_path, capsys):
+    # The stage-mode gate preview (entrypoint.sh, AER-4595) reads the same
+    # notes file the publish run gives make-terrain, scoped the same way.
+    prev_pack = _proc_pack(tmp_path / "2610.pack", "2610", airways=50, collide=2)
+    pack = _proc_pack(tmp_path / "2611.pack", unresolved=3, legs=1000)
+    args = ["report", str(pack), "--previous", str(prev_pack), "--no-device",
+            "--inputs", f"{pack}.inputs", "-o", str(tmp_path / "r.json")]
+
+    def blockers():
+        out = capsys.readouterr().out
+        return [ln.split()[2] for ln in out.splitlines() if "BLOCKS PUBLISH" in ln]
+
+    notes = tmp_path / "notes.txt"
+    notes.write_text("# for another pack only\nterrain-us-west:ROW-002=not this one\n")
+    cli.main(args + ["--notes-file", str(notes)])
+    assert "ROW-002" in blockers()
+    notes.write_text("procedures-conus:ROW-002=FAA withdrew airways\n")
+    cli.main(args + ["--notes-file", str(notes)])
+    assert blockers() == ["ACC-001"]
+    notes.write_text("NOPE-001=no such check\n")
+    with pytest.raises(SystemExit, match="NOPE-001"):
+        cli.main(args + ["--notes-file", str(notes)])
+
+
 def test_check_flags_a_number_that_does_not_reproduce(tmp_path, capsys):
     pack = _proc_pack(tmp_path / "p.pack", unresolved=3)
     rec = _rep(pack)

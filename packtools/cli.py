@@ -747,9 +747,21 @@ def cmd_report(args) -> int:
     if args.sources:
         import json
         sources = json.loads(Path(args.sources).read_text(encoding="utf-8"))
+    notes = {}
+    if args.notes_file:
+        # The gate's own scoping: CHECK, or <pack id>:CHECK for one pack.
+        import zipfile
+        from . import gate, packmeta
+        meta = packmeta.read(pack)
+        try:
+            notes = gate.notes_for(meta.id, meta.kind, gate.read_notes_file(args.notes_file),
+                                   is_zip=zipfile.is_zipfile(pack))
+        except gate.GateError as e:
+            raise SystemExit(f"report: {e}")
+    notes.update(_kv_list(args.note, "--note"))
     rec = report.build_report(
         pack, record=args.record, origin=args.origin, sources=sources,
-        notes=_kv_list(args.note, "--note"), commit=args.build_commit,
+        notes=notes, commit=args.build_commit,
         builder_refs=_kv_list(args.builder_ref, "--builder-ref"),
         first_edition=args.first_edition, **common)
     if auspex is not None:
@@ -1078,6 +1090,9 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument("--sources", help="JSON file: the record's sources[] array")
     rep.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",
                      help="build note for a check (a warn without one blocks a publish)")
+    rep.add_argument("--notes-file", dest="notes_file",
+                     help="build notes file, as make-terrain/build-pack --notes-file "
+                          "takes it (CHECK or <pack id>:CHECK keys)")
     rep.add_argument("--builder-ref", action="append", metavar="NAME=SHA")
     rep.add_argument("--build-commit", help="makerplane-data commit (default: git HEAD)")
     rep.add_argument("--auspex", metavar="AUSPEX_JSON",
