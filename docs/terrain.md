@@ -199,6 +199,50 @@ Notes:
 - Don't run the daily navdata pipeline and a terrain upload at the same
   time; both rewrite the manifest.
 
+### Mask-only re-edition: stage, verify, then publish (AER-4595)
+
+When only the water masks change (a mask-builder fix such as AER-4594's
+union-of-polygons), elevation stays the same and every `.wmask` is rebuilt.
+A published `(id, cycle)` is immutable, and a same-cycle re-issue never
+reaches devices (AER-3325), so this always takes a **new edition id**
+(`2024edr1` -> `2024edr2`). It is two container runs on the same tree:
+
+```bash
+# 1. Stage: rebuild every mask, build every pack, upload and sign nothing.
+#    No R2 or signing secret is read (they are unset even if .env has them).
+STAGE_ONLY=1 FORCE_WMASK=1 EDITION=2024edr2 PREV_EDITION=2024edr1 docker compose up
+#    -> $PACK_OUT/packs/terrain-*-2024edr2.pack (kept), and per pack
+#       $PACK_OUT/stage-2024edr2-<id>.txt: sha256, the wmask-diff against the
+#       published 2024edr1 pack, and the publish-gate preview (packtool report).
+#    $PACK_OUT/stage-2024edr2-summary.txt has one PASS/FAIL line per pack.
+
+# 2. Publish (only after approval): same EDITION, no FORCE_WMASK. The masks
+#    are already rebuilt, so the run skips them and packs what was verified.
+EDITION=2024edr2 docker compose up
+```
+
+`packtool wmask-diff STAGED --against PUBLISHED` (file or URL; a URL is read
+by HTTP Range, a region takes about 25 s) fails if any member other than a
+`.wmask` changed (CRC-32 and size from the two central directories), if the
+member sets differ, or if a mask has the wrong byte length. It reports posts
+gained and lost per level. The union fix alone can only gain water, so lost
+posts mean the water source moved since the old edition (the mask rasterizes
+whichever `water-na` is current); `--max-lost` makes that a gate.
+`--border TILE:LEVEL:EDGES` asserts posts on named edges are all water;
+stage mode runs `WMASK_BORDERS` (default `us-central=N27W097:5:SE`, the tile
+of QA's AER-4594 repro). Against the published `2024edr1` that check fails
+with S 0/113 and E 0/113, which is the defect this re-edition fixes.
+
+FORCE_WMASK is refused without STAGE_ONLY, so rebuilt masks are always seen
+before they ship. A forced run that is interrupted leaves old and new masks
+mixed: re-run it forced. Pack zips stamp `pack_meta.json` with the build
+time, so the publish run's sha256 differs from the staged one; after the
+publish, `packtool wmask-diff <published URL> --against <staged pack>`
+should show 0 masks changed and identical members.
+
+The stage preview reads the same `build-notes-$EDITION.txt` as the publish
+run. QA's notification (above, § Water mask) is due before step 2.
+
 North-America regions (see `packtools/regions.yaml`): `us-west`,
 `us-central`, `us-east`, `us-south`, `alaska`, `canada-west`, `canada-east`,
 `mexico-central-america`. (`conus` is the navdata grouping; skip it for
