@@ -225,6 +225,15 @@ python scripts/make_glo30_tiles.py --check-tree /path/to/glo30hgt               
   neighbour. After N07-N13 were added, the existing N14 tiles above them
   keep a one-sample (about 30 m) seam until they are reconverted. That
   seam is cosmetic; reconverting fixes it but changes those tiles too.
+- **Move the mosaic masks aside before the next build.** The mosaic is
+  restitched on every run, and its extent comes from the tiles present, so
+  new edge tiles change its `rows`/`cols`/`lat_n`/`lon_w`. The mask build
+  skips a `.mip/mosaic/L<n>.wmask` that already exists, so the old masks
+  would be kept. The size check in `build_water_masks.py` then fails the run,
+  or, if the size happens to match, the mask sits offset from the terrain.
+  Moving the three `L4`-`L6` masks out of the tree rebuilds just those masks,
+  so `FORCE_WMASK=1` is not needed. Per-tile mips and masks for the new tiles
+  are built because they are missing.
 - **The next edition is not mask-only.** New tiles add members to the region
   packs and widen the mosaic, so wmask-diff's member-set check fails on
   those packs for that known reason. In the stage summary, check that the
