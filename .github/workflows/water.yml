@@ -14,17 +14,40 @@ name: water-packs
 # its record goes to reports/rejected/. A published (id, cycle) is
 # immutable: a rebuild needs a new cycle tag. Build notes come only from the
 # person dispatching (`notes`), for this edition.
+#
+# Staged input (AER-4676): the full `na` scope (water-na) is a ~30 GB
+# Geofabrik pull and a many-hour build -- it cannot run on a hosted runner.
+# Build it on a workstation, upload the unsigned water.sqlite (and its
+# sources.json) to `staging/` in the bucket, then dispatch with `staged_key`
+# + `staged_sha256`. The runner skips fetch + build, refuses bytes whose
+# sha256 differs, and runs the same gate + sign + upload + attestation as a
+# runner build. Nothing under `staging/` is listed in the manifest.
 on:
   workflow_dispatch:
     inputs:
       states:
-        description: "Geofabrik states (e.g. 'texas' or 'conus')"
+        description: "Geofabrik states (e.g. 'texas' or 'conus'); ignored with staged_key"
         default: "texas"
       cycle:
         description: "Edition tag (a published cycle cannot be republished: use a new tag)"
         default: "2026q2"
       notes:
         description: "Build notes for checks that warn, written for this edition: JSON, e.g. {\"ROW-002\": \"why\"}"
+        default: ""
+      pack_id:
+        description: "Pack id to publish (water-conus, water-na, ...)"
+        default: "water-conus"
+      regions:
+        description: "Space-separated manifest regions for the pack"
+        default: "conus"
+      staged_key:
+        description: "R2 key of a pre-built water.sqlite under staging/ (skips fetch + build); empty = build on the runner"
+        default: ""
+      staged_sha256:
+        description: "Required with staged_key: sha256 the staged water.sqlite must match"
+        default: ""
+      staged_sources_key:
+        description: "Optional with staged_key: R2 key of the build's sources.json (the test record's sources[])"
         default: ""
 
 env:
@@ -53,10 +76,38 @@ jobs:
 
       - name: Fetch + build water.sqlite (pyEfis tools)
         id: build
+        if: ${{ inputs.staged_key == '' }}
         run: |
           python pyefis-src/tools/fetch_geofabrik_water.py --states "${{ inputs.states }}"
           # produces water.sqlite via build_water_db (see the tool's --help for
           # the ocean coastline extract it expects)
+
+      # Staged input: the workstation-built bytes, checked against the sha256
+      # the dispatcher names. A mismatch stops the run before anything is
+      # signed or written to the manifest.
+      - name: Fetch staged water.sqlite (sha256-checked)
+        id: staged
+        if: ${{ inputs.staged_key != '' }}
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          STAGED_KEY:           ${{ inputs.staged_key }}
+          STAGED_SHA256:        ${{ inputs.staged_sha256 }}
+          SOURCES_KEY:          ${{ inputs.staged_sources_key }}
+        run: |
+          case "$STAGED_KEY" in staging/*) ;; *) echo "staged_key must be under staging/"; exit 1;; esac
+          [ -n "$STAGED_SHA256" ] || { echo "staged_key needs staged_sha256"; exit 1; }
+          python - <<'EOF'
+          import os
+          from packtools.upload import R2Store
+          s = R2Store.from_env("makerplane-data")
+          if not s.get_file(os.environ["STAGED_KEY"], "water.sqlite"):
+              raise SystemExit(f"staged object not found: {os.environ['STAGED_KEY']}")
+          if os.environ.get("SOURCES_KEY") and not s.get_file(os.environ["SOURCES_KEY"], "sources.json"):
+              raise SystemExit(f"staged sources not found: {os.environ['SOURCES_KEY']}")
+          EOF
+          echo "$STAGED_SHA256  water.sqlite" | sha256sum -c -
 
       - name: Pack + gate + upload (signed)
         id: publish
@@ -67,14 +118,19 @@ jobs:
           MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
           PYEFIS_SRC_DIR:       ${{ github.workspace }}/pyefis-src/src
           NOTES:                ${{ inputs.notes }}
+          PACK_ID:              ${{ inputs.pack_id }}
+          REGIONS:              ${{ inputs.regions }}
         run: |
           notes=()
           if [ -n "$NOTES" ]; then printf '%s' "$NOTES" > notes.json; notes=(--notes-file notes.json); fi
-          python -m packtools.cli build-pack water.sqlite "${notes[@]}" \
-            --id water-conus --kind water --cycle "${{ inputs.cycle }}" \
+          sources=()
+          if [ -f sources.json ]; then sources=(--sources sources.json); fi
+          read -ra regions <<< "$REGIONS"
+          python -m packtools.cli build-pack water.sqlite "${notes[@]}" "${sources[@]}" \
+            --id "$PACK_ID" --kind water --cycle "${{ inputs.cycle }}" \
             --attribution "OpenStreetMap contributors (ODbL); Natural Earth" \
             --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
-            --regions conus --url-base https://navdata.aerocommons.org/packs \
+            --regions "${regions[@]}" --url-base https://navdata.aerocommons.org/packs \
             --upload --bucket makerplane-data
 
       # The pack this run published, as a sha256sum line, for the attest job.
@@ -83,9 +139,10 @@ jobs:
         id: published
         if: ${{ steps.publish.outcome == 'success' }}
         env:
-          CYCLE: ${{ inputs.cycle }}
+          CYCLE:   ${{ inputs.cycle }}
+          PACK_ID: ${{ inputs.pack_id }}
         run: |
-          { echo 'published<<END_PUBLISHED'; (cd work/packs && sha256sum "water-conus-$CYCLE.pack"); echo 'END_PUBLISHED'; } >> "$GITHUB_OUTPUT"
+          { echo 'published<<END_PUBLISHED'; (cd work/packs && sha256sum "$PACK_ID-$CYCLE.pack"); echo 'END_PUBLISHED'; } >> "$GITHUB_OUTPUT"
 
       # TV8: one GitHub Release per publish event, holding each published
       # edition's report.json (the bytes its signed report_sha256 binds) and
@@ -116,15 +173,20 @@ jobs:
         env:
           STATES:  ${{ inputs.states }}
           CYCLE:   ${{ inputs.cycle }}
+          PACK_ID: ${{ inputs.pack_id }}
+          STAGED:  ${{ inputs.staged_key }}
           BUILD:   ${{ steps.build.outcome }}
+          FETCH:   ${{ steps.staged.outcome }}
           UPLOAD:  ${{ steps.publish.outcome }}
         run: |
           mkdir -p work/reports
-          packtool job-summary --title "water-packs: water-conus $CYCLE" \
+          src=(--input "states=$STATES" --input "fetch + build=$BUILD")
+          if [ -n "$STAGED" ]; then src=(--input "staged=$STAGED" --input "fetch staged (sha256-checked)=$FETCH"); fi
+          packtool job-summary --title "water-packs: $PACK_ID $CYCLE" \
             --records work/reports \
-            --file water.sqlite --file "work/packs/water-conus-$CYCLE.pack" \
-            --input "states=$STATES" --input "cycle=$CYCLE" \
-            --input "fetch + build=$BUILD" --input "gate + sign + upload=$UPLOAD"
+            --file water.sqlite --file "work/packs/$PACK_ID-$CYCLE.pack" \
+            "${src[@]}" --input "cycle=$CYCLE" \
+            --input "gate + sign + upload=$UPLOAD"
 
   # Build provenance (TV10): a Sigstore-signed statement, kept in GitHub's
   # public attestation store, that this workflow at this commit built each
