@@ -18,8 +18,14 @@ A wider region also needs the source tree refetched, which nothing else
 catches until TER-007 fails on a built pack (AER-4706: the tree was fetched
 for lon -170 and up, alaska grew to -177, and 41 tiles never shipped):
 
-    python scripts/make_glo30_tiles.py --fetch-window      # fetch_glo30.py bbox args
     python scripts/make_glo30_tiles.py --check-tree TREE   # listed tiles absent from an HGT tree
+    python scripts/make_glo30_tiles.py --fetch-window      # fetch_glo30.py bbox args
+
+Fetch and convert exactly the tiles --check-tree lists (docs/terrain.md,
+"Adding tiles to the tree"). --fetch-window is one box around every region,
+so it also covers land outside all of them: on 2026-11-03 it counted 185
+tiles to fetch when the tree lacked 89 (AER-4710). Converting those extra
+tiles puts them in the tree, and the whole-extent mosaic grows to cover them.
 """
 
 from __future__ import annotations
@@ -81,7 +87,8 @@ def main(argv=None) -> int:
     ap.add_argument("--src", help="a local copy of tileList.txt")
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--fetch-window", action="store_true",
-                    help="print the fetch_glo30.py bbox args that cover every region")
+                    help="print the fetch_glo30.py bbox args that cover every region "
+                         "(a bounding box: it overfetches; prefer --check-tree)")
     ap.add_argument("--check-tree", metavar="TREE",
                     help="list tiles in --out that a converted HGT tree lacks; exit 1 if any")
     a = ap.parse_args(argv)
