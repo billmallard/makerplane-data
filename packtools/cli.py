@@ -70,8 +70,15 @@ def _gate_options(args, record_dir: Path):
     sources = []
     if getattr(args, "sources", None):
         sources = json.loads(Path(args.sources).read_text(encoding="utf-8"))
+    built = {}
+    if getattr(args, "built_runner", None) or getattr(args, "built_at", None) \
+            or getattr(args, "builder_ref", None):
+        built = {"at": getattr(args, "built_at", None),
+                 "runner": getattr(args, "built_runner", None),
+                 "builder_refs": _kv_list(getattr(args, "builder_ref", None), "--builder-ref")}
     return gate.Options(notes=notes, origin=getattr(args, "origin", None), sources=sources,
-                        pyefis_src=getattr(args, "pyefis_src", None), record_dir=record_dir)
+                        pyefis_src=getattr(args, "pyefis_src", None), record_dir=record_dir,
+                        built=built)
 
 
 def _require_device_reader(args) -> None:
@@ -860,6 +867,15 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--pyefis-src", dest="pyefis_src",
                     help="pyEfis checkout's src/ for device acceptance "
                          "(default: PYEFIS_SRC_DIR, or PYEFIS_TOOLS_DIR/../src)")
+    # A staged publish (AER-4676): the source was built elsewhere, so the
+    # test record's `built` says where, not the run that gates and signs it.
+    b.add_argument("--built-at", dest="built_at",
+                   help="staged source: ISO-8601 UTC time its build started")
+    b.add_argument("--built-runner", dest="built_runner",
+                   choices=("github-hosted", "self-hosted", "local"),
+                   help="staged source: where it was built")
+    b.add_argument("--builder-ref", dest="builder_ref", action="append", metavar="NAME=SHA",
+                   help="staged source: a repo its build ran code from (repeatable)")
     b.set_defaults(func=cmd_build_pack)
 
     rp = sub.add_parser("remove-pack", help="retract one (id, cycle) entry from "

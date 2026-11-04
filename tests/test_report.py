@@ -689,6 +689,24 @@ def test_water_declares_its_empty_waterway_table(tmp_path):
     assert _by_id(_rep(hwy))["ROW-001"]["status"] == "fail"
 
 
+def test_a_staged_build_records_where_it_was_built(tmp_path, monkeypatch):
+    # AER-4676: water-na is built on a workstation and only gated + signed in
+    # CI. The record must say so, not describe the signing run as the build.
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_RUN_ID", "7")
+    rec = _rep(_water_pack(tmp_path / "w.pack"), runner="local",
+               built_at="2026-11-02T15:43:00Z", builder_refs={"pyEfis": "d" * 40})
+    b = rec["built"]
+    assert b["runner"] == "local" and b["at"] == "2026-11-02T15:43:00Z"
+    assert b["builder_refs"] == {"pyEfis": "d" * 40}
+    assert b["run_url"].endswith("/actions/runs/7")     # the run that gated and signed it
+    assert report.validate_report(rec) == []
+    # Without an override the environment still decides, as before.
+    assert _rep(_water_pack(tmp_path / "x.pack"))["built"]["runner"] == "github-hosted"
+    with pytest.raises(report.ReportError, match="runner"):
+        _rep(_water_pack(tmp_path / "y.pack"), runner="laptop")
+
+
 # --- terrain ------------------------------------------------------------------
 
 def test_terrain_checks_on_a_region_pack(tmp_path):
