@@ -37,7 +37,7 @@ the pack passed its tests is the test report's job (`docs/pack_report.md`).
 |---|---|---|
 | `cyclical.yml` (nightly) | `airports-conus`, `navaids-conus`, `obstacles-conus`, `procedures-conus` | every edition it publishes |
 | `roads.yml` (dispatch) | `highways-conus` | every edition it publishes |
-| `water.yml` (dispatch) | `water-conus` | every edition it publishes |
+| `water.yml` (dispatch) | `water-conus` | every edition it builds; not a staged publish (below) |
 
 Only a pack the publish gate accepted, and that is listed in the signed
 catalog that run uploaded, is attested. A refused pack is not.
@@ -50,7 +50,14 @@ No attestation exists for:
   none. Their trust rests on the signed catalog and their test record. Moving
   the build to a public workflow, or a plan change, would lift this.
 - **Packs built on a workstation**, not by a workflow: today `water-na` and
-  `airports-canada`.
+  `airports-canada`. This holds even when `water.yml` publishes one through its
+  staged input (AER-4676): the run gates, signs and uploads bytes it did not
+  build, so it makes no attestation. The pack's test record says where it was
+  built instead: `built.runner` is `local`, `built.at` is the workstation
+  build's start, `built.builder_refs` names its pyEfis commit, and
+  `built.run_url` is the CI run that gated and signed it. The staged bytes are
+  pinned by the sha256 the dispatcher gave; that proves which bytes, not how
+  they were made.
 - **Editions published before this change.** An attestation can only be made
   by the run that built the pack; it is not added later.
 - **Catalog edits** by `manifest-admin.yml`. It re-signs the catalog and

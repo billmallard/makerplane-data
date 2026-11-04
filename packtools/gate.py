@@ -240,6 +240,9 @@ class Options:
     pyefis_src: Path | None = None
     #: Where local copies of the records go, for the job summary.
     record_dir: Path | None = None
+    #: A staged publish's build provenance (AER-4676): ``at``, ``runner`` and
+    #: ``builder_refs`` of the workstation build. Empty: the reporter decides.
+    built: dict = field(default_factory=dict)
     #: Builds the record. Tests inject a stand-in; the binding and
     #: publish_blockers checks below are not injectable.
     reporter: Callable = _report.build_report
@@ -285,9 +288,13 @@ def gate_one(store, live: Manifest | None, entry: PackEntry, path: str | Path, *
     notes = notes_for(entry.id, entry.kind, opts.notes, is_zip=zipfile.is_zipfile(path))
     previous, first, how = previous_record(store, live, entry, local=local, log=log)
     log(f"  gate {entry.id} {entry.cycle}: {how}")
+    built = {}
+    if opts.built:
+        built = {"built_at": opts.built.get("at"), "runner": opts.built.get("runner"),
+                 "builder_refs": dict(opts.built.get("builder_refs") or {})}
     rec = opts.reporter(path, record="build", previous=previous, first_edition=first,
                         origin=opts.origin, sources=list(opts.sources), notes=notes,
-                        inputs=opts.inputs, pyefis_src=opts.pyefis_src, probe=True)
+                        inputs=opts.inputs, pyefis_src=opts.pyefis_src, probe=True, **built)
     # The file being signed, hashed again after the checks ran on it.
     blockers = _binding_problems(rec, entry, signing.sha256_file(path), path.stat().st_size)
     blockers += [f"malformed record: {e}" for e in _report.validate_report(rec)]
