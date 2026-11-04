@@ -1975,17 +1975,26 @@ def _git_head(path: Path) -> str | None:
 
 # --- building a record ------------------------------------------------------
 
-def _built_block(*, commit: str | None, builder_refs: dict, at: str | None) -> dict:
+RUNNERS = ("github-hosted", "self-hosted", "local")
+
+
+def _built_block(*, commit: str | None, builder_refs: dict, at: str | None,
+                 runner: str | None = None) -> dict:
     gh = os.environ.get("GITHUB_ACTIONS") == "true"
     run_url = None
     if gh and os.environ.get("GITHUB_RUN_ID"):
         run_url = (f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/"
                    f"{os.environ.get('GITHUB_REPOSITORY', REPO)}/actions/runs/"
                    f"{os.environ['GITHUB_RUN_ID']}")
-    runner = "local"
-    if gh:
-        runner = ("self-hosted" if os.environ.get("RUNNER_ENVIRONMENT") == "self-hosted"
-                  else "github-hosted")
+    # A staged publish (AER-4676) gates and signs in CI bytes built elsewhere:
+    # the caller names where they were built, and run_url stays the CI run.
+    if runner is None:
+        runner = "local"
+        if gh:
+            runner = ("self-hosted" if os.environ.get("RUNNER_ENVIRONMENT") == "self-hosted"
+                      else "github-hosted")
+    elif runner not in RUNNERS:
+        raise ReportError(f"runner must be one of {RUNNERS}, not {runner!r}")
     return {
         "at": at or _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "repo": REPO,
@@ -2001,7 +2010,8 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                  pyefis_src: str | Path | None = None, probe: bool = True,
                  sources: list | None = None, notes: dict | None = None,
                  commit: str | None = None, builder_refs: dict | None = None,
-                 built_at: str | None = None, first_edition: bool = False,
+                 built_at: str | None = None, runner: str | None = None,
+                 first_edition: bool = False,
                  terrain: list | None = None, airports: str | Path | None = None,
                  golden_facts: str | Path | None = None) -> dict:
     """Run the kind's catalogue on one pack and return the record.
@@ -2081,7 +2091,7 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
                  "sha256": sha256_file(path), "bytes": path.stat().st_size,
                  "schema_version": str(meta.schema_version)},
         "origin": ctx.origin,
-        "built": _built_block(commit=commit, builder_refs=refs, at=built_at),
+        "built": _built_block(commit=commit, builder_refs=refs, at=built_at, runner=runner),
         "sources": ctx.sources,
         "previous": ({"cycle": previous["pack"]["cycle"], "sha256": previous["pack"]["sha256"]}
                      if previous else None),

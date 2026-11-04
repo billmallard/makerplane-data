@@ -40,10 +40,10 @@ regions:
   # that at ~210 MB, a +4.4% growth of terrain-alaska
   # (docs/aer-1990-alaska-region-gap.md). Widening the bbox did not put
   # those tiles in the pack: the GLO-30 source tree was fetched for lon
-  # -170 and up, so terrain-alaska-2024edr1 still stops at W170. They ship
-  # only once the tree is refetched to cover every region
-  # (scripts/make_glo30_tiles.py --fetch-window) and a terrain edition is
-  # rebuilt from it (AER-4706).
+  # -170 and up, so terrain-alaska-2024edr1 and -2024edr2 stop at W170.
+  # The tiles were added to the tree on 2026-11-03 (AER-4710;
+  # scripts/make_glo30_tiles.py --check-tree reports none missing). They
+  # ship in the first terrain edition built after 2024edr2 (AER-4706).
   #
   # Deliberately NOT widened all the way to the -180 dateline: at this
   # latitude band, -178 through -180 is mostly Chukotka Peninsula (Russia),

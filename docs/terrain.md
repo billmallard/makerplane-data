@@ -199,6 +199,46 @@ Notes:
 - Don't run the daily navdata pipeline and a terrain upload at the same
   time; both rewrite the manifest.
 
+### Adding tiles to the tree (a region grew, AER-4706)
+
+A wider bbox in `regions.yaml` does not reach the packs until the GLO-30
+tree has the new tiles. The tree is a one-time fetch; nothing refetches it.
+After a region change, rerun `scripts/make_glo30_tiles.py` (the expected
+list), then fetch and convert exactly what the tree lacks:
+
+```bash
+python scripts/make_glo30_tiles.py --check-tree /path/to/glo30hgt > missing.txt   # exit 1 = gaps
+# fetch exactly those tiles (AER-4710 used fetch_glo30.fetch_one on the list), then:
+python /path/to/pyEfis/tools/convert_glo30.py --src /path/to/glo30 --dest /path/to/glo30hgt \
+    --tiles $(cut -d' ' -f1 missing.txt)
+python scripts/make_glo30_tiles.py --check-tree /path/to/glo30hgt                 # expect exit 0
+```
+
+- **Don't fetch by bounding box.** `--fetch-window` is one box around every
+  region and covers land outside all of them. On 2026-11-03 it counted 185
+  tiles when the tree lacked 89. 93 of the extras were N07-N13 east of W077
+  (Colombia, Venezuela, the Guianas). A `convert_glo30.py` run without
+  `--tiles` converts everything in the raw directory, and the whole-extent
+  mosaic then grows to cover those extra tiles.
+- **Seam at the old edge.** A tile converted while its south or east
+  neighbour was missing takes its edge row from the fallback, not from the
+  neighbour. After N07-N13 were added, the existing N14 tiles above them
+  keep a one-sample (about 30 m) seam until they are reconverted. That
+  seam is cosmetic; reconverting fixes it but changes those tiles too.
+- **Move the mosaic masks aside before the next build.** The mosaic is
+  restitched on every run, and its extent comes from the tiles present, so
+  new edge tiles change its `rows`/`cols`/`lat_n`/`lon_w`. The mask build
+  skips a `.mip/mosaic/L<n>.wmask` that already exists, so the old masks
+  would be kept. The size check in `build_water_masks.py` then fails the run,
+  or, if the size happens to match, the mask sits offset from the terrain.
+  Moving the three `L4`-`L6` masks out of the tree rebuilds just those masks,
+  so `FORCE_WMASK=1` is not needed. Per-tile mips and masks for the new tiles
+  are built because they are missing.
+- **The next edition is not mask-only.** New tiles add members to the region
+  packs and widen the mosaic, so wmask-diff's member-set check fails on
+  those packs for that known reason. In the stage summary, check that the
+  added members are exactly the new tiles and that nothing else changed.
+
 ### Mask-only re-edition: stage, verify, then publish (AER-4595)
 
 When only the water masks change (a mask-builder fix such as AER-4594's
