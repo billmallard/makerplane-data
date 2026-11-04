@@ -110,7 +110,10 @@ upload it unsigned (plus its `sources.json`) under `staging/` in the
 bucket, and dispatch `water.yml` with `staged_key`, `staged_sha256`,
 `pack_id`, `regions` and a new `cycle`. The runner skips fetch + build,
 refuses bytes whose sha256 differs, and runs the same gate, signing,
-upload, release and provenance attestation as a runner build. Nothing
+upload and release as a runner build. It also needs `staged_built_at` and
+`staged_pyefis_sha`: the test record's `built` names the workstation build
+(`runner: local`), and the CI provenance attestation is skipped, because
+the run did not build the bytes ([provenance.md](provenance.md)). Nothing
 under `staging/` is listed in the manifest. The QA notification above
 still comes first.
 

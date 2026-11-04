@@ -20,8 +20,11 @@ name: water-packs
 # Build it on a workstation, upload the unsigned water.sqlite (and its
 # sources.json) to `staging/` in the bucket, then dispatch with `staged_key`
 # + `staged_sha256`. The runner skips fetch + build, refuses bytes whose
-# sha256 differs, and runs the same gate + sign + upload + attestation as a
-# runner build. Nothing under `staging/` is listed in the manifest.
+# sha256 differs, and runs the same gate + sign + upload as a runner build.
+# The test record's `built` names the workstation build (runner: local, its
+# start time and pyEfis commit); the CI-built provenance attestation (TV10) is
+# skipped, since this workflow did not build those bytes. Nothing under
+# `staging/` is listed in the manifest.
 on:
   workflow_dispatch:
     inputs:
@@ -48,6 +51,12 @@ on:
         default: ""
       staged_sources_key:
         description: "Optional with staged_key: R2 key of the build's sources.json (the test record's sources[])"
+        default: ""
+      staged_built_at:
+        description: "Required with staged_key: ISO-8601 UTC time the workstation build started (the record's built.at)"
+        default: ""
+      staged_pyefis_sha:
+        description: "Required with staged_key: full pyEfis commit the workstation build ran (the record's builder_refs)"
         default: ""
 
 env:
@@ -95,9 +104,13 @@ jobs:
           STAGED_KEY:           ${{ inputs.staged_key }}
           STAGED_SHA256:        ${{ inputs.staged_sha256 }}
           SOURCES_KEY:          ${{ inputs.staged_sources_key }}
+          BUILT_AT:             ${{ inputs.staged_built_at }}
+          PYEFIS_SHA:           ${{ inputs.staged_pyefis_sha }}
         run: |
           case "$STAGED_KEY" in staging/*) ;; *) echo "staged_key must be under staging/"; exit 1;; esac
           [ -n "$STAGED_SHA256" ] || { echo "staged_key needs staged_sha256"; exit 1; }
+          [ -n "$BUILT_AT" ] || { echo "staged_key needs staged_built_at"; exit 1; }
+          echo "$PYEFIS_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "staged_key needs a 40-hex staged_pyefis_sha"; exit 1; }
           python - <<'EOF'
           import os
           from packtools.upload import R2Store
@@ -120,13 +133,21 @@ jobs:
           NOTES:                ${{ inputs.notes }}
           PACK_ID:              ${{ inputs.pack_id }}
           REGIONS:              ${{ inputs.regions }}
+          STAGED:               ${{ inputs.staged_key }}
+          BUILT_AT:             ${{ inputs.staged_built_at }}
+          PYEFIS_SHA:           ${{ inputs.staged_pyefis_sha }}
         run: |
           notes=()
           if [ -n "$NOTES" ]; then printf '%s' "$NOTES" > notes.json; notes=(--notes-file notes.json); fi
           sources=()
           if [ -f sources.json ]; then sources=(--sources sources.json); fi
+          # Staged: the record says where the bytes were built, not this run.
+          built=()
+          if [ -n "$STAGED" ]; then
+            built=(--built-at "$BUILT_AT" --built-runner local --builder-ref "pyEfis=$PYEFIS_SHA")
+          fi
           read -ra regions <<< "$REGIONS"
-          python -m packtools.cli build-pack water.sqlite "${notes[@]}" "${sources[@]}" \
+          python -m packtools.cli build-pack water.sqlite "${notes[@]}" "${sources[@]}" "${built[@]}" \
             --id "$PACK_ID" --kind water --cycle "${{ inputs.cycle }}" \
             --attribution "OpenStreetMap contributors (ODbL); Natural Earth" \
             --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
@@ -196,7 +217,10 @@ jobs:
   # docs/provenance.md (`gh attestation verify`).
   attest:
     needs: build
-    if: ${{ always() && needs.build.outputs.published != '' }}
+    # Not for a staged publish: its bytes were built on a workstation, and
+    # this statement says "this workflow at this commit built" them. The
+    # record's `built` block carries a staged build's provenance instead.
+    if: ${{ always() && needs.build.outputs.published != '' && inputs.staged_key == '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
