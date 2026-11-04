@@ -1865,6 +1865,104 @@ function rangeRingGeom(o, w, h) {
   return { cx, cy, range, rings, labels, color, alpha, strokeW, labelPx };
 }
 
+// pyefis.display_metrics.pixels_per_mm from main:'s screen size and
+// diagonal. The device's next source, Qt's reported DPI, is not knowable
+// here, so a missing or implausible diagonal goes straight to the nominal 96.
+function displayPxPerMm(screen) {
+  const s = screen || {};
+  const w = Number(s.width), h = Number(s.height), d = Number(s.inches);
+  let dpi = null;
+  if (w > 0 && h > 0 && d > 0) {
+    const v = Math.hypot(w, h) / d;
+    if (v >= 40 && v <= 500) dpi = v;
+  }
+  return (dpi ?? 96) / 25.4;
+}
+
+// MovingMap._ladder, then _rail_ladder's sorted(set(...)): str(range_ladder)
+// split on commas, every entry a float or the whole ladder falls back to
+// [10]. A YAML list is not a comma string to str(), so it falls back too.
+function railLadder(o) {
+  const raw = (o && o.range_ladder !== undefined) ? o.range_ladder : "2,5,10,20,40,80,160";
+  const vals = [];
+  if (raw !== null && typeof raw !== "object" && typeof raw !== "boolean") {
+    for (const part of String(raw).split(",")) {
+      if (!part) continue;
+      const v = pyFloat(part, null);
+      if (v === null) return [10];
+      vals.push(v);
+    }
+  } else {
+    return [10];
+  }
+  return vals.length ? [...new Set(vals)].sort((a, b) => a - b) : [10];
+}
+
+// A port of the pyEfis MovingMap zoom rail (G22, pyEfis #205):
+// zoom_rail_geometry() plus the strokes _paint_zoom_rail() draws at rest, in
+// widget pixels for a w x h map. Null when zoom_rail is off or the map is too
+// short to hold it. Pure, so the tests can pin it against the real widget.
+function zoomRailGeom(o, w, h, pxPerMm, range) {
+  o = o || {};
+  if (!o.zoom_rail || !(w > 0) || !(h > 0)) return null;
+  const chipH = Math.max(9, Math.trunc(w * 0.03)) + 6;
+  const top = 4 + 2 * chipH;                 // one chip-height below the chip
+  const avail = h * 0.75 - top;              // _ZOOM_RAIL_BOTTOM_FRAC
+  if (avail <= 0) return null;
+  const touch = Math.max(24, Math.min(20 * pxPerMm, w * 0.25));   // 20 mm column
+  const total = Math.min(avail, 2 * touch + 0.38 * h);            // _ZOOM_RAIL_TRACK_FRAC
+  const cap = Math.min(touch, total / 3);
+  const x0 = o.zoom_rail_side === "right" ? w - touch : 0;
+  const claim = { x: x0, y: top, w: touch, h: total };
+  const plus = { x: x0, y: top, w: touch, h: cap };
+  const minus = { x: x0, y: top + total - cap, w: touch, h: cap };
+  const x = x0 + touch / 2, y0 = plus.y + plus.h, y1 = minus.y;
+  const ladder = railLadder(o);
+  const n = ladder.length;
+  const step = n > 1 ? (y1 - y0) / (n - 1) : 0;
+  const rungY = ladder.map((_, i) => n === 1 ? (y0 + y1) / 2 : y0 + i * step);
+  // _rail_thumb_y: a rung sits on its detent, a range between rungs is
+  // interpolated in log space, anything past the ends clamps to them.
+  let thumbY = rungY[0];
+  if (!(range <= ladder[0] || n === 1)) {
+    if (range >= ladder[n - 1]) thumbY = rungY[n - 1];
+    else {
+      for (let i = 0; i < n - 1; i++) {
+        if (ladder[i] <= range && range <= ladder[i + 1]) {
+          thumbY = rungY[i] + Math.log(range / ladder[i]) / Math.log(ladder[i + 1] / ladder[i]) * step;
+          break;
+        }
+      }
+    }
+  }
+  const lw = Math.max(2, w * 0.004);
+  const tick = Math.max(4, touch * 0.12);
+  const glyph = Math.max(5, touch * 0.15);
+  const r = Math.max(6, touch * 0.14);
+  // The path: the line, a tick per rung, "+" in the top cap, "-" in the bottom.
+  const segments = [[[x, y0], [x, y1]], ...rungY.map((y) => [[x - tick, y], [x + tick, y]])];
+  for (const [rc, vertical] of [[plus, true], [minus, false]]) {
+    const cx = rc.x + rc.w / 2, cy = rc.y + rc.h / 2;
+    segments.push([[cx - glyph, cy], [cx + glyph, cy]]);
+    if (vertical) segments.push([[cx, cy - glyph], [cx, cy + glyph]]);
+  }
+  return { claim, plus, minus, x, y0, y1, ladder, touch, rungY, thumbY,
+           lw, r, segments };
+}
+
+// The rail at rest, as SVG: _RAIL_HALO under _RAIL_REST, round caps, then the
+// thumb -- a halo ring just outside an opaque disc.
+function zoomRailSvg(g) {
+  if (!g) return "";
+  const d = g.segments.map((s) => `M${s[0][0]},${s[0][1]} L${s[1][0]},${s[1][1]}`).join(" ");
+  const HALO = `stroke="#000000" stroke-opacity="${(170 / 255).toFixed(4)}"`;
+  return `
+  <path d="${d}" fill="none" ${HALO} stroke-width="${g.lw + 3}" stroke-linecap="round"/>
+  <path d="${d}" fill="none" stroke="rgb(205,205,205)" stroke-width="${g.lw}" stroke-linecap="round"/>
+  <circle cx="${g.x}" cy="${g.thumbY}" r="${g.r + 1}" fill="none" ${HALO} stroke-width="2"/>
+  <circle cx="${g.x}" cy="${g.thumbY}" r="${g.r}" fill="rgb(205,205,205)"/>`;
+}
+
 // The map widget's size in device pixels: its share of the 110x200 grid on
 // the target screen. The device scales stroke, label and chip sizes off it.
 function mapDevicePx(inst) {
@@ -1890,7 +1988,8 @@ function movingMapPalette(o) {
 
 // Moving map twin: a port of MovingMap.paintEvent's no-data frame in device
 // pixels -- dark ground, the range-ring layer (rangeRingGeom), the top-down
-// ownship at the configurable anchor, and the status chip. Terrain/airport
+// ownship at the configurable anchor, the status chip and, with zoom_rail,
+// the zoom rail at rest (zoomRailGeom). Terrain/airport
 // layers draw on-device from local data; the twin mirrors the no-data
 // presentation (fidelity, not decoration). Text tops follow Qt's AlignTop:
 // baseline = rect top + the DejaVu ascent (0.928 em).
@@ -1921,6 +2020,7 @@ function buildMovingMap(inst) {
   }
   const s = Math.max(8, w * 0.025);
   const chipPx = Math.max(9, Math.trunc(w * 0.03));
+  const rail = zoomRailSvg(zoomRailGeom(o, w, h, displayPxPerMm(state.screen), g.range));
   return svgFromString(`
 <svg viewBox="0 0 ${w} ${h}" class="gauge-svg">
   <rect x="0" y="0" width="${w}" height="${h}" fill="${pal.background}"/>
@@ -1929,6 +2029,7 @@ function buildMovingMap(inst) {
     fill="${sym}" stroke="#000" stroke-width="1"/>
   <text x="6" y="${4 + chipPx * ASC}" ${FONT} font-size="${chipPx}" style="white-space:pre"
     fill="rgba(255,255,255,0.784)">${formatRangeNm(g.range)} NM  ${mode}</text>
+  ${rail}
 </svg>`);
 }
 

@@ -18,7 +18,8 @@ import { editorSource, extractFunction } from "./support/extract.mjs";
 
 const src = editorSource();
 const body = ["movingMapPalette", "pyFloat", "formatRangeNm", "parseRingFractions",
-  "rangeRingGeom", "mapDevicePx", "buildMovingMap"]
+  "rangeRingGeom", "mapDevicePx", "displayPxPerMm", "railLadder", "zoomRailGeom",
+  "zoomRailSvg", "buildMovingMap"]
   .map((f) => extractFunction(src, f)).join("\n\n");
 
 // svgFromString and the editor state are the only free dependencies;
