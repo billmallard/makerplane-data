@@ -116,6 +116,15 @@ checked, per AC-IP-001's remit to catch exactly this class of decision.
 | NavCanada VNC | (Canadian charts) | proprietary, user-supplied only | **No** — never redistributed; user-supplied pack slot only |
 | **openAIP** (Garrecht Avionik GmbH) | airspace (`airspace` kind + builder land in AER-547; not yet published to R2 — Bill's explicit go required, see AER-547) | **CC BY-NC 4.0**, confirmed live against openAIP's own API metadata 2026-08-23 | **Evaluated: yes, under its own terms.** Free, no-revenue distribution reads as non-commercial under CC's own NC definition; carry-not-relicense via per-pack `license`/`license_url` metadata (AER-546, additive fields on `PackMeta`/`Source`, landed 2026-09-03). Full writeup: [openaip_evaluation.md](openaip_evaluation.md). |
 
+Reference data the **report** reads (catalogue v2, TV7; shipped in
+`packtools/data/`, never inside a pack):
+
+| File | Source | License |
+|---|---|---|
+| `admin1_na.json` | Natural Earth 1:10m Admin 1, v5.1.2, US/Canada/Mexico, simplified (`scripts/make_admin1.py`) | Public domain ([terms](https://www.naturalearthdata.com/about/terms-of-use/)); credited on the diff maps anyway |
+| `glo30_tiles.txt` | The tile names in Copernicus's `tileList.txt` (`s3://copernicus-dem-30m`), filtered to our regions (`scripts/make_glo30_tiles.py`) | A list of tile names, no elevation data; Copernicus DEM licence as above |
+| `golden_facts.yaml` | Values from FAA Chart Supplement pages, each entry citing its page | US Government work; the file itself CC BY 4.0 like the docs |
+
 `PackMeta` (`packtools/packmeta.py`), `Source` (`packtools/sources.py`), and
 `PackEntry` (`packtools/manifest.py`, AER-547) all carry additive
 `license`/`license_url` fields alongside `attribution`: `attribution` stays

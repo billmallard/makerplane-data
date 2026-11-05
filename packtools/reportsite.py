@@ -42,6 +42,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from . import diffmap
 from .manifest import NOTICE
 from .report import publish_blockers, validate_report
 
@@ -52,7 +53,8 @@ REPO = "billmallard/makerplane-data"
 REPO_URL = f"https://github.com/{REPO}"
 BUILDER_REPOS = {"pyEfis": "https://github.com/billmallard/pyEfis"}
 
-# Plan section 4.7, "What this report is and is not", verbatim (D3).
+# Plan section 4.7 standing text, verbatim (D3). Rendered as the boxed
+# p.standing alone; the section heading was dropped on 2026-11-01 (AER-4532).
 STANDING_TEXT = (
     "These are the checks we ran on this pack, what each one measured, and what "
     "each one cannot catch. It is evidence, not a warranty and not a certification. "
@@ -81,6 +83,12 @@ KIND_LABELS = {"navdata": "Airports & runways", "airports": "Airports (regional)
                "procedures": "Procedures & airways", "cifp": "Procedures & waypoints",
                "terrain": "Terrain", "water": "Water", "highways": "Roads & highways",
                "rivers": "Rivers"}
+# Kinds the in-browser pack inspector (site/inspect.html, TV6) opens whole.
+# Must match SQLITE_KINDS in site/assets/inspect-core.js; a test holds them
+# together.
+INSPECTOR_KINDS = ("navdata", "airports", "navaids", "obstacles", "procedures")
+# The locator fields the inspector reads (docs/pack_inspector.md).
+INSPECTOR_LOCATOR_KEYS = ("table", "row_id", "lat", "lon")
 STATUS_ORDER = ("fail", "warn", "not-run", "pass")
 STATUS_LABEL = {"pass": "pass", "warn": "warn", "fail": "fail", "not-run": "not run"}
 
@@ -319,8 +327,7 @@ def page(title: str, body: str, *, root: str, commit: str) -> str:
 
 
 def standing_block() -> str:
-    return (f'<section><h2>What this report is and is not</h2>'
-            f'<p class="standing">{e(STANDING_TEXT)}</p></section>')
+    return f'<section><p class="standing">{e(STANDING_TEXT)}</p></section>'
 
 
 # --- one edition ------------------------------------------------------------
@@ -384,14 +391,31 @@ def sources_html(rec: dict) -> str:
             f"<th>sha256</th></tr>{rows}</table>")
 
 
-def auspex_html(rec: dict) -> str:
+def inspector_href(pack: dict, locator: dict | None, root: str) -> str | None:
+    """Link opening ``pack`` (and the place ``locator`` names) in the pack
+    inspector, pinned to the record's sha256; None for a kind it cannot open."""
+    if pack.get("kind") not in INSPECTOR_KINDS:
+        return None
+    q = {"pack": pack["id"], "cycle": pack["cycle"], "sha256": pack["sha256"]}
+    for k in INSPECTOR_LOCATOR_KEYS:
+        v = (locator or {}).get(k)
+        if isinstance(v, (str, int, float)) and not isinstance(v, bool):
+            q[k] = str(v)
+    return f"{root}inspect.html?{urllib.parse.urlencode(q)}"
+
+
+def auspex_html(rec: dict, root: str = "") -> str:
     a = rec.get("auspex")
     if not a:
         return ("<section><h2>Black-box check (Auspex)</h2><p>Not run for this edition.</p>"
                 "</section>")
     cov = a.get("coverage") or {}
+    def opener(f: dict) -> str:
+        href = inspector_href(rec["pack"], f.get("locator"), root)
+        return f' <a href="{e(href)}">open in the inspector</a>' if href else ""
     findings = "".join(
-        f"<li><span class=mono>{e(json.dumps(f.get('locator'), sort_keys=True))}</span><br>"
+        f"<li><span class=mono>{e(json.dumps(f.get('locator'), sort_keys=True))}</span>"
+        f"{opener(f)}<br>"
         f"{e(f.get('statement'))} Expected: {e(f.get('expected'))}. Actual: {e(f.get('actual'))}. "
         f"{e(f.get('issue'))}</li>" for f in a.get("findings") or [])
     when = ("in the signed build record (run before publish)" if a.get("when") == "pre-publish"
@@ -450,8 +474,22 @@ fetch("status.json", {{cache: "no-store"}}).then(r => r.ok ? r.json() : Promise.
 </script></section>"""
 
 
+def diffmap_html(rec: dict, prev_rec: dict | None) -> str:
+    """The per-state diff maps (TV7) for an OSM edition against the record
+    it was compared with, or nothing."""
+    if not prev_rec:
+        return ""
+    maps = diffmap.page(rec, prev_rec)
+    if not maps:
+        return ""
+    return ('<section><h2>Changes by state or province</h2>'
+            '<p>Each state or province coloured by its change against the previous edition '
+            '(checks OSM-002 and OSM-006). Hover a state, or open the table, for the '
+            f'numbers.</p>{maps}</section>')
+
+
 def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
-                *, commit: str) -> str:
+                *, commit: str, prev_rec: dict | None = None) -> str:
     rec, p, b = ed["rec"], ed["rec"]["pack"], ed["rec"].get("built") or {}
     t = row["tally"]
     head = [f'<span class="tag">{e(rec["origin"])}</span>', e(p["kind"])]
@@ -478,7 +516,19 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
     prev_cycle = (rec.get("previous") or {}).get("cycle")
     prev_link = (f'<a href="../{e(prev["cycle"])}/report.html">{e(prev["cycle"])}</a>'
                  if prev else e(prev_cycle) if prev_cycle else "none")
-    blockers = ("".join(f"<li>{e(x)}</li>" for x in row["blockers"]))
+    shown = row["blockers"]
+    stop = "This record would stop a publish:"
+    if rec["record"] == "retro":
+        # Only a build record can clear the gate, so every retro record
+        # "would stop a publish"; say what else today's gate would refuse.
+        shown = [x for x in shown if not x.startswith("record is retro")]
+        stop = ("Judged by today's publish gate as a new build, this edition would be "
+                "refused for:")
+    blockers = ("".join(f"<li>{e(x)}</li>" for x in shown))
+    inspect = inspector_href(p, None, "../../../")
+    inspect = (f'<p>Or query this edition in your browser: <a href="{e(inspect)}">pack '
+               f'inspector</a>. It checks the bytes against the signed catalog before '
+               f'opening them.</p>' if inspect else "")
     body = f"""
 <section class="lede"><h1>{e(pack_label(rec))} <span class="mono">{e(p['id'])}</span>
 &middot; {e(p['cycle'])}</h1>
@@ -490,7 +540,7 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
 <p class="tallies">{pill('pass')} {t['pass']} &nbsp; {pill('warn')} {t['warn']} &nbsp;
 {pill('fail')} {t['fail']} &nbsp; {pill('not-run')} {t['not-run']}</p>
 {callouts(rec)}
-{f'<p class="banner bad">This record would stop a publish:</p><ul>{blockers}</ul>' if blockers else ''}
+{f'<p class="banner bad">{e(stop)}</p><ul>{blockers}</ul>' if blockers else ''}
 <p class="filter">Show: <label><input type="checkbox" value="pass" checked> pass</label>
 <label><input type="checkbox" value="warn" checked> warn</label>
 <label><input type="checkbox" value="fail" checked> fail</label>
@@ -499,8 +549,9 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
 <th>Measured</th><th>Expected</th><th>Cannot catch</th><th></th></tr>{check_rows(rec)}</table></div>
 </section>
 
-{auspex_html(rec)}
+{auspex_html(rec, "../../../")}
 {tables_html(rec, prev_cycle)}
+{diffmap_html(rec, prev_rec)}
 
 <section><h2>Identity</h2><table class="kv">
 <tr><th>Pack sha256</th><td class="mono">{e(p['sha256'])}</td></tr>
@@ -522,7 +573,7 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
 <section><h2>Check it yourself</h2>
 <pre>packtool report --check {e(p['id'])}-{e(p['cycle'])}.pack</pre>
 <p>Re-runs every open check on the pack you downloaded and compares the result with this
-record. <a href="../../check.html">How to do it</a>.</p></section>
+record. <a href="../../check.html">How to do it</a>.</p>{inspect}</section>
 <script>
 document.querySelector(".filter").addEventListener("change", () => {{
   const on = new Set([...document.querySelectorAll(".filter input:checked")].map(i => i.value));
@@ -660,7 +711,11 @@ its <code>report.json</code>;</li>
 <li>device acceptance needs a pyEfis checkout (<code>--pyefis-src</code>);</li>
 <li>results from Auspex, a proprietary AI test engine, cannot be re-run outside. Each of
 its findings is printed with the location it names, so you can look at that place in the
-pack yourself.</li></ul></section>
+pack yourself. For airports, navaids, obstacles and procedures, the finding's
+<b>open in the inspector</b> link on the report page does that in your browser.</li></ul>
+<p>To query any of those packs without installing anything, use the
+<a href="../inspect.html">pack inspector</a>. It verifies the catalog signature and the
+pack's sha256 before it opens the pack.</p></section>
 
 <section><h2>4. Check the catalog signature by hand</h2>
 <p>The catalog is signed with an ed25519 key in minisign format. The public key is
@@ -719,8 +774,10 @@ def build(records: list[dict], manifest: dict | None, *, commit: str = "") -> di
         for i, (ed, row) in enumerate(pairs):
             prev_cycle = (ed["rec"].get("previous") or {}).get("cycle")
             prev = next((r for r in rows if r["cycle"] == prev_cycle), None)
+            prev_ed = next((x for x in eds if x["cycle"] == prev_cycle), None)
             out[f"{PREFIX}{pack_id}/{ed['cycle']}/report.html"] = report_page(
-                ed, row, entries.get((pack_id, ed["cycle"])), prev, commit=commit)
+                ed, row, entries.get((pack_id, ed["cycle"])), prev, commit=commit,
+                prev_rec=prev_ed["rec"] if prev_ed else None)
             index.setdefault(pack_id, {})[ed["cycle"]] = {
                 "record": row["record"], "origin": row["origin"],
                 "summary": {k.replace("-", "_"): v for k, v in row["tally"].items()},
@@ -813,3 +870,4 @@ vertical-align:top;white-space:nowrap}table.kv td{padding:4px 0;word-break:break
 footer.site{border-top:1px solid var(--line);padding:20px 0 36px;color:var(--muted);font-size:13px}
 footer.site a{color:var(--muted)}
 """
+CSS += diffmap.CSS

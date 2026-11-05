@@ -1,0 +1,474 @@
+# SPDX-License-Identifier: CC-BY-4.0
+# Golden facts: published values the GLD-001 check compares packs against.
+#
+# Every value here comes from the published source named on the same
+# entry, never from one of our own packs. A fact
+# that the pack does not match is shown on the pack's test record; it is a
+# reason for a person to look, not proof that either side is wrong (a
+# runway gets extended, a frequency changes). How to add one, and what each
+# field means: docs/golden_facts.md. Pull requests welcome.
+#
+# Note that the FAA Chart Supplement and the NASR files the navdata and
+# navaids packs are built from are both FAA products: a fact checks our
+# build against the FAA's own publication, not the FAA against the world.
+
+facts:
+- id: apt-SBA-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "SBA"}
+  value: 14
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 283"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_283_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-DEN-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "DEN"}
+  value: 5434
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 346"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_346_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-LXV-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "LXV"}
+  value: 9934
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 364"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_364_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-ASE-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "ASE"}
+  value: 7838
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 328"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_328_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-BOS-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "BOS"}
+  value: 19
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Northeast, 29 OCT 2026 to 24 DEC 2026, page 119"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ne_119_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-DFW-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "DFW"}
+  value: 606
+  tolerance: 0.5
+  source: "FAA Chart Supplement, South Central, 29 OCT 2026 to 24 DEC 2026, page 309"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sc_309_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-EYW-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "EYW"}
+  value: 3
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Southeast, 29 OCT 2026 to 24 DEC 2026, page 125"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/se_125_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-JFK-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "JFK"}
+  value: 13
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Northeast, 29 OCT 2026 to 24 DEC 2026, page 224"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ne_224_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-MIA-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "MIA"}
+  value: 9
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Southeast, 29 OCT 2026 to 24 DEC 2026, page 141"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/se_141_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-MSP-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "MSP"}
+  value: 842
+  tolerance: 0.5
+  source: "FAA Chart Supplement, North Central, 29 OCT 2026 to 24 DEC 2026, page 189"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/nc_189_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-ORD-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "ORD"}
+  value: 680
+  tolerance: 0.5
+  source: "FAA Chart Supplement, East Central, 29 OCT 2026 to 24 DEC 2026, page 42"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ec_42_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-SEA-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "SEA"}
+  value: 432
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Northwest, 29 OCT 2026 to 24 DEC 2026, page 267"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/nw_267_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-SFO-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "SFO"}
+  value: 13
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 276"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_276_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-ANC-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "ANC"}
+  value: 151
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Alaska, 29 OCT 2026 to 24 DEC 2026, page 51"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ak_51_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-HNL-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "HNL"}
+  value: 14
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Pacific, 29 OCT 2026 to 24 DEC 2026, page 52"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/pac_52_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-ABQ-elev
+  kind: navdata
+  fact: airport_elevation_ft
+  key: {airport: "ABQ"}
+  value: 5355
+  tolerance: 0.5
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 429"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_429_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-SBA-rwy-07-25-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "SBA", runway: "07/25"}
+  value: 6052
+  tolerance: 0
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 283"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_283_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-SBA-rwy-15R-33L-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "SBA", runway: "15R/33L"}
+  value: 4184
+  tolerance: 0
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 283"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_283_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-DEN-rwy-16R-34L-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "DEN", runway: "16R/34L"}
+  value: 16000
+  tolerance: 0
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 346"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_346_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-ASE-rwy-15-33-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "ASE", runway: "15/33"}
+  value: 8006
+  tolerance: 0
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 328"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_328_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-LXV-rwy-16-34-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "LXV", runway: "16/34"}
+  value: 6400
+  tolerance: 0
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 364"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_364_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-BOS-rwy-15R-33L-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "BOS", runway: "15R/33L"}
+  value: 10083
+  tolerance: 0
+  source: "FAA Chart Supplement, Northeast, 29 OCT 2026 to 24 DEC 2026, page 119"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ne_119_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-DFW-rwy-18L-36R-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "DFW", runway: "18L/36R"}
+  value: 13401
+  tolerance: 0
+  source: "FAA Chart Supplement, South Central, 29 OCT 2026 to 24 DEC 2026, page 309"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sc_309_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-EYW-rwy-09-27-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "EYW", runway: "09/27"}
+  value: 5076
+  tolerance: 0
+  source: "FAA Chart Supplement, Southeast, 29 OCT 2026 to 24 DEC 2026, page 125"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/se_125_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-JFK-rwy-13R-31L-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "JFK", runway: "13R/31L"}
+  value: 14511
+  tolerance: 0
+  source: "FAA Chart Supplement, Northeast, 29 OCT 2026 to 24 DEC 2026, page 224"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ne_224_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-MIA-rwy-09-27-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "MIA", runway: "09/27"}
+  value: 13016
+  tolerance: 0
+  source: "FAA Chart Supplement, Southeast, 29 OCT 2026 to 24 DEC 2026, page 141"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/se_141_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-ORD-rwy-10L-28R-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "ORD", runway: "10L/28R"}
+  value: 13000
+  tolerance: 0
+  source: "FAA Chart Supplement, East Central, 29 OCT 2026 to 24 DEC 2026, page 42"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ec_42_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-SEA-rwy-16L-34R-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "SEA", runway: "16L/34R"}
+  value: 11901
+  tolerance: 0
+  source: "FAA Chart Supplement, Northwest, 29 OCT 2026 to 24 DEC 2026, page 267"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/nw_267_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-SFO-rwy-10L-28R-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "SFO", runway: "10L/28R"}
+  value: 11870
+  tolerance: 0
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 276"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_276_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-ANC-rwy-07R-25L-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "ANC", runway: "07R/25L"}
+  value: 12400
+  tolerance: 0
+  source: "FAA Chart Supplement, Alaska, 29 OCT 2026 to 24 DEC 2026, page 51"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ak_51_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-HNL-rwy-08L-26R-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "HNL", runway: "08L/26R"}
+  value: 12360
+  tolerance: 0
+  source: "FAA Chart Supplement, Pacific, 29 OCT 2026 to 24 DEC 2026, page 52"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/pac_52_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-ABQ-rwy-08-26-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "ABQ", runway: "08/26"}
+  value: 13793
+  tolerance: 0
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 429"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_429_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: apt-MSP-rwy-04-22-length
+  kind: navdata
+  fact: runway_length_ft
+  key: {airport: "MSP", runway: "04/22"}
+  value: 11006
+  tolerance: 0
+  source: "FAA Chart Supplement, North Central, 29 OCT 2026 to 24 DEC 2026, page 189"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/nc_189_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-BOS-VORDME-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "BOS", type: "VOR/DME"}
+  value: 112.7
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Northeast, 29 OCT 2026 to 24 DEC 2026, page 119"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ne_119_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-DBL-VORDME-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "DBL", type: "VOR/DME"}
+  value: 113.0
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 328"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_328_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-DEN-VORDME-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "DEN", type: "VOR/DME"}
+  value: 117.9
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 346"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_346_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-BJC-VORDME-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "BJC", type: "VOR/DME"}
+  value: 115.4
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 346"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_346_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-TTT-VORDME-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "TTT", type: "VOR/DME"}
+  value: 113.1
+  tolerance: 0.001
+  source: "FAA Chart Supplement, South Central, 29 OCT 2026 to 24 DEC 2026, page 309"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sc_309_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-DHP-VORTAC-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "DHP", type: "VORTAC"}
+  value: 113.9
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Southeast, 29 OCT 2026 to 24 DEC 2026, page 141"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/se_141_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-FAR-VORDME-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "FAR", type: "VOR/DME"}
+  value: 116.2
+  tolerance: 0.001
+  source: "FAA Chart Supplement, North Central, 29 OCT 2026 to 24 DEC 2026, page 189"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/nc_189_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-JFK-VORDME-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "JFK", type: "VOR/DME"}
+  value: 115.9
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Northeast, 29 OCT 2026 to 24 DEC 2026, page 224"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ne_224_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-RZS-VORTAC-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "RZS", type: "VORTAC"}
+  value: 114.9
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 283"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_283_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-GVO-VORTAC-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "GVO", type: "VORTAC"}
+  value: 113.8
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 283"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_283_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-SXC-VORTAC-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "SXC", type: "VORTAC"}
+  value: 114.15
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 283"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_283_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-CGT-VORTAC-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "CGT", type: "VORTAC"}
+  value: 114.2
+  tolerance: 0.001
+  source: "FAA Chart Supplement, East Central, 29 OCT 2026 to 24 DEC 2026, page 42"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/ec_42_29OCT2026.pdf
+  added: 2026-11-01
+
+- id: nav-SLI-VORTAC-freq
+  kind: navaids
+  fact: navaid_frequency_mhz
+  key: {navaid: "SLI", type: "VORTAC"}
+  value: 115.7
+  tolerance: 0.001
+  source: "FAA Chart Supplement, Southwest, 29 OCT 2026 to 24 DEC 2026, page 283"
+  source_url: https://aeronav.faa.gov/afd/29oct2026/sw_283_29OCT2026.pdf
+  added: 2026-11-01

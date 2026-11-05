@@ -392,6 +392,20 @@ def test_bench_setting_is_logged_at_startup_when_on(tmp_path, log, capsys):
     assert "BENCH UNIT" in err and "bench_auto_accept is on" in err
 
 
+def test_bench_banner_does_not_claim_an_explicit_accept_is_automatic(
+        tmp_path, log, monkeypatch, capsys):
+    # `accept` still prompts on a bench unit, so the banner must not tell
+    # the person at the terminal it has already been accepted for them.
+    _bench(tmp_path)
+    _stdin(monkeypatch, "no\n")
+    assert cli.main(["--config", str(tmp_path / "data.yaml"), "accept"]) == cli.NOTICE_RC
+    assert not _lines(log)
+    err = capsys.readouterr().err
+    assert "BENCH UNIT" in err
+    assert "the software notice is accepted automatically" not in err
+    assert "an explicit `accept` still asks" in err
+
+
 def test_notice_json_keeps_bench_out_of_accepted(tmp_path, store, log, monkeypatch, capsys):
     _bench(tmp_path)
     _stdin(monkeypatch)

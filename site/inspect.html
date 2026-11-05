@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pack inspector &middot; AeroCommons Navigation Data</title>
+<link rel="icon" href="assets/aerocommons-logo.svg">
+<script defer src="assets/analytics.js"></script>
+<!-- sql.js 1.15.2, pinned by hash. The wasm it loads is fetched below with
+     its own integrity hash and handed over as bytes. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.15.2/sql-wasm.min.js"
+        integrity="sha512-ZgWe3fdRq+ZeAzMN8Cesa/h8M9wt+n8doyLUwNUVzdDorvA14x6MJEAcHRDk/Ulrp16Ia9S59WywQvwyLsOOCw=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+  :root {
+    --navy: #152238; --navy2: #1F3151; --orange: #E8702A;
+    --ink: #1c2430; --muted: #5d6675; --line: #e6e8ec; --bg: #ffffff;
+    --amber: #b8860b; --green: #2e7d4f; --red: #b3231f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--orange); }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 22px; }
+  header.site { border-bottom: 1px solid var(--line); padding: 20px 0 18px; }
+  header.site h1 { margin: 0 0 4px; font-size: 25px; color: var(--navy); }
+  header.site p { margin: 0; color: var(--muted); }
+  main { padding: 22px 0 10px; }
+  section { margin-bottom: 26px; }
+  h2 { font-size: 19px; color: var(--navy); margin: 0 0 8px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  select, textarea { font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  textarea { width: 100%; min-height: 110px;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 13.5px; }
+  .btn { background: var(--orange); color: #fff; border: 0; border-radius: 9px; padding: 9px 16px;
+    font-size: 15px; font-weight: 700; cursor: pointer; }
+  .btn:disabled { background: #cfd4dc; cursor: default; }
+  .chips button { font: inherit; font-size: 13.5px; border: 1px solid var(--line); background: #fafbfc;
+    border-radius: 20px; padding: 3px 11px; cursor: pointer; margin: 0 4px 6px 0; color: var(--navy2); }
+  .chips button:hover { border-color: var(--orange); }
+  .mono, code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 13px; }
+  ol.trust { margin: 0; padding-left: 20px; }
+  ol.trust li.ok::marker { color: var(--green); }
+  ol.trust li.bad { color: var(--red); font-weight: 600; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .scroll { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 8px; }
+  table.grid { border-collapse: collapse; font-size: 13px; }
+  table.grid th, table.grid td { border-bottom: 1px solid var(--line); padding: 4px 9px; text-align: left;
+    vertical-align: top; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  table.grid th { position: sticky; top: 0; background: #fafbfc; color: var(--muted); }
+  td.null { color: #b0b6c0; }
+  .err { color: var(--red); font-weight: 600; white-space: pre-wrap; }
+  .disclaimer { border-left: 3px solid var(--amber); background: #fffaf0; padding: 10px 14px;
+    border-radius: 0 8px 8px 0; color: #6b5a2e; font-size: 14px; }
+  footer.site { border-top: 1px solid var(--line); padding: 18px 0 36px; color: var(--muted); font-size: 13.5px; }
+  footer.site a { color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="site"><div class="wrap">
+  <h1>Pack inspector</h1>
+  <p>Query a published data pack in your browser. Read-only; the pack is checked against the signed catalog before it is opened.</p>
+</div></header>
+
+<main class="wrap">
+  <section>
+    <h2>1. Choose a pack</h2>
+    <div class="row">
+      <select id="pick" disabled><option>Loading the catalog...</option></select>
+      <button class="btn" id="open" disabled>Open</button>
+      <span class="sub" id="size"></span>
+    </div>
+    <p class="sub">Airports, navaids, obstacles and procedures. Water and roads are too large to load whole; a mode that reads them in pieces is planned.</p>
+  </section>
+
+  <section>
+    <h2>2. Trust checks</h2>
+    <ol class="trust" id="trust"><li>Not started.</li></ol>
+  </section>
+
+  <section id="qsec" hidden>
+    <h2>3. Query</h2>
+    <div class="chips" id="canned"></div>
+    <textarea id="sql" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" id="run">Run</button>
+      <span class="sub" id="status"></span>
+      <a class="sub" id="share" href="#">Link to this query</a>
+    </div>
+    <div class="sub" id="tables" style="margin-top:8px"></div>
+  </section>
+
+  <section id="rsec" hidden>
+    <div class="scroll" id="result"></div>
+  </section>
+
+  <section>
+    <p class="disclaimer">Experimental / Amateur-Built use only. Not certified. This data is provided as-is with no warranty and any use of the data is at your own risk.</p>
+    <p class="sub">The page fetches <a href="manifest.json">manifest.json</a> and its signature, verifies the signature against the published key
+      (<a href="https://github.com/billmallard/makerplane-data/blob/main/keys/minisign.pub">keys/minisign.pub</a>) with your browser's own Ed25519,
+      then downloads the pack and checks its size and SHA-256 against the signed entry. Only then does SQLite
+      (<a href="https://sql.js.org">sql.js</a>, loaded by hash from cdnjs) open it, with writes switched off.
+      Links that open a place in a pack: <a href="https://github.com/billmallard/makerplane-data/blob/main/docs/pack_inspector.md">pack_inspector.md</a>.</p>
+  </section>
+</main>
+
+<footer class="site"><div class="wrap">
+  <a href="index.html">Navigation Data</a> &nbsp;&middot;&nbsp; <a href="reports/index.html">test reports</a>
+  &nbsp;&middot;&nbsp; <a href="schema/index.html">pack formats</a>
+  &nbsp;&middot;&nbsp; <a href="https://github.com/billmallard/makerplane-data">source</a>
+</div></footer>
+
+<script type="module">
+import * as core from "./assets/inspect-core.js";
+
+const WASM_URL = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.15.2/sql-wasm.wasm";
+const WASM_SRI = "sha512-poUwHTW6wTcTKmWR3qxhosFqBza22xPGm1yvxyFK0sOtpFC0c6DXkkowpk4AtyneRZPhrCMJb2/IbPDnr1xgtw==";
+
+const $ = (id) => document.getElementById(id);
+const subtle = crypto.subtle;
+const loc = core.parseLocator(location.search);
+let manifest = null, entry = null, db = null, tables = {};
+
+function step(text, cls = "ok") {
+  const li = document.createElement("li");
+  li.className = cls; li.textContent = text;
+  $("trust").append(li);
+  return li;
+}
+function fail(text) { step(text, "bad"); $("open").disabled = false; }
+const mb = (n) => (n / 1048576).toFixed(1) + " MB";
+
+// The manifest and its signature are two objects; a read racing a publish
+// can pair a new body with an old signature. Retry once, uncached, before
+// calling it a failure.
+async function signedManifest() {
+  for (const bust of ["", "?t=" + Date.now()]) {
+    const [m, s] = await Promise.all([
+      fetch("manifest.json" + bust, { cache: "no-store" }),
+      fetch("manifest.json.minisig" + bust, { cache: "no-store" })]);
+    if (!m.ok || !s.ok) throw new Error(`catalog fetch failed (${m.status}, ${s.status})`);
+    const bytes = new Uint8Array(await m.arrayBuffer()), sig = await s.text();
+    try {
+      const tc = await core.verifyManifest(bytes, sig, core.PUBLIC_KEY, subtle);
+      return { manifest: JSON.parse(new TextDecoder().decode(bytes)), trusted: tc };
+    } catch (e) { if (bust) throw e; }
+  }
+}
+
+async function start() {
+  $("trust").textContent = "";
+  let signed;
+  try { signed = await signedManifest(); }
+  catch (e) { $("pick").innerHTML = "<option>Catalog unavailable</option>";
+              return step("Catalog signature: " + e.message, "bad"); }
+  manifest = signed.manifest;
+  step(`Catalog signature is good against the published key (signed: "${signed.trusted}").`);
+  const today = new Date().toISOString().slice(0, 10);
+  const opts = core.sqliteEntries(manifest);
+  const sel = $("pick");
+  sel.innerHTML = "";
+  for (const p of opts) {
+    const o = document.createElement("option");
+    o.value = p.id + "\t" + p.cycle;
+    o.textContent = `${p.id} ${p.cycle}` + (p.effective ? ` (effective ${p.effective})` : "");
+    sel.append(o);
+  }
+  sel.disabled = false; $("open").disabled = false;
+  sel.onchange = showSize;
+  $("open").onclick = () => open(false);
+  const want = core.pickEntry(manifest, loc.pack || (opts[0] || {}).id, loc.cycle, today);
+  if (want && core.SQLITE_KINDS.includes(want.kind)) sel.value = want.id + "\t" + want.cycle;
+  showSize();
+  if (!loc.pack) return;
+  if (!want) return step(`The link names ${loc.pack} ${loc.cycle}`.trim() +
+                         ", which is not in the signed catalog.", "bad");
+  if (!core.SQLITE_KINDS.includes(want.kind))
+    return step(`${want.id} is a ${want.kind} pack; this page opens only ` +
+                core.SQLITE_KINDS.join(", ") + ".", "bad");
+  open(true);
+}
+
+function current() {
+  const [id, cycle] = $("pick").value.split("\t");
+  return manifest.packs.find((p) => p.id === id && p.cycle === cycle);
+}
+function showSize() { const p = current(); $("size").textContent = p ? mb(p.bytes) : ""; }
+
+let SQL = null;
+async function sqlite() {
+  if (SQL) return SQL;
+  const r = await fetch(WASM_URL, { integrity: WASM_SRI, mode: "cors" });
+  if (!r.ok) throw new Error(`sql.js wasm fetch failed (${r.status})`);
+  SQL = await initSqlJs({ wasmBinary: await r.arrayBuffer() });
+  return SQL;
+}
+
+async function open(fromLocator) {
+  $("open").disabled = true;
+  $("qsec").hidden = $("rsec").hidden = true;
+  [...$("trust").children].slice(1).forEach((li) => li.remove());
+  if (db) { db.close(); db = null; }
+  entry = current();
+  if (fromLocator && loc.sha256 && loc.sha256 !== entry.sha256)
+    return fail(`The link names sha256 ${loc.sha256}, but the signed catalog lists ` +
+                `${entry.sha256} for ${entry.id} ${entry.cycle}. Not opening a different pack.`);
+  step(`Catalog entry: ${entry.id} ${entry.cycle}, ${entry.bytes} bytes, sha256 ${entry.sha256}.`);
+  const dl = step(`Downloading ${mb(entry.bytes)}...`, "");
+  let bytes;
+  try {
+    const r = await fetch(new URL(entry.url, location.href));
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const reader = r.body.getReader(), parts = []; let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value); got += value.length;
+      dl.textContent = `Downloading ${mb(got)} of ${mb(entry.bytes)}...`;
+    }
+    bytes = new Uint8Array(got); let at = 0;
+    for (const p of parts) { bytes.set(p, at); at += p.length; }
+  } catch (e) { dl.remove(); return fail("Download failed: " + e.message); }
+  dl.remove();
+  try { await core.checkPack(entry, bytes, subtle); }
+  catch (e) { return fail("Pack check: " + e.message + ". Not opened."); }
+  step(`Downloaded pack matches the signed catalog: ${bytes.length} bytes, sha256 ${entry.sha256}.`);
+  try {
+    const S = await sqlite();
+    db = new S.Database(bytes);
+    db.exec("PRAGMA query_only = 1");
+  } catch (e) { return fail("SQLite: " + e.message); }
+  step("Opened read-only (PRAGMA query_only).");
+  tables = {};
+  const t = db.exec("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
+  for (const [name] of (t[0] || { values: [] }).values)
+    tables[name] = db.exec(`SELECT name FROM pragma_table_info(?)`, [name])[0].values.map((r) => r[0]);
+  $("tables").textContent = "Tables: " + Object.entries(tables)
+    .map(([n, c]) => `${n} (${c.join(", ")})`).join("; ");
+  const chips = $("canned"); chips.textContent = "";
+  for (const [label, sql] of [...(core.CANNED[entry.kind] || []), ...core.COMMON_QUERIES]) {
+    const b = document.createElement("button");
+    b.textContent = label; b.onclick = () => { $("sql").value = sql; run(); };
+    chips.append(b);
+  }
+  $("qsec").hidden = false; $("open").disabled = false;
+  let q = null;
+  if (fromLocator) {
+    try { q = core.locatorQuery(loc, tables); } catch (e) { step("Link: " + e.message, "bad"); }
+  }
+  $("sql").value = q || (core.CANNED[entry.kind] || core.COMMON_QUERIES)[0][1];
+  run();
+}
+
+function run() {
+  const sql = $("sql").value;
+  $("share").href = core.locatorUrl(entry, { q: sql });
+  const out = $("result"); out.textContent = ""; $("rsec").hidden = false;
+  let stmt;
+  try {
+    stmt = db.prepare(sql);
+    const t0 = performance.now(), table = document.createElement("table");
+    table.className = "grid";
+    const head = table.insertRow();
+    for (const c of stmt.getColumnNames()) { const th = document.createElement("th"); th.textContent = c; head.append(th); }
+    let n = 0, more = false;
+    while (stmt.step()) {
+      if (n === core.MAX_ROWS) { more = true; break; }
+      const tr = table.insertRow();
+      for (const v of stmt.get()) {
+        const td = tr.insertCell();
+        if (v === null) { td.className = "null"; td.textContent = "NULL"; }
+        else if (v instanceof Uint8Array) td.textContent = `<blob ${v.length} bytes>`;
+        else td.textContent = String(v);
+      }
+      n++;
+    }
+    out.append(table);
+    $("status").textContent = `${n} row${n === 1 ? "" : "s"}` +
+      (more ? ` (first ${core.MAX_ROWS} shown)` : "") + `, ${(performance.now() - t0).toFixed(0)} ms`;
+  } catch (e) {
+    const p = document.createElement("p"); p.className = "err"; p.textContent = e.message;
+    out.append(p); $("status").textContent = "";
+  } finally { if (stmt) stmt.free(); }
+}
+
+$("run").onclick = () => run();
+$("sql").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run(); });
+start();
+</script>
+</body>
+</html>

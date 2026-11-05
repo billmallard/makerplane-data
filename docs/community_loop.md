@@ -111,8 +111,8 @@ Files named `auspex-<YYYY-MM-DD>*.json` beside the record: an Auspex run
 after publish, as a dated, immutable addendum (plan 4.6). QA writes them.
 The overlay lists each one by name, date, URL, size and sha256 and **does
 not open it**. What may appear inside is the `auspex` schema in
-[pack_report.md](pack_report.md), which is pending Bill's sign-off at the
-TV14 schema review.
+[pack_report.md](pack_report.md) (approved 2026-11-01, AER-4581), with
+`when` set to `after-publish`.
 
 ### On the report page
 

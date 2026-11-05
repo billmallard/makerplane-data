@@ -26,6 +26,9 @@
           border-radius:7px; font:inherit; background:#fff; }
   .field input.err { border-color: var(--red); background:#fff6f5; }
   .field .unit { font-size:11px; color:var(--muted); margin-left:4px; }
+  .field.setting { max-width:560px; margin-top:12px; }
+  .field.setting input { max-width:150px; }
+  .field .help { font-size:12.5px; color:var(--muted); margin:4px 0 0; white-space:normal; }
   .counts { display:flex; gap:18px; flex-wrap:wrap; }
   .counts .field { min-width:130px; }
   .btn { background:#fff; border:1px solid var(--line); border-radius:8px; padding:7px 13px;
@@ -33,7 +36,7 @@
   .btn:hover { border-color:var(--orange); color:var(--orange); }
   .btn.primary { background:var(--orange); border-color:var(--orange); color:#fff; }
   .btn.primary:disabled { background:#cfd4dc; border-color:#cfd4dc; cursor:default; }
-  .errors { color:var(--red); font-size:13px; margin:8px 0 0; }
+  .errors { color:var(--red); font-size:13px; margin:8px 0 0; white-space:pre-line; }
   .ok { color:var(--green); font-size:13.5px; }
   canvas#arc { width:100%; height:44px; border:1px solid var(--line); border-radius:8px;
                background:#fafbfc; margin-top:10px; }
@@ -117,6 +120,7 @@ const SPEED_ORDER = ["Vs0","Vs","Vfe","Vno","Vne","Va","Vx","Vy","Vmc","V1","V2"
 const TWIN_ONLY = new Set(["Vmc","V1","V2"]);
 const DEEMPH = new Set(["Min","Max"]);
 const KT = {kt:1, mph:1.15078, kph:1.852};   // 1 kt = X unit
+const SPEED_UNIT_LABEL = {kt:"kt", mph:"mph", kph:"km/h"};
 
 let schema = null;
 let profile = { schema_version: 1,
@@ -194,6 +198,47 @@ function isSpeed(groupId) { return groupId === "speeds"; }
 function toNative(v, gid) { return isSpeed(gid) ? v / KT[profile.meta.speed_unit] : v; }
 function toDisplay(v, gid) { return isSpeed(gid) ? v * KT[profile.meta.speed_unit] : v; }
 function fmt(v) { return (Math.round(v * 100) / 100).toString(); }
+function unitLabel(gid, units) { return isSpeed(gid) ? SPEED_UNIT_LABEL[profile.meta.speed_unit] : (units || ""); }
+
+// Aux slots that are settings rather than published limits (fix-gateway
+// aux_meta, e.g. IAS.Vgnd, AER-4619): label, help, and min/max/default in
+// the key's native units. Only slots the key actually lists are returned.
+function auxSettings(k) {
+  const m = (k && k.aux_meta) || {};
+  return Object.keys(m).filter(a => (k.aux || []).includes(a)).map(a => [a, m[a]]);
+}
+
+// A typed entry -> profile.values (native units); blank = leave unset.
+function setEntry(fk, raw, gid) {
+  raw = raw.trim();
+  if (raw === "") delete profile.values[fk];
+  else {
+    const n = Number(raw);
+    if (isFinite(n)) profile.values[fk] = toNative(n, gid);
+  }
+  validate(); if (gid === "speeds") drawArc();
+}
+
+function settingField(fk, m, gid, units) {
+  const u = unitLabel(gid, units), d = x => fmt(toDisplay(x, gid));
+  const f = document.createElement("div"); f.className = "field setting";
+  const lab = document.createElement("label");
+  lab.textContent = (m.label || fk.split(".")[1]) + (u ? ` (${u})` : "");
+  const inp = document.createElement("input");
+  inp.type = "number"; inp.step = "any"; inp.dataset.fk = fk; inp.dataset.gid = gid;
+  if (m.min != null) inp.min = d(m.min);
+  if (m.max != null) inp.max = d(m.max);
+  if (m.default != null) inp.placeholder = d(m.default) + " (default)";
+  const v = profile.values[fk];
+  if (v != null) inp.value = d(v);
+  inp.addEventListener("input", () => setEntry(fk, inp.value, gid));
+  const help = document.createElement("p"); help.className = "help";
+  const range = m.min != null && m.max != null ? ` Range ${d(m.min)}-${d(m.max)} ${u}.` : "";
+  const dflt = m.default != null ? ` Blank uses the shipped default (${d(m.default)} ${u}).` : "";
+  help.textContent = (m.help || "") + range + dflt;
+  f.append(lab, inp, help);
+  return f;
+}
 
 // ---- rendering --------------------------------------------------------------
 function fillCounts() {
@@ -271,18 +316,12 @@ function render() {
           inp.type = "number"; inp.step = "any"; inp.dataset.fk = fk; inp.dataset.gid = g.id;
           const v = profile.values[fk];
           if (v != null) inp.value = fmt(toDisplay(v, g.id));
-          inp.addEventListener("input", () => {
-            const raw = inp.value.trim();
-            if (raw === "") delete profile.values[fk];
-            else {
-              const n = Number(raw);
-              if (isFinite(n)) profile.values[fk] = toNative(n, g.id);
-            }
-            validate(); if (g.id === "speeds") drawArc();
-          });
+          inp.addEventListener("input", () => setEntry(fk, inp.value, g.id));
           f.append(lab, inp); grid.appendChild(f);
         }
         card.appendChild(grid);
+        for (const [aux, m] of auxSettings(k))
+          card.appendChild(settingField(inst + "." + aux, m, g.id, k.units));
       }
     }
     if (g.id === "speeds") {
@@ -294,9 +333,12 @@ function render() {
 }
 
 // ---- validation --------------------------------------------------------------
+// Returns { errs, hard }: errs are "check this" warnings that still save;
+// hard errors (a setting outside its fix-gateway bounds) block Save and
+// Download.
 function validate() {
   document.querySelectorAll("input.err").forEach(i => i.classList.remove("err"));
-  const errs = [], V = profile.values;
+  const errs = [], hard = [], V = profile.values;
   const mark = fk => { const el = document.querySelector(`input[data-fk="${fk}"]`);
                        if (el) el.classList.add("err"); };
   const ord = (aFk, bFk, label) => {
@@ -317,12 +359,35 @@ function validate() {
     ord(i+".highWarn", i+".highAlarm", i+": highWarn <= highAlarm");
     ord(i+".lowWarn", i+".highWarn", i+": lowWarn <= highWarn");
   }
+  // aux_meta settings: outside [min, max] is a hard error. Compared at the
+  // displayed precision, so the converted bound itself (115.08 mph) passes.
+  let vgnd = null;
+  for (const g of schema.groups) for (const k of g.keys) for (const [aux, m] of auxSettings(k))
+    for (const inst of instances(k.key, g.repeat)) {
+      const fk = inst + "." + aux, v = V[fk];
+      if (fk === "IAS.Vgnd") vgnd = { v: v ?? m.default, set: v != null, m, gid: g.id };
+      if (v == null) continue;
+      const d = x => Number(fmt(toDisplay(x, g.id))), u = unitLabel(g.id, k.units);
+      if ((m.min != null && d(v) < d(m.min)) || (m.max != null && d(v) > d(m.max))) {
+        hard.push(`${m.label || fk}: must be ${d(m.min)}-${d(m.max)} ${u}`); mark(fk); }
+    }
+  // Vgnd at or above Vs0 can silence the engine alarms in flight (AER-4619);
+  // a blank Vgnd means the shipped default, so that is checked too.
+  if (vgnd && vgnd.v != null && V["IAS.Vs0"] != null && vgnd.v >= V["IAS.Vs0"]) {
+    const u = unitLabel(vgnd.gid);
+    errs.push(`${vgnd.set ? "on-ground IAS limit" : "default on-ground IAS limit ("
+      + fmt(toDisplay(vgnd.v, vgnd.gid)) + " " + u + ")"} should be below Vs0,`
+      + " or the engine alarms can go quiet in flight");
+    mark("IAS.Vgnd"); mark("IAS.Vs0");
+  }
   let box = $("errbox");
   if (!box) { box = document.createElement("p"); box.id = "errbox"; box.className = "errors";
               $("groups").prepend(box); }
-  box.textContent = errs.length ? "Check: " + errs.join(" · ") : "";
-  $("save").style.background = errs.length ? "var(--amber)" : "";
-  return errs;
+  box.textContent = [hard.length ? "Fix before saving: " + hard.join(" · ") : "",
+                     errs.length ? "Check: " + errs.join(" · ") : ""].filter(Boolean).join("\n");
+  $("save").style.background = errs.length && !hard.length ? "var(--amber)" : "";
+  $("save").disabled = hard.length > 0;
+  return { errs, hard };
 }
 
 // ---- airspeed arc preview ------------------------------------------------------
@@ -419,6 +484,7 @@ async function boot() {
 }
 
 $("save").addEventListener("click", async () => {
+  if (validate().hard.length) { $("msg").textContent = "fix the errors first"; return; }
   if (DEMO) { $("msg").textContent = "demo mode - not saved"; return; }
   const res = await fetch(`/api/projects/${PROJECT}/aircraft`, {
     method: "PUT", credentials: "same-origin",
@@ -433,6 +499,7 @@ $("save").addEventListener("click", async () => {
 });
 
 $("download").addEventListener("click", () => {
+  if (validate().hard.length) { $("msg").textContent = "fix the errors first"; return; }
   const blob = new Blob([buildIni()], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = "aircraft.ini";

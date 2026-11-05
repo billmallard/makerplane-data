@@ -10,6 +10,11 @@ FAA CIFP data is a US Government work (public domain); see
 Three more records (`CFDXF`/`CFDXG`/`CFDXH`) were added on 2026-09-19
 (AER-1700) from the same cycle -- see "What is in it" below.
 
+Fourteen more (AER-4446, MSA) were added on 2026-10-31 from cycle **2611**
+(`CIFP_261029.zip`), so the file now mixes two cycles. Each record keeps its
+own last-revised stamp (cols 129-132); the header still says 2609, and
+`file_cycle()` reads only the header.
+
 This is the brief's "golden-procedure fixture set" (`procedures_and_airways_plan.md`
 Sec. 7): a handful of real procedures with a known-correct parsed form that
 every downstream PA item can test against, so nobody re-derives them.
@@ -26,6 +31,8 @@ every downstream PA item can test against, so nobody re-derives them.
 | `09J` `VOR-A` approach | 11 | `PI` (procedure turn) and `AF` (DME arc) legs |
 | `A315`, `A509` airways (USA only) | 17 | Enroute Airways (`ER`), one with a foreign-region (Bahamas) fix |
 | Resolving fix records | 54 | every VOR/NDB/waypoint/runway the above legs reference, so every fix resolves (`fix_lat`/`fix_lon` verified non-NULL for all 76 procedure legs and all 17 airway legs) |
+| `PS` MSA records (2611) | 10 | AER-4446: KSBA RZS, GVO, RW07 and KSBA (one per centre type, and the three on the KSBA plates in `docs/images/aer-4446/`); KABQ ABQ twice (multiple code blank and `A`); KABR AB (terminal NDB centre); KMSP MSP (DME-only centre); PABE BET (Alaska, coded under area `CAN`); KHRJ HQT (an NDB the file does not define, so it stays unresolved on purpose) |
+| MSA centre-fix records (2611) | 4 | KSBA's `PA` airport record, KABR's `PN` terminal NDB "AB", the D records for MSP (DME position only) and BET |
 | `CFDXF`/`CFDXG`/`CFDXH` centre-fix waypoints | 3 | AER-1700: the RF legs' *Center Fix* (cols 107-116) references these idents but never defines them -- without these records every RF arc's centre silently resolves to `(None, None)`; added so the golden RF-arc radius test has a real centre to resolve against |
 
 KSBA (Santa Barbara) was chosen because it is also PA14's planned bench-validation

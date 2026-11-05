@@ -102,6 +102,21 @@ small enough to build on a runner for modest scopes; **full CONUS** is a large
 Geofabrik download — use a workstation or split by state group. Don't run it
 at the same time as the navdata or terrain upload (all rewrite the manifest).
 
+**Staged publish of a workstation build (AER-4676).** The `na` scope
+(`water-na`: lower 48, Alaska and Canada) is ~30 GB of Geofabrik extracts
+and a build of many hours. It cannot run on a hosted runner, and the
+signing key lives only in CI. So: build `water.sqlite` on a workstation,
+upload it unsigned (plus its `sources.json`) under `staging/` in the
+bucket, and dispatch `water.yml` with `staged_key`, `staged_sha256`,
+`pack_id`, `regions` and a new `cycle`. The runner skips fetch + build,
+refuses bytes whose sha256 differs, and runs the same gate, signing,
+upload and release as a runner build. It also needs `staged_built_at` and
+`staged_pyefis_sha`: the test record's `built` names the workstation build
+(`runner: local`), and the CI provenance attestation is skipped, because
+the run did not build the bytes ([provenance.md](provenance.md)). Nothing
+under `staging/` is listed in the manifest. The QA notification above
+still comes first.
+
 ## Consume on a prototype
 
 ```yaml

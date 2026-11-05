@@ -1,0 +1,48 @@
+name: weekly
+
+# Run CI against dev and main once a week, so a date-dependent test (an AIRAC
+# cycle, a NASR edition, a certificate that expires on a calendar day) goes red
+# on a schedule rather than on whichever PR happens to be open that week.
+#
+# GitHub only fires `schedule:` from the default branch (main), and a scheduled
+# run checks out main. Work lands on dev and reaches main by release
+# (docs/release_process.md), so this dispatches each branch's own ci.yml -- one
+# definition of CI, not a copy that drifts -- and waits on it, so a failure turns
+# this workflow red too. main is in the matrix because the scheduled publish
+# workflows build from main's code.
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"   # Mondays 09:17 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [dev, main]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BRANCH: ${{ matrix.branch }}
+    steps:
+      - name: Run CI on ${{ matrix.branch }} and wait for it
+        run: |
+          since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run ci.yml --ref "$BRANCH"
+          id=""
+          for _ in $(seq 1 30); do
+            id=$(gh run list -w ci.yml -b "$BRANCH" -e workflow_dispatch --created ">=$since" \
+              -L 1 --json databaseId -q '.[0].databaseId')
+            [ -n "$id" ] && break
+            sleep 10
+          done
+          [ -n "$id" ] || { echo "::error::the dispatched CI run on $BRANCH never appeared"; exit 1; }
+          echo "CI on $BRANCH: $GITHUB_SERVER_URL/$GH_REPO/actions/runs/$id" | tee -a "$GITHUB_STEP_SUMMARY"
+          gh run watch "$id" --exit-status --interval 60

@@ -11,6 +11,10 @@ this one deliberately does not duplicate:
   fits the wider avionics stack (pyEfis, FIX-Gateway, the instrument-widget
   pipeline). Not a git repo itself; each subdir is.
 
+> **The wiki is generated.** The GitHub wiki is generated from `docs/wiki/` by
+> `.github/workflows/wiki-sync.yml` on every merge to `dev`. Edit the pages here,
+> not in the wiki; direct wiki edits are overwritten.
+
 ## What this repo is (two products, one MIT-rooted repo)
 
 1. **A Garmin-style nav-data currency system** — the Python side (`packtools/`
@@ -66,7 +70,7 @@ preserve verify-then-swap; don't introduce a path that installs before verifying
 | **`packtools/`** | 1 | Pack builder. `cycles` (AIRAC/DOF date math), `signing` (minisign ed25519, pure PyNaCl — shared with the Pi), `packmeta` (self-describing header inside every pack), `manifest` (catalog schema + canonical bytes + validation + prune), `regions`/`regions.yaml` (8 N-America bboxes), `sources` (upstream FAA URLs), `fetch`, `build/` (shim to pyEfis tools), `upload` (R2/S3 + LocalStore), `publish`, `make_terrain`, `ourairports`, `run_cyclical` (the daily orchestrator), `cli` (`packtool`). |
 | **`pyefis_data/`** | 3 | On-Pi updater. `config` (`~/.makerplane/pyefis/data.yaml`, construct-never-raises), `core` (`Updater`, `Remote`, inventory, the verify-then-swap install), `config_pull` (device panel-config pull + install + rollback), `cli` (`pyefis-data`), `systemd/` (user service + timer + USB-import udev/service). |
 | **`configurator/`** | — | The web panel editor (Worker, TS). Own CLAUDE.md. |
-| `.github/workflows/` | 1/2 | `ci.yml` (SPDX check + pytest + no-secrets dry-run), `cyclical.yml` (daily build+sign+upload), `terrain.yml`, `water.yml` (dispatch builds), `site.yml` (deploys `site/` to the bucket root: on push to `main`, or dispatched). |
+| `.github/workflows/` | 1/2 | `ci.yml` (SPDX check + pytest + no-secrets dry-run), `cyclical.yml` (daily build+sign+upload), `terrain.yml`, `water.yml` (dispatch builds), `impact.yml` (TV9: builder PRs get a fixture-pack diff comment, docs/pr_impact.md), `site.yml` (deploys `site/` to the bucket root: on push to `main`, or dispatched). |
 | `site/` | 2 | Static Cloudflare site + on-device pack picker (`data.yaml.sample`). |
 | `docs/` | — | Phase plan (`data_manager_implementation.md`), Cloudflare runbook, per-kind build notes (terrain/water/roads), licensing audit, the AC-DP-001 defensive publication, panel-config format, device deployment. |
 | `keys/minisign.pub` | — | Signing **public** key (committed). The secret never is. |

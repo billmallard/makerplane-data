@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: CC-BY-4.0
+#
+# Descriptions for the pack format pages (/schema/, packtools/schemasite.py).
+#
+# The pages are generated from the published packs; names, types and the
+# CREATE statements come from the packs themselves. This file only adds a
+# one-line description where the builder's CREATE statement has no inline
+# "--" comment (an inline comment always wins). Keys:
+#
+#   <kind>.<table>.<column>     one column of one kind's table
+#   *.<table>.<column>          the same column in every kind
+#   <kind>.<table>              a line under the table's heading
+#   <kind>.layout.<pattern>     one zip member pattern (a # is one digit)
+#   manifest.<field>            a field of a manifest.json pack entry
+#   pack_meta.<field>           a field of the pack_meta header
+#
+# A column with no description is listed on its page as "not yet described";
+# that is a report, not a failure. Only write what a source in this repo
+# already documents.
+
+"*.pack_meta": "The pack's own header: the same id, kind, cycle and licence its manifest entry carries, so a pack copied away from the catalog still identifies itself."
+"*.pack_meta.key": "A pack_meta field name (see the pack_meta table on the index page)."
+"*.pack_meta.value": "That field's value, as text."
+
+highways.highway_lines.flags: "Bit 0: tunnel. Bit 1: bridge. Absent in editions built before 2026q3r1; a reader treats a missing column as 0."
+highways.highway_lines.ref: "Route shield text, e.g. \"I 70\". Absent in editions built before 2026q3r1; a reader treats a missing column as NULL."
+
+terrain.layout.N##/N##W###.hgt: "Native 1-degree elevation tile, named by its south-west corner: 3601 x 3601 big-endian signed 16-bit heights in metres (Copernicus GLO-30)."
+terrain.layout..mip/#/N##/N##W###.hgt: "Reduced copy of the native tile at level L = 1-6 (side 3600 / 2^L + 1), same big-endian int16 HGT format; a wide view reads these instead of the native tiles."
+terrain.layout..mip/#/N##/N##W###.wmask: "Water mask beside the .hgt of the same name: 1 bit per pixel, row-packed, no header, registered pixel-for-pixel with the elevation grid."
+terrain.layout..mip/mosaic/L#.hgt: "Whole-extent mosaic at level 4, 5 or 6: one memory-mappable big-endian int16 grid; its rows and cols are in the .json beside it."
+terrain.layout..mip/mosaic/L#.json: "Sidecar for the mosaic grid of the same level, e.g. {\"level\": 4, \"rows\": 13276, \"cols\": 26776, \"spd\": 225, \"lat_n\": 73, \"lon_w\": -170}: its size, samples per degree and north-west corner."
+terrain.layout..mip/mosaic/L#.wmask: "Water mask for the mosaic level of the same name: 1 bit per pixel, row-packed, no header."
+terrain.layout.pack_meta.json: "The pack_meta header as a JSON object."
+
+manifest.id: "Stable pack id, e.g. obstacles-conus. A device subscribes to ids."
+manifest.kind: "Pack kind; decides which reader opens the pack and where it installs."
+manifest.cycle: "Edition: an AIRAC cycle (2612), a date (261001) or an edition tag (2026q3r1). A hyphen-suffixed cycle is a test build and never outranks the canonical one."
+manifest.bytes: "Size of the pack file."
+manifest.sha256: "SHA-256 of the pack file; checked before the pack is installed."
+manifest.url: "Where to download the pack."
+manifest.effective: "First day the edition is current (ISO date). Absent for packs with no currency window."
+manifest.expires: "First day the edition is no longer current (ISO date, exclusive). Absent means it does not expire."
+manifest.regions: "Coverage regions the pack belongs to (see the manifest's regions block)."
+manifest.attribution: "Attribution text to show the pilot."
+manifest.license: "Short licence tag for the data (an SPDX id, LicenseRef-*, or e.g. ODbL-1.0). Empty means unspecified."
+manifest.license_url: "Link to the licence's full text."
+manifest.min_pyefis: "Oldest pyEfis version that can read this pack, when there is one."
+manifest.tiles_bbox: "Bounding box of the pack's tiles: [lat_min, lon_min, lat_max, lon_max]."
+manifest.report_url: "The pack's test record (pack-report/1), bound to the signature by report_sha256."
+manifest.report_sha256: "SHA-256 of that test record."
+manifest.origin: "Where the data came from: federal, community or user-supplied. A pedigree label, not a score."
+manifest.notice: "The standing use notice."
+manifest.build_commit: "The makerplane-data commit that built the pack."
+
+pack_meta.id: "Stable pack id; equals the manifest entry's id."
+pack_meta.kind: "Pack kind; equals the manifest entry's kind."
+pack_meta.cycle: "Edition; equals the manifest entry's cycle."
+pack_meta.effective: "First day current (ISO date); absent for packs with no currency window."
+pack_meta.expires: "First day no longer current (ISO date, exclusive); absent means it does not expire."
+pack_meta.attribution: "Attribution text to show the pilot."
+pack_meta.license: "Short licence tag for the data. Empty means unspecified."
+pack_meta.license_url: "Link to the licence's full text."
+pack_meta.schema_version: "Version of the pack's format (see The contract)."

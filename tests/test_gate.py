@@ -92,6 +92,25 @@ def test_accepted_pack_publishes_its_record_bound_by_the_signature(tmp_path):
     assert store.exists("packs/highways-conus-2026q3r1.pack")
 
 
+def test_staged_build_provenance_reaches_the_record(tmp_path):
+    # AER-4676: a staged publish hands the gate where the bytes were built;
+    # an ordinary publish hands it nothing and the reporter decides.
+    store, (sk, _) = _store(tmp_path)
+    entry, path = _pack(tmp_path)
+    rep = Recording()
+    built = {"at": "2026-11-02T15:43:00Z", "runner": "local", "builder_refs": {"pyEfis": "d" * 40}}
+    publish(store, sk, [(entry, path)], generated=GEN, sign=signing.sign,
+            gate=gate.Options(reporter=rep, built=built), **quiet)
+    kw = rep.calls[0]
+    assert (kw["built_at"], kw["runner"], kw["builder_refs"]) == (
+        "2026-11-02T15:43:00Z", "local", {"pyEfis": "d" * 40})
+    rep = Recording()
+    entry, path = _pack(tmp_path, cycle="2026q3r2")
+    publish(store, sk, [(entry, path)], generated=GEN, sign=signing.sign,
+            gate=gate.Options(reporter=rep), **quiet)
+    assert not {"built_at", "runner", "builder_refs"} & set(rep.calls[0])
+
+
 def test_record_for_other_bytes_is_refused(tmp_path):
     # The gate checks the record against the file being signed, so a record
     # about any other bytes cannot clear it (AER-4102 closing verdict).

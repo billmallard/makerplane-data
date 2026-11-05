@@ -1783,39 +1783,253 @@ function _svsPatchFor(scene) {
 }
 
 
-// Moving map twin (Phase A-C widget on the moving-map branch): a
-// faithful replica of the widget's render -- dark ground, half/full
-// range rings, top-down ownship at the configurable anchor, status
-// chip. Terrain/airport layers draw on-device from local data; the
-// twin mirrors the no-data presentation (fidelity, not decoration).
-function buildMovingMap(inst) {
-  const o = inst.options || {};
-  const range = Number(o.range_nm) || 10;
-  const anchor = (o.ownship_position == null || o.ownship_position === "")
-    ? 50 : Number(o.ownship_position);
-  const cy = 100 - Math.max(0, Math.min(100, anchor));
-  const rings = o.layer_range_rings !== false;
-  const sym = o.symbol_color || "#ffff00";
-  const mode = (o.orientation === "north_up") ? "NORTH UP" : "TRK UP";
-  const rFull = Math.max(5, cy);          // anchor -> top edge
-  let ringsSvg = "";
-  if (rings) {
-    for (const fr of [0.5, 1.0]) {
-      const r = rFull * fr;
-      ringsSvg += `<circle cx="50" cy="${cy}" r="${r}" fill="none"
-        stroke="rgba(255,255,255,0.55)" stroke-width="0.3"/>
-        <text x="${50 + 1.5}" y="${cy - r + 3}" fill="#cfd6dd"
-        font-size="3">${(range * fr) % 1 ? (range * fr).toFixed(1)
-                        : range * fr}</text>`;
+// Python float() over a raw YAML value, for the map's option coercion
+// (RangeRingsLayer._num): a number passes, a bool is 1/0, a decimal string
+// parses, anything else is the default.
+function pyFloat(v, dflt) {
+  if (typeof v === "number") return v;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s)) return Number(s);
+    if (/^[+-]?(inf|infinity)$/i.test(s)) return s[0] === "-" ? -Infinity : Infinity;
+    if (/^[+-]?nan$/i.test(s)) return NaN;
+  }
+  return dflt;
+}
+
+// map_layers.format_range_nm: "%.1f" stripped below 10 NM, a rounded integer
+// at and above. Python rounds an exact binary tie to even ("%.1f" % 0.25 is
+// "0.2", round(12.5) is 12) where JS rounds it up; the ties are mirrored.
+function formatRangeNm(nm) {
+  nm = Math.max(0, Number(nm) || 0);
+  const halfEven = (n) => {
+    const f = Math.floor(n);
+    return (n - f !== 0.5) ? Math.round(n) : (f % 2 === 0 ? f : f + 1);
+  };
+  if (nm < 10) {
+    const s = (Number.isInteger(nm * 4) && !Number.isInteger(nm * 2))
+      ? (halfEven(nm * 10) / 10).toFixed(1) : nm.toFixed(1);
+    return s.replace(/0+$/, "").replace(/\.$/, "");
+  }
+  return String(halfEven(nm));
+}
+
+// map_layers.parse_ring_fractions: comma list -> sorted unique fractions of
+// range_nm in (0, 2]. One unparseable entry (or an empty / non-string value)
+// falls back to half + full range, so the rings are never lost.
+function parseRingFractions(text) {
+  const dflt = [0.5, 1.0];
+  if (Array.isArray(text) || (text !== null && typeof text === "object")) return dflt;
+  const out = new Set();
+  for (let part of String(text ?? "").split(",")) {
+    part = part.trim();
+    if (!part) continue;
+    const v = pyFloat(part, null);
+    if (v === null) return dflt;
+    if (v > 0 && v <= 2) out.add(v);
+  }
+  return out.size ? [...out].sort((a, b) => a - b) : dflt;
+}
+
+// A port of pyEfis RangeRingsLayer (instruments/map/layers, G13 #136): the
+// options as configure() coerces them, and the geometry paint() draws, in
+// widget pixels for a w x h map. Pure, so the tests can pin it.
+function rangeRingGeom(o, w, h) {
+  o = o || {};
+  const anchorPct = Math.max(0, Math.min(100, pyFloat(o.ownship_position ?? 50, 50)));
+  const cx = w / 2, cy = h * (1 - anchorPct / 100);
+  const range = pyFloat(o.range_nm ?? 10, 10) || 10;
+  const pxPerNm = Math.max(1, cy) / range;           // MapTransform: anchor -> top = range
+  const fractions = parseRingFractions(o.range_ring_fractions ?? "0.5,1");
+  const labels = o.range_ring_labels === undefined ? true : !!o.range_ring_labels;
+  const angle = ((pyFloat(o.range_ring_label_angle ?? 0, 0) % 360) + 360) % 360;
+  // QColor(name): hex (#aarrggbb keeps its rgb) or an SVG colour name, else white.
+  let color = String(o.range_ring_color || "#ffffff").trim();
+  if (/^#[0-9a-f]{8}$/i.test(color)) color = "#" + color.slice(3);
+  else if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color) && !/^[a-z]+$/i.test(color)) color = "#ffffff";
+  const opacity = Math.max(0, Math.min(100, pyFloat(o.range_ring_opacity ?? 55, 55)));
+  const alpha = Math.round(opacity * 2.55);
+  const widthOpt = Math.max(0, pyFloat(o.range_ring_width ?? 0, 0));
+  const strokeW = widthOpt > 0 ? widthOpt : Math.max(1, w * 0.002);
+  const sizeOpt = Math.max(0, Math.trunc(pyFloat(o.range_ring_label_size ?? 0, 0)));
+  const labelPx = sizeOpt > 0 ? sizeOpt : Math.max(8, Math.trunc(w * 0.025));
+  const a = angle * Math.PI / 180;
+  const rings = fractions.map((frac) => {
+    const r = pxPerNm * range * frac;
+    const ax = cx + r * Math.sin(a), ay = cy - r * Math.cos(a);
+    // label rect: top-left = anchor + (_LABEL_DX 4, 0), _LABEL_W 80 wide, px + 6 tall
+    return { frac, r, text: formatRangeNm(range * frac),
+             label: { x: ax + 4, y: ay, w: 80, h: labelPx + 6 } };
+  });
+  return { cx, cy, range, rings, labels, color, alpha, strokeW, labelPx };
+}
+
+// pyefis.display_metrics.pixels_per_mm from main:'s screen size and
+// diagonal. The device's next source, Qt's reported DPI, is not knowable
+// here, so a missing or implausible diagonal goes straight to the nominal 96.
+function displayPxPerMm(screen) {
+  const s = screen || {};
+  const w = Number(s.width), h = Number(s.height), d = Number(s.inches);
+  let dpi = null;
+  if (w > 0 && h > 0 && d > 0) {
+    const v = Math.hypot(w, h) / d;
+    if (v >= 40 && v <= 500) dpi = v;
+  }
+  return (dpi ?? 96) / 25.4;
+}
+
+// MovingMap._ladder, then _rail_ladder's sorted(set(...)): str(range_ladder)
+// split on commas, every entry a float or the whole ladder falls back to
+// [10]. A YAML list is not a comma string to str(), so it falls back too.
+function railLadder(o) {
+  const raw = (o && o.range_ladder !== undefined) ? o.range_ladder : "2,5,10,20,40,80,160";
+  const vals = [];
+  if (raw !== null && typeof raw !== "object" && typeof raw !== "boolean") {
+    for (const part of String(raw).split(",")) {
+      if (!part) continue;
+      const v = pyFloat(part, null);
+      if (v === null) return [10];
+      vals.push(v);
+    }
+  } else {
+    return [10];
+  }
+  return vals.length ? [...new Set(vals)].sort((a, b) => a - b) : [10];
+}
+
+// A port of the pyEfis MovingMap zoom rail (G22, pyEfis #205):
+// zoom_rail_geometry() plus the strokes _paint_zoom_rail() draws at rest, in
+// widget pixels for a w x h map. Null when zoom_rail is off or the map is too
+// short to hold it. Pure, so the tests can pin it against the real widget.
+function zoomRailGeom(o, w, h, pxPerMm, range) {
+  o = o || {};
+  if (!o.zoom_rail || !(w > 0) || !(h > 0)) return null;
+  const chipH = Math.max(9, Math.trunc(w * 0.03)) + 6;
+  const top = 4 + 2 * chipH;                 // one chip-height below the chip
+  const avail = h * 0.75 - top;              // _ZOOM_RAIL_BOTTOM_FRAC
+  if (avail <= 0) return null;
+  const touch = Math.max(24, Math.min(20 * pxPerMm, w * 0.25));   // 20 mm column
+  const total = Math.min(avail, 2 * touch + 0.38 * h);            // _ZOOM_RAIL_TRACK_FRAC
+  const cap = Math.min(touch, total / 3);
+  const x0 = o.zoom_rail_side === "right" ? w - touch : 0;
+  const claim = { x: x0, y: top, w: touch, h: total };
+  const plus = { x: x0, y: top, w: touch, h: cap };
+  const minus = { x: x0, y: top + total - cap, w: touch, h: cap };
+  const x = x0 + touch / 2, y0 = plus.y + plus.h, y1 = minus.y;
+  const ladder = railLadder(o);
+  const n = ladder.length;
+  const step = n > 1 ? (y1 - y0) / (n - 1) : 0;
+  const rungY = ladder.map((_, i) => n === 1 ? (y0 + y1) / 2 : y0 + i * step);
+  // _rail_thumb_y: a rung sits on its detent, a range between rungs is
+  // interpolated in log space, anything past the ends clamps to them.
+  let thumbY = rungY[0];
+  if (!(range <= ladder[0] || n === 1)) {
+    if (range >= ladder[n - 1]) thumbY = rungY[n - 1];
+    else {
+      for (let i = 0; i < n - 1; i++) {
+        if (ladder[i] <= range && range <= ladder[i + 1]) {
+          thumbY = rungY[i] + Math.log(range / ladder[i]) / Math.log(ladder[i + 1] / ladder[i]) * step;
+          break;
+        }
+      }
     }
   }
+  const lw = Math.max(2, w * 0.004);
+  const tick = Math.max(4, touch * 0.12);
+  const glyph = Math.max(5, touch * 0.15);
+  const r = Math.max(6, touch * 0.14);
+  // The path: the line, a tick per rung, "+" in the top cap, "-" in the bottom.
+  const segments = [[[x, y0], [x, y1]], ...rungY.map((y) => [[x - tick, y], [x + tick, y]])];
+  for (const [rc, vertical] of [[plus, true], [minus, false]]) {
+    const cx = rc.x + rc.w / 2, cy = rc.y + rc.h / 2;
+    segments.push([[cx - glyph, cy], [cx + glyph, cy]]);
+    if (vertical) segments.push([[cx, cy - glyph], [cx, cy + glyph]]);
+  }
+  return { claim, plus, minus, x, y0, y1, ladder, touch, rungY, thumbY,
+           lw, r, segments };
+}
+
+// The rail at rest, as SVG: _RAIL_HALO under _RAIL_REST, round caps, then the
+// thumb -- a halo ring just outside an opaque disc.
+function zoomRailSvg(g) {
+  if (!g) return "";
+  const d = g.segments.map((s) => `M${s[0][0]},${s[0][1]} L${s[1][0]},${s[1][1]}`).join(" ");
+  const HALO = `stroke="#000000" stroke-opacity="${(170 / 255).toFixed(4)}"`;
+  return `
+  <path d="${d}" fill="none" ${HALO} stroke-width="${g.lw + 3}" stroke-linecap="round"/>
+  <path d="${d}" fill="none" stroke="rgb(205,205,205)" stroke-width="${g.lw}" stroke-linecap="round"/>
+  <circle cx="${g.x}" cy="${g.thumbY}" r="${g.r + 1}" fill="none" ${HALO} stroke-width="2"/>
+  <circle cx="${g.x}" cy="${g.thumbY}" r="${g.r}" fill="rgb(205,205,205)"/>`;
+}
+
+// The map widget's size in device pixels: its share of the 110x200 grid on
+// the target screen. The device scales stroke, label and chip sizes off it.
+function mapDevicePx(inst) {
+  return {
+    w: Math.max(1, (inst.span?.columns ?? 1) / state.layout.columns * state.screen.width),
+    h: Math.max(1, (inst.span?.rows ?? 1) / state.layout.rows * state.screen.height),
+  };
+}
+
+// map_style picks the palette like pyEfis map_layers.map_style():
+// stripped + lower-cased, anything unknown is "standard". The nav_only
+// colours are NAV_ONLY_PALETTE's background / range_ring / range_ring_label.
+// Standard leaves ring/ringLabel null: there range_ring_color and
+// range_ring_opacity style the rings (RangeRingsLayer.colors), while any
+// other style's palette owns its ring colours.
+function movingMapPalette(o) {
+  const style = String((o && o.map_style) || "standard").trim().toLowerCase();
+  if (style === "nav_only") {
+    return { background: "#000000", ring: "rgb(120,120,120)", ringLabel: "rgb(170,170,170)" };
+  }
+  return { background: "#101820", ring: null, ringLabel: null };
+}
+
+// Moving map twin: a port of MovingMap.paintEvent's no-data frame in device
+// pixels -- dark ground, the range-ring layer (rangeRingGeom), the top-down
+// ownship at the configurable anchor, the status chip and, with zoom_rail,
+// the zoom rail at rest (zoomRailGeom). Terrain/airport
+// layers draw on-device from local data; the twin mirrors the no-data
+// presentation (fidelity, not decoration). Text tops follow Qt's AlignTop:
+// baseline = rect top + the DejaVu ascent (0.928 em).
+function buildMovingMap(inst) {
+  const o = inst.options || {};
+  const { w, h } = mapDevicePx(inst);
+  const g = rangeRingGeom(o, w, h);
+  const ASC = 0.928, FONT = `font-family="DejaVu Sans Condensed, DejaVu Sans, sans-serif"`;
+  const sym = o.symbol_color || "#ffff00";
+  const mode = (o.orientation === "north_up") ? "NORTH UP" : "TRK UP";
+  const pal = movingMapPalette(o);
+  let ringsSvg = "";
+  if (o.layer_range_rings !== false) {
+    // Standard: the configured colour at the configured opacity, ring and
+    // label alike. Any other style: the palette's opaque ring / label colours.
+    const op = pal.ring == null ? (g.alpha / 255).toFixed(4) : "1.0000";
+    const ringC = pal.ring ?? g.color, labelC = pal.ringLabel ?? g.color;
+    for (const ring of g.rings) {
+      ringsSvg += `<circle cx="${g.cx}" cy="${g.cy}" r="${ring.r}" fill="none"
+        stroke="${ringC}" stroke-opacity="${op}" stroke-width="${g.strokeW}"/>`;
+      if (g.labels) {
+        const L = ring.label;   // drawText clips to the label rect
+        ringsSvg += `<svg x="${L.x}" y="${L.y}" width="${L.w}" height="${L.h}" overflow="hidden">
+          <text x="0" y="${g.labelPx * ASC}" ${FONT} font-size="${g.labelPx}"
+          fill="${labelC}" fill-opacity="${op}">${ring.text}</text></svg>`;
+      }
+    }
+  }
+  const s = Math.max(8, w * 0.025);
+  const chipPx = Math.max(9, Math.trunc(w * 0.03));
+  const rail = zoomRailSvg(zoomRailGeom(o, w, h, displayPxPerMm(state.screen), g.range));
   return svgFromString(`
-<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" class="gauge-svg">
-  <rect x="0" y="0" width="100" height="100" fill="#101820"/>
+<svg viewBox="0 0 ${w} ${h}" class="gauge-svg">
+  <rect x="0" y="0" width="${w}" height="${h}" fill="${pal.background}"/>
   ${ringsSvg}
-  <polygon points="50,${cy - 3} 51.8,${cy + 2.4} 50,${cy + 1} 48.2,${cy + 2.4}"
-    fill="${sym}" stroke="#000" stroke-width="0.25"/>
-  <text x="2" y="5" fill="rgba(255,255,255,0.85)" font-size="3.4">${range} NM  ${mode}</text>
+  <polygon points="${g.cx},${g.cy - s} ${g.cx + s * 0.6},${g.cy + s * 0.8} ${g.cx},${g.cy + s * 0.35} ${g.cx - s * 0.6},${g.cy + s * 0.8}"
+    fill="${sym}" stroke="#000" stroke-width="1"/>
+  <text x="6" y="${4 + chipPx * ASC}" ${FONT} font-size="${chipPx}" style="white-space:pre"
+    fill="rgba(255,255,255,0.784)">${formatRangeNm(g.range)} NM  ${mode}</text>
+  ${rail}
 </svg>`);
 }
 

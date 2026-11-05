@@ -71,6 +71,35 @@ silently**, and the container aborts with the "TILE_ROOT missing/empty" guard.
 | `PYEFIS_REF` | `CODE_REF` (`dev` when run from a checkout) | branch/tag of pyEfis to clone |
 | `WATER_PACK_ID` | `water-na` | published water pack whose water.sqlite step 2b rasterizes into `.wmask` masks |
 | `WATER_CACHE` | `/data/water-cache` | where that pack is cached (sha-checked, reused across runs) |
+| `STAGE_ONLY` | `0` | `1` = build every pack but upload and sign nothing; packs stay in `$PACK_OUT/packs/`, each is diffed against `PREV_EDITION` and run through a publish-gate preview. Needs no R2 or signing secret. See docs/terrain.md, "Mask-only re-edition" |
+| `PREV_EDITION` | none (required with `STAGE_ONLY=1`) | the published terrain edition the staged packs are diffed against |
+| `FORCE_WMASK` | `0` | `1` = rebuild every `.wmask` (`build_water_masks.py --force`). Refused without `STAGE_ONLY=1` |
+| `WMASK_BORDERS` | `us-central=N27W097:5:SE` | stage mode: `region=TILE:LEVEL:EDGES` border posts that must be water (`packtool wmask-diff --border`) |
+
+## Retro records (TV4): `docker-compose.retro.yml`
+
+The same image writes a `retro` pack-report/1 record for every live manifest
+entry published without one, and binds it in the signed manifest
+(docs/pack_report.md, "Retro records (TV4)"). One pack at a time: download to
+`/data/retro-scratch`, check the sha256 against the signed manifest, run the
+checks, upload and bind the record, write `schema/<kind>.json`, delete the
+pack. The largest live pack is ~7.7 GB; the scratch never holds more.
+
+```bash
+cd /share/<POOL>/.../packtools/cloud
+docker compose -f docker-compose.retro.yml up --build
+docker compose -f docker-compose.retro.yml logs -f retro-records
+```
+
+- **Memory:** capped at 4 GB (`RETRO_MEM`); AER-2644 is why.
+- **Never alongside a terrain build:** both take `/data/.packtools-cloud.lock`;
+  the second to start exits 3.
+- **When:** after the nightly cyclical publish (09:20 UTC) has finished. A
+  publish overlapping a bind can drop it; the run says so and a re-run fixes it.
+- **Re-runnable:** bound entries are skipped. `ONLY=id,id` limits a run.
+- **Output:** `/data/retro-out/<stamp>/` holds every record, the schemas and
+  `retro-summary.json`, which lists each failing check. Failures are
+  published as found; the run never retracts or edits a pack.
 
 ## Portability
 

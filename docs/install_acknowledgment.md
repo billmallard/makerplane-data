@@ -79,7 +79,9 @@ The setting cannot be reached by accident on a real install:
 - Nothing writes it. The installer, the picker (`write_config`), the systemd
   units and `data.yaml.sample` never carry it; a test asserts this.
 - Every `pyefis-data` run prints `pyefis-data: BENCH UNIT: bench_auto_accept is
-  on ...` to stderr (the journal, for the timer) while it is on.
+  on ...` to stderr (the journal, for the timer) while it is on. It says that
+  `update` and `import` auto-accept; `pyefis-data accept` still prompts and
+  records `via: tty`, and the banner says so.
 
 An explicit `--accept-notice` still records `via: caller`, and an existing
 person's accept is used in preference to a bench one.

@@ -70,8 +70,15 @@ def _gate_options(args, record_dir: Path):
     sources = []
     if getattr(args, "sources", None):
         sources = json.loads(Path(args.sources).read_text(encoding="utf-8"))
+    built = {}
+    if getattr(args, "built_runner", None) or getattr(args, "built_at", None) \
+            or getattr(args, "builder_ref", None):
+        built = {"at": getattr(args, "built_at", None),
+                 "runner": getattr(args, "built_runner", None),
+                 "builder_refs": _kv_list(getattr(args, "builder_ref", None), "--builder-ref")}
     return gate.Options(notes=notes, origin=getattr(args, "origin", None), sources=sources,
-                        pyefis_src=getattr(args, "pyefis_src", None), record_dir=record_dir)
+                        pyefis_src=getattr(args, "pyefis_src", None), record_dir=record_dir,
+                        built=built)
 
 
 def _require_device_reader(args) -> None:
@@ -131,12 +138,13 @@ def cmd_build_pack(args) -> int:
     if zipfile.is_zipfile(pack_path):
         packmeta.embed_zip(pack_path, meta)
     else:
-        # highways: schema_version has to speak for the on-disk
-        # highway_lines table, not just PackMeta's own fields -- detect it
-        # from the built pack rather than trusting the package-wide default
-        # (AER-1715).
-        if args.kind == "highways":
-            meta.schema_version = packmeta.detect_highways_schema_version(pack_path)
+        # highways, procedures: schema_version has to speak for the
+        # on-disk tables, not just PackMeta's own fields -- detect it from
+        # the built pack rather than trusting the package-wide default
+        # (AER-1715, AER-4446).
+        detected = packmeta.detect_content_schema_version(args.kind, pack_path)
+        if detected is not None:
+            meta.schema_version = detected
         packmeta.embed_sqlite(pack_path, meta)
     print(f"embedded pack_meta: {read_packmeta(pack_path).as_dict()}")
 
@@ -216,6 +224,62 @@ def cmd_backfill_licenses(args) -> int:
     return 0
 
 
+def cmd_retro(args) -> int:
+    """Write and bind a retro record for every live edition that has none
+    (TV4), one pack at a time; --dry-run writes the records locally only."""
+    from . import retro, summary
+    if args.from_url:
+        if not args.dry_run:
+            raise SystemExit("--from-url is read-only; pass --dry-run")
+        store = _PublicStore(args.from_url)
+    elif args.source:
+        from .upload import LocalStore
+        store = LocalStore(args.source)
+    else:
+        from .upload import R2Store
+        store = R2Store.from_env(args.bucket)
+    sk = None if args.dry_run and not os.environ.get("MINISIGN_SECRET_KEY") and not args.sec \
+        else _load_secret(args)
+    if not args.dry_run and not args.no_device:
+        _require_device_reader(args)
+    only = [x for x in (args.only or "").split(",") if x] or None
+    results = retro.run(store, sk, scratch=Path(args.scratch), only=only,
+                        out_dir=Path(args.out) if args.out else None,
+                        pyefis_src=args.pyefis_src, probe=not args.no_device,
+                        schema=not args.no_schema, dry_run=args.dry_run)
+    md = retro.summary_markdown(results)
+    print(md)
+    summary.write(md)
+    return 1 if any(r.outcome == "error" for r in results) else 0
+
+
+class _PublicStore:
+    """Read-only store over the public origin (navdata.aerocommons.org), for
+    a dry run with no credentials."""
+
+    def __init__(self, base: str):
+        self.base = base.rstrip("/")
+
+    def get_bytes(self, key):
+        import requests
+        r = requests.get(f"{self.base}/{key}", timeout=120)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.content
+
+    def get_file(self, key, dest) -> bool:
+        import requests
+        with requests.get(f"{self.base}/{key}", stream=True, timeout=120) as r:
+            if r.status_code == 404:
+                return False
+            r.raise_for_status()
+            with open(dest, "wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+        return True
+
+
 def cmd_deploy_site(args) -> int:
     """Upload changed files under site/ to the bucket root (AER-4098), and
     write what changed to the job summary."""
@@ -260,6 +324,43 @@ def cmd_report_site(args) -> int:
         dst = src
     rows = reportsite.publish(dst, objects, dry_run=args.dry_run)
     md = (f"## report-site (dry_run={args.dry_run})\n\n"
+          + summary.table(["key", "bytes", "status"], rows))
+    summary.write(md)
+    return 0
+
+
+def cmd_schema_site(args) -> int:
+    """Render the pack format pages from the schema captures and upload the
+    changed ones (SCH1), or render a local preview with --from/--out."""
+    from . import community, reportsite, schemasite, sitedeploy, summary
+    from .upload import LocalStore
+    if args.source:
+        src = LocalStore(args.source)
+    else:
+        from .upload import R2Store
+        src = R2Store.from_env(args.bucket)
+    pub = Path(args.pub).read_text(encoding="utf-8") if args.pub else None
+    try:
+        manifest = community.load_live_manifest(src, pub)
+        if args.bootstrap and not args.dry_run:
+            schemasite.bootstrap(src, manifest)
+        objects = schemasite.build(schemasite.load_kinds(src), manifest,
+                                   commit=reportsite.generator_commit())
+    except (community.CommunityError, reportsite.SiteError) as e:
+        print(f"schema-site: {e}", file=sys.stderr)
+        return 1
+    if args.out:
+        # A browsable preview: the site itself, the catalog and the captures.
+        dst = LocalStore(args.out)
+        for key, path, _ in sitedeploy.site_files(args.root):
+            dst.put_file(key, path)
+        dst.put_bytes("manifest.json", src.get_bytes("manifest.json"))
+        for key in src.list_keys(schemasite.PREFIX):
+            dst.put_bytes(key, src.get_bytes(key))
+    else:
+        dst = src
+    rows = schemasite.publish(dst, objects, dry_run=args.dry_run)
+    md = (f"## schema-site (dry_run={args.dry_run})\n\n"
           + summary.table(["key", "bytes", "status"], rows))
     summary.write(md)
     return 0
@@ -589,6 +690,24 @@ def _load_against(spec: str) -> dict:
     return json.loads(Path(spec).read_text(encoding="utf-8"))
 
 
+def _load_auspex(spec: str) -> dict:
+    """QA's ``auspex`` section, checked against the closed schema before any
+    record is written: a section that does not validate writes nothing."""
+    import json
+    from . import report
+    try:
+        obj = json.loads(Path(spec).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"report: cannot read --auspex {spec}: {e}")
+    errs = report.validate_auspex(obj)
+    if errs:
+        for e in errs:
+            print(f"  MALFORMED {e}", file=sys.stderr)
+        raise SystemExit(f"report: --auspex {spec} does not match the auspex schema "
+                         "(docs/pack_report.md); no record written")
+    return obj
+
+
 def cmd_report(args) -> int:
     from . import report
     if args.list_checks:
@@ -600,7 +719,8 @@ def cmd_report(args) -> int:
         raise SystemExit(f"pack not found: {pack}")
     previous = report.previous_from(args.previous) if args.previous else None
     common = dict(previous=previous, inputs=args.inputs, pyefis_src=args.pyefis_src,
-                  probe=not args.no_device)
+                  probe=not args.no_device, terrain=args.terrain, airports=args.airports,
+                  golden_facts=args.golden_facts)
 
     if args.check:
         published = (_load_against(args.against) if args.against
@@ -626,15 +746,34 @@ def cmd_report(args) -> int:
               f"{sum(1 for r in rows if r.outcome == 'not reproducible here')} not reproducible here")
         return 1 if bad else 0
 
+    if args.check and args.auspex:
+        raise SystemExit("report: --auspex writes a record; it does not go with --check")
+    auspex = _load_auspex(args.auspex) if args.auspex else None
+
     sources = []
     if args.sources:
         import json
         sources = json.loads(Path(args.sources).read_text(encoding="utf-8"))
+    notes = {}
+    if args.notes_file:
+        # The gate's own scoping: CHECK, or <pack id>:CHECK for one pack.
+        import zipfile
+        from . import gate, packmeta
+        meta = packmeta.read(pack)
+        try:
+            notes = gate.notes_for(meta.id, meta.kind, gate.read_notes_file(args.notes_file),
+                                   is_zip=zipfile.is_zipfile(pack))
+        except gate.GateError as e:
+            raise SystemExit(f"report: {e}")
+    notes.update(_kv_list(args.note, "--note"))
     rec = report.build_report(
         pack, record=args.record, origin=args.origin, sources=sources,
-        notes=_kv_list(args.note, "--note"), commit=args.build_commit,
+        notes=notes, commit=args.build_commit,
         builder_refs=_kv_list(args.builder_ref, "--builder-ref"),
         first_edition=args.first_edition, **common)
+    if auspex is not None:
+        # Verbatim, inside the record the manifest's report_sha256 binds.
+        rec["auspex"] = auspex
     errs = report.validate_report(rec)
     out = Path(args.out or f"{rec['pack']['id']}-{rec['pack']['cycle']}.report.json")
     out.write_bytes(report.to_bytes(rec))
@@ -651,6 +790,42 @@ def cmd_report(args) -> int:
     for b in blockers:
         print(f"  BLOCKS PUBLISH  {b}")
     return 1 if (blockers or errs) else 0
+
+
+def cmd_diffmap(args) -> int:
+    """Write the per-state diff maps (OSM-002/OSM-006) for two records as
+    one standalone HTML page: the same figures the report site renders."""
+    import html
+    from . import diffmap
+    cur, prev = _load_against(args.report), _load_against(args.previous)
+    body = diffmap.page(cur, prev)
+    if not body:
+        print("diffmap: the two records carry no per-state metrics to compare "
+              "(OSM-002/OSM-006)", file=sys.stderr)
+        return 1
+    p = cur.get("pack") or {}
+    title = html.escape(f"{p.get('id')} {p.get('cycle')}: changes by state or province")
+    Path(args.out).write_text(
+        f"<!doctype html><meta charset=utf-8><title>{title}</title><style>"
+        "body{font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;"
+        f"color:#1c2430;max-width:1000px;margin:20px auto;padding:0 16px}}{diffmap.CSS}"
+        f"</style><h1>{title}</h1>{body}\n", encoding="utf-8")
+    print(f"{args.out}: {body.count('<figure')} maps")
+    return 0
+
+
+def cmd_wmask_diff(args) -> int:
+    """Everything but the water masks must be byte-identical; report what
+    the masks gained and lost, and check named border edges are water."""
+    from . import wmask_diff
+    try:
+        for spec in args.border:
+            wmask_diff.parse_border(spec)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    d = wmask_diff.diff(args.staged, args.against, borders=args.border, jobs=args.jobs)
+    print(wmask_diff.render(d, args.max_lost))
+    return 1 if d.failures(args.max_lost) else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -692,6 +867,15 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--pyefis-src", dest="pyefis_src",
                     help="pyEfis checkout's src/ for device acceptance "
                          "(default: PYEFIS_SRC_DIR, or PYEFIS_TOOLS_DIR/../src)")
+    # A staged publish (AER-4676): the source was built elsewhere, so the
+    # test record's `built` says where, not the run that gates and signs it.
+    b.add_argument("--built-at", dest="built_at",
+                   help="staged source: ISO-8601 UTC time its build started")
+    b.add_argument("--built-runner", dest="built_runner",
+                   choices=("github-hosted", "self-hosted", "local"),
+                   help="staged source: where it was built")
+    b.add_argument("--builder-ref", dest="builder_ref", action="append", metavar="NAME=SHA",
+                   help="staged source: a repo its build ran code from (repeatable)")
     b.set_defaults(func=cmd_build_pack)
 
     rp = sub.add_parser("remove-pack", help="retract one (id, cycle) entry from "
@@ -712,6 +896,28 @@ def build_parser() -> argparse.ArgumentParser:
     bl.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     bl.add_argument("--date", help="treat this ISO date as 'today' (reproducible)")
     bl.set_defaults(func=cmd_backfill_licenses)
+
+    rt = sub.add_parser("retro", help="write and bind a retro pack-report/1 record for "
+                        "every live edition published without one (TV4)")
+    rt.add_argument("--only", help="comma list of pack ids (default: every unbound edition)")
+    rt.add_argument("--scratch", default="work/retro-scratch",
+                    help="where each pack is downloaded; deleted before the next")
+    rt.add_argument("--out", help="also write each record, schema and the run summary here")
+    rt.add_argument("--dry-run", action="store_true",
+                    help="write records locally only; upload nothing, sign nothing")
+    rt.add_argument("--from-url", help="with --dry-run: read the manifest and packs from "
+                    "this public origin, e.g. https://navdata.aerocommons.org")
+    rt.add_argument("--from", dest="source", metavar="DIR",
+                    help="use this directory as the store instead of the bucket")
+    rt.add_argument("--pyefis-src", dest="pyefis_src",
+                    help="pyEfis src/ for the device probe (default: PYEFIS_SRC_DIR)")
+    rt.add_argument("--no-device", action="store_true",
+                    help="skip the device probe (ACC-001 is then not-run in the record)")
+    rt.add_argument("--no-schema", action="store_true",
+                    help="do not write schema/<kind>.json (SCH1)")
+    rt.add_argument("--bucket", default="makerplane-data")
+    rt.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    rt.set_defaults(func=cmd_retro)
 
     ds = sub.add_parser("deploy-site", help="upload changed site/ files to the "
                         "bucket root (navdata.aerocommons.org)")
@@ -734,6 +940,24 @@ def build_parser() -> argparse.ArgumentParser:
     rs.add_argument("--dry-run", action="store_true",
                     help="compare against the live objects; write nothing")
     rs.set_defaults(func=cmd_report_site)
+
+    sc = sub.add_parser("schema-site", help="render the pack format pages (/schema/) from "
+                        "the schema captures and upload the changed ones")
+    sc.add_argument("--bucket", default="makerplane-data")
+    sc.add_argument("--from", dest="source", metavar="DIR",
+                    help="read captures and the signed manifest from this directory "
+                    "instead of the bucket")
+    sc.add_argument("--out", metavar="DIR", help="write a browsable preview here "
+                    "instead of uploading")
+    sc.add_argument("--root", default="site", help="site directory for --out (default: site)")
+    sc.add_argument("--pub", help="public key to check manifest.json against "
+                    "(default: keys/minisign.pub)")
+    sc.add_argument("--bootstrap", action="store_true",
+                    help="first capture each live pack id that has no capture yet, from "
+                    "the published pack (never replaces a publish-path capture)")
+    sc.add_argument("--dry-run", action="store_true",
+                    help="compare against the live objects; write nothing (skips --bootstrap)")
+    sc.set_defaults(func=cmd_schema_site)
 
     so = sub.add_parser("status-overlay", help="write the nightly unsigned status.json "
                         "beside every published test record (state, pack:<id> issues, "
@@ -858,7 +1082,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="re-run the open checks and diff against the published record")
     rep.add_argument("--against", help="published report.json (path or URL) for --check; "
                      "default: look the pack up in the signed live manifest")
-    rep.add_argument("--list-checks", action="store_true", help="print the v1 catalogue")
+    rep.add_argument("--list-checks", action="store_true", help="print the check catalogue")
     rep.add_argument("--kind", choices=KINDS, help="with --list-checks: one kind only")
     rep.add_argument("--previous", help="previous edition: its pack file or its report.json")
     rep.add_argument("--first-edition", action="store_true",
@@ -869,18 +1093,50 @@ def build_parser() -> argparse.ArgumentParser:
                      help="pyEfis checkout's src/ dir for device acceptance "
                           "(default: PYEFIS_SRC_DIR, or PYEFIS_TOOLS_DIR/../src)")
     rep.add_argument("--no-device", action="store_true", help="skip device acceptance")
+    rep.add_argument("--terrain", action="append", metavar="SOURCE",
+                     help="Copernicus terrain for XS-001/XS-002: a terrain pack, a directory "
+                          "of <N44>/<N44W122>.hgt tiles, or a published pack's https URL "
+                          "(read by range request). Repeatable")
+    rep.add_argument("--airports", help="an airports/navdata pack, for TER-005 on a terrain pack")
+    rep.add_argument("--golden-facts", dest="golden_facts",
+                     help="golden facts file for GLD-001 (default: the packaged one)")
     rep.add_argument("--record", choices=("build", "retro", "rejected"), default="build")
     rep.add_argument("--origin", help="federal / community / user-supplied "
                      "(default: by kind; required for terrain)")
     rep.add_argument("--sources", help="JSON file: the record's sources[] array")
     rep.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",
                      help="build note for a check (a warn without one blocks a publish)")
+    rep.add_argument("--notes-file", dest="notes_file",
+                     help="build notes file, as make-terrain/build-pack --notes-file "
+                          "takes it (CHECK or <pack id>:CHECK keys)")
     rep.add_argument("--builder-ref", action="append", metavar="NAME=SHA")
     rep.add_argument("--build-commit", help="makerplane-data commit (default: git HEAD)")
+    rep.add_argument("--auspex", metavar="AUSPEX_JSON",
+                     help="QA's pre-publish auspex section, carried verbatim into the record; "
+                          "refused, with no record written, unless it matches the closed "
+                          "schema in docs/pack_report.md")
     rep.add_argument("-o", "--out", help="output path (default: <id>-<cycle>.report.json)")
     rep.add_argument("--manifest-url", default=_DEFAULT_URL_BASE.rsplit("/", 1)[0] + "/manifest.json")
     rep.add_argument("--pub", default="keys/minisign.pub")
     rep.set_defaults(func=cmd_report)
+
+    dm = sub.add_parser("diffmap", help="per-state diff maps (OSM-002/OSM-006) for two "
+                        "records of an OSM pack, as one HTML page")
+    dm.add_argument("report", help="this edition's report.json (path or URL)")
+    dm.add_argument("previous", help="the previous edition's report.json (path or URL)")
+    dm.add_argument("-o", "--out", default="diffmap.html")
+    dm.set_defaults(func=cmd_diffmap)
+
+    wd = sub.add_parser("wmask-diff", help="diff a mask-only terrain re-edition against "
+                        "the published pack it replaces (AER-4595)")
+    wd.add_argument("staged", help="the staged pack (file or URL)")
+    wd.add_argument("--against", required=True, help="the published pack (file or URL)")
+    wd.add_argument("--border", action="append", default=[], metavar="TILE:LEVEL:EDGES",
+                    help="edges of one tile's mip mask that must be all water, "
+                         "e.g. N27W097:5:SE (repeatable)")
+    wd.add_argument("--max-lost", type=int, help="fail if more water posts are lost")
+    wd.add_argument("-j", "--jobs", type=int, default=16, help="parallel member reads")
+    wd.set_defaults(func=cmd_wmask_diff)
 
     return ap
 

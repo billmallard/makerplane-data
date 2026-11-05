@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""Regenerate packtools/data/glo30_tiles.txt, the Copernicus GLO-30 tiles
+that exist inside any terrain region (TER-007's expected tile set).
+
+Source: ``tileList.txt`` in the public Copernicus DEM bucket on AWS Open
+Data (``s3://copernicus-dem-30m``), which lists every GLO-30 tile that
+exists. Ocean cells have no tile, so this list is what lets TER-007 tell a
+missing land tile from sea, which TER-002 cannot.
+
+    python scripts/make_glo30_tiles.py             # fetch, check sha256, write
+    python scripts/make_glo30_tiles.py --src FILE  # from a local copy
+
+Only tiles whose SW corner falls inside a region in regions.yaml are kept,
+so a new region needs a rerun. The output is sorted and deterministic.
+
+A wider region also needs the source tree refetched, which nothing else
+catches until TER-007 fails on a built pack (AER-4706: the tree was fetched
+for lon -170 and up, alaska grew to -177, and 41 tiles never shipped):
+
+    python scripts/make_glo30_tiles.py --check-tree TREE   # listed tiles absent from an HGT tree
+    python scripts/make_glo30_tiles.py --fetch-window      # fetch_glo30.py bbox args
+
+Fetch and convert exactly the tiles --check-tree lists (docs/terrain.md,
+"Adding tiles to the tree"). --fetch-window is one box around every region,
+so it also covers land outside all of them: on 2026-11-03 it counted 185
+tiles to fetch when the tree lacked 89 (AER-4710). Converting those extra
+tiles puts them in the tree, and the whole-extent mosaic grows to cover them.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import math
+import re
+import sys
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(HERE))
+
+from packtools.regions import load_regions, regions_for_tile, tile_sw_corner  # noqa: E402
+
+URL = "https://copernicus-dem-30m.s3.amazonaws.com/tileList.txt"
+SHA256 = "10604e3052c98a09e9216f1a8f0a555a04148419757575f783d4937fd44316dc"
+OUT = HERE / "packtools" / "data" / "glo30_tiles.txt"
+_NAME = re.compile(r"^Copernicus_DSM_COG_10_([NS])(\d\d)_00_([EW])(\d\d\d)_00_DEM$")
+
+
+def build(text: str) -> list[str]:
+    regions = [r for k, r in load_regions().items() if k != "conus"]
+    out = set()
+    for line in text.splitlines():
+        m = _NAME.match(line.strip())
+        if not m:
+            continue
+        tile = f"{m[1]}{m[2]}{m[3]}{m[4]}"
+        if any(r.contains(*tile_sw_corner(tile)) for r in regions):
+            out.add(tile)
+    return sorted(out)
+
+
+def fetch_window(regions) -> tuple[int, int, int, int]:
+    """The (min_lat, max_lat, min_lon, max_lon) to pass pyEfis's
+    fetch_glo30.py so it covers every region. Its bounds are inclusive SW
+    corners; a region's lat_max/lon_max is exclusive, so the last tile row
+    or column inside it starts one degree below."""
+    boxes = [r.bbox for r in regions]
+    return (math.floor(min(b[0] for b in boxes)), math.ceil(max(b[2] for b in boxes)) - 1,
+            math.floor(min(b[1] for b in boxes)), math.ceil(max(b[3] for b in boxes)) - 1)
+
+
+def listed_tiles(path: Path = OUT) -> list[str]:
+    return [ln.strip() for ln in path.read_text(encoding="ascii").splitlines()
+            if ln.strip() and not ln.startswith("#")]
+
+
+def missing_from_tree(tiles: list[str], tree: Path) -> list[str]:
+    """Tiles with no HGT in a converted tree (``<N34>/<N34W119>.hgt``)."""
+    return [t for t in tiles if not (tree / t[:3] / f"{t}.hgt").is_file()]
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--src", help="a local copy of tileList.txt")
+    ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--fetch-window", action="store_true",
+                    help="print the fetch_glo30.py bbox args that cover every region "
+                         "(a bounding box: it overfetches; prefer --check-tree)")
+    ap.add_argument("--check-tree", metavar="TREE",
+                    help="list tiles in --out that a converted HGT tree lacks; exit 1 if any")
+    a = ap.parse_args(argv)
+    regions = {k: r for k, r in load_regions().items() if k != "conus"}
+    if a.fetch_window:
+        lat0, lat1, lon0, lon1 = fetch_window(regions.values())
+        print(f"--min-lat {lat0} --max-lat {lat1} --min-lon {lon0} --max-lon {lon1}")
+        return 0
+    if a.check_tree:
+        tiles = listed_tiles(Path(a.out))
+        gone = missing_from_tree(tiles, Path(a.check_tree))
+        for t in gone:
+            print(f"{t}  {','.join(regions_for_tile(t, regions))}")
+        print(f"{len(gone)} of {len(tiles)} listed tiles missing from {a.check_tree}",
+              file=sys.stderr)
+        return 1 if gone else 0
+    if a.src:
+        raw = Path(a.src).read_bytes()
+    else:
+        req = urllib.request.Request(URL, headers={"User-Agent": "makerplane-data"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            raw = r.read()
+    got = hashlib.sha256(raw).hexdigest()
+    if got != SHA256:
+        print(f"sha256 {got} is not the pinned {SHA256}", file=sys.stderr)
+        return 1
+    tiles = build(raw.decode("ascii"))
+    head = (f"# Copernicus GLO-30 tiles inside the terrain regions of regions.yaml.\n"
+            f"# source: {URL}\n# source sha256: {SHA256}\n"
+            f"# generated by scripts/make_glo30_tiles.py; {len(tiles)} tiles\n")
+    Path(a.out).write_text(head + "\n".join(tiles) + "\n", encoding="ascii")
+    print(f"{len(tiles)} tiles -> {a.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
