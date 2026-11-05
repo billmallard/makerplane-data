@@ -11,6 +11,10 @@ this one deliberately does not duplicate:
   fits the wider avionics stack (pyEfis, FIX-Gateway, the instrument-widget
   pipeline). Not a git repo itself; each subdir is.
 
+> **The wiki is generated.** The GitHub wiki is generated from `docs/wiki/` by
+> `.github/workflows/wiki-sync.yml` on every merge to `dev`. Edit the pages here,
+> not in the wiki; direct wiki edits are overwritten.
+
 ## What this repo is (two products, one MIT-rooted repo)
 
 1. **A Garmin-style nav-data currency system** — the Python side (`packtools/`
