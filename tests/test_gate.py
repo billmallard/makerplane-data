@@ -331,6 +331,7 @@ def test_a_retro_previous_without_per_state_metrics_is_measured_from_its_pack(tm
     prev, first, how = gate.previous_record(store, live, _pack(tmp_path / "2", cycle="r2")[0],
                                             **quiet)
     assert first is False and "reported on now from its published pack" in how
+    assert "its retro record has no OSM-002/OSM-006 metrics" in how
     assert prev["tables"]["t"]["rows"] == 10            # the pack, not the record's 999
 
 

@@ -181,6 +181,7 @@ def previous_record(store, live: Manifest | None, entry: PackEntry, *,
     prev, rec = max(below or cands.values(), key=lambda c: _rank_key(c[0]))
     if rec is not None:
         return rec, False, f"previous edition {prev.cycle}: its record from this run"
+    why = "it has no bound record"
     if prev.report_url:
         raw = store.get_bytes(report_key(prev.id, prev.cycle))
         if raw is not None and _sha256_bytes(raw) == prev.report_sha256:
@@ -189,11 +190,11 @@ def previous_record(store, live: Manifest | None, entry: PackEntry, *,
             if not stale:
                 return (bound, False, f"previous edition {prev.cycle}: its published record "
                                       "(report_sha256 matches)")
-            log(f"  previous {prev.id} {prev.cycle}: its retro record has no "
-                f"{'/'.join(stale)} metrics; using its pack")
+            why = f"its retro record has no {'/'.join(stale)} metrics"
         else:
-            log(f"  previous {prev.id} {prev.cycle}: bound record "
-                f"{'missing' if raw is None else 'does not match report_sha256'}; using its pack")
+            why = (f"its bound record is "
+                   f"{'missing' if raw is None else 'not the one report_sha256 names'}")
+        log(f"  previous {prev.id} {prev.cycle}: {why}; using its pack")
     own = scratch is None
     tmp = Path(tempfile.mkdtemp(prefix="gate-prev-")) if own else Path(scratch)
     dest = tmp / f"previous-{prev.id}-{prev.cycle}.pack"
@@ -209,7 +210,7 @@ def previous_record(store, live: Manifest | None, entry: PackEntry, *,
         except Exception as e:
             return None, False, f"previous edition {prev.cycle}: cannot report on its pack ({e})"
         return rec, False, (f"previous edition {prev.cycle}: reported on now from its published "
-                            "pack (sha256 matches; it has no bound record)")
+                            f"pack (sha256 matches; {why})")
     finally:
         dest.unlink(missing_ok=True)
         if own:
