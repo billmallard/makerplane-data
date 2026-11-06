@@ -127,6 +127,29 @@ def _sha256_bytes(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+#: Delta checks whose previous-edition metric a catalogue-v1 retro record
+#: cannot hold (AER-4676). A retro record lists them as not-run placeholders.
+PER_STATE_METRIC_CHECKS = ("OSM-002", "OSM-006")
+
+
+def _retro_without_metrics(rec: dict, kind: str) -> list[str]:
+    """The per-state checks the kind's catalogue runs that a *retro* previous
+    record has no metric for. A retro record is this tool describing a pack
+    after the fact, so the gate measures the pack itself instead. A ``build``
+    record is never second-guessed: its missing metric stays an unexempted
+    not-run (AER-4597)."""
+    if rec.get("record") != "retro":
+        return []
+    have = rec.get("metrics") or {}
+    ids = set()
+    for z in (False, True):
+        try:
+            ids |= {c.id for c in _report.catalogue(kind, is_zip=z)}
+        except Exception:
+            pass
+    return [c for c in PER_STATE_METRIC_CHECKS if c in ids and c not in have]
+
+
 def previous_record(store, live: Manifest | None, entry: PackEntry, *,
                     local: dict | None = None, scratch: Path | None = None,
                     log=print) -> tuple[dict | None, bool, str]:
@@ -139,7 +162,9 @@ def previous_record(store, live: Manifest | None, entry: PackEntry, *,
     the newest listed) is the previous one, read from its bound record (hash
     checked against the signed ``report_sha256``) or, for an edition
     published before records existed, reported on now from its pack (hash
-    checked against the signed ``sha256``). If neither can be read the
+    checked against the signed ``sha256``). A retro record that lacks the
+    per-state metrics the catalogue now compares is likewise replaced by a
+    report on the pack (AER-4676). If neither can be read the
     previous record is ``None`` with ``first_edition`` False, so every
     blocking delta check blocks."""
     local = local or {}
@@ -156,13 +181,20 @@ def previous_record(store, live: Manifest | None, entry: PackEntry, *,
     prev, rec = max(below or cands.values(), key=lambda c: _rank_key(c[0]))
     if rec is not None:
         return rec, False, f"previous edition {prev.cycle}: its record from this run"
+    why = "it has no bound record"
     if prev.report_url:
         raw = store.get_bytes(report_key(prev.id, prev.cycle))
         if raw is not None and _sha256_bytes(raw) == prev.report_sha256:
-            return (json.loads(raw), False,
-                    f"previous edition {prev.cycle}: its published record (report_sha256 matches)")
-        log(f"  previous {prev.id} {prev.cycle}: bound record "
-            f"{'missing' if raw is None else 'does not match report_sha256'}; using its pack")
+            bound = json.loads(raw)
+            stale = _retro_without_metrics(bound, prev.kind)
+            if not stale:
+                return (bound, False, f"previous edition {prev.cycle}: its published record "
+                                      "(report_sha256 matches)")
+            why = f"its retro record has no {'/'.join(stale)} metrics"
+        else:
+            why = (f"its bound record is "
+                   f"{'missing' if raw is None else 'not the one report_sha256 names'}")
+        log(f"  previous {prev.id} {prev.cycle}: {why}; using its pack")
     own = scratch is None
     tmp = Path(tempfile.mkdtemp(prefix="gate-prev-")) if own else Path(scratch)
     dest = tmp / f"previous-{prev.id}-{prev.cycle}.pack"
@@ -178,7 +210,7 @@ def previous_record(store, live: Manifest | None, entry: PackEntry, *,
         except Exception as e:
             return None, False, f"previous edition {prev.cycle}: cannot report on its pack ({e})"
         return rec, False, (f"previous edition {prev.cycle}: reported on now from its published "
-                            "pack (sha256 matches; it has no bound record)")
+                            f"pack (sha256 matches; {why})")
     finally:
         dest.unlink(missing_ok=True)
         if own:

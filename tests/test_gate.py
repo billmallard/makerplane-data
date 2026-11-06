@@ -304,6 +304,54 @@ def test_tampered_previous_record_falls_back_to_the_pack(tmp_path):
     assert prev["pack"]["cycle"] == "r1" and prev["tables"]["t"]["rows"] == 10
 
 
+def _bound_previous(tmp_path, store, record_kind, metrics):
+    """r1 listed in the live manifest with a bound record of ``record_kind``
+    whose checks list OSM-002/OSM-006 but whose metrics are ``metrics``."""
+    entry, path = _pack(tmp_path / "1", cycle="r1", rows=10)
+    store.put_file(f"packs/{path.name}", path)
+    rec = {"record": record_kind, "pack": {"id": entry.id, "kind": entry.kind, "cycle": "r1"},
+           "checks": [{"id": "OSM-002", "status": "not-run"}, {"id": "OSM-006", "status": "not-run"}],
+           "metrics": metrics, "tables": {"t": {"rows": 999}}}
+    raw = json.dumps(rec).encode()
+    store.put_bytes(gate.report_key(entry.id, "r1"), raw)
+    entry.report_url = f"{ORIGIN}/{gate.report_key(entry.id, 'r1')}"
+    entry.report_sha256 = hashlib.sha256(raw).hexdigest()
+    live = Manifest.new(GEN)
+    live.upsert(entry)
+    return live
+
+
+def test_a_retro_previous_without_per_state_metrics_is_measured_from_its_pack(tmp_path):
+    # AER-4676: water-na 2026q2r6's retro record predates catalogue v2 but
+    # lists OSM-002 as a not-run placeholder, so OSM-002 could never run
+    # against it and the next water publish was refused. A retro record is
+    # the tool describing a pack after the fact; measure the pack instead.
+    store, _ = _store(tmp_path)
+    live = _bound_previous(tmp_path, store, "retro", {"OSM-001": {}})
+    prev, first, how = gate.previous_record(store, live, _pack(tmp_path / "2", cycle="r2")[0],
+                                            **quiet)
+    assert first is False and "reported on now from its published pack" in how
+    assert "its retro record has no OSM-002/OSM-006 metrics" in how
+    assert prev["tables"]["t"]["rows"] == 10            # the pack, not the record's 999
+
+
+def test_a_build_previous_without_per_state_metrics_still_blocks(tmp_path):
+    # AER-4597 (QA): a build record whose check ran but left no metric stays
+    # an unexempted not-run; only a retro record is re-measured.
+    store, _ = _store(tmp_path)
+    live = _bound_previous(tmp_path, store, "build", {"OSM-001": {}})
+    prev, first, how = gate.previous_record(store, live, _pack(tmp_path / "2", cycle="r2")[0],
+                                            **quiet)
+    assert "its published record" in how and prev["tables"]["t"]["rows"] == 999
+    # And a retro record that does carry the metrics is used as is.
+    store2, _ = _store(tmp_path / "b")
+    live = _bound_previous(tmp_path / "b", store2, "retro",
+                           {"OSM-001": {}, "OSM-002": {}, "OSM-006": {}})
+    prev, _, how = gate.previous_record(store2, live, _pack(tmp_path / "b2", cycle="r2")[0],
+                                        **quiet)
+    assert "its published record" in how and prev["tables"]["t"]["rows"] == 999
+
+
 def test_previous_ranks_below_the_new_edition(tmp_path):
     live = Manifest.new(GEN)
     for c in ("2606", "2607"):

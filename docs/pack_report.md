@@ -465,6 +465,16 @@ metrics, so the next edition is judged. A v2 record that lists the check
 but holds no metric (it raised) is not exempt (`previous-metric-missing`),
 and a missing `--previous` is not an exemption either.
 
+A **retro** record written under catalogue v1 is the exception the
+paragraph above missed: it lists OSM-002 as a `not-run` placeholder
+("planned for catalogue v2") with no metric, so it is neither exempt nor
+comparable, and the next build of that id was refused (`water-na`
+2026q2r6, AER-4676). When the previous edition's bound record is `retro`
+and lacks an OSM-002/OSM-006 metric, the gate reports on that edition's
+pack instead (sha256-checked against the signed manifest, as for an
+edition with no record), so the checks run against real per-state
+figures. A `build` record is never replaced this way.
+
 Accepted residual (QA and Elon, AER-4597): each OSM pack id's first gated
 edition is judged per region only (OSM-001), so a single state at zero
 inside a growing region would publish that once. Closing it means the gate
