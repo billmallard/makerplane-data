@@ -43,14 +43,16 @@ these move:
   coastline that the SVS reader is *designed to* prefer over the runtime
   `water.sqlite` polygon path whenever present. `water.sqlite` itself
   doesn't move, but what a device renders does — once something reads the
-  mask. **As of 2026-09-09, nothing does:** MP10a (the pyEfis mask builder,
-  `build_water_masks.py`) and MP10c (the reader) are both unbuilt — no file,
-  branch, issue, or PR by either name exists in `pyEfis`, `pyavtools`, or
-  this repo (checked live: `git fetch --all` + `git log --all -S` + a
-  full-history grep on `pyEfis`, plus an org-wide `gh search code`). A
-  `.wmask`-carrying pack today changes zero rendered pixels; MP10b only
-  built the *ride-along*, not the consumer. Re-verify this before relying on
-  it again — either half could land without touching this file.
+  mask. **That has been the case since MP10a and MP10c shipped** (checked
+  2026-11-06 on pyEfis `dev`): `tools/build_water_masks.py` builds the masks
+  (MP10a, 2026-09-13), and the reader (MP10c, `TileCache.get_mask` /
+  `get_mosaic_mask`, 2026-09-27) feeds them to both the SVS
+  (`instruments/ai/svs.py`) and the moving-map terrain layer
+  (`instruments/map/layers/terrain.py`). So a `.wmask`-carrying edition
+  changes rendered pixels, even when the elevation and the member set are
+  byte-identical. A mask-only re-edition (for example, re-rastering from a
+  new `water-na` cycle, AER-4926) is a coastline move on the glass, and it
+  takes this notification.
 
 **Promoting a `.wmask`-carrying pack (AER-862):**
 
