@@ -76,6 +76,13 @@ SHA-256 against the signed catalog, then move it into place and flip the
 offline it falls back to the last good cached catalog. It also pre-stages the
 next cycle so a rollover is seamless.
 
+A signature proves who signed a catalog, not when. So the updater also refuses
+a validly signed catalog that is **older** than the one it already trusts (an
+old USB stick, a stale cache, or a replay), installs nothing from it, and shows
+a `Catalog: CATALOG REFUSED` row on the Data Status screen. A deliberate
+rollback is `pyefis-data update --allow-rollback` (or `import DIR
+--allow-rollback`). Each use is appended to `rollback.log` in the data root.
+
 ## Choosing what to install
 
 A fresh aircraft automatically tracks the small, everyone-wants-them datasets
