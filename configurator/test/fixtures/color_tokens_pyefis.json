@@ -1,5 +1,5 @@
 {
- "pyefis_commit": "fce470c1f4822091e7da797db93d060e2577da53",
+ "pyefis_commit": "de037c4b8852240bdfe44f495b18a7a6f31f758d",
  "shipped_theme_colors": {},
  "tokens": [
   {
@@ -132,7 +132,7 @@
    "past_color": ""
   },
   "heading_display": {
-   "fg_color": "ink.muted",
+   "fg_color": "ink.primary",
    "bg_color": "surface.base"
   },
   "horizontal_situation_indicator": {
