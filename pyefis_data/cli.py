@@ -30,7 +30,7 @@ from packtools import signing
 
 from .config import Config
 from .core import (Updater, detect_sources, disk_info, list_drives,
-                   EXPIRED, EXPIRES, UPDATE, MISSING, UNKNOWN)
+                   EXPIRED, EXPIRES, UPDATE, MISSING, UNKNOWN, ROLLBACK)
 
 # makerplane-data production signing key (key id 178caefeabc5afb1).
 # Mirrors keys/minisign.pub in the repo; embedded for runtime independence.
@@ -41,7 +41,7 @@ PUBLIC_KEY = (
 )
 
 # statuses that mean "the EFIS should annunciate" — also used for exit codes.
-_ATTENTION = {EXPIRED, EXPIRES, UPDATE, MISSING}
+_ATTENTION = {EXPIRED, EXPIRES, UPDATE, MISSING, ROLLBACK}
 
 # Exit code for a user-cancelled update (the on-device picker sends SIGTERM
 # when the user taps Cancel on the progress screen). Distinct from the
@@ -155,7 +155,32 @@ def _updater(args, *, override: dict | None = None) -> Updater:
     if src:
         from .core import LocalDirRemote
         remote = LocalDirRemote(Path(src))
-    return Updater(cfg, PUBLIC_KEY, remote=remote)
+    return Updater(cfg, PUBLIC_KEY, remote=remote,
+                   allow_rollback=getattr(args, "allow_rollback", False))
+
+
+def _rollback_dry_run(args) -> bool:
+    """--allow-rollback with --dry-run is refused: the fetch itself makes the
+    older manifest the cached baseline, so a "dry" run would roll back."""
+    if getattr(args, "allow_rollback", False) and args.dry_run:
+        print("--allow-rollback cannot be combined with --dry-run: accepting "
+              "the older catalog is itself the change", file=sys.stderr)
+        return True
+    return False
+
+
+def _report_refusal(up) -> bool:
+    """Print why an older manifest was refused (nothing was installed from
+    it) and how to roll back on purpose. True when there was a refusal."""
+    r = up.rollback_refused
+    if not r:
+        return False
+    print(f"REFUSED: the offered catalog (generated {r['offered']}) is older than "
+          f"the one this device already trusts ({r['cached']}); nothing installed, "
+          "current data left untouched. To roll back deliberately, rerun with "
+          "--allow-rollback (logged to rollback.log in the data root).",
+          file=sys.stderr)
+    return True
 
 
 def _fmt_bytes(n: int) -> str:
@@ -186,6 +211,7 @@ def _status_doc(up) -> dict:
         "generated": up.manifest_generated,
         "worst": worst,
         "any_attention": any(r.status in _ATTENTION for r in rows),
+        "rollback_refused": up.rollback_refused,
         "packs": [r.as_dict() for r in rows],
     }
 
@@ -289,6 +315,8 @@ def cmd_update(args) -> int:
     # data.yaml so the next auto-update tracks the same set (the on-device
     # picker uses this; it turns the picker into the yaml editor). A --root
     # given alongside --only is also persisted (the picker's storage chooser).
+    if _rollback_dry_run(args):
+        return 2
     if not args.dry_run:
         rc = _require_acceptance(args, _updater(args), "update")
         if rc is not None:
@@ -348,6 +376,8 @@ def cmd_update(args) -> int:
             _write_status_json(_status_doc(up), default_status_path())
         except Exception as e:
             print(f"(could not refresh status.json: {e})", file=sys.stderr)
+    if _report_refusal(up):
+        return 2
     if up.errors:
         print(f"FAILED: {len(up.errors)} verification error(s); current data left untouched",
               file=sys.stderr)
@@ -356,6 +386,8 @@ def cmd_update(args) -> int:
 
 
 def cmd_import(args) -> int:
+    if _rollback_dry_run(args):
+        return 2
     up = _updater(args)
     src = Path(args.path)
     if not (src / "manifest.json").exists():
@@ -368,6 +400,8 @@ def cmd_import(args) -> int:
     rows = up.import_dir(src, dry_run=args.dry_run)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
+    if _report_refusal(up):
+        return 2
     return 2 if up.errors else 0
 
 
@@ -612,6 +646,9 @@ def cmd_config_pull(args) -> int:
 
 _SOFTWARE_HELP = ("also record this component version in an accept (repeatable), "
                   "e.g. --software pyefis=2.1.0")
+_ALLOW_ROLLBACK_HELP = ("accept a validly signed catalog OLDER than the one this "
+                        "device already trusts (a deliberate rollback); "
+                        "recorded in rollback.log under the data root")
 _ACCEPT_NOTICE_HELP = ("the caller displayed the full software notice and the user "
                        "accepted it; record that and proceed (no prompt)")
 
@@ -650,6 +687,7 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--progress", action="store_true",
                    help="emit JSON progress events on stdout (for the on-device picker)")
     u.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
+    u.add_argument("--allow-rollback", action="store_true", help=_ALLOW_ROLLBACK_HELP)
     u.add_argument("--software", action="append", metavar="NAME=VERSION",
                    help=_SOFTWARE_HELP)
     u.set_defaults(func=cmd_update)
@@ -658,6 +696,7 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("path")
     i.add_argument("--dry-run", action="store_true")
     i.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
+    i.add_argument("--allow-rollback", action="store_true", help=_ALLOW_ROLLBACK_HELP)
     i.add_argument("--software", action="append", metavar="NAME=VERSION",
                    help=_SOFTWARE_HELP)
     i.set_defaults(func=cmd_import)

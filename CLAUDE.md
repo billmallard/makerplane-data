@@ -60,7 +60,9 @@ downloaded to `staging/`, sha256-verified against the signed manifest, and only
 **then** moved into place and the `current` symlink atomically flipped. A bad
 download, bad signature, or interrupted transfer can **never** disturb the live
 data a running pyEfis is serving. Offline falls back to the last good cached
-(still-verified) manifest. When editing `pyefis_data/core.py` or the CLIs,
+(still-verified) manifest. A verified manifest whose `generated` is older than
+the cached one is refused and nothing installs from it (CERT3: a signature
+proves who signed, not when); `--allow-rollback` is the logged override. When editing `pyefis_data/core.py` or the CLIs,
 preserve verify-then-swap; don't introduce a path that installs before verifying.
 
 ## Package map
@@ -97,6 +99,7 @@ verification needs no file and no network):
 ```bash
 pyefis-data status | catalog | sources | drives     # (+ --json; the picker drives these)
 pyefis-data update [--only id,id] [--source DIR] [--progress]   # pull+verify+atomic-swap
+                   [--allow-rollback]                  # accept an OLDER signed catalog (logged)
 pyefis-data import <dir>                              # USB path, same verify contract
 pyefis-data verify [path]                            # check a manifest signature
 pyefis-data pair <code>                              # redeem a configurator claim code -> device token
