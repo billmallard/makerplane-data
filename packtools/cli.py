@@ -280,6 +280,34 @@ class _PublicStore:
         return True
 
 
+def cmd_advisories(args) -> int:
+    """Validate the advisory feed and, unless --check-only, sign and upload it
+    beside the manifest (BACKLOG L5, docs/advisories.md)."""
+    from . import advisories
+    try:
+        obj = advisories.load_file(args.feed)
+    except advisories.FeedError as e:
+        print(f"INVALID: {e}", file=sys.stderr)
+        return 2
+    print(f"OK  {args.feed}: sequence {obj['sequence']}, "
+          f"{len(obj['advisories'])} advisory(ies)")
+    if args.check_only:
+        return 0
+    if args.local:
+        from .upload import LocalStore
+        store = LocalStore(args.local)
+    else:
+        from .upload import R2Store
+        store = R2Store.from_env(args.bucket)
+    try:
+        advisories.publish(store, _load_secret(args), obj, sign=signing.sign,
+                           dry_run=args.dry_run)
+    except advisories.FeedError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def cmd_deploy_site(args) -> int:
     """Upload changed files under site/ to the bucket root (AER-4098), and
     write what changed to the job summary."""
@@ -918,6 +946,17 @@ def build_parser() -> argparse.ArgumentParser:
     rt.add_argument("--bucket", default="makerplane-data")
     rt.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     rt.set_defaults(func=cmd_retro)
+
+    av = sub.add_parser("advisories", help="validate the safety advisory feed, then "
+                        "sign and upload it beside the manifest")
+    av.add_argument("feed", nargs="?", default="advisories/feed.json")
+    av.add_argument("--check-only", action="store_true", help="validate; sign nothing")
+    av.add_argument("--dry-run", action="store_true",
+                    help="check against the live feed; write nothing")
+    av.add_argument("--local", metavar="DIR", help="use this directory as the store")
+    av.add_argument("--bucket", default="makerplane-data")
+    av.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    av.set_defaults(func=cmd_advisories)
 
     ds = sub.add_parser("deploy-site", help="upload changed site/ files to the "
                         "bucket root (navdata.aerocommons.org)")
