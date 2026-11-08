@@ -52,7 +52,8 @@ class El {
     this.style = {}; this.className = ""; this._text = ""; this._html = "";
     this.listeners = {}; this.id = ""; this.value = "";
     const cls = new Set();
-    this.classList = { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) };
+    this.classList = { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c),
+                       toggle: (c, on) => (on ? cls.add(c) : cls.delete(c)) };
   }
   set textContent(v) { this._text = String(v); this.children = []; }
   get textContent() { return this._text + this.children.map((c) => c.textContent).join(" "); }
@@ -69,8 +70,10 @@ class El {
 function makeDom() {
   const root = new El("body"), byId = {};
   for (const id of ["engines", "cylinders", "tanks", "speedunit", "barounit", "twinspeeds",
-                    "groups", "save", "msg", "proj-label"]) {
-    const e = new El(id === "groups" ? "div" : "select"); e.id = id; byId[id] = e; root.append(e);
+                    "groups", "save", "msg", "proj-label", "registration", "icaoaddr",
+                    "ownship-out"]) {
+    const e = new El({ groups: "div", registration: "input", icaoaddr: "input",
+                       "ownship-out": "p" }[id] || "select"); e.id = id; byId[id] = e; root.append(e);
   }
   const all = () => [...root.walk()];
   return {
@@ -86,13 +89,16 @@ function makeDom() {
   };
 }
 
-const CONSTS = ["SPEED_ORDER", "TWIN_ONLY", "DEEMPH", "KT", "SPEED_UNIT_LABEL", "BARO_UNITS"];
-const FUNCS = ["normalizeProfile", "instances", "isSpeed", "toNative", "toDisplay", "fmt",
+const CONSTS = ["SPEED_ORDER", "TWIN_ONLY", "DEEMPH", "KT", "SPEED_UNIT_LABEL", "BARO_UNITS",
+  "N_LETTERS"];
+const FUNCS = ["normalizeProfile", "normalizeRegistration", "nNumberAddress", "parseIcaoAddress",
+  "ownshipStatus", "instances", "isSpeed", "toNative", "toDisplay", "fmt",
   "unitLabel", "auxSettings", "setEntry", "settingField", "fillCounts", "render", "validate",
   "drawArc", "cylinderExpand", "buildIni", "importIni"];
 // Helpers this change introduced are skipped when absent, so the same test
 // run against the pre-change page fails on behaviour, not on extraction.
-const NEW = new Set(["SPEED_UNIT_LABEL", "unitLabel", "auxSettings", "setEntry", "settingField"]);
+const NEW = new Set(["SPEED_UNIT_LABEL", "unitLabel", "auxSettings", "setEntry", "settingField",
+  "N_LETTERS", "normalizeRegistration", "nNumberAddress", "parseIcaoAddress", "ownshipStatus"]);
 const pick = (names, get) => names.map((n) => {
   try { return get(SRC, n); } catch (e) { if (NEW.has(n)) return ""; throw e; }
 }).join("\n\n");

@@ -97,6 +97,21 @@
           <option value="1">Show Vmc/V1/V2</option></select></div>
     </div>
   </div>
+  <div class="card">
+    <h2>Ownship identity</h2>
+    <p class="sub">Hides your own aircraft's ADS-B reports from the traffic
+      display. Matched on this address only, never on position: a target that
+      does not carry it is always shown.</p>
+    <div class="counts">
+      <div class="field"><label>Registration</label>
+        <input id="registration" maxlength="10" autocomplete="off" spellcheck="false"
+               placeholder="e.g. N825V"></div>
+      <div class="field"><label>ICAO address override (hex)</label>
+        <input id="icaoaddr" maxlength="8" autocomplete="off" spellcheck="false"
+               placeholder="e.g. A1B2C3"></div>
+    </div>
+    <p class="help" id="ownship-out"></p>
+  </div>
   <div id="groups"></div>
   <p class="footer-note">Aircraft Parameter Profile — schema from fix-gateway
     (<span id="schema-ver"></span>). Delivered today by downloading
@@ -105,7 +120,10 @@
     <code>initialization files</code>; device push arrives with config
     delivery (Phase C). The altimeter setting units are the exception: they
     reach every paired display of this aircraft with its next
-    <code>pyefis-data config-pull</code>, and every screen starts in them.</p>
+    <code>pyefis-data config-pull</code>, and every screen starts in them.
+    The ownship identity is saved with the profile but is not sent to the
+    aircraft yet: until it is, the address shown above is the value for
+    <code>ownship_address</code> in fix-gateway's stratux connection.</p>
 </main>
 <input type="file" id="inifile" accept=".ini,text/plain" style="display:none">
 <script>
@@ -141,6 +159,76 @@ function normalizeProfile(p) {
   if (!p.values || typeof p.values !== "object") p.values = {};
   if (!BARO_UNITS.includes(p.meta.baro_unit)) p.meta.baro_unit = "inHg";
   return p;
+}
+
+// ---- ownship identity (P3e) ----------------------------------------------------
+// Copy of src/ownship.ts (this page cannot load .ts); test/ownship.test.mjs
+// holds the two equal over every N-number. A US N-number derives its 24-bit
+// address (A00001-ADF7C7, FAA allocation order); other states enter the hex,
+// and the hex wins whenever both are set.
+const N_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+function normalizeRegistration(raw) {
+  return typeof raw === "string" ? raw.toUpperCase().replace(/\s+/g, "") : "";
+}
+
+function nNumberAddress(reg) {
+  const s = normalizeRegistration(reg);
+  if (!/^N[1-9][0-9]{0,4}$|^N[1-9][0-9]{0,3}[A-HJ-NP-Z]$|^N[1-9][0-9]{0,2}[A-HJ-NP-Z]{2}$/.test(s))
+    return null;
+  const SUFFIXES = 1 + N_LETTERS.length * (1 + N_LETTERS.length);
+  const BLOCK = [101711, 10111, 951, 35];
+  let a = 0xa00001 + (Number(s[1]) - 1) * BLOCK[0];
+  for (let i = 2; i < s.length; i++) {
+    const c = s[i], letter = N_LETTERS.indexOf(c);
+    if (i === 5) return a + (letter >= 0 ? 1 + letter : 1 + N_LETTERS.length + Number(c));
+    if (letter >= 0) {
+      a += 1 + letter * (1 + N_LETTERS.length);
+      if (i + 1 < s.length) a += 1 + N_LETTERS.indexOf(s[i + 1]);
+      return a;
+    }
+    a += SUFFIXES + Number(c) * BLOCK[i - 1];
+  }
+  return a;
+}
+
+function parseIcaoAddress(raw) {
+  if (typeof raw !== "string") return null;
+  const m = /^(?:0X)?([0-9A-F]{6})$/.exec(raw.trim().toUpperCase());
+  if (!m) return null;
+  const a = parseInt(m[1], 16);
+  return a === 0 ? null : a;
+}
+
+// The two inputs -> { hard, warn, text }: what to block Save on, what to
+// flag, and the line shown under the fields (which address the filter uses).
+function ownshipStatus(meta) {
+  const reg = normalizeRegistration(meta.registration);
+  const rawHex = typeof meta.icao_address === "string" ? meta.icao_address.trim() : "";
+  const hex6 = a => a.toString(16).toUpperCase().padStart(6, "0");
+  const out = { hard: [], warn: [], text: "" };
+  const derived = reg ? nNumberAddress(reg) : null;
+  const hex = rawHex ? parseIcaoAddress(rawHex) : null;
+  if (reg && !/^[A-Z0-9][A-Z0-9-]{0,9}$/.test(reg))
+    out.hard.push("Registration: up to 10 letters, digits and hyphens");
+  else if (reg.startsWith("N") && derived === null)
+    out.hard.push(`Registration: ${reg} is not a valid US N-number`);
+  if (rawHex && hex === null)
+    out.hard.push("ICAO address: 6 hex digits (not 000000)");
+  if (out.hard.length) { out.text = out.hard.join("; ") + "."; return out; }
+  if (hex !== null) {
+    out.text = `Traffic with ICAO address ${hex6(hex)} is hidden as ownship (from the override).`;
+    if (derived !== null && derived !== hex)
+      out.warn.push(`ICAO address override ${hex6(hex)} differs from ${reg}'s ${hex6(derived)}; the override is used`);
+  } else if (derived !== null) {
+    out.text = `Traffic with ICAO address ${hex6(derived)} is hidden as ownship (derived from ${reg}).`;
+  } else if (reg) {
+    out.text = `No address can be derived from ${reg} (only US N-numbers derive). Enter the hex address from your registration certificate or transponder.`;
+    out.warn.push(`no ICAO address for ${reg}: enter it in hex, or only the receiver's own ownship report is filtered`);
+  } else {
+    out.text = "Not set: only the receiver's own ownship report is filtered.";
+  }
+  return out;
 }
 
 // ---- templates (STARTING POINTS -- verify against the POH) ----------------
@@ -251,6 +339,8 @@ function fillCounts() {
   $("speedunit").value = profile.meta.speed_unit;
   $("barounit").value = profile.meta.baro_unit;
   $("twinspeeds").value = profile.meta.twin_speeds ? "1" : "0";
+  $("registration").value = profile.meta.registration || "";
+  $("icaoaddr").value = profile.meta.icao_address || "";
 }
 
 function render() {
@@ -380,6 +470,12 @@ function validate() {
       + " or the engine alarms can go quiet in flight");
     mark("IAS.Vgnd"); mark("IAS.Vs0");
   }
+  // Ownship identity: a malformed entry would be refused by the server.
+  const own = ownshipStatus(profile.meta);
+  $("ownship-out").textContent = own.text;
+  $("registration").classList.toggle("err", own.hard.some(e => e.startsWith("Registration")));
+  $("icaoaddr").classList.toggle("err", own.hard.some(e => e.startsWith("ICAO")));
+  hard.push(...own.hard); errs.push(...own.warn);
   let box = $("errbox");
   if (!box) { box = document.createElement("p"); box.id = "errbox"; box.className = "errors";
               $("groups").prepend(box); }
@@ -532,6 +628,14 @@ for (const [id, key, num] of [["engines","engines",1],["cylinders","cylinders",1
 $("speedunit").addEventListener("change", e => { profile.meta.speed_unit = e.target.value; render(); });
 $("barounit").addEventListener("change", e => { profile.meta.baro_unit = e.target.value; });
 $("twinspeeds").addEventListener("change", e => { profile.meta.twin_speeds = e.target.value === "1"; render(); });
+// Stored as typed-normalized text; blank removes the key (= not set).
+for (const [id, key, norm] of [["registration", "registration", normalizeRegistration],
+                               ["icaoaddr", "icao_address", v => v.trim().toUpperCase()]])
+  $(id).addEventListener("input", e => {
+    const v = norm(e.target.value);
+    if (v) profile.meta[key] = v; else delete profile.meta[key];
+    validate();
+  });
 
 boot();
 </script>
