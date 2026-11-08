@@ -104,7 +104,7 @@ optional fields. Removing or changing the meaning of a field is
 | `at` | string | ISO-8601 UTC time the build started. |
 | `repo` | string | `billmallard/makerplane-data`. |
 | `commit` | string | Full commit sha; equals the manifest `build_commit`. |
-| `builder_refs` | object | Other repos the build ran code from, name to full sha, e.g. `{"pyEfis": "..."}`. |
+| `builder_refs` | object | Other repos the build ran code from, name to full sha, e.g. `{"pyEfis": "..."}`. `pyEfis` is the pack's `pack_meta.pyefis_commit` when it has one (CERT5a); a record whose `builder_refs` disagree with it is refused. Otherwise it is the HEAD of the checkout the device probe ran. |
 | `run_url` | string or `null` | The CI run, if any. |
 | `runner` | string | `github-hosted`, `self-hosted`, or `local`. |
 

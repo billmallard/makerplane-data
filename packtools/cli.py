@@ -19,6 +19,7 @@ import argparse
 import datetime as _dt
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -121,10 +122,16 @@ def cmd_build_pack(args) -> int:
         effective = cur.effective.isoformat()
         expires = cur.expires.isoformat()
 
+    # The pyEfis commit the source was built from goes into pack_meta as well
+    # as the test record (CERT5a): the pack names its builder on its own.
+    pyefis_sha = _kv_list(args.builder_ref, "--builder-ref").get("pyEfis")
+    if pyefis_sha is not None and not re.fullmatch(r"[0-9a-f]{40}", pyefis_sha):
+        raise SystemExit(f"--builder-ref pyEfis wants a full 40-hex commit sha, got {pyefis_sha!r}")
     meta = PackMeta(id=args.id, kind=args.kind, cycle=cycle,
                     effective=effective, expires=expires,
                     attribution=args.attribution,
-                    license=args.license, license_url=args.license_url)
+                    license=args.license, license_url=args.license_url,
+                    pyefis_commit=pyefis_sha)
 
     out_dir = Path(args.out)
     (out_dir / "packs").mkdir(parents=True, exist_ok=True)
@@ -875,7 +882,8 @@ def build_parser() -> argparse.ArgumentParser:
                    choices=("github-hosted", "self-hosted", "local"),
                    help="staged source: where it was built")
     b.add_argument("--builder-ref", dest="builder_ref", action="append", metavar="NAME=SHA",
-                   help="staged source: a repo its build ran code from (repeatable)")
+                   help="a repo the source's build ran code from (repeatable); "
+                        "pyEfis=SHA is also written into pack_meta as pyefis_commit")
     b.set_defaults(func=cmd_build_pack)
 
     rp = sub.add_parser("remove-pack", help="retract one (id, cycle) entry from "

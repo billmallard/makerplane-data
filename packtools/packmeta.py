@@ -56,6 +56,12 @@ class PackMeta:
     # unspecified -- today's implicit default for every existing source.
     license: str = ""
     license_url: str = ""
+    # pyefis_commit (CERT5a, AER-5181): the full pyEfis commit sha whose
+    # tools/ built this pack, for kinds built by a pyEfis script (airports,
+    # obstacles, navaids, highways, water). Additive like license; None (left
+    # out of the header) for a pack built by no pyEfis code, or one published
+    # before the field existed. A reader that does not know it ignores it.
+    pyefis_commit: str | None = None
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self):
