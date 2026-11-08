@@ -231,6 +231,9 @@
   }
   .field input[type=checkbox] { width: auto; }
   .field input[type=color] { height: 30px; padding: 2px; }
+  .color-row { display: flex; gap: 6px; align-items: center; }
+  .color-row .swatch { flex: 0 0 22px; height: 22px; border-radius: 4px; border: 1px solid #30363d; }
+  .color-field input[type=color] { margin-top: 4px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .muted { color: #8b949e; font-size: 13px; }
   .empty { color: #6e7681; font-size: 13px; padding: 20px 4px; }
@@ -312,6 +315,7 @@
       <option value="pfd-ems">PFD + EMS (⅔)</option>
     </select>
   </label>
+  <label class="tsel" title="Panel colour theme: what every colour left on Default, or set to a token, resolves to">Theme <select id="theme-sel"></select></label>
   <label class="tsel"><input type="checkbox" id="codeToggle" checked> Code</label>
   <span class="spacer"></span>
   <span id="status"></span>
@@ -2199,6 +2203,16 @@ function gcd(a, b) { return b ? gcd(b, a % b) : a; }
 function aspect(w, h) { const g = gcd(w, h), aw = w / g, ah = h / g; return ah <= 20 ? `${aw}:${ah}` : `${(w / h).toFixed(2)}:1`; }
 function dpi() { return state.screen.inches ? Math.round(Math.hypot(state.screen.width, state.screen.height) / state.screen.inches) : null; }
 
+function buildThemeControl() {
+  const sel = $("theme-sel");
+  sel.innerHTML = "";
+  for (const t of PANEL_THEMES) {
+    const o = document.createElement("option"); o.value = t.id; o.textContent = t.label; sel.appendChild(o);
+  }
+  sel.value = state.theme;
+  sel.addEventListener("change", () => { state.theme = sel.value; renderCanvas(); renderProps(); });
+}
+
 function buildScreenControls() {
   const res = $("res");
   res.innerHTML = "";
@@ -3430,6 +3444,64 @@ function themedInstrument(inst) {
   return { ...inst, options: after };
 }
 
+// Token-or-custom colour control: a dropdown of the active theme's tokens
+// (the cohesive path, default) plus "Custom..." revealing the colour picker
+// (the free path). A custom colour is a first-class choice: the dropdown just
+// shows "Custom...", nothing more. Raw hex also stays editable in the YAML pane.
+function colorTokenField(inst, name, spec, cur) {
+  const wrap = document.createElement("div"); wrap.className = "color-field";
+  const sel = document.createElement("select");
+  const swatch = document.createElement("span"); swatch.className = "swatch";
+  const pick = document.createElement("input"); pick.type = "color";
+  const mapped = (COLOR_PROP_TOKENS[inst.type] || {})[name] || "";
+  const colors = themeColors(activeThemePreferences());
+  const value = (t) => resolveColorToken(t, colors);
+
+  const add = (parent, v, text, title) => {
+    const op = document.createElement("option"); op.value = v; op.textContent = text;
+    if (title) op.title = title;
+    parent.appendChild(op); return op;
+  };
+  add(sel, "", mapped ? `Default (${mapped})` : "Default");
+  const groups = {};
+  for (const [t, , desc] of COLOR_TOKENS) {
+    if (value(t) == null && t !== cur) continue;   // no value: same as Default
+    const g = t.split(".")[0];
+    if (!groups[g]) { groups[g] = document.createElement("optgroup"); groups[g].label = g; sel.appendChild(groups[g]); }
+    add(groups[g], t, value(t) == null ? `${t} (widget default)` : t, `${desc}: ${value(t) ?? "widget default"}`);
+  }
+  add(sel, "custom", "Custom…");
+
+  // What the device would paint for the current choice.
+  const shown = () => {
+    const c = (inst.options || {})[name];
+    if (c === undefined) return (mapped && Object.hasOwn(colors, mapped)) ? colors[mapped] : spec.default;
+    return value(c) ?? spec.default;
+  };
+  const refresh = () => {
+    const c = (inst.options || {})[name];
+    sel.value = c === undefined ? "" : isColorToken(c) ? c : "custom";
+    const isCustom = sel.value === "custom";
+    pick.classList.toggle("hidden", !isCustom);
+    if (isCustom) pick.value = String(c).slice(0, 7);
+    const s = shown();
+    swatch.style.background = s || "transparent";
+    swatch.title = s || "widget default";
+  };
+  sel.addEventListener("change", () => {
+    if (sel.value === "") setOpt(inst, name, undefined);
+    else if (sel.value === "custom") setOpt(inst, name, String(shown() || "#000000").slice(0, 7));
+    else setOpt(inst, name, sel.value);
+    refresh();
+  });
+  pick.addEventListener("input", () => { setOpt(inst, name, pick.value); refresh(); });
+  const row = document.createElement("div"); row.className = "color-row";
+  row.append(swatch, sel);
+  wrap.append(row, pick);
+  refresh();
+  return wrap;
+}
+
 function optionField(inst, name, spec) {
   const f = document.createElement("div"); f.className = "field";
   const l = document.createElement("label"); l.textContent = spec.label || name;
@@ -3454,9 +3526,7 @@ function optionField(inst, name, spec) {
     inp.value = cur ?? spec.default ?? spec.enum[0];
     inp.addEventListener("change", () => setOpt(inst, name, inp.value));
   } else if (spec.type === "color") {
-    inp = document.createElement("input"); inp.type = "color";
-    inp.value = (cur ?? spec.default ?? "#000000").slice(0, 7);
-    inp.addEventListener("input", () => setOpt(inst, name, inp.value));
+    inp = colorTokenField(inst, name, spec, cur);
   } else if (spec.type === "number" || spec.type === "integer") {
     inp = document.createElement("input"); inp.type = "number"; if (spec.step) inp.step = spec.step;
     inp.placeholder = spec.default ?? "";
@@ -4371,6 +4441,7 @@ async function boot() {
   }
   await load();
   buildScreenControls();
+  buildThemeControl();
   $("gridToggle").addEventListener("change", (e) => $("canvas").classList.toggle("grid", e.target.checked));
   $("snapToggle").addEventListener("change", (e) => { state.snap = e.target.checked; });
   $("canvas").classList.toggle("grid", $("gridToggle").checked);
