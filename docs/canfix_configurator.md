@@ -101,6 +101,13 @@ Mirror the instrument-schema pattern (pyEfis generates
 - API: `GET/PUT /api/projects/:id/aircraft` (active profile),
   `GET .../aircraft/versions`, `POST .../aircraft/activate/:v`.
   Ownership-scoped through user_id like everything else.
+- The PUT refuses (422, with an `errors` list) a profile that breaks the
+  section-6 ordering -- `Vs0 <= Vs < Vno < Vne <= Max`, `Vfe` within
+  `[Vs0, Vno]`, `Min <= lowAlarm <= lowWarn <= highWarn <= highAlarm <= Max`
+  on every banded instance, checked across blanks -- or carries a non-number
+  value or an unknown `meta.speed_unit` / `meta.baro_unit`
+  (`src/aircraft_profile.ts`, AER-5060). Versions saved before that stay
+  stored and can still be re-activated; the check runs on save only.
 - Starter templates: ship a few read-only presets (the c170b numbers,
   a generic O-320 single, Rotax 912) + "import .ini" (paste an existing
   init_data file — parse the exact fixgw dialect) so nobody starts from

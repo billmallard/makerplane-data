@@ -494,6 +494,12 @@ $("save").addEventListener("click", async () => {
   if (res.ok) { const d = await res.json(); savedVersion = d.version;
     $("ver-label").textContent = "v" + d.version + " active";
     $("msg").innerHTML = '<span class="ok">saved</span>';
+  } else if (res.status === 422) {
+    // The server enforces the section-6 ordering the form only warns about
+    // (AER-5060); say which rule, and leave the message up (no 4 s clear).
+    const d = await res.json().catch(() => ({}));
+    $("msg").textContent = "not saved: " + (d.errors || [d.error]).join(" · ");
+    return;
   } else $("msg").textContent = "save failed (" + res.status + ")";
   setTimeout(() => $("msg").textContent = "", 4000);
 });
