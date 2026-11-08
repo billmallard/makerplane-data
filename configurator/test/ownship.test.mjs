@@ -2,13 +2,15 @@
 //
 // P3e / AER-5147: the aircraft profile's ownship identity. A US N-number
 // derives its ICAO 24-bit address offline, a hex entry overrides it, and an
-// empty setting yields no address. Runs the REAL src/ownship.ts.
+// empty setting yields no address. Runs the REAL src/ownship.ts and the REAL
+// copy in aircraft.html (brace-matched, not reimplemented).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { extractConst, extractFunction } from "./support/extract.mjs";
 import {
   N_FIRST, N_LAST, N_LETTERS, hex6, nNumberAddress, ownshipAddress, ownshipErrors,
   parseIcaoAddress,
@@ -17,6 +19,12 @@ import { checkAircraftProfilePut } from "../src/aircraft_profile.ts";
 import { devicePreferences } from "../src/device_prefs.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const PAGE = readFileSync(resolve(HERE, "..", "public", "aircraft.html"), "utf8");
+const page = new Function(
+  [extractConst(PAGE, "N_LETTERS"), extractFunction(PAGE, "normalizeRegistration"),
+   extractFunction(PAGE, "nNumberAddress"), extractFunction(PAGE, "parseIcaoAddress"),
+   extractFunction(PAGE, "ownshipStatus"),
+   "return { nNumberAddress, parseIcaoAddress, ownshipStatus };"].join("\n"))();
 
 // FAA registry rows (N-NUMBER, MODE S CODE HEX), provenance in the file.
 const FAA = readFileSync(resolve(HERE, "fixtures", "faa_nnumber_samples.csv"), "utf8")
@@ -50,7 +58,7 @@ test("FAA registry samples derive their registered address, edge letters include
   assert.equal(by["N999ZZ"], "ADF669");
 });
 
-test("the N-numbers fill A00001-ADF7C7 exactly, in order", () => {
+test("the N-numbers fill A00001-ADF7C7 exactly, in order, and the page copy agrees", () => {
   let n = 0, prev = N_FIRST - 1;
   const seen = new Set();
   for (const s of allNNumbers()) {
@@ -60,6 +68,7 @@ test("the N-numbers fill A00001-ADF7C7 exactly, in order", () => {
     // Allocation order is depth-first in this same enumeration order.
     assert.equal(a, prev + 1, `N${s} follows its predecessor`);
     prev = a;
+    if (page.nNumberAddress("N" + s) !== a) assert.fail(`aircraft.html disagrees on N${s}`);
     n++;
   }
   assert.equal(n, 915399);
@@ -80,6 +89,10 @@ test("the hex override wins over the derived address", () => {
   assert.equal(ownshipAddress({ registration: "N825V", icao_address: "0xA1B2C3" }), "A1B2C3");
   assert.equal(ownshipAddress({ registration: "C-GABC", icao_address: "C01234" }), "C01234");
   assert.equal(ownshipAddress({ registration: "N825V" }), hex6(nNumberAddress("N825V")));
+  const st = page.ownshipStatus({ registration: "N825V", icao_address: "A1B2C3" });
+  assert.match(st.text, /A1B2C3 is hidden as ownship \(from the override\)/);
+  assert.equal(st.warn.length, 1, "a disagreeing override is flagged");
+  assert.equal(st.hard.length, 0);
 });
 
 test("an empty setting yields no address and changes nothing else", () => {
@@ -92,9 +105,10 @@ test("an empty setting yields no address and changes nothing else", () => {
   const blank = { ...base, meta: { ...base.meta, registration: "", icao_address: "" } };
   assert.deepEqual(checkAircraftProfilePut({ profile: blank }).ok, true);
   assert.deepEqual(devicePreferences(blank), devicePreferences(base));
+  assert.match(page.ownshipStatus({}).text, /Not set/);
 });
 
-test("save-time validation refuses malformed identity", () => {
+test("save-time validation refuses malformed identity, page and server alike", () => {
   const put = (meta) => checkAircraftProfilePut({ profile: { meta, values: {} } });
   assert.equal(put({ registration: "N825V", icao_address: "A1B2C3" }).ok, true);
   assert.equal(put({ registration: "G-ABCD" }).ok, true);
@@ -113,6 +127,9 @@ test("save-time validation refuses malformed identity", () => {
     assert.equal(r.status, 422);
     assert.match(r.errors.join(" "), re);
     assert.deepEqual(ownshipErrors(meta), r.errors);
+    if (typeof meta.registration !== "number")
+      assert.ok(page.ownshipStatus(meta).hard.length > 0, `page blocks ${JSON.stringify(meta)}`);
   }
   assert.equal(parseIcaoAddress("ffffff"), 0xffffff);
+  assert.equal(page.parseIcaoAddress("ffffff"), 0xffffff);
 });
