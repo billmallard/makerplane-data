@@ -54,7 +54,8 @@ def test_missing_from_tree(tmp_path):
 
 def test_check_tree_exits_nonzero_on_a_gap(tmp_path, capsys):
     out = tmp_path / "tiles.txt"
-    out.write_text("# header\nN51W177\nN09W080\n", encoding="ascii")
+    out.write_text(f"# header\n{mk.regions_line(_regions())}\nN51W177\nN09W080\n",
+                   encoding="ascii")
     (tmp_path / "N51").mkdir()
     (tmp_path / "N51" / "N51W177.hgt").write_bytes(b"\0\0")
     assert mk.main(["--out", str(out), "--check-tree", str(tmp_path)]) == 1
@@ -62,3 +63,33 @@ def test_check_tree_exits_nonzero_on_a_gap(tmp_path, capsys):
     (tmp_path / "N09").mkdir()
     (tmp_path / "N09" / "N09W080.hgt").write_bytes(b"\0\0")
     assert mk.main(["--out", str(out), "--check-tree", str(tmp_path)]) == 0
+
+
+# AER-5175: the list is the fetch area (fetch_glo30.py --tiles-file) and
+# TER-007's expected set, so a region widened without a rerun would fetch
+# too little and still pass TER-007 on a short pack.
+
+def test_tile_list_was_built_for_the_regions_in_regions_yaml():
+    assert mk.regions_past_list(_regions()) == []
+
+
+def test_a_region_reaching_past_the_list_is_named(tmp_path):
+    from packtools.regions import Region
+    out = tmp_path / "tiles.txt"
+    out.write_text(mk.regions_line(_regions()) + "\nN51W177\n", encoding="ascii")
+    regions = {r.key: r for r in _regions()}
+    lat0, lon0, lat1, lon1 = regions["alaska"].bbox
+    wider = Region("alaska", "Alaska", (lat0, lon0 - 1, lat1, lon1))
+    narrower = Region("alaska", "Alaska", (lat0 + 1, lon0, lat1, lon1))
+    new = Region("hawaii", "Hawaii", (18, -161, 23, -154))
+    assert mk.regions_past_list([wider, new], out) == ["alaska", "hawaii"]
+    assert mk.regions_past_list([narrower], out) == []
+    out.write_text("N51W177\n", encoding="ascii")    # a list with no header
+    assert mk.regions_past_list([narrower], out) == ["alaska"]
+
+
+def test_check_tree_refuses_a_list_built_for_narrower_regions(tmp_path, capsys):
+    out = tmp_path / "tiles.txt"
+    out.write_text("# regions: alaska=51,-170,72,-129\nN51W170\n", encoding="ascii")
+    assert mk.main(["--out", str(out), "--check-tree", str(tmp_path)]) == 2
+    assert "alaska" in capsys.readouterr().err
