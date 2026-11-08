@@ -416,6 +416,14 @@ def test_enable_disable_round_trip(tmp_path, keys, monkeypatch, capsys):
     assert Config.load(data_yaml).advisories is True
     assert len(remote.urls) == 2
 
+    # With no verified feed, it must not claim that nothing applies.
+    remote.objs.clear()
+    (tmp_path / "pi" / adv.CACHE).unlink()
+    assert cli.main(base + ["advisories", "--check"]) == 0
+    cap = capsys.readouterr()
+    assert "no verified advisory feed on this device yet" in cap.out
+    assert "no safety advisories apply" not in cap.out
+
     assert cli.main(base + ["advisories", "--disable"]) == 0
     assert Config.load(data_yaml).advisories is False
     remote.urls.clear()

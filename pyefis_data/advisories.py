@@ -125,7 +125,9 @@ def check(config, public_key: str, remote, *, log=print) -> dict:
     except Exception as e:
         msg = f"could not fetch a verified advisory feed ({type(e).__name__})"
         _write_state(root, attempted=attempted, error=msg)
-        log(f"advisories: {msg}; using the last verified feed")
+        have = load_cached(root, public_key) is not None
+        log(f"advisories: {msg}; "
+            + ("using the last verified feed" if have else "no verified feed on this device yet"))
         return {"ok": False, "error": msg, "refused": None}
     try:
         obj = json.loads(raw)

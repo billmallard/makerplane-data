@@ -526,7 +526,12 @@ def cmd_advisories(args) -> int:
         print("safety advisories are off (turn on: pyefis-data advisories --enable)")
         return 0
     out = adv.lines(block)
-    print("\n".join(out) if out else "no safety advisories apply to this device")
+    if out:
+        print("\n".join(out))
+    elif block.get("sequence") is None:
+        print("no verified advisory feed on this device yet; nothing checked")
+    else:
+        print("no safety advisories apply to this device")
     if block.get("error"):
         print(f"(last check: {block['error']})", file=sys.stderr)
     elif block.get("checked"):
