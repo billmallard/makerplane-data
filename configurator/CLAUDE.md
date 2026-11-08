@@ -98,6 +98,14 @@ Vanilla JS, no build step. Key internals:
     `preview_scene` picks the scene (mountains / approach / coastal / final).
   - everything else → the static palette SVG from R2.
   - `setOpt()` re-renders so option edits update live.
+- **Colour tokens** (CAP-121, pyEfis S1 #368): a colour option may hold a
+  token (`ink.primary`) or a literal. Every colour field is a token-or-custom
+  control (`colorTokenField`); the toolbar Theme picker sets `state.theme`
+  (`PANEL_THEMES`; only pyEfis's built-in today). `buildInstrumentTwin` draws
+  through `themedInstrument()`, a port of pyEfis `apply_theme_colors()`; the
+  saved YAML keeps the token. `COLOR_TOKENS`/`COLOR_PROP_TOKENS` are pinned to
+  pyEfis by `test/color_tokens_twin.test.mjs` -- regenerate the fixture with
+  `tools/color_tokens_oracle.py` when pyEfis changes its tokens.
 - Complex SVG built via the `svgFromString(...)` template helper; `_polar` for
   dial geometry.
 - Other features in the same file: layers/z-order, screen-size + DPI targeting,
