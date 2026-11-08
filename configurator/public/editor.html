@@ -344,6 +344,8 @@ const state = {
   // Altimeter-setting unit from the project's aircraft profile (#108), as the
   // device will receive it in preferences units.Pressure. inHg = pyEfis default.
   baroUnit: "inHg",
+  // Panel colour theme (PANEL_THEMES id) the twin resolves colour tokens with.
+  theme: "builtin",
   screen: { width: 1280, height: 800, inches: 10.1 },  // device physical display (shared by all screens)
   // A device can hold several screens (PFD / EMS / RADIO ...) the pilot switches
   // between. Each: { name, layout, instruments }. `layout` + `instruments` below
@@ -2440,6 +2442,10 @@ function renderCanvas() {
 // top-level one has (AER-345 sec 4f). `ci`/`depth` are only consulted by the
 // container branch below; depth caps recursion at 1 (see there).
 function buildInstrumentTwin(el, inst, meta, ci, depth) {
+  // Draw what the device draws: colour tokens resolved through the active panel
+  // theme. A container keeps the real record (its twin writes activeTab) and
+  // resolves its own colours.
+  if (!(depth === 0 && meta.containers && meta.containers.length)) inst = themedInstrument(inst);
   if (inst.type === "group") {
       el.classList.add("group");
       const def = state.groupsById[inst.id];
@@ -3142,7 +3148,9 @@ function buildContainerTwin(inst, meta, ci) {
   // no `:selected` clause (tab_section/__init__.py _apply_tab_bar_style).
   // Unset (null, the schema default) leaves the inherited .tab-twin-chip /
   // .active CSS legibility floor untouched.
-  const fg = inst.options?.fg_color, bg = inst.options?.bg_color;
+  // Tokens resolve through the active panel theme, as everywhere else.
+  const themed = themedInstrument(inst).options || {};
+  const fg = themed.fg_color, bg = themed.bg_color;
 
   const strip = document.createElement("div");
   strip.className = "tab-twin-strip";
@@ -3282,6 +3290,144 @@ function buildFixKeyDatalist() {
     if (k.description || u) op.label = (k.description || "") + u;
     dl.appendChild(op);
   }
+}
+
+// --- Colour tokens (style contract, CAP-121; pyEfis S1, #368) ----------------
+// A colour option's value may be a semantic token name or a literal:
+// `fg_color: ink.primary` and `fg_color: "#ffffff"` are both legal on the
+// device. This is the twin of pyefis/screens/color_tokens.py: the vocabulary,
+// which token each colour prop reads (Prop.token in the REGISTRY), and
+// apply_theme_colors(), the order the device resolves them in. Pinned against
+// the real module by test/color_tokens_twin.test.mjs (fixture from
+// tools/color_tokens_oracle.py); update all three together.
+//
+// [name, built-in value, description]. A null value: no shipped prop reads the
+// token yet, so on the device an option naming it falls back to the widget's
+// own default.
+const COLOR_TOKENS = [
+  ["surface.base", "#000000", "panel ground"],
+  ["surface.raised", "#101418", "readout boxes, plates, buttons"],
+  ["ink.primary", "#ffffff", "primary data values"],
+  ["ink.secondary", "#ffffff", "labels, units, prefixes"],
+  ["ink.muted", "#aaaaaa", "inactive, section headers, disabled"],
+  ["line.border", "#ffffff", "borders and frames"],
+  ["line.major", null, "cardinal / 30 degree ticks"],
+  ["line.minor", null, "10 degree ticks"],
+  ["line.fine", null, "5 degree ticks"],
+  ["accent", "#00ffff", "interactive / selected / focused"],
+  ["state.valid", "#00ff00", "received, complete, in-range"],
+  ["state.caution", "#ffaa00", "attention"],
+  ["state.warning", null, "exceeded, failed"],
+  ["nav.course", "#ff00ff", "active course and track"],
+  ["nav.reference", "#00ffff", "bugs, selected values"],
+  ["nav.ownship", "#ffff00", "own-ship symbology"],
+  ["map.road", "#c0c0c0", "roads and highways"],
+  ["map.water", "#4a6d8c", "water bodies and rivers"],
+  ["map.terrain", null, "terrain base"],
+];
+const COLOR_TOKEN_INDEX = Object.fromEntries(COLOR_TOKENS.map((t) => [t[0], t]));
+// Token groups a theme may not redefine: a theme changes how the panel feels,
+// never what a colour means.
+const COLOR_TOKEN_IMMUTABLE = ["nav", "state"];
+// {type: {colour prop: token}}; "" = a declared colour prop with no token.
+const COLOR_PROP_TOKENS = {
+  altimeter_tape: { alt_bug_color: "", alt_bug_alert_color: "" },
+  altimeter_trend_tape: { bg_color: "surface.base" },
+  atitude_indicator: { symbol_color: "nav.ownship", horizon_heading_color: "ink.primary" },
+  button: { bg_color: "surface.raised", fg_color: "accent" },
+  checklist: { text_color: "ink.primary", response_color: "accent", done_color: "state.valid",
+    current_color: "state.caution", section_color: "ink.muted" },
+  flight_plan: { active_color: "", future_color: "", past_color: "" },
+  heading_display: { fg_color: "ink.muted", bg_color: "surface.base" },
+  horizontal_situation_indicator: { fg_color: "ink.primary", bg_color: "surface.base",
+    needle_color: "nav.ownship", course_color: "nav.course", vloc_color: "state.valid",
+    heading_bug_color: "nav.reference", track_color: "nav.course", bearing_color: "nav.reference" },
+  moving_map: { symbol_color: "nav.ownship", range_ring_color: "", road_color: "map.road",
+    road_casing_color: "", river_color: "map.water" },
+  nav_status: { active_color: "", text_color: "" },
+  tab_section: { fg_color: "", bg_color: "" },
+  value_text: { prefix_color: "ink.secondary", value_color: "ink.primary",
+    border_color: "line.border", bg_color: "surface.base" },
+  virtual_vfr: { symbol_color: "nav.ownship", horizon_heading_color: "ink.primary",
+    svs_road_color: "", svs_road_casing_color: "" },
+};
+
+// Panel themes the configurator can offer. A theme is the preferences the
+// device would hold (style: + styles: colors:); null = pyEfis's shipped
+// preferences, which define no colors: block, so every token keeps its built-in
+// value. pyEfis ships no other theme yet.
+const PANEL_THEMES = [
+  { id: "builtin", label: "pyEfis built-in", preferences: null },
+];
+function activeThemePreferences() {
+  const t = PANEL_THEMES.find((x) => x.id === state.theme) || PANEL_THEMES[0];
+  return t.preferences;
+}
+
+function isColorToken(v) { return typeof v === "string" && Object.hasOwn(COLOR_TOKEN_INDEX, v); }
+function isImmutableToken(t) { return COLOR_TOKEN_IMMUTABLE.includes(t.split(".")[0]); }
+function colorTokenDefault(t) { return COLOR_TOKEN_INDEX[t][1]; }
+
+// theme_colors(): every enabled style's styles: colors: <style> block, merged
+// in style: order, later styles winning; unknown and immutable tokens dropped.
+function themeColors(prefs) {
+  const colors = {};
+  const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+  if (!isObj(prefs)) return colors;
+  const styles = prefs.styles || {};
+  const blocks = isObj(styles) ? styles.colors : null;
+  if (!isObj(blocks)) return colors;
+  for (const [style, enabled] of Object.entries(prefs.style || {})) {
+    if (!enabled) continue;
+    const block = blocks[style];
+    if (!isObj(block)) continue;
+    for (const [token, value] of Object.entries(block)) {
+      if (!isColorToken(token) || isImmutableToken(token)) continue;
+      if (value !== null && value !== undefined) colors[token] = value;
+    }
+  }
+  return colors;
+}
+
+// resolve(): a token becomes the theme's value, else its built-in value; any
+// other value (a literal, a Qt colour name) is returned unchanged.
+function resolveColorToken(value, colors) {
+  if (!isColorToken(value)) return value;
+  if (Object.hasOwn(colors, value) && !isImmutableToken(value)) return colors[value];
+  return colorTokenDefault(value);
+}
+
+// apply_theme_colors(): level 4 (the theme fills a mapped colour prop nothing
+// else set), then token resolution LAST on whatever value won. Returns the
+// options the device would build the widget with; never mutates `options`.
+function applyThemeColors(type, options, prefs) {
+  const colorProps = COLOR_PROP_TOKENS[type] || {};
+  const colors = themeColors(prefs);
+  let out = { ...(options || {}) };
+  const filled = {};
+  for (const [name, token] of Object.entries(colorProps))
+    if (token && !Object.hasOwn(out, name) && Object.hasOwn(colors, token)) filled[name] = token;
+  out = { ...filled, ...out };
+  for (const name of Object.keys(out)) {
+    const value = out[name];
+    const isColorOpt = Object.hasOwn(colorProps, name) || name.endsWith("color") || name.endsWith("colour");
+    if (!isColorToken(value) || !isColorOpt) continue;
+    const resolved = resolveColorToken(value, colors);
+    if (resolved === null || resolved === undefined) delete out[name];
+    else out[name] = resolved;
+  }
+  return out;
+}
+
+// The instrument as the twin should draw it: colour tokens resolved against
+// the active panel theme. The SAME object when nothing changes, so a panel
+// with no tokens renders exactly as it did before tokens existed.
+function themedInstrument(inst) {
+  const before = inst.options || {};
+  const after = applyThemeColors(inst.type, before, activeThemePreferences());
+  const keys = Object.keys(after);
+  if (keys.length === Object.keys(before).length && keys.every((k) => after[k] === before[k])) return inst;
+  return { ...inst, options: after };
 }
 
 function optionField(inst, name, spec) {
