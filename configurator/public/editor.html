@@ -1613,7 +1613,6 @@ function renderSVS(canvas, patch, o) {
   const gridAmp = _svsNum(o.svs_terrain_grid, 0.35);
   const texAmp = _svsNum(o.svs_terrain_texture, 0.35);
   const safeGrad = _svsBool(o.svs_safe_gradient, true);
-  const fill = _svsBool(o.svs_terrain_fill, true);
   const curve = _svsBool(o.svs_earth_curvature, true);
   const rangeM = Math.min(_svsNum(o.svs_range_nm, meta.range_nm), meta.range_nm) * 1852 * 1.35;
   const nearApt = meta.near_airport;
@@ -1720,10 +1719,9 @@ function renderSVS(canvas, patch, o) {
     ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]);
     ctx.lineTo(p2[0], p2[1]); ctx.lineTo(p3[0], p3[1]);
     ctx.closePath();
-    if (fill) { ctx.fillStyle = col; ctx.fill(); }
-    else { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.fillStyle = col; ctx.fill();
     // world grid fishnet, gaussian-faded by ~2 NM slant (svs terrain_grid)
-    if (fill && gridAmp > 0 && !water && dSl < 2.6 * 1852) {
+    if (gridAmp > 0 && !water && dSl < 2.6 * 1852) {
       const gf = Math.exp(-(dSl / 1852) * (dSl / 1852) / 1.4) * gridAmp;
       if (gf > 0.02 && (ti === 0 || ((iy % 3 === 0) || (ix % 3 === 0)))) {
         ctx.strokeStyle = `rgba(0,0,0,${(gf * 0.7).toFixed(3)})`;
