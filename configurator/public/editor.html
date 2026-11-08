@@ -434,12 +434,14 @@ function baroSample(o) {
 //   value_text       misc.ValueDisplay      Open Sans, AlignLeft, 0.9 height
 //   numeric_display  gauges.NumericDisplay  DejaVu Sans Condensed, AlignLeft (fits "000")
 //   heading_display  hsi.HeadingDisplay     DejaVu Sans Condensed, centred (fits "999")
+// Colours are not here: an unset fg_color / bg_color previews the schema's
+// default (the widget's own, exported from its Prop), so a pyEfis default
+// change reaches the preview with the next schema.json and no edit here.
 const TEXT_DEFAULTS = {
   static_text:     { font: "DejaVu Sans Condensed", pct: 1.0 },
   value_text:      { font: "Open Sans",             pct: 0.9 },
   numeric_display: { font: "DejaVu Sans Condensed", pct: 0.85 },
-  heading_display: { font: "DejaVu Sans Condensed", pct: 0.75,
-                     fg: "#aaaaaa", bg: "#000000", bold: true, framed: true },
+  heading_display: { font: "DejaVu Sans Condensed", pct: 0.75, bold: true, framed: true },
 };
 // Apply an opacity (0-1) to a hex colour -> rgba(); pass-through for names/opaque.
 function rgbaFromColor(c, op) {
@@ -2513,18 +2515,19 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       const content = document.createElement("div");
       content.className = "inst-text";
       content.style.fontFamily = '"' + (o.font_family || def.font) + '"';
-      const fg = o.fg_color || def.fg;
+      const schemaDefault = (name) => meta.options?.[name]?.default;
+      const fg = o.fg_color || schemaDefault("fg_color");
       if (fg) content.style.color = fg;
       // Background fill honours bg_opacity (heading_display): 0 = transparent so
       // the screen behind shows through, like the widget. The fg-coloured frame
       // stays for legibility, matching HeadingDisplay's drawRect outline.
-      const bgc = o.bg_color || def.bg;
+      const bgc = o.bg_color || schemaDefault("bg_color");
       if (bgc) content.style.background =
         rgbaFromColor(bgc, bgOpacity(o));
       if (def.bold) content.style.fontWeight = "bold";
       if (def.framed) {
         content.style.boxSizing = "border-box";
-        content.style.border = "1px solid " + (fg || "#aaaaaa");
+        content.style.border = "1px solid " + (fg || "currentColor");
       }
       // font_percent: whole-number percent (40) or legacy fraction (0.40).
       const _vh = rect(inst).h;
