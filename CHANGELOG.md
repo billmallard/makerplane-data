@@ -7,6 +7,14 @@ and the `configurator`. Semver on the Python package; process in
 ## Unreleased
 
 ### Device updater (pyefis_data)
+- **An older signed catalog is refused (CERT3, AER-5033).** `update`,
+  `import`, `status` and `catalog` compare a verified manifest's `generated`
+  with the cached one. If it is older, they refuse it, keep the cached
+  manifest, and install nothing. `status` (and `status.json`) gains a
+  `catalog` row, `CATALOG REFUSED`, severity white, plus a top-level
+  `rollback_refused` field. `update`/`import` then exit 2 with the reason.
+  `--allow-rollback` accepts the older catalog on purpose and appends a JSON
+  line to `<root>/rollback.log`. It cannot be combined with `--dry-run`.
 - **`notice` on every `status` row (AER-4351).** `pyefis-data status --json`
   and the `status.json` written after `update` now carry `packs[i].notice`:
   the `notice` of the manifest entry for the installed cycle. It is `""` when
