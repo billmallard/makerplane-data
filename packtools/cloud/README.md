@@ -94,8 +94,10 @@ docker compose -f docker-compose.retro.yml logs -f retro-records
 - **Memory:** capped at 4 GB (`RETRO_MEM`); AER-2644 is why.
 - **Never alongside a terrain build:** both take `/data/.packtools-cloud.lock`;
   the second to start exits 3.
-- **When:** after the nightly cyclical publish (09:20 UTC) has finished. A
-  publish overlapping a bind can drop it; the run says so and a re-run fixes it.
+- **When:** any time. Every manifest write is a compare-and-set (MANIFEST1),
+  so a bind that overlaps the nightly cyclical publish (scheduled 09:20 UTC,
+  in practice hours later) is re-applied, not dropped. The run still checks
+  its bindings at the end and says so if one is missing; a re-run fixes it.
 - **Re-runnable:** bound entries are skipped. `ONLY=id,id` limits a run.
 - **Output:** `/data/retro-out/<stamp>/` holds every record, the schemas and
   `retro-summary.json`, which lists each failing check. Failures are

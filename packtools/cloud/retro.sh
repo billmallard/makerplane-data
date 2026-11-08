@@ -13,9 +13,10 @@
 #
 # Re-runnable: an entry already bound is not pending, so a re-run does only
 # what is left. Holds the same lock as entrypoint.sh, so it never runs
-# alongside a terrain build. Start it after the nightly cyclical publish
-# (09:20 UTC) has finished: a publish that overlaps a bind can drop that
-# binding (the run reports it; a re-run fixes it).
+# alongside a terrain build. It may overlap the nightly cyclical publish:
+# every manifest write is a compare-and-set (MANIFEST1), so a bind and a
+# publish that overlap both land. The run still re-reads the manifest at the
+# end and reports any binding it cannot find; a re-run binds it again.
 set -euo pipefail
 
 : "${R2_ENDPOINT:?set R2_ENDPOINT}"

@@ -610,11 +610,12 @@ write is refused too. `sign_and_put` passes `retro` through, so there is no
 side route: a build record reaches the manifest only with a new
 `(id, cycle)`, through the gate.
 
-The run is re-runnable: a bound entry is not pending. A publish that loaded
-the manifest before a bind and signed after it (the nightly cyclical run)
-drops that binding; the run re-reads the manifest at the end, reports any
-dropped binding as an error, and a re-run binds it again. Start it after the
-09:20 UTC cyclical publish has finished.
+The run is re-runnable: a bound entry is not pending. Every manifest write
+is a compare-and-set (`packtools.publish.commit`, MANIFEST1): a writer that
+read the manifest before another one signed re-reads, re-applies its edit
+and retries, so a publish that overlaps a bind no longer drops it. The run
+still re-reads the manifest at the end and reports any binding it cannot
+find as an error; a re-run binds it again.
 
 The report page of a retro record says it was written after publication,
 and lists what today's gate would refuse it for as a new build, leaving out
