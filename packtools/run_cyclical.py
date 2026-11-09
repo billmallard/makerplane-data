@@ -40,7 +40,7 @@ from . import cycles, fetch, gate, report, schema_guard, schemasite, signing, su
 from .manifest import Manifest
 from .packmeta import PackMeta, detect_content_schema_version, embed_sqlite
 from .manifest import PackEntry
-from .publish import sign_and_put
+from .publish import ManifestConflict, changed_ids, commit, read_live
 from .regions import load_regions, manifest_regions_block
 from .schema_guard import SchemaGuardError
 from .sources import Source, cyclical_sources
@@ -106,6 +106,9 @@ class CyclicalRunner:
         self.previous: dict = {"packs": []}
         self.accepted: dict = {}
         self._cur: dict = {}
+        # (live, previous, etag) as this run read it: the version its
+        # manifest write must still find live (MANIFEST1).
+        self._state = None
 
     def _cycles_for(self, source: Source) -> list[cycles.Cycle]:
         cur, nxt = cycles.current_and_next(source.cadence, today=self.today)
@@ -117,17 +120,30 @@ class CyclicalRunner:
         """The live manifest to build on. A real run verifies its signature
         first (the gate decides from it); a dry run writes nothing and holds
         no key, so it parses it unverified."""
-        stamp = f"{self.today.isoformat()}T00:00:00Z"
         if dry_run:
             raw = self.store.get_bytes(MANIFEST_KEY)
             live = Manifest.from_bytes(raw) if raw else None
         else:
-            live, self.previous = gate.load_signed(self.store, self.secret)
+            self._state = read_live(self.store, self.secret)
+            live, self.previous, _etag = self._state
         self.live = live
-        if live is None:
-            return Manifest.new(stamp)
-        m = Manifest.from_bytes(live.to_bytes())
+        return self._base(live)
+
+    def _base(self, live: Manifest | None) -> Manifest:
+        """What this run writes before its own builds: a copy of ``live``
+        stamped with today, the regions block, and every entry's URL
+        re-rooted onto url_base. Re-derived from whatever is live on a
+        manifest write retry (MANIFEST1)."""
+        stamp = f"{self.today.isoformat()}T00:00:00Z"
+        m = Manifest.new(stamp) if live is None else Manifest.from_bytes(live.to_bytes())
         m.generated = stamp
+        m.regions = manifest_regions_block(load_regions())
+        # url_base is the single source of truth for the serving origin:
+        # re-root every existing entry's URL onto it so a base change (e.g.
+        # r2.dev -> custom domain) is corrected on the next run, even for
+        # packs that are skipped (already present) and never rebuilt.
+        for p in m.packs:
+            p.url = f"{self.url_base}/{p.id}-{p.cycle}.pack"
         return m
 
     def _sources(self, urls, cycle_work: Path, c: cycles.Cycle) -> list[dict]:
@@ -205,13 +221,6 @@ class CyclicalRunner:
 
     def _load_and_run(self, sources: list[Source], *, dry_run: bool) -> Manifest:
         m = self._load_manifest(dry_run=dry_run)
-        m.regions = manifest_regions_block(load_regions())
-        # url_base is the single source of truth for the serving origin:
-        # re-root every existing entry's URL onto it so a base change (e.g.
-        # r2.dev -> custom domain) is corrected on the next run, even for
-        # packs that are skipped (already present) and never rebuilt.
-        for p in m.packs:
-            p.url = f"{self.url_base}/{p.id}-{p.cycle}.pack"
         return self._run(sources, m, dry_run=dry_run)
 
     def _record(self, source: Source, c: cycles.Cycle, decision: str, detail: str = "") -> None:
@@ -279,8 +288,7 @@ class CyclicalRunner:
             self.log(f"dry-run: {built} pack(s) would be built; manifest not written")
             return m
 
-        sign_and_put(self.store, self.secret, m, previous=self.previous, sign=signing.sign,
-                     comment=f"generated {self.today.isoformat()}")
+        m = self._commit(m)
         self.log(f"manifest: {len(m.packs)} pack(s), {built} new, signed + uploaded")
         self._write_published_checksums()
         schemasite.put_captures(self.store, published, log=self.log)
@@ -293,6 +301,35 @@ class CyclicalRunner:
                 f"healthy sources were still published:\n  - "
                 + "\n  - ".join(failures))
         return m
+
+    def _commit(self, first: Manifest) -> Manifest:
+        """Write the manifest as a compare-and-set (MANIFEST1). The first
+        attempt writes ``first``; if another writer published since this run
+        read the manifest, re-derive from what is live now (its entries
+        kept) and re-apply this run's accepted builds and prune."""
+        built = sorted({e.id for e, _record in self.accepted.values()})
+        out = [first]
+
+        def edit(live, previous):
+            self.previous = previous
+            if out[0] is first and live is self.live:
+                return first
+            moved = changed_ids(self.live, live, built)
+            if moved:
+                raise ManifestConflict(
+                    f"another writer changed {', '.join(moved)} in {MANIFEST_KEY} after "
+                    "this run gated it; nothing written, re-run")
+            m = self._base(live)
+            for e, _record in self.accepted.values():
+                m.upsert(e)
+            m.prune_old_cycles(keep=2)
+            out[0] = m
+            return m
+
+        commit(self.store, self.secret, edit, sign=signing.sign,
+               comment=f"generated {self.today.isoformat()}", state=self._state,
+               log=self.log)
+        return out[0]
 
     def _write_published_checksums(self) -> None:
         """One ``<sha256>  <pack file>`` line per pack this run accepted, written

@@ -158,38 +158,47 @@ def bind(store, secret, entry: PackEntry, raw: bytes, *, generated: str, sign,
     live manifest. Returns ``"bound"``, or ``"already bound"`` when a
     re-run finds the same record already bound. Any other existing binding
     raises: a retro record never replaces one."""
-    from .publish import sign_and_put
+    from .publish import commit
     rec = json.loads(raw)
-    live, previous = _gate.load_signed(store, secret)
-    if live is None:
-        raise RetroError("no live manifest to bind to")
-    cur = next((p for p in live.packs if (p.id, p.cycle) == (entry.id, entry.cycle)), None)
-    if cur is None:
-        raise RetroError(f"{entry.id} {entry.cycle} is no longer in the live manifest; "
-                         "not binding (its record is not uploaded)")
     sha = _gate._sha256_bytes(raw)
-    if cur.report_url or cur.report_sha256:
-        if cur.report_sha256 == sha:
-            return "already bound"
-        raise RetroError(f"{entry.id} {entry.cycle} already has a record "
-                         f"({cur.report_url}); a retro record never replaces it")
-    if (cur.sha256, cur.bytes) != (rec["pack"]["sha256"], rec["pack"]["bytes"]):
-        raise RetroError(f"{entry.id} {entry.cycle}: the live entry's bytes changed "
-                         "since the record was written")
     key = _gate.report_key(entry.id, entry.cycle)
-    cur.report_url = _gate.report_url_for(cur)
-    cur.report_sha256 = sha
-    cur.origin = cur.origin or rec.get("origin") or ""
-    cur.notice = cur.notice or NOTICE
-    live.generated = generated
     retro = {(entry.id, entry.cycle): raw}
-    # Judge the binding before the record is uploaded, so a refused one
-    # leaves no unbound record under reports/ for the site to list.
-    validate(live.to_obj(), previous=previous, retro=retro)
-    store.put_bytes(key, raw, content_type="application/json")
-    sign_and_put(store, secret, live, previous=previous, sign=sign,
-                 comment=f"retro record {entry.id}/{entry.cycle} at {generated}",
-                 retro=retro)
+    outcome = []
+
+    def edit(live, previous):
+        # Re-run on every write retry (MANIFEST1), against what is live then.
+        if live is None:
+            raise RetroError("no live manifest to bind to")
+        cur = next((p for p in live.packs if (p.id, p.cycle) == (entry.id, entry.cycle)), None)
+        if cur is None:
+            raise RetroError(f"{entry.id} {entry.cycle} is no longer in the live manifest; "
+                             "not binding (its record is not uploaded)")
+        if cur.report_url or cur.report_sha256:
+            if cur.report_sha256 == sha:
+                outcome[:] = ["already bound"]
+                return None
+            raise RetroError(f"{entry.id} {entry.cycle} already has a record "
+                             f"({cur.report_url}); a retro record never replaces it")
+        if (cur.sha256, cur.bytes) != (rec["pack"]["sha256"], rec["pack"]["bytes"]):
+            raise RetroError(f"{entry.id} {entry.cycle}: the live entry's bytes changed "
+                             "since the record was written")
+        cur.report_url = _gate.report_url_for(cur)
+        cur.report_sha256 = sha
+        cur.origin = cur.origin or rec.get("origin") or ""
+        cur.notice = cur.notice or NOTICE
+        live.generated = generated
+        # Judge the binding before the record is uploaded, so a refused one
+        # leaves no unbound record under reports/ for the site to list.
+        validate(live.to_obj(), previous=previous, retro=retro)
+        if not outcome:
+            store.put_bytes(key, raw, content_type="application/json")
+            outcome[:] = ["uploaded"]
+        return live
+
+    commit(store, secret, edit, sign=sign, retro=retro, log=log,
+           comment=f"retro record {entry.id}/{entry.cycle} at {generated}")
+    if outcome == ["already bound"]:
+        return "already bound"
     log(f"  bound {key} (sha256 {sha[:12]}) to {entry.id} {entry.cycle}; manifest re-signed")
     return "bound"
 
@@ -285,9 +294,10 @@ def run(store, secret, *, scratch: Path, sign=signing.sign, only: list[str] | No
             dest.unlink(missing_ok=True)
         results.append(res)
     if not dry_run and any(r.outcome == "bound" for r in results):
-        # Another publish (the nightly cyclical run) that loaded the manifest
-        # before a bind and signed after it drops that binding. Say so; a
-        # re-run binds it again.
+        # Belt and braces: every manifest write is a compare-and-set
+        # (MANIFEST1), so an overlapping publish re-applies its edit on top
+        # of a bind rather than dropping it. If a binding is missing anyway,
+        # say so; a re-run binds it again.
         now, _ = _gate.load_signed(store, secret)
         have = {(p.id, p.cycle): p.report_sha256 for p in (now.packs if now else [])}
         for r in results:
