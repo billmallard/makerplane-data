@@ -142,7 +142,8 @@ jobs:
           sources=()
           if [ -f sources.json ]; then sources=(--sources sources.json); fi
           # Staged: the record says where the bytes were built, not this run.
-          built=()
+          # Built here: the pyEfis checkout this run built from (CERT5a).
+          built=(--builder-ref "pyEfis=$(git -C pyefis-src rev-parse HEAD)")
           if [ -n "$STAGED" ]; then
             built=(--built-at "$BUILT_AT" --built-runner local --builder-ref "pyEfis=$PYEFIS_SHA")
           fi

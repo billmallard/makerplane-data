@@ -95,6 +95,13 @@ auto_update: true     # let the systemd timer refresh on the FAA cycle
 stage_next: true      # pre-download the next AIRAC cycle before it takes effect
 # storage_budget_gb: 64   # optional cap; updater skips bulk packs over budget
 
+# Safety advisories (opt-in, off by default). When true, each update also
+# fetches the public, signed advisories.json from base_url and checks it
+# against what is installed here. The check runs on this device; the request
+# is the same for every aircraft and carries nothing about this one.
+# Same as `pyefis-data advisories --enable` / `--disable`. docs/advisories.md
+advisories: false
+
 # Which systemd scope runs pyEfis, so `pyefis-data config-pull` restarts the
 # right service. Leave commented to auto-detect (finds the loaded pyefis unit,
 # preferring a `--user` one -- the Raspberry Pi image default). Set it only if

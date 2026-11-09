@@ -84,10 +84,34 @@ Two parts of an aircraft are too varied for a fixed form, so they're modelled as
 
 ### Validation
 
-The forms validate as you type — hard where physics demands, soft otherwise:
-V-speed ordering (`Vs0 ≤ Vs ≤ Vno ≤ Vne ≤ Max`, `Vfe` in range), warnings inside
-alarms inside min/max. Problems are marked inline without blocking you, and blank
-still means "leave unset."
+The forms mark V-speed and gauge-band ordering problems inline as you type, and
+blank still means "leave unset."
+
+Saving checks the whole profile on the server, against these rules:
+
+- V-speeds: `Vs0 ≤ Vs < Vno < Vne ≤ Max`, and `Vs0 ≤ Vfe ≤ Vno`.
+- Every other gauge: `Min ≤ lowAlarm ≤ lowWarn ≤ highWarn ≤ highAlarm ≤ Max`.
+- Every value is a number; the speed unit is `kt`, `mph` or `kph`, and the
+  altimeter unit `inHg` or `hPa`.
+
+Ordering is checked across blanks, so a gap cannot hide an inversion. A profile
+that breaks a rule is refused with HTTP 422, and the page shows `not saved:`
+followed by each broken rule. A malformed ownship identity (below) blocks both
+Save and Download until it is fixed.
+
+### Ownship identity
+
+The **Ownship identity** card takes the aircraft's **Registration** (up to 10
+letters, digits and hyphens; one starting with `N` must be a valid US
+N-number) and an optional **ICAO address override** (six hex digits, not
+`000000`). It names the 24-bit address whose ADS-B reports are
+hidden from the traffic display as your own aircraft: the override if set,
+otherwise the address derived from a US N-number, otherwise none (only the
+receiver's own ownship report is filtered). Registrations from other states do
+not derive an address; enter the hex from the registration certificate or
+transponder. The identity is saved with the profile but is not yet sent to the
+aircraft: set the address the card shows as `ownship_address` in FIX-Gateway's
+stratux connection.
 
 ## Templates and import
 

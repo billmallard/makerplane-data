@@ -2037,6 +2037,13 @@ def build_report(pack_path: str | Path, *, record: str = "build", origin: str | 
     is_zip = zipfile.is_zipfile(path)
     src = resolve_pyefis_src(pyefis_src) if probe else None
     refs = dict(builder_refs or {})
+    # The pyEfis commit the pack itself says built it (CERT5a) outranks the
+    # probe checkout's HEAD, which is only the reader the checks ran.
+    if meta.pyefis_commit:
+        if refs.get("pyEfis", meta.pyefis_commit) != meta.pyefis_commit:
+            raise ReportError(f"builder_refs pyEfis {refs['pyEfis']} contradicts the pack's "
+                              f"pack_meta pyefis_commit {meta.pyefis_commit}")
+        refs["pyEfis"] = meta.pyefis_commit
     if src is not None and "pyEfis" not in refs:
         sha = _git_head(src)
         if sha:

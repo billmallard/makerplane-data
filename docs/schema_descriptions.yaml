@@ -61,4 +61,5 @@ pack_meta.expires: "First day no longer current (ISO date, exclusive); absent me
 pack_meta.attribution: "Attribution text to show the pilot."
 pack_meta.license: "Short licence tag for the data. Empty means unspecified."
 pack_meta.license_url: "Link to the licence's full text."
+pack_meta.pyefis_commit: "Full pyEfis commit sha whose tools built the pack. Absent for packs built by no pyEfis code and for editions published before CERT5a."
 pack_meta.schema_version: "Version of the pack's format (see The contract)."

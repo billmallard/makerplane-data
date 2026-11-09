@@ -76,6 +76,11 @@ class Config:
     # written by the installer or the picker, honoured only as a literal YAML
     # `true`, and announced on stderr by every pyefis-data run while on.
     bench_auto_accept: bool = False
+    # Safety advisory feed (BACKLOG L5, docs/advisories.md). Opt-in: off
+    # unless data.yaml says `advisories: true`. When on, update/import also
+    # fetch the signed advisories.json and match it on the device; nothing
+    # about the device is sent.
+    advisories: bool = False
 
     @property
     def manifest_url(self) -> str:
@@ -84,6 +89,14 @@ class Config:
     @property
     def sig_url(self) -> str:
         return f"{self.base_url.rstrip('/')}/manifest.json.minisig"
+
+    @property
+    def advisories_url(self) -> str:
+        return f"{self.base_url.rstrip('/')}/advisories.json"
+
+    @property
+    def advisories_sig_url(self) -> str:
+        return f"{self.base_url.rstrip('/')}/advisories.json.minisig"
 
     def pack_url(self, filename: str) -> str:
         return f"{self.base_url.rstrip('/')}/packs/{filename}"
@@ -131,6 +144,8 @@ class Config:
             kw["config_version"] = data["config_version"]
         if isinstance(data.get("config_etag"), str) and data["config_etag"]:
             kw["config_etag"] = data["config_etag"]
+        if isinstance(data.get("advisories"), bool):
+            kw["advisories"] = data["advisories"]
         # Only the two known scopes are honoured; anything else (typo, bool,
         # wrong string) is ignored so it falls back to auto-detect -- a bad value
         # can never point the restart at a scope that doesn't exist.

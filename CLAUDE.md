@@ -69,10 +69,10 @@ preserve verify-then-swap; don't introduce a path that installs before verifying
 
 | Path | Leg | What |
 |---|---|---|
-| **`packtools/`** | 1 | Pack builder. `cycles` (AIRAC/DOF date math), `signing` (minisign ed25519, pure PyNaCl — shared with the Pi), `packmeta` (self-describing header inside every pack), `manifest` (catalog schema + canonical bytes + validation + prune), `regions`/`regions.yaml` (8 N-America bboxes), `sources` (upstream FAA URLs), `fetch`, `build/` (shim to pyEfis tools), `upload` (R2/S3 + LocalStore), `publish`, `make_terrain`, `ourairports`, `run_cyclical` (the daily orchestrator), `cli` (`packtool`). |
-| **`pyefis_data/`** | 3 | On-Pi updater. `config` (`~/.makerplane/pyefis/data.yaml`, construct-never-raises), `core` (`Updater`, `Remote`, inventory, the verify-then-swap install), `config_pull` (device panel-config pull + install + rollback), `cli` (`pyefis-data`), `systemd/` (user service + timer + USB-import udev/service). |
+| **`packtools/`** | 1 | Pack builder. `cycles` (AIRAC/DOF date math), `signing` (minisign ed25519, pure PyNaCl — shared with the Pi), `packmeta` (self-describing header inside every pack), `manifest` (catalog schema + canonical bytes + validation + prune), `regions`/`regions.yaml` (8 N-America bboxes), `sources` (upstream FAA URLs), `fetch`, `build/` (shim to pyEfis tools), `upload` (R2/S3 + LocalStore), `publish`, `advisories` (safety advisory feed schema + signed publish, L5), `make_terrain`, `ourairports`, `run_cyclical` (the daily orchestrator), `cli` (`packtool`). |
+| **`pyefis_data/`** | 3 | On-Pi updater. `config` (`~/.makerplane/pyefis/data.yaml`, construct-never-raises), `core` (`Updater`, `Remote`, inventory, the verify-then-swap install), `config_pull` (device panel-config pull + install + rollback), `advisories` (opt-in advisory feed: verify, match on device, report into status.json), `cli` (`pyefis-data`), `systemd/` (user service + timer + USB-import udev/service). |
 | **`configurator/`** | — | The web panel editor (Worker, TS). Own CLAUDE.md. |
-| `.github/workflows/` | 1/2 | `ci.yml` (SPDX check + pytest + no-secrets dry-run), `cyclical.yml` (daily build+sign+upload), `terrain.yml`, `water.yml` (dispatch builds), `impact.yml` (TV9: builder PRs get a fixture-pack diff comment, docs/pr_impact.md), `site.yml` (deploys `site/` to the bucket root: on push to `main`, or dispatched). |
+| `.github/workflows/` | 1/2 | `ci.yml` (SPDX check + pytest + no-secrets dry-run), `cyclical.yml` (daily build+sign+upload), `terrain.yml`, `water.yml` (dispatch builds), `impact.yml` (TV9: builder PRs get a fixture-pack diff comment, docs/pr_impact.md), `site.yml` (deploys `site/` to the bucket root: on push to `main`, or dispatched), `advisories.yml` (dispatch: sign + upload `advisories/feed.json`, docs/advisories.md). |
 | `site/` | 2 | Static Cloudflare site + on-device pack picker (`data.yaml.sample`). |
 | `docs/` | — | Phase plan (`data_manager_implementation.md`), Cloudflare runbook, per-kind build notes (terrain/water/roads), licensing audit, the AC-DP-001 defensive publication, panel-config format, device deployment. |
 | `keys/minisign.pub` | — | Signing **public** key (committed). The secret never is. |
@@ -91,6 +91,7 @@ packtool genkey --out keys                      # throwaway keypair (commit .pub
 packtool build-pack SRC --id X --kind K ...      # built sqlite/zip -> signed pack (+ --upload to R2)
 packtool make-terrain HGT_TREE --edition ...     # Copernicus GLO-30 -> region terrain packs
 packtool verify work/manifest.json --pub keys/minisign.pub
+packtool advisories advisories/feed.json --check-only   # validate the safety advisory feed (advisories.yml publishes it)
 python -m packtools.run_cyclical --dry-run       # what today's cron would build (no net, no secrets)
 ```
 
@@ -104,6 +105,7 @@ pyefis-data import <dir>                              # USB path, same verify co
 pyefis-data verify [path]                            # check a manifest signature
 pyefis-data pair <code>                              # redeem a configurator claim code -> device token
 pyefis-data config-pull [--wait-online N]            # pull this device's panel, install, restart pyEfis, roll back on crash
+pyefis-data advisories [--enable|--disable|--check]  # opt-in signed safety advisory feed, matched on the device
 ```
 
 `update --only` persists the selection to `data.yaml` (the on-device picker *is*

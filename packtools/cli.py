@@ -19,6 +19,7 @@ import argparse
 import datetime as _dt
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -121,10 +122,16 @@ def cmd_build_pack(args) -> int:
         effective = cur.effective.isoformat()
         expires = cur.expires.isoformat()
 
+    # The pyEfis commit the source was built from goes into pack_meta as well
+    # as the test record (CERT5a): the pack names its builder on its own.
+    pyefis_sha = _kv_list(args.builder_ref, "--builder-ref").get("pyEfis")
+    if pyefis_sha is not None and not re.fullmatch(r"[0-9a-f]{40}", pyefis_sha):
+        raise SystemExit(f"--builder-ref pyEfis wants a full 40-hex commit sha, got {pyefis_sha!r}")
     meta = PackMeta(id=args.id, kind=args.kind, cycle=cycle,
                     effective=effective, expires=expires,
                     attribution=args.attribution,
-                    license=args.license, license_url=args.license_url)
+                    license=args.license, license_url=args.license_url,
+                    pyefis_commit=pyefis_sha)
 
     out_dir = Path(args.out)
     (out_dir / "packs").mkdir(parents=True, exist_ok=True)
@@ -278,6 +285,34 @@ class _PublicStore:
                 for chunk in r.iter_content(1 << 20):
                     f.write(chunk)
         return True
+
+
+def cmd_advisories(args) -> int:
+    """Validate the advisory feed and, unless --check-only, sign and upload it
+    beside the manifest (BACKLOG L5, docs/advisories.md)."""
+    from . import advisories
+    try:
+        obj = advisories.load_file(args.feed)
+    except advisories.FeedError as e:
+        print(f"INVALID: {e}", file=sys.stderr)
+        return 2
+    print(f"OK  {args.feed}: sequence {obj['sequence']}, "
+          f"{len(obj['advisories'])} advisory(ies)")
+    if args.check_only:
+        return 0
+    if args.local:
+        from .upload import LocalStore
+        store = LocalStore(args.local)
+    else:
+        from .upload import R2Store
+        store = R2Store.from_env(args.bucket)
+    try:
+        advisories.publish(store, _load_secret(args), obj, sign=signing.sign,
+                           dry_run=args.dry_run)
+    except advisories.FeedError as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+    return 0
 
 
 def cmd_deploy_site(args) -> int:
@@ -875,7 +910,8 @@ def build_parser() -> argparse.ArgumentParser:
                    choices=("github-hosted", "self-hosted", "local"),
                    help="staged source: where it was built")
     b.add_argument("--builder-ref", dest="builder_ref", action="append", metavar="NAME=SHA",
-                   help="staged source: a repo its build ran code from (repeatable)")
+                   help="a repo the source's build ran code from (repeatable); "
+                        "pyEfis=SHA is also written into pack_meta as pyefis_commit")
     b.set_defaults(func=cmd_build_pack)
 
     rp = sub.add_parser("remove-pack", help="retract one (id, cycle) entry from "
@@ -918,6 +954,17 @@ def build_parser() -> argparse.ArgumentParser:
     rt.add_argument("--bucket", default="makerplane-data")
     rt.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     rt.set_defaults(func=cmd_retro)
+
+    av = sub.add_parser("advisories", help="validate the safety advisory feed, then "
+                        "sign and upload it beside the manifest")
+    av.add_argument("feed", nargs="?", default="advisories/feed.json")
+    av.add_argument("--check-only", action="store_true", help="validate; sign nothing")
+    av.add_argument("--dry-run", action="store_true",
+                    help="check against the live feed; write nothing")
+    av.add_argument("--local", metavar="DIR", help="use this directory as the store")
+    av.add_argument("--bucket", default="makerplane-data")
+    av.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
+    av.set_defaults(func=cmd_advisories)
 
     ds = sub.add_parser("deploy-site", help="upload changed site/ files to the "
                         "bucket root (navdata.aerocommons.org)")
