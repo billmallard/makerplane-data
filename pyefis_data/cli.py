@@ -12,6 +12,8 @@
     pyefis-data verify [path]        check a manifest's signature
     pyefis-data notice [--json]      the software notice + acknowledgment history
     pyefis-data accept [--yes]       accept the notice (update/import require it)
+    pyefis-data advisories [--json]  safety advisories that apply here (opt-in)
+        [--enable | --disable] [--check]
 
 The signing public key is embedded below so verification needs no file and
 no network — the Pi trusts this key and nothing else. If the key is ever
@@ -117,6 +119,8 @@ def _require_acceptance(args, up: Updater, trigger: str) -> int | None:
         print(f"notice auto-accepted (bench unit); recorded in {path}", file=sys.stderr)
     else:
         print(f"notice accepted; recorded in {path}", file=sys.stderr)
+    if via == "tty":
+        print("\n" + _adv_disclosure(), file=sys.stderr)
     return None
 
 
@@ -203,7 +207,8 @@ def _replace(cfg: Config, **kw) -> Config:
 _SEV_RANK = {"none": 0, "white": 1, "amber": 2}
 
 
-def _status_doc(up) -> dict:
+def _status_doc(up, software: dict | None = None) -> dict:
+    from . import advisories as adv
     rows = up.status()
     worst = max((r.severity for r in rows), key=lambda s: _SEV_RANK.get(s, 1), default="none")
     return {
@@ -213,7 +218,24 @@ def _status_doc(up) -> dict:
         "any_attention": any(r.status in _ATTENTION for r in rows),
         "rollback_refused": up.rollback_refused,
         "packs": [r.as_dict() for r in rows],
+        "advisories": adv.report(up.config, up.public_key, up.inventory, software),
     }
+
+
+def _check_advisories(up, remote, software: dict | None) -> None:
+    """After an update or import: fetch + verify the advisory feed when the
+    channel is on, and print what applies. Never changes the exit code and
+    never raises; an empty feed prints nothing."""
+    from . import advisories as adv
+    if not up.config.advisories:
+        return
+    try:
+        adv.check(up.config, up.public_key, remote or up.remote,
+                  log=lambda m: print(m, file=sys.stderr))
+        for line in adv.lines(adv.report(up.config, up.public_key, up.inventory, software)):
+            print(line)
+    except Exception as e:
+        print(f"advisories: check failed ({type(e).__name__})", file=sys.stderr)
 
 
 def _write_status_json(doc: dict, path) -> Path:
@@ -367,13 +389,16 @@ def cmd_update(args) -> int:
             signal.signal(signal.SIGTERM, prev_term)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
+    software = _software_args(args) or None
+    if not args.dry_run:
+        _check_advisories(up, None, software)
     # Refresh the status JSON the EFIS reads, so the boot screen / DATA flag
     # reflect the result of this update (this is why a manual Update on the
     # device flips amber -> green without a separate `status` call).
     if not args.dry_run:
         try:
             from .config import default_status_path
-            _write_status_json(_status_doc(up), default_status_path())
+            _write_status_json(_status_doc(up, software), default_status_path())
         except Exception as e:
             print(f"(could not refresh status.json: {e})", file=sys.stderr)
     if _report_refusal(up):
@@ -400,6 +425,9 @@ def cmd_import(args) -> int:
     rows = up.import_dir(src, dry_run=args.dry_run)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
+    if not args.dry_run:
+        from .core import LocalDirRemote
+        _check_advisories(up, LocalDirRemote(src), _software_args(args) or None)
     if _report_refusal(up):
         return 2
     return 2 if up.errors else 0
@@ -443,6 +471,7 @@ def cmd_notice(args) -> int:
             "notice_id": ack.NOTICE_ID, "notice_sha256": ack.NOTICE_SHA256,
             "notice": ack.NOTICE_TEXT, "software": ack.software_versions(),
             "accepted": current is not None, "bench_auto_accept": bench,
+            "advisory_disclosure": _adv_disclosure(),
             "log": str(path), "records": records}, indent=2))
         return 0
     print(ack.NOTICE_TEXT + "\n")
@@ -455,6 +484,58 @@ def cmd_notice(args) -> int:
     else:
         print(f"not yet accepted for pyefis-data {ack.__version__}")
     print(f"{len(records)} acknowledgment record(s) in {path}")
+    return 0
+
+
+def _adv_disclosure() -> str:
+    from . import advisories as adv
+    return adv.DISCLOSURE
+
+
+def cmd_advisories(args) -> int:
+    """Show the safety advisories that apply to this device, from the last
+    verified feed (BACKLOG L5). --enable/--disable switch the opt-in channel
+    in data.yaml; --check fetches the feed now. Exit 0 whether or not any
+    advisory applies; 2 only when the setting cannot be written."""
+    from . import advisories as adv
+    from .config import write_config
+    if args.enable or args.disable:
+        on = bool(args.enable)
+        try:
+            saved = write_config(args.config, {"advisories": on})
+        except Exception as e:
+            print(f"could not write data.yaml: {e}", file=sys.stderr)
+            return 2
+        if on:
+            print(adv.DISCLOSURE + "\n")
+        print(f"safety advisories {'on' if on else 'off'}; saved to {saved}")
+        if not on:
+            return 0
+    up = _updater(args)
+    software = _software_args(args)
+    if software is None:
+        return 2
+    if args.check or args.enable:
+        adv.check(up.config, up.public_key, up.remote,
+                  log=lambda m: print(m, file=sys.stderr))
+    block = adv.report(up.config, up.public_key, up.inventory, software or None)
+    if args.json:
+        print(json.dumps(block, indent=2))
+        return 0
+    if not block["enabled"]:
+        print("safety advisories are off (turn on: pyefis-data advisories --enable)")
+        return 0
+    out = adv.lines(block)
+    if out:
+        print("\n".join(out))
+    elif block.get("sequence") is None:
+        print("no verified advisory feed on this device yet; nothing checked")
+    else:
+        print("no safety advisories apply to this device")
+    if block.get("error"):
+        print(f"(last check: {block['error']})", file=sys.stderr)
+    elif block.get("checked"):
+        print(f"(feed sequence {block['sequence']}, checked {block['checked']})")
     return 0
 
 
@@ -490,6 +571,8 @@ def cmd_accept(args) -> int:
         print(f"could not record the acknowledgment: {e}", file=sys.stderr)
         return 2
     print(f"notice accepted; recorded in {path}")
+    if via == "tty":
+        print("\n" + _adv_disclosure())
     return 0
 
 
@@ -718,6 +801,18 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--trigger", default="install",
                    help="what prompted the accept, recorded as-is (default: install)")
     a.set_defaults(func=cmd_accept)
+
+    ad = sub.add_parser("advisories", help="safety advisories that apply here (opt-in)")
+    onoff = ad.add_mutually_exclusive_group()
+    onoff.add_argument("--enable", action="store_true",
+                       help="turn the advisory channel on (saved in data.yaml) and check now")
+    onoff.add_argument("--disable", action="store_true",
+                       help="turn it off; nothing is fetched after this")
+    ad.add_argument("--check", action="store_true", help="fetch and verify the feed now")
+    ad.add_argument("--json", action="store_true")
+    ad.add_argument("--software", action="append", metavar="NAME=VERSION",
+                    help=_SOFTWARE_HELP)
+    ad.set_defaults(func=cmd_advisories)
 
     pr = sub.add_parser("pair", help="redeem a claim code from the configurator dashboard")
     pr.add_argument("code", help="the claim code shown in the dashboard")

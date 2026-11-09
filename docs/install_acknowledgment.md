@@ -42,6 +42,18 @@ pyefis-data notice                 # the notice and whether it is accepted
 pyefis-data notice --json          # the same plus every record (for the About screen)
 ```
 
+## The safety advisory channel
+
+After the notice is accepted at a terminal (`update`, `import` or `accept`),
+the updater also prints the disclosure for the opt-in safety advisory channel
+(`pyefis_data.advisories.DISCLOSURE`): what it fetches, that the match runs
+on the device and that nothing about the aircraft is sent, and the commands
+to turn it on and off. It is off until someone turns it on. The disclosure is
+not part of the accepted notice text, so it does not change `notice_sha256`
+and needs no new accept. A caller that shows the notice itself gets the same
+text as `advisory_disclosure` from `pyefis-data notice --json`. See
+[advisories.md](advisories.md).
+
 ## Unattended runs
 
 The daily timer (`pyefis-data.service`) and the USB import (`usb-import.sh`)
