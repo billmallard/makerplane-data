@@ -66,10 +66,10 @@ docker compose build
 
 # 2. from the workstation: build01 -> QNAP
 ssh labadmin@10.110.10.40 docker save makerplane/terrain-build:latest | \
-  ssh svc-admin@10.110.10.6 'export PATH=/share/ZFS530_DATA/.qpkg/container-station/bin:$PATH; DOCKER_CONFIG=/share/ZFS22_DATA/pyEfisData/.docker-svc-admin docker load'
+  ssh -i /c/Users/wpballard/maos_qnap svc-admin@10.110.10.6 'export PATH=/share/ZFS530_DATA/.qpkg/container-station/bin:$PATH; DOCKER_CONFIG=/share/ZFS22_DATA/pyEfisData/.docker-svc-admin docker load'
 
 #    or QNAP -> build01
-ssh svc-admin@10.110.10.6 'export PATH=/share/ZFS530_DATA/.qpkg/container-station/bin:$PATH; DOCKER_CONFIG=/share/ZFS22_DATA/pyEfisData/.docker-svc-admin docker save makerplane/terrain-build:latest' | \
+ssh -i /c/Users/wpballard/maos_qnap svc-admin@10.110.10.6 'export PATH=/share/ZFS530_DATA/.qpkg/container-station/bin:$PATH; DOCKER_CONFIG=/share/ZFS22_DATA/pyEfisData/.docker-svc-admin docker save makerplane/terrain-build:latest' | \
   ssh labadmin@10.110.10.40 docker load
 
 # 3. on both hosts: the layer lists must match
