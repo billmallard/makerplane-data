@@ -434,12 +434,14 @@ function baroSample(o) {
 //   value_text       misc.ValueDisplay      Open Sans, AlignLeft, 0.9 height
 //   numeric_display  gauges.NumericDisplay  DejaVu Sans Condensed, AlignLeft (fits "000")
 //   heading_display  hsi.HeadingDisplay     DejaVu Sans Condensed, centred (fits "999")
+// Colours are not here: an unset fg_color / bg_color previews the schema's
+// default (the widget's own, exported from its Prop), so a pyEfis default
+// change reaches the preview with the next schema.json and no edit here.
 const TEXT_DEFAULTS = {
   static_text:     { font: "DejaVu Sans Condensed", pct: 1.0 },
   value_text:      { font: "Open Sans",             pct: 0.9 },
   numeric_display: { font: "DejaVu Sans Condensed", pct: 0.85 },
-  heading_display: { font: "DejaVu Sans Condensed", pct: 0.75,
-                     fg: "#aaaaaa", bg: "#000000", bold: true, framed: true },
+  heading_display: { font: "DejaVu Sans Condensed", pct: 0.75, bold: true, framed: true },
 };
 // Apply an opacity (0-1) to a hex colour -> rgba(); pass-through for names/opaque.
 function rgbaFromColor(c, op) {
@@ -1613,7 +1615,6 @@ function renderSVS(canvas, patch, o) {
   const gridAmp = _svsNum(o.svs_terrain_grid, 0.35);
   const texAmp = _svsNum(o.svs_terrain_texture, 0.35);
   const safeGrad = _svsBool(o.svs_safe_gradient, true);
-  const fill = _svsBool(o.svs_terrain_fill, true);
   const curve = _svsBool(o.svs_earth_curvature, true);
   const rangeM = Math.min(_svsNum(o.svs_range_nm, meta.range_nm), meta.range_nm) * 1852 * 1.35;
   const nearApt = meta.near_airport;
@@ -1720,10 +1721,9 @@ function renderSVS(canvas, patch, o) {
     ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]);
     ctx.lineTo(p2[0], p2[1]); ctx.lineTo(p3[0], p3[1]);
     ctx.closePath();
-    if (fill) { ctx.fillStyle = col; ctx.fill(); }
-    else { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.fillStyle = col; ctx.fill();
     // world grid fishnet, gaussian-faded by ~2 NM slant (svs terrain_grid)
-    if (fill && gridAmp > 0 && !water && dSl < 2.6 * 1852) {
+    if (gridAmp > 0 && !water && dSl < 2.6 * 1852) {
       const gf = Math.exp(-(dSl / 1852) * (dSl / 1852) / 1.4) * gridAmp;
       if (gf > 0.02 && (ti === 0 || ((iy % 3 === 0) || (ix % 3 === 0)))) {
         ctx.strokeStyle = `rgba(0,0,0,${(gf * 0.7).toFixed(3)})`;
@@ -2513,18 +2513,19 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       const content = document.createElement("div");
       content.className = "inst-text";
       content.style.fontFamily = '"' + (o.font_family || def.font) + '"';
-      const fg = o.fg_color || def.fg;
+      const schemaDefault = (name) => meta.options?.[name]?.default;
+      const fg = o.fg_color || schemaDefault("fg_color");
       if (fg) content.style.color = fg;
       // Background fill honours bg_opacity (heading_display): 0 = transparent so
       // the screen behind shows through, like the widget. The fg-coloured frame
       // stays for legibility, matching HeadingDisplay's drawRect outline.
-      const bgc = o.bg_color || def.bg;
+      const bgc = o.bg_color || schemaDefault("bg_color");
       if (bgc) content.style.background =
         rgbaFromColor(bgc, bgOpacity(o));
       if (def.bold) content.style.fontWeight = "bold";
       if (def.framed) {
         content.style.boxSizing = "border-box";
-        content.style.border = "1px solid " + (fg || "#aaaaaa");
+        content.style.border = "1px solid " + (fg || "currentColor");
       }
       // font_percent: whole-number percent (40) or legacy fraction (0.40).
       const _vh = rect(inst).h;
@@ -3352,7 +3353,7 @@ const COLOR_PROP_TOKENS = {
   checklist: { text_color: "ink.primary", response_color: "accent", done_color: "state.valid",
     current_color: "state.caution", section_color: "ink.muted" },
   flight_plan: { active_color: "", future_color: "", past_color: "" },
-  heading_display: { fg_color: "ink.muted", bg_color: "surface.base" },
+  heading_display: { fg_color: "ink.primary", bg_color: "surface.base" },
   horizontal_situation_indicator: { fg_color: "ink.primary", bg_color: "surface.base",
     needle_color: "nav.ownship", course_color: "nav.course", vloc_color: "state.valid",
     heading_bug_color: "nav.reference", track_color: "nav.course", bearing_color: "nav.reference" },

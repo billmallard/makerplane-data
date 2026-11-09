@@ -42,6 +42,25 @@ def tools_dir() -> Path:
     return p
 
 
+def pyefis_commit() -> str:
+    """The full sha of the pyEfis checkout ``PYEFIS_TOOLS_DIR`` sits in: the
+    code a pack built by one of :data:`PYEFIS_BUILDERS` actually ran
+    (CERT5a). The workflows check out a branch (``PYEFIS_REF``), not a fixed
+    commit, so this is the only record of which one it was. Raises rather
+    than guess: a pack that cannot name its builder must not publish."""
+    d = tools_dir()
+    try:
+        out = subprocess.run(["git", "-C", str(d), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise BuildError(f"cannot read the pyEfis commit under {d}: {e}") from e
+    sha = out.stdout.strip()
+    if out.returncode != 0 or len(sha) != 40:
+        raise BuildError(f"cannot read the pyEfis commit under {d}: PYEFIS_TOOLS_DIR is "
+                         f"not in a git checkout ({out.stderr.strip() or sha!r})")
+    return sha
+
+
 def _run_tool(script: str, args: list[str]) -> None:
     tool = tools_dir() / script
     if not tool.exists():
@@ -119,6 +138,10 @@ def build_highways(input_dir: Path, out_path: Path, *, overwrite: bool = True) -
     _run_tool("build_highway_db.py", args)
     return out_path
 
+
+#: The builders that run a pyEfis script. A pack one of them builds records
+#: :func:`pyefis_commit` in its pack_meta (CERT5a).
+PYEFIS_BUILDERS = frozenset({build_airports, build_obstacles, build_navaids, build_highways})
 
 #: builder key (Source.builder) -> callable
 BUILDERS: dict[str, Builder] = {

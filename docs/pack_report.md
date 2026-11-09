@@ -104,7 +104,7 @@ optional fields. Removing or changing the meaning of a field is
 | `at` | string | ISO-8601 UTC time the build started. |
 | `repo` | string | `billmallard/makerplane-data`. |
 | `commit` | string | Full commit sha; equals the manifest `build_commit`. |
-| `builder_refs` | object | Other repos the build ran code from, name to full sha, e.g. `{"pyEfis": "..."}`. |
+| `builder_refs` | object | Other repos the build ran code from, name to full sha, e.g. `{"pyEfis": "..."}`. `pyEfis` is the pack's `pack_meta.pyefis_commit` when it has one (CERT5a); a record whose `builder_refs` disagree with it is refused. Otherwise it is the HEAD of the checkout the device probe ran. |
 | `run_url` | string or `null` | The CI run, if any. |
 | `runner` | string | `github-hosted`, `self-hosted`, or `local`. |
 
@@ -610,11 +610,12 @@ write is refused too. `sign_and_put` passes `retro` through, so there is no
 side route: a build record reaches the manifest only with a new
 `(id, cycle)`, through the gate.
 
-The run is re-runnable: a bound entry is not pending. A publish that loaded
-the manifest before a bind and signed after it (the nightly cyclical run)
-drops that binding; the run re-reads the manifest at the end, reports any
-dropped binding as an error, and a re-run binds it again. Start it after the
-09:20 UTC cyclical publish has finished.
+The run is re-runnable: a bound entry is not pending. Every manifest write
+is a compare-and-set (`packtools.publish.commit`, MANIFEST1): a writer that
+read the manifest before another one signed re-reads, re-applies its edit
+and retries, so a publish that overlaps a bind no longer drops it. The run
+still re-reads the manifest at the end and reports any binding it cannot
+find as an error; a re-run binds it again.
 
 The report page of a retro record says it was written after publication,
 and lists what today's gate would refuse it for as a new build, leaving out

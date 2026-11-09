@@ -98,6 +98,15 @@ Mirror the instrument-schema pattern (pyEfis generates
   "12V"}}`. `meta.baro_unit` (`inHg` | `hPa`, #108) is the one meta key
   delivered to the device today, as `preferences.units.Pressure` on the
   served panel config (see panel_config_format.md).
+- Ownship identity (P3e, AER-5147): `meta.registration` (the aircraft's
+  registration, identity only, no owner data) and `meta.icao_address` (six
+  hex digits, optional). The address the ADS-B traffic writer filters as
+  ownship (fix-gateway `ownship_address`, pyEfis
+  `docs/fix_dynamic_list_spec.md` section 4.8) is the hex entry if set, else
+  the one a US N-number derives (FAA allocation order, A00001-ADF7C7), else
+  none: blank filters nothing beyond the receiver's own report.
+  `src/ownship.ts`. Saved and shown on the aircraft page, **not yet
+  delivered to the device**: config-pull writes only pyEfis config today.
 - API: `GET/PUT /api/projects/:id/aircraft` (active profile),
   `GET .../aircraft/versions`, `POST .../aircraft/activate/:v`.
   Ownership-scoped through user_id like everything else.
@@ -106,7 +115,10 @@ Mirror the instrument-schema pattern (pyEfis generates
   `[Vs0, Vno]`, `Min <= lowAlarm <= lowWarn <= highWarn <= highAlarm <= Max`
   on every banded instance, checked across blanks -- or carries a non-number
   value or an unknown `meta.speed_unit` / `meta.baro_unit`
-  (`src/aircraft_profile.ts`, AER-5060). Versions saved before that stay
+  (`src/aircraft_profile.ts`, AER-5060), or a malformed ownship identity: a
+  registration that is not up to 10 letters, digits and hyphens, one starting
+  with N that is not an assignable N-number, or a hex address that is not six
+  digits or is 000000 (AER-5147). Versions saved before that stay
   stored and can still be re-activated; the check runs on save only.
 - Starter templates: ship a few read-only presets (the c170b numbers,
   a generic O-320 single, Rotax 912) + "import .ini" (paste an existing

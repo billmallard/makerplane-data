@@ -108,9 +108,20 @@ def load_signed(store, secret: signing.SecretKey) -> tuple[Manifest | None, dict
     before anything is decided from it. Returns ``(manifest, raw object)``,
     or ``(None, {"packs": []})`` when nothing has been published yet. A
     manifest with a missing or bad signature raises :class:`GateError`."""
-    raw = store.get_bytes(MANIFEST_KEY)
+    live, obj, _etag = load_signed_etag(store, secret)
+    return live, obj
+
+
+def load_signed_etag(store, secret: signing.SecretKey) -> tuple[Manifest | None, dict, str | None]:
+    """:func:`load_signed` plus the ETag the manifest was read at (``None``
+    when there is none yet): the version a write of the edited manifest must
+    still find live (``packtools.publish.commit``, MANIFEST1)."""
+    if hasattr(store, "get_bytes_etag"):
+        raw, etag = store.get_bytes_etag(MANIFEST_KEY)
+    else:  # a read-only store (cli._PublicStore): nothing it reads is written back
+        raw, etag = store.get_bytes(MANIFEST_KEY), None
     if raw is None:
-        return None, {"packs": []}
+        return None, {"packs": []}, None
     sig = store.get_bytes(SIG_KEY)
     if sig is None:
         raise GateError(f"{MANIFEST_KEY} has no {SIG_KEY}: refusing to decide anything from it")
@@ -118,7 +129,7 @@ def load_signed(store, secret: signing.SecretKey) -> tuple[Manifest | None, dict
         signing.verify(raw, sig.decode("ascii"), secret.public_key_text())
     except Exception as e:
         raise GateError(f"{MANIFEST_KEY} does not verify against the signing key: {e}") from None
-    return Manifest.from_bytes(raw), json.loads(raw)
+    return Manifest.from_bytes(raw), json.loads(raw), etag
 
 
 # --- the previous edition ------------------------------------------------------

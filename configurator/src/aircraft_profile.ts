@@ -2,7 +2,10 @@
 // Server-side checks on an aircraft profile before it is saved
 // (docs/canfix_configurator.md section 5).
 //
-// Pure functions, no imports, so node:test can load this file directly.
+// Pure functions; the one import is pure too, so node:test can load this file
+// directly.
+
+import { ownshipErrors } from "./ownship.ts";
 
 export const MAX_PROFILE_BYTES = 256 * 1024;
 
@@ -61,6 +64,7 @@ export function aircraftProfileErrors(profile: object): string[] {
     if (meta.baro_unit !== undefined
         && !(BARO_UNITS as readonly unknown[]).includes(meta.baro_unit))
       errs.push(`meta.baro_unit must be one of ${BARO_UNITS.join(", ")}`);
+    errs.push(...ownshipErrors(meta));
   }
 
   const values = (p.values ?? {}) as Record<string, unknown>;
