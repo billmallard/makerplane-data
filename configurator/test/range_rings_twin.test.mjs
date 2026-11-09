@@ -12,12 +12,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import jsyaml from "js-yaml";
-import { editorSource, extractFunction } from "./support/extract.mjs";
+import { editorSource, extractFunction, ndModeSource } from "./support/extract.mjs";
 
 const src = editorSource();
 const GEOM = ["pyFloat", "formatRangeNm", "parseRingFractions", "rangeRingGeom"];
 const { formatRangeNm, parseRingFractions, rangeRingGeom } = new Function(`
   ${GEOM.map((f) => extractFunction(src, f)).join("\n\n")}
+  ${ndModeSource(src)}
   return { formatRangeNm, parseRingFractions, rangeRingGeom };
 `)();
 
