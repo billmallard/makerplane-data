@@ -218,7 +218,9 @@ Notes:
 A wider bbox in `regions.yaml` does not reach the packs until the GLO-30
 tree has the new tiles. The tree is a one-time fetch; nothing refetches it.
 After a region change, rerun `scripts/make_glo30_tiles.py` (the expected
-list), then fetch and convert exactly what the tree lacks:
+list), then fetch and convert exactly what the tree lacks. The list's
+`# regions:` header records the bboxes it was built from: until it is rerun,
+`tests/test_glo30_tiles.py` fails in CI and `--check-tree` exits 2 (AER-5175).
 
 ```bash
 python scripts/make_glo30_tiles.py --check-tree /path/to/glo30hgt > missing.txt   # exit 1 = gaps

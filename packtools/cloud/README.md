@@ -231,8 +231,10 @@ docker compose -f docker-compose.retro.yml logs -f retro-records
   the second to start exits 3. That holds on one host only: the lock does not
   reach from build01 to the QNAP or back (§ One job at a time, across both
   hosts).
-- **When:** after the nightly cyclical publish (09:20 UTC) has finished. A
-  publish overlapping a bind can drop it; the run says so and a re-run fixes it.
+- **When:** any time. Every manifest write is a compare-and-set (MANIFEST1),
+  so a bind that overlaps the nightly cyclical publish (scheduled 09:20 UTC,
+  in practice hours later) is re-applied, not dropped. The run still checks
+  its bindings at the end and says so if one is missing; a re-run fixes it.
 - **Re-runnable:** bound entries are skipped. `ONLY=id,id` limits a run.
 - **Output:** `/data/retro-out/<stamp>/` holds every record, the schemas and
   `retro-summary.json`, which lists each failing check. Failures are

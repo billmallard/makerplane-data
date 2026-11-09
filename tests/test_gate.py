@@ -395,7 +395,8 @@ def test_signing_refuses_a_new_entry_without_a_record(tmp_path):
     m = Manifest.new(GEN)
     m.upsert(entry)
     with pytest.raises(ManifestError, match="no report_url"):
-        sign_and_put(store, sk, m, previous={"packs": []}, sign=signing.sign, comment="x")
+        sign_and_put(store, sk, m, previous={"packs": []}, sign=signing.sign, comment="x",
+                     etag=None)
     assert store.get_bytes("manifest.json") is None
 
 

@@ -170,6 +170,11 @@ python -m packtools.run_cyclical --no-upload --only airports-conus \
   on a recorded accept. Each accept is appended to
   `~/.local/state/makerplane/acknowledgments.jsonl`, outside the config trees.
   See [docs/install_acknowledgment.md](docs/install_acknowledgment.md).
+- **`advisories.py`** — the opt-in safety advisory channel. When on, `update`
+  and `import` also fetch the signed `advisories.json`, match it against the
+  installed software and packs on the device, and write the result into
+  `status.json` for the About/System screen. Nothing about the device is sent.
+  See [docs/advisories.md](docs/advisories.md).
 
 ```bash
 pyefis-data accept                 # accept the software notice (first install / new version)
@@ -178,6 +183,7 @@ pyefis-data status                 # installed vs catalog, per-pack currency
 pyefis-data catalog                # every available pack (the picker view)
 pyefis-data update                 # pull stale packs, verify, atomic-swap
 pyefis-data import /media/usb/makerplane-data   # same verify path, offline
+pyefis-data advisories --enable     # opt in to the signed safety advisory feed
 ```
 
 On the EFIS this is wrapped by a touch **pack picker** (the Update screen):

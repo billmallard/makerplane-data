@@ -31,6 +31,11 @@ instruments, group them (e.g. an engine cluster), target a specific screen size
 and DPI, and use guides + snapping to align things. A live, two-way **YAML code
 pane** shows the underlying config and edits back into the canvas.
 
+Colour options offer **Default** (the widget's own colour), a named **colour
+token** such as `ink.primary` or `nav.ownship`, or **Custom…** (a colour
+picker). A token is saved into the YAML by name; the editor's **Theme** selector
+(currently `pyEfis built-in`) sets the colour each token previews as.
+
 ### Device-faithful previews (the fidelity rule)
 
 The editor's instrument previews are not approximations — they are **twins of
