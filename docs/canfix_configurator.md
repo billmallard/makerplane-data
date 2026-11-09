@@ -194,8 +194,8 @@ provider/topology model, not just a count:
 - **Labels, stable tank ids and gauge binding** (FUEL1, proposed
   2026-11-08): see [fuel_provider_model.md](fuel_provider_model.md). It
   covers the per-tank schema, the tank-count path past four, delivery, the
-  `aircraft_ref` Prop kind and the build rows. It is a proposal until Bill
-  has reviewed it.
+  `aircraft_ref` Prop kind and the build rows. Accepted by Bill on
+  2026-11-09.
 
 ## 6c. Future: aircraft system ("node") diagram
 

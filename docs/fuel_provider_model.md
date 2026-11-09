@@ -2,8 +2,10 @@
 
 # Fuel tanks as a provider: labelled tanks, gauges bound by tank (design brief)
 
-Status: **PROPOSED, for Bill's review** (FUEL1, AER-5180, 2026-11-08). No
-code. Nothing in section 9 is promoted until Bill has read this. It extends
+Status: **ACCEPTED** (Bill, 2026-11-09, on AER-5180: all five
+recommendations in section 10). Written 2026-11-08 as FUEL1. No code. The
+build rows in section 9 are drafted to the backlog, each still waiting on
+its own promotion. It extends
 `canfix_configurator.md` section 6b, which stays the record of the role and
 feeds model.
 
@@ -329,7 +331,9 @@ checklist plan's Phase 3 is. Once F4 lands, the checklist `aircraft_ref` work
 (P1 Phase 3) reuses F3 and F4 and adds its own source, rather than building a
 second kind.
 
-## 10. Decisions for Bill
+## 10. Decisions (accepted by Bill, 2026-11-09)
+
+Bill accepted each recommendation below as written.
 
 - **D1:** `aircraft_ref` as one kind with a `source`, replacing
   `checklist_ref`, and stable tank ids with an editable `slot`. I recommend
