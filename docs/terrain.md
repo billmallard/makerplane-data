@@ -186,6 +186,16 @@ In practice all of the above runs unattended in the **cloud container**
 (required, § Water mask) → region packs → mosaic pack → verify); the manual commands are
 the same steps for a workstation.
 
+**Which host.** Stage runs and publishes run on **build01** (Proxmox VM 103,
+`10.110.10.40`), which NFS-mounts the NAS tile tree at the QNAP's own path and
+runs the same compose file from `/opt/terrain/cloud`. It builds a pack about
+2.2x faster than the QNAP, and a full publish took 4 h 32 min there. The QNAP's
+Container Station is the fallback. The two hosts must run the same image, each
+keeps its own `.env`, and only one terrain or retro job may run across **both**
+hosts at a time, because the cloud lock does not cross hosts. The mount, the
+image sync, `.env` and the cross-host check are in `packtools/cloud/README.md`,
+§ Build hosts.
+
 Each run builds the region pack, uploads it to R2, and **upserts** the
 terrain entry into the existing manifest (preserving navdata), re-signing.
 Run region-by-region for resilience (each commits independently).
@@ -197,7 +207,11 @@ Notes:
   specific run wants it. See § Compression & data footprint for the numbers.
 - Run on a workstation that holds the GLO-30 tree — **not** the EFIS device.
 - Don't run the daily navdata pipeline and a terrain upload at the same
-  time; both rewrite the manifest.
+  time; both rewrite the manifest. Start a publish after that day's
+  scheduled `cyclical.yml` run has finished; it fires hours after its cron.
+- Don't run two terrain or retro jobs at once on build01 and the QNAP. Each
+  host's `flock` excludes only its own jobs (`packtools/cloud/README.md`,
+  § One job at a time, across both hosts).
 
 ### Adding tiles to the tree (a region grew, AER-4706)
 
