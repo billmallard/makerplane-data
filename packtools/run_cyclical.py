@@ -69,6 +69,7 @@ class CyclicalRunner:
                  reporter=report.build_report,
                  notes: dict | None = None,
                  published_checksums: str | Path | None = None,
+                 pyefis_commit=_build.pyefis_commit,
                  today: _dt.date | None = None):
         self.store = store
         self.secret = secret
@@ -91,6 +92,9 @@ class CyclicalRunner:
         # sha256sum lines: the subjects the workflow's build-provenance
         # attestation covers (TV10). None writes nothing.
         self.published_checksums = Path(published_checksums) if published_checksums else None
+        # Names the pyEfis commit a pyEfis builder ran (CERT5a). Injected so
+        # tests can point it at a fixture checkout.
+        self.pyefis_commit = pyefis_commit
         self.today = today or _dt.date.today()
         self.log = print
         # One row per (source, cycle) decision, for the job summary.
@@ -170,6 +174,8 @@ class CyclicalRunner:
         # Contract check 1-3, against the live download, before we build.
         self.guard.check_inputs(source, Path(extracted))
         pack_path = cycle_work / f"{source.pack_id}-{c.cycle}.pack"
+        # Which pyEfis commit this build runs, read before it runs (CERT5a).
+        pyefis_sha = self.pyefis_commit() if builder in _build.PYEFIS_BUILDERS else None
         self.log(f"  build {source.builder} -> {pack_path.name}")
         builder(Path(extracted), pack_path)
         # Contract check 4, against the built sqlite, before it is embedded /
@@ -179,7 +185,8 @@ class CyclicalRunner:
                         effective=c.effective.isoformat(),
                         expires=c.expires.isoformat(),
                         attribution=source.attribution,
-                        license=source.license, license_url=source.license_url)
+                        license=source.license, license_url=source.license_url,
+                        pyefis_commit=pyefis_sha)
         detected = detect_content_schema_version(source.kind, pack_path)
         if detected is not None:
             meta.schema_version = detected
