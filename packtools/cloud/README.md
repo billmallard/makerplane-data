@@ -55,25 +55,38 @@ either script, or to the Dockerfile, only runs on a host whose image was
 rebuilt after it. The two hosts must run the same image, or a fallback run
 silently uses older pipeline logic.
 
-Build on one host, then copy the image to the other one:
+Build on one host, then copy the image to the other one. build01 holds no
+key for the QNAP, so run the copy from the workstation, which reaches both:
 
 ```bash
-# on build01, from /opt/terrain/cloud with the updated packtools/cloud files
+# 1. build on one host (build01 shown, from /opt/terrain/cloud with the
+#    updated packtools/cloud files; the QNAP needs the workarounds in
+#    § QNAP build quirks)
 docker compose build
-docker save makerplane/terrain-build:latest | \
-  ssh <qnap-admin>@10.110.10.6 'DOCKER_CONFIG=/share/ZFS22_DATA/pyEfisData/.docker-svc-admin docker load'
-# (or the reverse, if the QNAP built it; the QNAP needs the BuildKit and
-#  DOCKER_CONFIG workarounds in § QNAP build quirks)
 
-# both hosts: the image id must match
-docker image inspect --format '{{.Id}}' makerplane/terrain-build:latest
+# 2. from the workstation: build01 -> QNAP
+ssh labadmin@10.110.10.40 docker save makerplane/terrain-build:latest | \
+  ssh svc-admin@10.110.10.6 'export PATH=/share/ZFS530_DATA/.qpkg/container-station/bin:$PATH; DOCKER_CONFIG=/share/ZFS22_DATA/pyEfisData/.docker-svc-admin docker load'
+
+#    or QNAP -> build01
+ssh svc-admin@10.110.10.6 'export PATH=/share/ZFS530_DATA/.qpkg/container-station/bin:$PATH; DOCKER_CONFIG=/share/ZFS22_DATA/pyEfisData/.docker-svc-admin docker save makerplane/terrain-build:latest' | \
+  ssh labadmin@10.110.10.40 docker load
+
+# 3. on both hosts: the layer lists must match
+docker image inspect --format '{{.RootFS.Layers}}' makerplane/terrain-build:latest
 ```
+
+Compare the layers, not the image id. The id differs between the two hosts
+for the same image after a save/load, because they run different Docker
+versions: on 2026-11-09 build01 reported `sha256:8b1c...` and the QNAP
+`sha256:8986...` for one image, both created 2026-11-02T11:50:36Z with the
+same 7 RootFS layers.
 
 Then start runs with `docker compose up --no-build`. `up --build` rebuilds
 from the local build context, so the image can drift from the other host's.
 Copy the updated `packtools/cloud/` files (compose files, scripts) to both
-compose dirs as well. The image built on 2026-11-03 was copied from the QNAP
-this way, and all 7 layers matched.
+compose dirs as well. The current image was built on the QNAP on 2026-11-02
+and copied QNAP -> build01 on 2026-11-03.
 
 ### `.env` on each host
 
@@ -149,7 +162,7 @@ silently**, and the container aborts with the "TILE_ROOT missing/empty" guard.
 
 ## QNAP build quirks
 
-Two things fail on the QNAP that work on an ordinary Docker host:
+Three things fail on the QNAP that work on an ordinary Docker host:
 
 - **BuildKit.** `docker compose up --build` fails with `error creating zfs
   mount ... no such file or directory`. Build with the legacy builder, then
@@ -161,6 +174,10 @@ Two things fail on the QNAP that work on an ordinary Docker host:
 - **`DOCKER_CONFIG`.** The QNAP docker wrapper cannot create the svc-admin
   user's config dir, so docker commands there need
   `DOCKER_CONFIG=/share/ZFS22_DATA/pyEfisData/.docker-svc-admin`.
+- **`PATH` over ssh.** A non-interactive ssh to the QNAP gets
+  `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, which has no `docker`. Prefix remote
+  commands with
+  `export PATH=/share/ZFS530_DATA/.qpkg/container-station/bin:$PATH;`.
 
 ## What to expect
 
