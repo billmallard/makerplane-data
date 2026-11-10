@@ -20,7 +20,9 @@ export const BARO_UNITS = ["inHg", "hPa"] as const;
 // Section 6 ordering. Each chain is checked over every pair of values present,
 // not only neighbours, so a blank in the middle (blank = "leave unset", which
 // is allowed) cannot hide an inversion. A pair is strict if any link between
-// them is "<".
+// them is "<". public/aircraft.html carries a copy of these chains and of
+// chainErrors() so the form refuses exactly what the save does
+// (test/aircraft_speed_order.test.mjs).
 type Link = "<=" | "<";
 const AIRSPEED_CHAIN: [string, Link][] = [
   ["Vs0", "<="], ["Vs", "<"], ["Vno", "<"], ["Vne", "<="], ["Max", "<="],
@@ -32,8 +34,9 @@ const BAND_CHAIN: [string, Link][] = [
   ["highWarn", "<="], ["highAlarm", "<="], ["Max", "<="],
 ];
 
+// `mark`, when given, is called with both keys of every pair that fails.
 function chainErrors(values: Record<string, unknown>, inst: string,
-                     chain: [string, Link][]): string[] {
+                     chain: [string, Link][], mark?: (key: string) => void): string[] {
   const errs: string[] = [];
   for (let i = 0; i < chain.length; i++) {
     const a = values[`${inst}.${chain[i][0]}`];
@@ -43,9 +46,11 @@ function chainErrors(values: Record<string, unknown>, inst: string,
       strict = strict || chain[j - 1][1] === "<";
       const b = values[`${inst}.${chain[j][0]}`];
       if (typeof b !== "number") continue;
-      if (strict ? !(a < b) : !(a <= b))
+      if (strict ? !(a < b) : !(a <= b)) {
         errs.push(`${inst}: ${chain[i][0]} (${a}) must be ${strict ? "<" : "<="} `
                   + `${chain[j][0]} (${b})`);
+        mark?.(`${inst}.${chain[i][0]}`); mark?.(`${inst}.${chain[j][0]}`);
+      }
     }
   }
   return errs;
