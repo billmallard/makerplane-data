@@ -61,7 +61,7 @@ is live data; its *capacity* is).
 | **Airspeeds** | IAS | Vs, Vs0, Vfe, Vno, Vne, Va, Vx, Vy, Vmc, V1, V2, Min, Max | Arcs derive: white = Vs0..Vfe, green = Vs..Vno, yellow = Vno..Vne, red >= Vne. Va/Vx/Vy shown as bugs where supported. Vmc/V1/V2 hidden behind a "twin/turbine" toggle. |
 | **Engine (per engine)** | TACHx, MAPx, OILPx, OILTx | Min, Max, lowWarn, highWarn, lowAlarm, highAlarm | Repeated group per engine; the **engine-type provider** (section 6a) decides which parameters exist. |
 | **Cylinders (per engine)** | CHTxy, EGTxy, CHTMAXx | Min, Max, highWarn, highAlarm | Cylinder count is free-form (4/6 common, 8 rare, radials odd counts up to 28); one shared band set applied to all cylinders, per-cylinder override escape hatch later. |
-| **Fuel** | FUELQx (capacity = Max, lowWarn, lowAlarm), FUELFx, FUELPx | Min, Max, warns/alarms | Tank count 1..4. FUELQT derives (sum) — display only. |
+| **Fuel** | FUELQx (capacity = Max, lowWarn, lowAlarm), FUELFx, FUELPx | Min, Max, warns/alarms | Tank count 1..8, one slot (`FUELQn`) per tank; capacity and unusable fuel set `FUELQn.Max = capacity - unusable` (section 6b). FUELQT derives (sum) — display only. |
 | **Electrical** | VOLT, CURRNT | Min, Max, lowWarn, highWarn, lowAlarm, highAlarm | 12 V / 24 V presets. |
 | **Air / misc** | OAT, CAT, AOA | bands; AOA calibration refs (Min/Max/0g/warn/stall as defined in database.yaml) | AOA numbers come from flight-test calibration — the form stores what the OnSpeed/AOA source needs displayed. |
 
@@ -186,7 +186,9 @@ provider/topology model, not just a count:
   transfer), or none. That directed graph IS the fuel system.
 - Quantities/bands stay per-tank FIX aux (FUELQt Max/lowWarn/
   lowAlarm) as today; the topology lives in the profile's
-  `meta.fuel` array — forward data for fuel totalizer logic, the
+  `meta.fuel` (schema 2 since FUEL1a, AER-5271: a tank list with
+  stable ids, labels, slots and an edge list; the page migrates a
+  schema-1 positional array on load) — forward data for fuel totalizer logic, the
   in-EFIS fuel page, and the system diagram (6c). Nothing in
   fix-gateway consumes it yet; the profile is the canonical record.
 - Validation: every engine should be fed by at least one tank
