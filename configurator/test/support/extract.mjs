@@ -36,3 +36,13 @@ export function extractConst(src, name) {
   if (!m) throw new Error(`const ${name} not found in editor.html`);
   return m[0];
 }
+
+/** Source text of the moving map's ND-mode block (consts and functions,
+ *  "// --- moving map ND mode" up to mapDevicePx's comment). rangeRingGeom
+ *  calls into it, so any test that extracts rangeRingGeom needs it too. */
+export function ndModeSource(src) {
+  const start = src.indexOf("// --- moving map ND mode");
+  const end = src.indexOf("// The map widget's size in device pixels");
+  if (start === -1 || end <= start) throw new Error("ND mode block not found in editor.html");
+  return src.slice(start, end);
+}
