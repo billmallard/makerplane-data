@@ -90,15 +90,19 @@ function makeDom() {
 }
 
 const CONSTS = ["SPEED_ORDER", "TWIN_ONLY", "DEEMPH", "KT", "SPEED_UNIT_LABEL", "BARO_UNITS",
-  "N_LETTERS"];
+  "N_LETTERS", "FUEL_ROLES", "TANK_CEILING", "TANK_LABEL_MAX"];
 const FUNCS = ["normalizeProfile", "normalizeRegistration", "nNumberAddress", "parseIcaoAddress",
   "ownshipStatus", "instances", "isSpeed", "toNative", "toDisplay", "fmt",
   "unitLabel", "auxSettings", "setEntry", "settingField", "fillCounts", "render", "validate",
-  "drawArc", "cylinderExpand", "buildIni", "importIni"];
+  "drawArc", "cylinderExpand", "buildIni", "importIni", "newTankId", "migrateFuel",
+  "adoptTankValues", "syncTankValues", "addTank", "removeTank", "setTankSlot", "fuelCheck",
+  "fuelEditor"];
 // Helpers this change introduced are skipped when absent, so the same test
 // run against the pre-change page fails on behaviour, not on extraction.
 const NEW = new Set(["SPEED_UNIT_LABEL", "unitLabel", "auxSettings", "setEntry", "settingField",
-  "N_LETTERS", "normalizeRegistration", "nNumberAddress", "parseIcaoAddress", "ownshipStatus"]);
+  "N_LETTERS", "normalizeRegistration", "nNumberAddress", "parseIcaoAddress", "ownshipStatus",
+  "FUEL_ROLES", "TANK_CEILING", "TANK_LABEL_MAX", "newTankId", "migrateFuel", "adoptTankValues",
+  "syncTankValues", "addTank", "removeTank", "setTankSlot", "fuelCheck", "fuelEditor"]);
 const pick = (names, get) => names.map((n) => {
   try { return get(SRC, n); } catch (e) { if (NEW.has(n)) return ""; throw e; }
 }).join("\n\n");

@@ -14,13 +14,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { editorSource, extractFunction } from "./support/extract.mjs";
+import { editorSource, extractFunction, ndModeSource } from "./support/extract.mjs";
 
 const src = editorSource();
 const body = ["movingMapPalette", "pyFloat", "formatRangeNm", "parseRingFractions",
   "rangeRingGeom", "mapDevicePx", "displayPxPerMm", "railLadder", "zoomRailGeom",
   "zoomRailSvg", "buildMovingMap"]
-  .map((f) => extractFunction(src, f)).join("\n\n");
+  .map((f) => extractFunction(src, f)).join("\n\n") + "\n\n" + ndModeSource(src);
 
 // svgFromString and the editor state are the only free dependencies;
 // returning the markup lets the test read exactly what the twin would draw.

@@ -314,6 +314,10 @@ CERT2b (AER-5179) leaves every stock fuel bar as `name: "Tank N"`,
 Each row is one repo and one PR unless it says otherwise. They are listed in
 dependency order. None of them is promoted until Bill has read this brief.
 
+F1 is built (FUEL1a, AER-5271). The label limit is provisionally 12
+characters until F6 measures the native bar; raising it later breaks no
+saved profile.
+
 | Row | Size | Repo | What | Depends on |
 |---|---|---|---|---|
 | F1 | M | makerplane-data | Profile `meta.fuel` schema 2: ids, label, slot, edge list, capacity, unusable. Browser migration from schema 1. Client and server validation (section 2). `FUELQn.Min/Max` written from the tank. Tests, including one that fails on `dev`, that removing tank 2 of 3 keeps tank 3's edges. | D1, D2 |
