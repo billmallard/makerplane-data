@@ -90,10 +90,12 @@ function makeDom() {
 }
 
 const CONSTS = ["SPEED_ORDER", "TWIN_ONLY", "DEEMPH", "KT", "SPEED_UNIT_LABEL", "BARO_UNITS",
-  "N_LETTERS", "FUEL_ROLES", "TANK_CEILING", "TANK_LABEL_MAX"];
+  "N_LETTERS", "FUEL_ROLES", "TANK_CEILING", "TANK_LABEL_MAX",
+  "AIRSPEED_CHAIN", "VFE_CHAIN", "BAND_CHAIN"];
 const FUNCS = ["normalizeProfile", "normalizeRegistration", "nNumberAddress", "parseIcaoAddress",
   "ownshipStatus", "instances", "isSpeed", "toNative", "toDisplay", "fmt",
-  "unitLabel", "auxSettings", "setEntry", "settingField", "fillCounts", "render", "validate",
+  "unitLabel", "auxSettings", "setEntry", "settingField", "fillCounts", "chainErrors", "render",
+  "validate",
   "drawArc", "cylinderExpand", "buildIni", "importIni", "newTankId", "migrateFuel",
   "adoptTankValues", "syncTankValues", "addTank", "removeTank", "setTankSlot", "fuelCheck",
   "fuelEditor"];
@@ -102,7 +104,8 @@ const FUNCS = ["normalizeProfile", "normalizeRegistration", "nNumberAddress", "p
 const NEW = new Set(["SPEED_UNIT_LABEL", "unitLabel", "auxSettings", "setEntry", "settingField",
   "N_LETTERS", "normalizeRegistration", "nNumberAddress", "parseIcaoAddress", "ownshipStatus",
   "FUEL_ROLES", "TANK_CEILING", "TANK_LABEL_MAX", "newTankId", "migrateFuel", "adoptTankValues",
-  "syncTankValues", "addTank", "removeTank", "setTankSlot", "fuelCheck", "fuelEditor"]);
+  "syncTankValues", "addTank", "removeTank", "setTankSlot", "fuelCheck", "fuelEditor",
+  "AIRSPEED_CHAIN", "VFE_CHAIN", "BAND_CHAIN", "chainErrors"]);
 const pick = (names, get) => names.map((n) => {
   try { return get(SRC, n); } catch (e) { if (NEW.has(n)) return ""; throw e; }
 }).join("\n\n");
@@ -141,6 +144,21 @@ test("the Airspeeds card renders Vgnd with the label and help from aux_meta", ()
   // Rendered once, as a setting -- not also as a bare "Vgnd" grid cell.
   const cells = [...document.root.walk()].filter((e) => e.tagName === "INPUT" && e.dataset.fk === "IAS.Vgnd");
   assert.equal(cells.length, 1);
+});
+
+// G81 / AER-5327: the server refuses Vs = Vno, so the form must too -- a hard
+// error that disables Save, in the server's words (pure-function parity with
+// the server is test/aircraft_speed_order.test.mjs).
+test("Vs = Vno blocks Save with the server's message, and marks both fields", () => {
+  const { api, input, type, $ } = page();
+  type("IAS.Vs", 100); type("IAS.Vno", 100);
+  const r = api.validate();
+  assert.deepEqual(r.hard, ["IAS: Vs (100) must be < Vno (100)"]);
+  assert.equal($("save").disabled, true);
+  assert.ok(input("IAS.Vs").classList.contains("err") && input("IAS.Vno").classList.contains("err"));
+  type("IAS.Vno", 101);
+  assert.deepEqual(api.validate().hard, []);
+  assert.equal($("save").disabled, false);
 });
 
 test("a key without aux_meta renders no setting field", () => {

@@ -677,32 +677,55 @@ function fuelEditor() {
 }
 
 // ---- validation --------------------------------------------------------------
+// Copy of the section-6 chains and chainErrors() in src/aircraft_profile.ts
+// (test/aircraft_speed_order.test.mjs). Every pair present is checked, not
+// only neighbours, so a blank cannot hide an inversion; a pair is strict if
+// any link between them is "<".
+const AIRSPEED_CHAIN = [
+  ["Vs0", "<="], ["Vs", "<"], ["Vno", "<"], ["Vne", "<="], ["Max", "<="],
+];
+const VFE_CHAIN = [["Vs0", "<="], ["Vfe", "<="], ["Vno", "<="]];
+const BAND_CHAIN = [
+  ["Min", "<="], ["lowAlarm", "<="], ["lowWarn", "<="],
+  ["highWarn", "<="], ["highAlarm", "<="], ["Max", "<="],
+];
+
+// `mark`, when given, is called with both keys of every pair that fails.
+function chainErrors(values, inst, chain, mark) {
+  const errs = [];
+  for (let i = 0; i < chain.length; i++) {
+    const a = values[`${inst}.${chain[i][0]}`];
+    if (typeof a !== "number") continue;
+    let strict = false;
+    for (let j = i + 1; j < chain.length; j++) {
+      strict = strict || chain[j - 1][1] === "<";
+      const b = values[`${inst}.${chain[j][0]}`];
+      if (typeof b !== "number") continue;
+      if (strict ? !(a < b) : !(a <= b)) {
+        errs.push(`${inst}: ${chain[i][0]} (${a}) must be ${strict ? "<" : "<="} `
+                  + `${chain[j][0]} (${b})`);
+        mark?.(`${inst}.${chain[i][0]}`); mark?.(`${inst}.${chain[j][0]}`);
+      }
+    }
+  }
+  return errs;
+}
+
 // Returns { errs, hard }: errs are "check this" warnings that still save;
-// hard errors (a setting outside its fix-gateway bounds) block Save and
-// Download.
+// hard errors are what the server refuses (ordering, a setting outside its
+// fix-gateway bounds, ownship, fuel) and block Save and Download.
 function validate() {
   document.querySelectorAll("input.err").forEach(i => i.classList.remove("err"));
   const errs = [], hard = [], V = profile.values;
   const mark = fk => { const el = document.querySelector(`input[data-fk="${fk}"]`);
                        if (el) el.classList.add("err"); };
-  const ord = (aFk, bFk, label) => {
-    if (V[aFk] != null && V[bFk] != null && V[aFk] > V[bFk]) {
-      errs.push(label); mark(aFk); mark(bFk); } };
-  ord("IAS.Vs0","IAS.Vs","Vs0 must be <= Vs");
-  ord("IAS.Vs","IAS.Vno","Vs must be <= Vno");
-  ord("IAS.Vno","IAS.Vne","Vno must be <= Vne");
-  ord("IAS.Vne","IAS.Max","Vne must be <= Max (display range)");
-  ord("IAS.Vs0","IAS.Vfe","Vfe must be >= Vs0");
-  ord("IAS.Vfe","IAS.Vno","Vfe should be <= Vno");
-  // warn/alarm ordering on every banded instance present
+  // Speed and band ordering: the server refuses these, so they block Save.
+  // Values are in native units, as stored; the unit conversion is monotonic.
+  hard.push(...chainErrors(V, "IAS", AIRSPEED_CHAIN, mark),
+            ...chainErrors(V, "IAS", VFE_CHAIN, mark));
   const insts = new Set(Object.keys(V).map(k => k.split(".")[0]));
-  for (const i of insts) {
-    if (i === "IAS") continue;
-    ord(i+".Min", i+".Max", i+": Min <= Max");
-    ord(i+".lowAlarm", i+".lowWarn", i+": lowAlarm <= lowWarn");
-    ord(i+".highWarn", i+".highAlarm", i+": highWarn <= highAlarm");
-    ord(i+".lowWarn", i+".highWarn", i+": lowWarn <= highWarn");
-  }
+  for (const i of insts)
+    if (i !== "IAS") hard.push(...chainErrors(V, i, BAND_CHAIN, mark));
   // aux_meta settings: outside [min, max] is a hard error. Compared at the
   // displayed precision, so the converted bound itself (115.08 mph) passes.
   let vgnd = null;
