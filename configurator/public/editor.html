@@ -1867,12 +1867,16 @@ function rangeRingGeom(o, w, h) {
   const sizeOpt = Math.max(0, Math.trunc(pyFloat(o.range_ring_label_size ?? 0, 0)));
   const labelPx = sizeOpt > 0 ? sizeOpt : Math.max(8, Math.trunc(w * 0.025));
   const a = angle * Math.PI / 180;
+  // MapTransform.label_keep_out (G11c): EXPANDED keeps ring labels out of
+  // the TRK box and lubber, at the twin's pose (track 000).
+  const keepOut = nd !== "off" ? ndKeepOut(nd, w, h, cx, cy, 0) : [];
   const rings = fractions.map((frac) => {
     const r = pxPerNm * range * frac;
     const ax = cx + r * Math.sin(a), ay = cy - r * Math.cos(a);
     // label rect: top-left = anchor + (_LABEL_DX 4, 0), _LABEL_W 80 wide, px + 6 tall
-    return { frac, r, text: formatRangeNm(range * frac),
-             label: { x: ax + 4, y: ay, w: 80, h: labelPx + 6 } };
+    const label = { x: ax + 4, y: ay, w: 80, h: labelPx + 6 };
+    return { frac, r, text: formatRangeNm(range * frac), label,
+             keptOut: keepOut.some((k) => ndRectsIntersect(label, k)) };
   });
   return { cx, cy, range, rangePx, rings, labels, color, alpha, strokeW, labelPx };
 }
@@ -2008,10 +2012,31 @@ function ndArcReach(w, h) {
   return Math.max(1, Math.min(0.96 * w / 2, ndVdevGeometry(w, h).x - fs - w / 2));
 }
 
+function ndPanelPad(fs) { return fs * 0.3; }
+
+// nd.corner_block_bottom: the lowest y either top corner block can reach,
+// backing included, worst case (two lines and the wind arrow, or three lines).
+function ndCornerBlockBottom(w, h) {
+  const fs = ndFontPx(w, h), lh = fs * 1.3;
+  return 4 + ndStatusChipHeight(w) + 2 + Math.max(2 * lh + fs * 1.9, 3 * lh) + ndPanelPad(fs);
+}
+
+// nd.TL_WORST / TR_WORST and block_widths: the widest line each top corner
+// block can hold, measured in the map font (ndAdvance), so the arc does not
+// move when a value changes width.
+const ND_TL_WORST = ["GS 999 TAS 999", "360°/199"];
+const ND_TR_WORST = ["WWWWW", "2359.9z", "99.9 NM", "9999 NM"];
+function ndBlockWidths(fs) {
+  const widest = (lines) => Math.max(...lines.map((t) => ndAdvance(t, fs, false)));
+  return [widest(ND_TL_WORST), widest(ND_TR_WORST)];
+}
+
 // nd.expanded_geometry / ctr_geometry / geometry. r is the compass radius:
-// the selected range in px. EXPANDED spans ARC_HALF_DEG 60 on a landscape
-// panel and shrinks r until it spans ARC_MIN_HALF_DEG 40 on a tall one; CTR
-// is the largest closed rose that fits.
+// the selected range in px. EXPANDED (G11c) takes the largest r that keeps
+// the TRK box inside the top edge, the arc out of the top corner blocks and
+// the sector at least ARC_MIN_HALF_DEG 20: on a landscape panel the first
+// binds and the arc spans ARC_HALF_DEG 60, on a portrait one the blocks do
+// and the arc uses the height. CTR is the largest closed rose that fits.
 function ndGeometry(mode, w, h) {
   const fs = ndFontPx(w, h);
   const ownY = h * ndOwnYFrac(mode);
@@ -2023,10 +2048,52 @@ function ndGeometry(mode, w, h) {
     half = 180;
   } else {
     r = ownY - (4 + boxH + fs * 0.5);
-    r = Math.max(1, Math.min(r, reach / Math.sin(40 * Math.PI / 180)));
+    // Over |x - cx| >= dx the arc must stay below the blocks, d above
+    // ownship: r <= hypot(d, dx), unless the arc ends short of dx, which a
+    // radius up to dx / sin(60) still does.
+    const pad = ndPanelPad(fs), clear = fs * 0.3;
+    const d = ownY - (ndCornerBlockBottom(w, h) + clear);
+    const [tlW, trW] = ndBlockWidths(fs);
+    const dx = w / 2 - (6 + Math.max(tlW, trW) + pad + clear);
+    if (dx < reach) {
+      let rBlocks = Math.hypot(d, Math.max(0, dx));
+      if (dx > 0) rBlocks = Math.max(rBlocks, dx / Math.sin(60 * Math.PI / 180));
+      r = Math.min(r, rBlocks);
+    }
+    r = Math.min(r, reach / Math.sin(20 * Math.PI / 180));
+    r = Math.max(1, r);
     half = reach >= r ? 60 : Math.min(60, Math.asin(reach / r) * 180 / Math.PI);
   }
   return { fs, own_y: ownY, r, apex: ownY - r, box_h: boxH, half };
+}
+
+// nd.trk_box: the TRK box rect and its runs [text, px, width], one function
+// for paint and for the ring-label keep-out.
+function ndTrkBox(fs, boxH, track, cx, apexY) {
+  const sp = ndAdvance(" ", fs, true);
+  const runs = [["TRK", fs * 0.8], [_ndFmtDeg(track), fs * 1.05], ["MAG", fs * 0.8]]
+    .map(([t, px]) => [t, px, ndAdvance(t, ndFont(px, true).px, true)]);
+  const bw = runs.reduce((s, r) => s + r[2], 0) + sp * 4;
+  return { box: { x: cx - bw / 2, y: apexY - fs * 0.5 - boxH, w: bw, h: boxH }, runs, sp };
+}
+
+// nd.polished: the G11c backing panels, filled TRK box and ring-label
+// keep-out apply to EXPANDED; CTR MAP is drawn as accepted on pyEfis #441.
+function ndPolished(mode) { return mode === "expanded"; }
+
+// nd.keep_out: the TRK box down through the lubber and the arc's tick band
+// at the apex, where the full-range ring's top label lands. EXPANDED only.
+function ndKeepOut(mode, w, h, cx, cy, track) {
+  if (!ndPolished(mode)) return [];
+  const g = ndGeometry(mode, w, h), apexY = cy - g.r;
+  const { box } = ndTrkBox(g.fs, g.box_h, track, cx, apexY);
+  return [{ x: box.x, y: box.y, w: box.w, h: apexY + g.fs * 0.6 - box.y }];
+}
+
+// QRectF.intersects: a strict overlap, never true for an empty rect.
+function ndRectsIntersect(a, b) {
+  if (!(a.w > 0 && a.h > 0 && b.w > 0 && b.h > 0)) return false;
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
 // nd.tick_bearings: every multiple of 5 within half of the top bearing, ends
@@ -2071,6 +2138,9 @@ function pyTruthy(v, dflt) {
 
 const ND_WHITE = "#ffffff", ND_MAGENTA = "#ff00ff", ND_CYAN = "#00ffff",
   ND_RED = "#ff0000", ND_GREY = "#808080";
+// nd.PANEL (QColor(0, 0, 0, 200)) behind the corner blocks, nd.TRK_FILL
+// in the TRK box (G11c).
+const ND_PANEL = "#000000", ND_PANEL_ALPHA = 200, ND_TRK_FILL = "#000000";
 const ND_FAIL = "XXX";
 
 const _ndFmtInt = (v) => String(pyRound(v));
@@ -2218,8 +2288,9 @@ function ndFont(px, bold) {
 }
 
 // nd.paint as draw ops, in widget px: { mode, w, h, cx, cy, up, track,
-// trackOld, read, now, enabled }. cx/cy is ownship; up the bearing at the top
-// of the screen (always track-up in ND). Op shapes follow the oracle's
+// trackOld, read, now, enabled, chip }. cx/cy is ownship; up the bearing at
+// the top of the screen (always track-up in ND); chip the status chip's text,
+// which the top-left backing panel is sized to. Op shapes follow the oracle's
 // recording painter, with the arc kept as an arc.
 function ndPaintOps(a) {
   const { w, h, cx, cy, up, read, now } = a;
@@ -2248,29 +2319,35 @@ function ndPaintOps(a) {
 
   // TRK box at the top centre, the lubber triangle under it.
   const col = a.trackOld ? ND_GREY : ND_WHITE;
-  const sp = ndAdvance(" ", fs, true);
-  const runs = [["TRK", fs * 0.8], [_ndFmtDeg(a.track), fs * 1.05], ["MAG", fs * 0.8]];
-  const widths = runs.map(([t, px]) => ndAdvance(t, ndFont(px, true).px, true));
-  const bw = widths.reduce((s, x) => s + x, 0) + sp * 4;
   const apexY = cy - r;
-  const box = { x: cx - bw / 2, y: apexY - fs * 0.5 - g.box_h, w: bw, h: g.box_h };
+  const { box, runs, sp } = ndTrkBox(fs, g.box_h, a.track, cx, apexY);
+  const polish = ndPolished(a.mode);
   const pen = { rgb: col, width: lw };
-  ops.push({ op: "rect", pen, brush: null, rect: box });
+  ops.push({ op: "rect", pen, brush: polish ? ND_TRK_FILL : null, rect: box });
   let tx = box.x + sp;
-  runs.forEach(([t, px], i) => {
-    ops.push({ op: "text_rect", pen, rect: { x: tx, y: box.y, w: widths[i], h: box.h }, text: t, font: ndFont(px, true) });
-    tx += widths[i] + sp;
-  });
+  for (const [t, px, tw] of runs) {
+    ops.push({ op: "text_rect", pen, rect: { x: tx, y: box.y, w: tw, h: box.h }, text: t, font: ndFont(px, true) });
+    tx += tw + sp;
+  }
   const t = fs * 0.45;
   ops.push({ op: "polygon", pen, brush: col, pts: [[cx, apexY], [cx - t, apexY - t], [cx + t, apexY - t]] });
 
-  // Corner blocks: _draw_lines, left aligned at x or right aligned at right.
-  const lh = fs * 1.3;
+  // Corner blocks: _draw_lines, left aligned at x or right aligned at right,
+  // each on a backing panel (G11c, EXPANDED). The top-left panel also backs
+  // the range chip, as one shape with the lines (_backing unites its rects).
+  const lh = fs * 1.3, pad = ndPanelPad(fs);
+  const space = ndAdvance(" ", fs, false);
+  const lineWidth = (line) => {
+    const rs = line.filter(([txt]) => txt);
+    return rs.reduce((s, [txt]) => s + ndAdvance(txt, fs, false), 0) + space * Math.max(0, rs.length - 1);
+  };
+  const linesWidth = (lines) => lines.reduce((m, line) => Math.max(m, lineWidth(line)), 0);
+  const backing = (rects) => ops.push({ op: "backing", pen: null, brush: ND_PANEL, alpha: ND_PANEL_ALPHA,
+                                        radius: fs * 0.25, rects });
   const drawLines = (lines, x, y, right) => {
-    const space = ndAdvance(" ", fs, false);
     for (const line of lines) {
       const rs = line.filter(([txt]) => txt);
-      const width = rs.reduce((s, [txt]) => s + ndAdvance(txt, fs, false), 0) + space * Math.max(0, rs.length - 1);
+      const width = lineWidth(line);
       let x0 = right != null ? right - width : x;
       for (const [txt, c] of rs) {
         ops.push({ op: "text_at", pen: { rgb: c, width: 1 }, pt: [x0, y + f.ascent], text: txt, font: f });
@@ -2282,6 +2359,13 @@ function ndPaintOps(a) {
   };
   const top = 4 + ndStatusChipHeight(w) + 2;
   const tl = ndTopLeft(read);
+  if (polish) {
+    const chipW = ndAdvance(a.chip, Math.max(9, Math.trunc(w * 0.03)), false);
+    const tlBottom = top + lh * tl.lines.length + (tl.arrow !== null ? fs * 1.9 : 0);
+    const tlW = Math.max(linesWidth(tl.lines), tl.arrow !== null ? fs * 1.9 : 0);
+    backing([{ x: 6 - pad, y: 4 - pad * 0.5, w: chipW + 2 * pad, h: top - 4 + pad * 0.5 },
+             { x: 6 - pad, y: top - pad, w: tlW + 2 * pad, h: tlBottom - top + 2 * pad }]);
+  }
   const y = drawLines(tl.lines, 6, top, null);
   if (tl.arrow !== null) {
     // _wind_arrow: a line through (6 + fs, y + fs), head at the -length end,
@@ -2293,8 +2377,17 @@ function ndPaintOps(a) {
       ops.push({ op: "line", pen: white, pts: [at(...p0), at(...p1)] });
     }
   }
-  drawLines(ndTopRight(read, now), 0, top, w - 6);
+  const tr = ndTopRight(read, now);
+  if (tr.length && polish) {
+    const trW = linesWidth(tr);
+    backing([{ x: w - 6 - trW - pad, y: top - pad, w: trW + 2 * pad, h: lh * tr.length + 2 * pad }]);
+  }
+  drawLines(tr, 0, top, w - 6);
   const bl = ndBottomLeft(a.enabled);
+  if (bl.length && polish) {
+    const blTop = h - 6 - lh * bl.length;
+    backing([{ x: 6 - pad, y: blTop - pad, w: linesWidth(bl) + 2 * pad, h: lh * bl.length + 2 * pad }]);
+  }
   drawLines(bl, 6, h - 6 - lh * bl.length, null);
 
   // The vertical deviation scale.
@@ -2354,6 +2447,15 @@ function ndOpsSvg(ops) {
       out += `<text x="${R.x + R.w / 2}" y="${base}" text-anchor="middle" ${fontAttr(fo)} fill="${op.pen.rgb}" style="white-space:pre">${_ndEsc(op.text)}</text>`;
     } else if (op.op === "text_at") {
       out += `<text x="${op.pt[0]}" y="${op.pt[1]}" ${fontAttr(op.font)} fill="${op.pen.rgb}" style="white-space:pre">${_ndEsc(op.text)}</text>`;
+    } else if (op.op === "backing") {
+      // One path, one fill: where the rects overlap the panel is not darker.
+      const d = op.rects.map((R) => {
+        const k = Math.min(op.radius, R.w / 2, R.h / 2);
+        return `M${R.x + k},${R.y} H${R.x + R.w - k} A${k},${k} 0 0 1 ${R.x + R.w},${R.y + k}`
+          + ` V${R.y + R.h - k} A${k},${k} 0 0 1 ${R.x + R.w - k},${R.y + R.h}`
+          + ` H${R.x + k} A${k},${k} 0 0 1 ${R.x},${R.y + R.h - k} V${R.y + k} A${k},${k} 0 0 1 ${R.x + k},${R.y} Z`;
+      }).join(" ");
+      out += `<path d="${d}" fill="${op.brush}" fill-opacity="${(op.alpha / 255).toFixed(4)}" fill-rule="nonzero" stroke="none"/>`;
     } else if (op.op === "rect") {
       const R = op.rect;
       out += `<rect x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" ${fill(op.brush)} ${stroke(op.pen)}/>`;
@@ -2426,7 +2528,7 @@ function buildMovingMap(inst) {
     for (const ring of g.rings) {
       ringsSvg += `<circle cx="${g.cx}" cy="${g.cy}" r="${ring.r}" fill="none"
         stroke="${ringC}" stroke-opacity="${op}" stroke-width="${g.strokeW}"/>`;
-      if (g.labels) {
+      if (g.labels && !ring.keptOut) {
         const L = ring.label;   // drawText clips to the label rect
         ringsSvg += `<svg x="${L.x}" y="${L.y}" width="${L.w}" height="${L.h}" overflow="hidden">
           <text x="0" y="${g.labelPx * ASC}" ${FONT} font-size="${g.labelPx}"
@@ -2437,6 +2539,7 @@ function buildMovingMap(inst) {
   const s = Math.max(8, w * 0.025);
   const chipPx = Math.max(9, Math.trunc(w * 0.03));
   const rail = zoomRailSvg(zoomRailGeom(o, w, h, displayPxPerMm(state.screen), g.range));
+  const chip = `${formatRangeNm(g.range)} NM  ${mode}`;
   // ND overlay (map/nd.py paint), over the layers and ownship, under the chip.
   // The frame's pose is the twin's: track 000, position good.
   let ndSvg = "";
@@ -2444,7 +2547,7 @@ function buildMovingMap(inst) {
     const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
     ndSvg = ndOpsSvg(ndPaintOps({
       mode: nd, w, h, cx: g.cx, cy: g.cy, up: 0, track: 0, trackOld: false,
-      read: ndPreviewRead(meta.preview), now: Date.now() / 1000, enabled: ndEnabledLayers(o) }));
+      read: ndPreviewRead(meta.preview), now: Date.now() / 1000, enabled: ndEnabledLayers(o), chip }));
   }
   return svgFromString(`
 <svg viewBox="0 0 ${w} ${h}" class="gauge-svg">
@@ -2453,7 +2556,7 @@ function buildMovingMap(inst) {
   <polygon points="${g.cx},${g.cy - s} ${g.cx + s * 0.6},${g.cy + s * 0.8} ${g.cx},${g.cy + s * 0.35} ${g.cx - s * 0.6},${g.cy + s * 0.8}"
     fill="${sym}" stroke="#000" stroke-width="1"/>${ndSvg}
   <text x="6" y="${4 + chipPx * ASC}" ${FONT} font-size="${chipPx}" style="white-space:pre"
-    fill="rgba(255,255,255,0.784)">${formatRangeNm(g.range)} NM  ${mode}</text>
+    fill="rgba(255,255,255,0.784)">${chip}</text>
   ${rail}
 </svg>`);
 }
