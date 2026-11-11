@@ -280,7 +280,8 @@ class ManifestError(ValueError):
     """Raised on a structurally invalid manifest."""
 
 
-def validate(obj: dict, *, previous: dict | None = None) -> None:
+def validate(obj: dict, *, previous: dict | None = None,
+             retro: dict | None = None) -> None:
     """Structural validation. Raises ManifestError on any problem.
 
     Intentionally strict: a malformed manifest must fail loudly on the
@@ -293,6 +294,10 @@ def validate(obj: dict, *, previous: dict | None = None) -> None:
     alone, so packs published before pack-report/1 stay valid. The client
     parse path never passes it -- a device must not refuse a catalog over
     the testing-visibility fields (AER-4099).
+
+    ``retro`` maps ``(id, cycle)`` to the raw bytes of a ``retro`` record
+    being bound in this write to an entry ``previous`` listed with no
+    record (TV4); see :func:`validate_bindings_unchanged`.
     """
     if not isinstance(obj, dict):
         raise ManifestError("manifest must be a JSON object")
@@ -327,7 +332,9 @@ def validate(obj: dict, *, previous: dict | None = None) -> None:
         raise ManifestError("'regions' must be an object")
     if previous is not None:
         validate_new_entries(obj, previous)
-        validate_bindings_unchanged(obj, previous)
+        validate_bindings_unchanged(obj, previous, retro=retro)
+    elif retro:
+        raise ManifestError("a retro binding needs the previous manifest to check against")
 
 
 def _is_sha256(v) -> bool:
@@ -365,21 +372,70 @@ def validate_new_entries(obj: dict, previous: dict) -> None:
                                 f"{', '.join(ORIGINS)}")
 
 
-def validate_bindings_unchanged(obj: dict, previous: dict) -> None:
+def validate_bindings_unchanged(obj: dict, previous: dict, *,
+                                retro: dict | None = None) -> None:
     """Refuse a re-pointed record: an entry that ``previous`` already bound
     to a report (non-empty ``report_url`` or ``report_sha256``) must keep
     both values. A published record is immutable (docs/pack_report.md);
     later knowledge goes in the status overlay, never in a new binding.
-    Binding a report to an entry that had none (a retro record, TV4) is
-    allowed. Raises ManifestError."""
+
+    The one exception is TV4: an entry ``previous`` listed with **no**
+    binding may gain one only for a ``retro`` record passed in ``retro``
+    (``{(id, cycle): raw record bytes}``), whose bytes hash to the new
+    ``report_sha256`` and whose ``pack`` describes the entry's unchanged
+    bytes (same sha256, size and url). A ``build`` record never binds to an
+    existing entry; it reaches the manifest only with a new (id, cycle),
+    through the gate. A ``retro`` key naming anything but a blank entry of
+    ``previous`` is refused too. Raises ManifestError."""
+    import hashlib
+    retro = dict(retro or {})
     old = {(p.get("id"), p.get("cycle")): p
            for p in (previous or {}).get("packs", []) if isinstance(p, dict)}
     for i, p in enumerate(obj.get("packs", [])):
-        was = old.get((p["id"], p["cycle"]))
-        if not was or not (was.get("report_url") or was.get("report_sha256")):
+        key = (p["id"], p["cycle"])
+        where = f"packs[{i}] ({p['id']}/{p['cycle']})"
+        was = old.get(key)
+        if not was:
+            if key in retro:
+                raise ManifestError(f"{where} is new: a retro record binds only to an "
+                                    "entry already published")
             continue
-        for f in ("report_url", "report_sha256"):
-            if p.get(f, "") != was.get(f, ""):
-                raise ManifestError(
-                    f"packs[{i}] ({p['id']}/{p['cycle']}) changes its {f}: a published "
-                    "record is immutable")
+        if was.get("report_url") or was.get("report_sha256"):
+            for f in ("report_url", "report_sha256"):
+                if p.get(f, "") != was.get(f, ""):
+                    raise ManifestError(
+                        f"{where} changes its {f}: a published record is immutable")
+            if key in retro:
+                raise ManifestError(f"{where} already has a record; a retro record "
+                                    "never replaces a binding")
+            continue
+        if not (p.get("report_url") or p.get("report_sha256")):
+            if key in retro:
+                raise ManifestError(f"{where}: a retro record was given but not bound")
+            continue
+        raw = retro.pop(key, None)
+        if raw is None:
+            raise ManifestError(f"{where} gains a record binding: only a retro record "
+                                "may bind to an entry published without one (TV4)")
+        if hashlib.sha256(raw).hexdigest() != p.get("report_sha256"):
+            raise ManifestError(f"{where} report_sha256 is not the sha256 of its retro record")
+        if not (isinstance(p.get("report_url"), str) and p["report_url"]):
+            raise ManifestError(f"{where} has a report_sha256 but no report_url")
+        try:
+            rec = json.loads(raw)
+        except ValueError:
+            raise ManifestError(f"{where} retro record is not JSON") from None
+        if rec.get("record") != "retro":
+            raise ManifestError(f"{where}: the record is {rec.get('record')!r}, not retro; "
+                                "only a retro record binds to an existing entry")
+        for f in ("sha256", "bytes", "url"):
+            if p.get(f) != was.get(f):
+                raise ManifestError(f"{where} changes its {f} while binding a retro record")
+        rp = rec.get("pack") or {}
+        for f in ("id", "cycle", "sha256", "bytes"):
+            if rp.get(f) != p.get(f):
+                raise ManifestError(f"{where}: the retro record's pack.{f} is "
+                                    f"{rp.get(f)!r}, the entry has {p.get(f)!r}")
+    if retro:
+        raise ManifestError(f"retro record(s) for entries not in this manifest: "
+                            f"{sorted(retro)}")

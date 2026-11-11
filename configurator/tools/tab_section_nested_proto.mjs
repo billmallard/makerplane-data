@@ -46,11 +46,12 @@ const out = String(arg("out", "proto.html"));
 const FUNCS = [
   "clamp", "snapTo", "rootSpace", "cell", "withSpace", "rect",
   "ensureContainerSlot", "defaultActiveTab",
+  "fontScale", "tabLabelPx", "tabBarThickness",
   "tabPosition", "tabStripGeom", "tabContentGeom",
   "buildContainerTwin", "buildInstrumentTwin",
   "formatValue", "sampleText", "rgbaFromColor", "bgOpacity", "textJustify",
 ];
-const CONSTS = ["TAB_BAR_THICKNESS", "LIVE_TEXT", "LIVE_GAUGE", "TEXT_DEFAULTS", "_ALIGN_JUSTIFY"];
+const CONSTS = ["TAB_BAR_THICKNESS", "TAB_LABEL_PX", "TAB_MIN_LABEL_PX", "LIVE_TEXT", "LIVE_GAUGE", "TEXT_DEFAULTS", "_ALIGN_JUSTIFY"];
 const body = CONSTS.map((c) => extractConst(src, c)).join("\n")
   + "\n\n" + FUNCS.map((f) => extractFunction(src, f)).join("\n\n");
 

@@ -51,6 +51,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     concurrency: roads-packs        # never two builds racing the manifest
+    outputs:
+      published: ${{ steps.published.outputs.published }}
+    permissions:
+      contents: write      # the publish event's GitHub Release (TV8)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -83,12 +87,45 @@ jobs:
         run: |
           notes=()
           if [ -n "$NOTES" ]; then printf '%s' "$NOTES" > notes.json; notes=(--notes-file notes.json); fi
+          # The pyEfis commit build-roads ran, into pack_meta + the record (CERT5a).
           packtool build-pack highways.sqlite "${notes[@]}" \
+            --builder-ref "pyEfis=$(git -C pyefis-src rev-parse HEAD)" \
             --id highways-conus --kind highways --cycle "${{ inputs.cycle }}" \
             --attribution "OpenStreetMap contributors (ODbL)" \
             --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
             --regions conus --url-base https://navdata.aerocommons.org/packs \
             --upload --bucket makerplane-data
+
+      # The pack this run published, as a sha256sum line, for the attest job.
+      # Only after the gate accepted it and the manifest listing it is signed.
+      - name: List published pack
+        id: published
+        if: ${{ steps.publish.outcome == 'success' }}
+        env:
+          CYCLE: ${{ inputs.cycle }}
+        run: |
+          { echo 'published<<END_PUBLISHED'; (cd work/packs && sha256sum "highways-conus-$CYCLE.pack"); echo 'END_PUBLISHED'; } >> "$GITHUB_OUTPUT"
+
+      # TV8: one GitHub Release per publish event, holding each published
+      # edition's report.json (the bytes its signed report_sha256 binds) and
+      # report.html. Only editions the live signed catalog now lists with that
+      # binding are included, so a refused or failed publish cuts no release,
+      # and a no-op run writes nothing. Tags are data/<date>/<run>, never v*.
+      - name: GitHub Release for this publish
+        if: ${{ !cancelled() && inputs.publish }}
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GH_TOKEN:             ${{ github.token }}
+        run: |
+          mkdir -p work/reports
+          packtool release-assets --records work/reports --out work/release --bucket makerplane-data
+          if [ -f work/release/tag.txt ]; then
+            gh release create "$(cat work/release/tag.txt)" work/release/assets/* \
+              --target "$GITHUB_SHA" --title "$(cat work/release/title.txt)" \
+              --notes-file work/release/notes.md --latest=false
+          fi
 
       # The public run page's record of what this run checked, rendered from
       # the test record the publish gate wrote (AER-4101). always(): a failed
@@ -108,3 +145,26 @@ jobs:
             --file highways.sqlite --file "work/packs/highways-conus-$CYCLE.pack" \
             --input "states=$STATES" --input "cycle=$CYCLE" --input "publish=$PUBLISH" \
             --input "fetch + build=$BUILD" --input "gate + sign + upload=$UPLOAD"
+
+  # Build provenance (TV10): a Sigstore-signed statement, kept in GitHub's
+  # public attestation store, that this workflow at this commit built each
+  # pack the build job published. It is a separate job so the OIDC token
+  # that signs it is never in reach of the build steps, which run pyEfis
+  # tools from another repo's dev branch. How to check one:
+  # docs/provenance.md (`gh attestation verify`).
+  attest:
+    needs: build
+    if: ${{ always() && needs.build.outputs.published != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Subjects (the packs the build job published)
+        env:
+          PUBLISHED: ${{ needs.build.outputs.published }}
+        run: printf '%s\n' "$PUBLISHED" > published.sha256
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: published.sha256

@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+# "Tested on my hardware": a builder's report of running the packs and the
+# updater on a real box. These feed the tested-where record; a report that
+# something did not work is as useful as one that it did. The "Pack id"
+# label is read by packtools/community.py (PACK_FIELD): keep them in step.
+name: Tested on my hardware
+description: Tell us the data packs and the updater ran (or did not) on your EFIS hardware.
+title: "[tested] "
+labels: ["tested-on-hardware"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing. Please paste real output rather than a summary;
+        `pyefis-data status` gives most of what we need.
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      options:
+        - Worked as expected
+        - Worked, with problems (described below)
+        - Did not work
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      description: Board, display and storage, e.g. Raspberry Pi 5 8 GB, 7" DSI touchscreen, 64 GB SD.
+    validations:
+      required: true
+  - type: input
+    id: software
+    attributes:
+      label: Software
+      description: OS, pyEfis version or commit, and the makerplane-data version (`pip show makerplane-data`).
+    validations:
+      required: true
+  - type: input
+    id: pack
+    attributes:
+      label: Pack id
+      description: The packs you tested, comma separated, e.g. `airports-conus, terrain-us-west`.
+    validations:
+      required: false
+  - type: textarea
+    id: status
+    attributes:
+      label: pyefis-data status
+      description: Output of `pyefis-data status`.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: What you did and what happened
+      description: Update over WiFi or USB, what you looked at on the display, anything that went wrong.
+    validations:
+      required: true

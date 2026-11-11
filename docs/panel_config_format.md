@@ -112,6 +112,15 @@ them individually. That's intentional: the file is pure pyEfis.
 `preview_scene` (on `virtual_vfr`) only selects which synthetic-vision *preview
 image* the editor shows; it has no meaning on the device and is removed on save.
 
+## Numeric options are written as numbers
+
+An option the schema types `number` or `integer` is saved as a YAML number even
+if it was entered as a quoted string (`bg_opacity: '5'` in the Code pane, or a
+legacy save) — it is written `bg_opacity: 5`. A blank or non-numeric string on
+such an option is dropped on save, so the device uses the option's default.
+Options typed `string` (e.g. `font_mask: '00000'`) and options the schema doesn't
+declare are written exactly as entered.
+
 ## Round-trip + backward compatibility
 
 The editor reads the same format back when you open a device. For older devices
@@ -182,10 +191,20 @@ a build.
 
 - **Synthetic vision data paths.** `virtual_vfr` renders SVS terrain only when its
   `options.svs` block points at the on-device terrain/airport/water data. The
-  editor doesn't know a given Pi's data layout, so it does **not** inject those
-  paths yet; the widget will fall back to sky/ground attitude until the device's
-  SVS config is wired (planned as a device-side `svs` include rather than
-  hard-coding paths per panel). The panel *layout* is fully delivered regardless.
+  editor doesn't know a given Pi's data layout, so it does **not** emit those
+  paths; the device's `config-pull` injects the `svs:` block (enabled + paths
+  under `/data/makerplane-data/...`) at install time, keeping any explicit `svs`
+  the panel already carries. Flat `svs_*` editor options override that block
+  key by key, as pyEfis resolves them.
+- **Legacy Virtual VFR (CIFP) is deprecated.** A `virtual_vfr` with SVS off
+  (`svs_enabled: false`) falls back to the legacy CIFP overlay -- 2D runway
+  outlines, airport labels and an assumed-3-degree PAPI from the raw FAA CIFP
+  file. That overlay is **deprecated** and will be removed; Synthetic Vision
+  replaces it, drawing airports, runways and a PAPI at the published angle from
+  the NASR airports pack. With SVS on (pyEfis #349, CIFP1) the legacy overlay is
+  not loaded and **no CIFP download is needed**. Only an SVS-off panel needs the
+  `screens/virtualvfr_db.yaml` include (`dbpath`/`indexpath`), and `config-pull`
+  adds it only there. The `virtual_vfr` type itself stays: it hosts SVS.
 - **No `include:` emitted.** The editor places concrete instruments, so it never
   emits pyEfis `include,…` instruments. Stock screens that use includes still
   work on the device; the editor simply doesn't generate them.

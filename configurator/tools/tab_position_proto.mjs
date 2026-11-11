@@ -17,7 +17,7 @@
 // workaround this was built against.
 
 import { writeFileSync } from "node:fs";
-import { editorSource, extractFunction } from "../test/support/extract.mjs";
+import { editorSource, extractFunction, extractConst } from "../test/support/extract.mjs";
 
 function arg(name, fallback) {
   const i = process.argv.indexOf("--" + name);
@@ -36,13 +36,12 @@ const out = String(arg("out", "proto.html"));
 const FUNCS = [
   "clamp", "rootSpace", "cell", "withSpace", "rect",
   "ensureContainerSlot", "defaultActiveTab",
+  "fontScale", "tabLabelPx", "tabBarThickness",
   "tabPosition", "tabStripGeom", "tabContentGeom", "buildContainerTwin",
 ];
 const body = FUNCS.map((f) => extractFunction(src, f)).join("\n\n");
-const tabBarConst = src.slice(
-  src.indexOf("const TAB_BAR_THICKNESS"),
-  src.indexOf(";", src.indexOf("const TAB_BAR_THICKNESS")) + 1,
-);
+const tabBarConst = ["TAB_BAR_THICKNESS", "TAB_LABEL_PX", "TAB_MIN_LABEL_PX"]
+  .map((c) => extractConst(src, c)).join("\n");
 
 const POSITIONS = ["top", "bottom", "left", "right"];
 

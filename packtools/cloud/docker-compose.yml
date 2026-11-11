@@ -28,4 +28,11 @@ services:
       EDITION:   "${EDITION:?set EDITION in the shell or .env, e.g. 2024edr1}"  # no default (AER-3528)
       JOBS:      "8"                      # V1500B = 4 cores / 8 threads
       CODE_REF:  dev                      # branch/tag of pyEfis + makerplane-data to run
+      # Stage mode (docs/terrain.md, "Mask-only re-edition"). Listed here because
+      # compose passes a shell variable into the container only if it is named:
+      # without these lines `STAGE_ONLY=1 docker compose up` would publish.
+      STAGE_ONLY:    "${STAGE_ONLY:-0}"
+      FORCE_WMASK:   "${FORCE_WMASK:-0}"
+      PREV_EDITION:  "${PREV_EDITION:-}"
+      WMASK_BORDERS: "${WMASK_BORDERS:-}"
     restart: "no"                          # run-once batch job

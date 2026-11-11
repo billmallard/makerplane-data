@@ -74,9 +74,9 @@ class CountingRemote:
     def get_bytes(self, url, timeout=30):
         return self.inner.get_bytes(url)
 
-    def download(self, url, dest):
+    def download(self, url, dest, progress=None):
         self.downloads += 1
-        return self.inner.download(url, dest)
+        return self.inner.download(url, dest, progress=progress)
 
 
 def test_selection_navdata_by_kind_bulk_opt_in(tmp_path):
@@ -117,7 +117,42 @@ def test_status_json_is_rich(tmp_path):
     d = a.as_dict()
     assert set(d) >= {"id", "name", "kind", "status", "severity", "cycle",
                       "expires", "days", "detail", "effective", "next_cycle",
-                      "next_effective", "next_staged"}
+                      "next_effective", "next_staged", "notice"}
+
+
+def test_status_rows_carry_installed_entry_notice(tmp_path):
+    """Each status row carries the notice of the manifest entry for the
+    INSTALLED cycle (pyEfis's About screen reads it from status.json): ""
+    before install, the installed cycle's text after -- not the pre-staged
+    next cycle's -- and "" for an entry that predates the field or carries
+    a malformed value."""
+    sk, pub = signing.generate_keypair()
+    root, _ = build_store(tmp_path, keypair=(sk, pub))
+    mpath = root / "manifest.json"
+    obj = json.loads(mpath.read_bytes())
+    for p in obj["packs"]:
+        if p["id"] == "airports-conus":
+            p["notice"] = f"airports notice for {p['cycle']}"
+        else:
+            p["notice"] = None          # malformed; must not leak or raise
+    mpath.write_bytes((json.dumps(obj, indent=2, sort_keys=True) + "\n").encode())
+    signing.sign_file(mpath, sk)
+
+    up = make_updater(tmp_path, pub, remote_root=root)
+    before = {r.pack_id: r for r in up.status()}
+    assert all(r.cycle == "" and r.notice == "" for r in before.values())
+    assert all(d["notice"] == "" for d in cli._status_doc(up)["packs"])
+
+    up.update()
+    up2 = make_updater(tmp_path, pub, remote_root=root)
+    rows = {r.pack_id: r for r in up2.status()}
+    a, o = rows["airports-conus"], rows["obstacles-conus"]
+    assert a.cycle == "2606" and a.next_cycle == "2607"
+    assert a.notice == "airports notice for 2606"
+    assert o.cycle and o.notice == ""
+    doc = {d["id"]: d for d in cli._status_doc(up2)["packs"]}
+    assert doc["airports-conus"]["notice"] == "airports notice for 2606"
+    assert doc["obstacles-conus"]["notice"] == ""
 
 
 def test_status_detail_spells_out_cycle_dates(tmp_path):
@@ -412,6 +447,157 @@ def test_offline_self_heals_a_cache_poisoned_before_the_fix(tmp_path):
     assert [p.id for p in m.packs] == ["navdata-conus"]
     assert m.dropped_kinds == ["BOGUS"]
     assert any("offline" in line for line in logs)
+
+
+# --- replayed older manifest (CERT3, AER-5033) ------------------------------
+# A valid signature proves who signed a manifest, not when. Without a recency
+# check, a stale CDN edge, a hostile network or an old USB stick could serve
+# an older, still validly signed manifest and the device would treat its
+# superseded cycles as current.
+
+def _navdata_manifest(generated, cycle, effective, expires):
+    return {
+        "manifest_version": 1, "generated": generated,
+        "packs": [{"id": "navdata-conus", "kind": "navdata", "cycle": cycle,
+                   "bytes": 1, "sha256": "a" * 64,
+                   "url": f"{ORIGIN}/packs/navdata-conus-{cycle}.pack",
+                   "effective": effective, "expires": expires}],
+        "regions": {},
+    }
+
+
+NEWER = _navdata_manifest("2026-06-14T00:00:00Z", "2606", "2026-06-11", "2026-07-09")
+OLDER = _navdata_manifest("2026-06-01T00:00:00Z", "2605", "2026-05-14", "2026-06-30")
+
+
+def _replay_setup(tmp_path, **kw):
+    """A device that has trusted NEWER (cached, 2606 installed), now served a
+    validly signed OLDER manifest whose 2605 window still covers today."""
+    sk, pub = signing.generate_keypair()
+    remote_dir = _sign_manifest_dir(tmp_path, NEWER, sk)
+    cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", packs=("navdata-conus",))
+    up = Updater(cfg, pub, remote=LocalDirRemote(remote_dir), today=TODAY, **kw)
+    up.fetch_manifest()
+    up.inventory.set_current("navdata-conus", "2606", "a" * 64, kind="navdata")
+    up.inventory.save()
+    cached_raw = (tmp_path / "pi" / "manifest.json").read_bytes()
+    _sign_manifest_dir(tmp_path, OLDER, sk)
+    logs = []
+    up.log = logs.append
+    return up, sk, cached_raw, logs
+
+
+def test_replayed_older_manifest_is_refused(tmp_path):
+    up, _sk, cached_raw, logs = _replay_setup(tmp_path)
+    m = up.fetch_manifest()
+    assert m.generated == NEWER["generated"]          # kept the newer cache
+    assert [e.cycle for e in m.packs] == ["2606"]
+    assert up.manifest_generated == NEWER["generated"]
+    assert (tmp_path / "pi" / "manifest.json").read_bytes() == cached_raw
+    assert up.rollback_refused == {"offered": OLDER["generated"],
+                                   "cached": NEWER["generated"]}
+    assert any("refused" in line and OLDER["generated"] in line for line in logs)
+
+
+def test_replayed_older_manifest_installs_nothing(tmp_path):
+    up, _sk, _raw, _logs = _replay_setup(tmp_path)
+    counting = CountingRemote(up.remote)
+    up.remote = counting
+    rows = up.update()
+    assert counting.downloads == 0
+    assert up.inventory.get("navdata-conus")["current"] == "2606"
+    assert [(r.pack_id, r.status) for r in rows] == [("catalog", core.ROLLBACK)]
+
+
+def test_replayed_older_manifest_shows_on_data_status(tmp_path):
+    """The Data Status screen renders every row of status.json, so the
+    refusal is a row there (and lifts the DATA annunciation off 'none')."""
+    up, _sk, _raw, _logs = _replay_setup(tmp_path)
+    doc = cli._status_doc(up)
+    row = next(p for p in doc["packs"] if p["id"] == "catalog")
+    assert row["name"] == "Catalog"
+    assert row["status"] == core.ROLLBACK
+    assert row["severity"] == "white"
+    assert OLDER["generated"] in row["detail"] and NEWER["generated"] in row["detail"]
+    assert doc["worst"] == "white" and doc["any_attention"]
+    nav = next(p for p in doc["packs"] if p["id"] == "navdata-conus")
+    assert nav["status"] == CURRENT and nav["cycle"] == "2606"
+
+
+def test_newer_manifest_after_a_refusal_is_accepted(tmp_path):
+    up, sk, _raw, _logs = _replay_setup(tmp_path)
+    up.fetch_manifest()
+    assert up.rollback_refused
+    newest = _navdata_manifest("2026-06-15T00:00:00Z", "2606", "2026-06-11", "2026-07-09")
+    _sign_manifest_dir(tmp_path, newest, sk)
+    m = up.fetch_manifest()
+    assert m.generated == newest["generated"]
+    assert up.rollback_refused is None
+    assert not any(r.pack_id == "catalog" for r in up.status())
+
+
+def test_same_manifest_refetched_is_not_a_rollback(tmp_path):
+    sk, pub = signing.generate_keypair()
+    remote_dir = _sign_manifest_dir(tmp_path, NEWER, sk)
+    cfg = Config(base_url=ORIGIN, root=tmp_path / "pi", packs=("navdata-conus",))
+    up = Updater(cfg, pub, remote=LocalDirRemote(remote_dir), today=TODAY)
+    up.fetch_manifest()
+    up.fetch_manifest()
+    assert up.rollback_refused is None
+
+
+def test_unverifiable_cache_is_no_baseline(tmp_path):
+    """A cache whose signature no longer checks out was never trusted, so it
+    cannot hold back a validly signed manifest (same rule as offline use)."""
+    up, _sk, _raw, _logs = _replay_setup(tmp_path)
+    (tmp_path / "pi" / "manifest.json.minisig").write_text("garbage", encoding="ascii")
+    m = up.fetch_manifest()
+    assert m.generated == OLDER["generated"]
+    assert up.rollback_refused is None
+
+
+def test_allow_rollback_accepts_older_manifest_and_logs_it(tmp_path):
+    """The deliberate operator path: --allow-rollback takes the older
+    manifest, makes it the cache, and leaves an audit line on disk."""
+    up, _sk, _raw, logs = _replay_setup(tmp_path, allow_rollback=True)
+    m = up.fetch_manifest()
+    assert m.generated == OLDER["generated"]
+    assert up.rollback_refused is None
+    cached = json.loads((tmp_path / "pi" / "manifest.json").read_bytes())
+    assert cached["generated"] == OLDER["generated"]
+    assert any("ROLLBACK ACCEPTED" in line for line in logs)
+    lines = (tmp_path / "pi" / "rollback.log").read_text().splitlines()
+    rec = json.loads(lines[-1])
+    assert rec["offered"] == OLDER["generated"]
+    assert rec["cached"] == NEWER["generated"]
+    assert rec["at"] and rec["source"] == str(tmp_path / "remote")
+
+
+def test_cli_update_refuses_rollback_then_allows_it(tmp_path, monkeypatch, capsys):
+    up, _sk, _raw, _logs = _replay_setup(tmp_path)
+    monkeypatch.setattr(cli, "PUBLIC_KEY", up.public_key)
+    monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))
+    monkeypatch.setattr("pyefis_data.config.default_status_path",
+                        lambda: tmp_path / "status.json")
+    base = ["--base-url", ORIGIN, "--root", str(tmp_path / "pi")]
+    src = str(tmp_path / "remote")
+
+    rc = cli.main(base + ["update", "--source", src])
+    assert rc == 2
+    assert "--allow-rollback" in capsys.readouterr().err
+    status = json.loads((tmp_path / "status.json").read_text())
+    assert any(p["id"] == "catalog" for p in status["packs"])
+
+    # A dry run cannot carry the override: the fetch alone would roll back.
+    rc = cli.main(base + ["update", "--source", src, "--allow-rollback", "--dry-run"])
+    assert rc == 2
+    assert not (tmp_path / "pi" / "rollback.log").exists()
+    cached = json.loads((tmp_path / "pi" / "manifest.json").read_bytes())
+    assert cached["generated"] == NEWER["generated"]
+
+    for sub in (["update", "--source", src], ["import", src]):
+        args = cli.build_parser().parse_args(base + sub + ["--allow-rollback"])
+        assert cli._updater(args).allow_rollback is True
 
 
 def test_import_dir_via_cli_offline(tmp_path, monkeypatch):

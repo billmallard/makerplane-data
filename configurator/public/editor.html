@@ -231,6 +231,9 @@
   }
   .field input[type=checkbox] { width: auto; }
   .field input[type=color] { height: 30px; padding: 2px; }
+  .color-row { display: flex; gap: 6px; align-items: center; }
+  .color-row .swatch { flex: 0 0 22px; height: 22px; border-radius: 4px; border: 1px solid #30363d; }
+  .color-field input[type=color] { margin-top: 4px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .muted { color: #8b949e; font-size: 13px; }
   .empty { color: #6e7681; font-size: 13px; padding: 20px 4px; }
@@ -312,6 +315,7 @@
       <option value="pfd-ems">PFD + EMS (⅔)</option>
     </select>
   </label>
+  <label class="tsel" title="Panel colour theme: what every colour left on Default, or set to a token, resolves to">Theme <select id="theme-sel"></select></label>
   <label class="tsel"><input type="checkbox" id="codeToggle" checked> Code</label>
   <span class="spacer"></span>
   <span id="status"></span>
@@ -344,6 +348,8 @@ const state = {
   // Altimeter-setting unit from the project's aircraft profile (#108), as the
   // device will receive it in preferences units.Pressure. inHg = pyEfis default.
   baroUnit: "inHg",
+  // Panel colour theme (PANEL_THEMES id) the twin resolves colour tokens with.
+  theme: "builtin",
   screen: { width: 1280, height: 800, inches: 10.1 },  // device physical display (shared by all screens)
   // A device can hold several screens (PFD / EMS / RADIO ...) the pilot switches
   // between. Each: { name, layout, instruments }. `layout` + `instruments` below
@@ -428,12 +434,14 @@ function baroSample(o) {
 //   value_text       misc.ValueDisplay      Open Sans, AlignLeft, 0.9 height
 //   numeric_display  gauges.NumericDisplay  DejaVu Sans Condensed, AlignLeft (fits "000")
 //   heading_display  hsi.HeadingDisplay     DejaVu Sans Condensed, centred (fits "999")
+// Colours are not here: an unset fg_color / bg_color previews the schema's
+// default (the widget's own, exported from its Prop), so a pyEfis default
+// change reaches the preview with the next schema.json and no edit here.
 const TEXT_DEFAULTS = {
   static_text:     { font: "DejaVu Sans Condensed", pct: 1.0 },
   value_text:      { font: "Open Sans",             pct: 0.9 },
   numeric_display: { font: "DejaVu Sans Condensed", pct: 0.85 },
-  heading_display: { font: "DejaVu Sans Condensed", pct: 0.75,
-                     fg: "#aaaaaa", bg: "#000000", bold: true, framed: true },
+  heading_display: { font: "DejaVu Sans Condensed", pct: 0.75, bold: true, framed: true },
 };
 // Apply an opacity (0-1) to a hex colour -> rgba(); pass-through for names/opaque.
 function rgbaFromColor(c, op) {
@@ -1607,7 +1615,6 @@ function renderSVS(canvas, patch, o) {
   const gridAmp = _svsNum(o.svs_terrain_grid, 0.35);
   const texAmp = _svsNum(o.svs_terrain_texture, 0.35);
   const safeGrad = _svsBool(o.svs_safe_gradient, true);
-  const fill = _svsBool(o.svs_terrain_fill, true);
   const curve = _svsBool(o.svs_earth_curvature, true);
   const rangeM = Math.min(_svsNum(o.svs_range_nm, meta.range_nm), meta.range_nm) * 1852 * 1.35;
   const nearApt = meta.near_airport;
@@ -1714,10 +1721,9 @@ function renderSVS(canvas, patch, o) {
     ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]);
     ctx.lineTo(p2[0], p2[1]); ctx.lineTo(p3[0], p3[1]);
     ctx.closePath();
-    if (fill) { ctx.fillStyle = col; ctx.fill(); }
-    else { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.fillStyle = col; ctx.fill();
     // world grid fishnet, gaussian-faded by ~2 NM slant (svs terrain_grid)
-    if (fill && gridAmp > 0 && !water && dSl < 2.6 * 1852) {
+    if (gridAmp > 0 && !water && dSl < 2.6 * 1852) {
       const gf = Math.exp(-(dSl / 1852) * (dSl / 1852) / 1.4) * gridAmp;
       if (gf > 0.02 && (ti === 0 || ((iy % 3 === 0) || (ix % 3 === 0)))) {
         ctx.strokeStyle = `rgba(0,0,0,${(gf * 0.7).toFixed(3)})`;
@@ -1783,39 +1789,672 @@ function _svsPatchFor(scene) {
 }
 
 
-// Moving map twin (Phase A-C widget on the moving-map branch): a
-// faithful replica of the widget's render -- dark ground, half/full
-// range rings, top-down ownship at the configurable anchor, status
-// chip. Terrain/airport layers draw on-device from local data; the
-// twin mirrors the no-data presentation (fidelity, not decoration).
-function buildMovingMap(inst) {
-  const o = inst.options || {};
-  const range = Number(o.range_nm) || 10;
-  const anchor = (o.ownship_position == null || o.ownship_position === "")
-    ? 50 : Number(o.ownship_position);
-  const cy = 100 - Math.max(0, Math.min(100, anchor));
-  const rings = o.layer_range_rings !== false;
-  const sym = o.symbol_color || "#ffff00";
-  const mode = (o.orientation === "north_up") ? "NORTH UP" : "TRK UP";
-  const rFull = Math.max(5, cy);          // anchor -> top edge
-  let ringsSvg = "";
-  if (rings) {
-    for (const fr of [0.5, 1.0]) {
-      const r = rFull * fr;
-      ringsSvg += `<circle cx="50" cy="${cy}" r="${r}" fill="none"
-        stroke="rgba(255,255,255,0.55)" stroke-width="0.3"/>
-        <text x="${50 + 1.5}" y="${cy - r + 3}" fill="#cfd6dd"
-        font-size="3">${(range * fr) % 1 ? (range * fr).toFixed(1)
-                        : range * fr}</text>`;
+// Python float() over a raw YAML value, for the map's option coercion
+// (RangeRingsLayer._num): a number passes, a bool is 1/0, a decimal string
+// parses, anything else is the default.
+function pyFloat(v, dflt) {
+  if (typeof v === "number") return v;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s)) return Number(s);
+    if (/^[+-]?(inf|infinity)$/i.test(s)) return s[0] === "-" ? -Infinity : Infinity;
+    if (/^[+-]?nan$/i.test(s)) return NaN;
+  }
+  return dflt;
+}
+
+// map_layers.format_range_nm: "%.1f" stripped below 10 NM, a rounded integer
+// at and above. Python rounds an exact binary tie to even ("%.1f" % 0.25 is
+// "0.2", round(12.5) is 12) where JS rounds it up; the ties are mirrored.
+function formatRangeNm(nm) {
+  nm = Math.max(0, Number(nm) || 0);
+  const halfEven = (n) => {
+    const f = Math.floor(n);
+    return (n - f !== 0.5) ? Math.round(n) : (f % 2 === 0 ? f : f + 1);
+  };
+  if (nm < 10) {
+    const s = (Number.isInteger(nm * 4) && !Number.isInteger(nm * 2))
+      ? (halfEven(nm * 10) / 10).toFixed(1) : nm.toFixed(1);
+    return s.replace(/0+$/, "").replace(/\.$/, "");
+  }
+  return String(halfEven(nm));
+}
+
+// map_layers.parse_ring_fractions: comma list -> sorted unique fractions of
+// range_nm in (0, 2]. One unparseable entry (or an empty / non-string value)
+// falls back to half + full range, so the rings are never lost.
+function parseRingFractions(text) {
+  const dflt = [0.5, 1.0];
+  if (Array.isArray(text) || (text !== null && typeof text === "object")) return dflt;
+  const out = new Set();
+  for (let part of String(text ?? "").split(",")) {
+    part = part.trim();
+    if (!part) continue;
+    const v = pyFloat(part, null);
+    if (v === null) return dflt;
+    if (v > 0 && v <= 2) out.add(v);
+  }
+  return out.size ? [...out].sort((a, b) => a - b) : dflt;
+}
+
+// A port of pyEfis RangeRingsLayer (instruments/map/layers, G13 #136): the
+// options as configure() coerces them, and the geometry paint() draws, in
+// widget pixels for a w x h map. Pure, so the tests can pin it.
+function rangeRingGeom(o, w, h) {
+  o = o || {};
+  // MovingMap._anchor_frac / _range_px: in ND mode the anchor is the mode's
+  // own height (ownship_position is ignored) and range_nm spans the compass
+  // radius; otherwise it spans anchor -> top.
+  const nd = ndMode(o);
+  const anchorFrac = nd !== "off" ? 1 - ndOwnYFrac(nd)
+    : Math.max(0, Math.min(100, pyFloat(o.ownship_position ?? 50, 50))) / 100;
+  const cx = w / 2, cy = h * (1 - anchorFrac);
+  const rangePx = nd !== "off" ? ndGeometry(nd, w, h).r : cy;
+  const range = pyFloat(o.range_nm ?? 10, 10) || 10;
+  const pxPerNm = Math.max(1, rangePx) / range;      // MapTransform: range_px = range
+  const fractions = parseRingFractions(o.range_ring_fractions ?? "0.5,1");
+  const labels = o.range_ring_labels === undefined ? true : !!o.range_ring_labels;
+  const angle = ((pyFloat(o.range_ring_label_angle ?? 0, 0) % 360) + 360) % 360;
+  // QColor(name): hex (#aarrggbb keeps its rgb) or an SVG colour name, else white.
+  let color = String(o.range_ring_color || "#ffffff").trim();
+  if (/^#[0-9a-f]{8}$/i.test(color)) color = "#" + color.slice(3);
+  else if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color) && !/^[a-z]+$/i.test(color)) color = "#ffffff";
+  const opacity = Math.max(0, Math.min(100, pyFloat(o.range_ring_opacity ?? 55, 55)));
+  const alpha = Math.round(opacity * 2.55);
+  const widthOpt = Math.max(0, pyFloat(o.range_ring_width ?? 0, 0));
+  const strokeW = widthOpt > 0 ? widthOpt : Math.max(1, w * 0.002);
+  const sizeOpt = Math.max(0, Math.trunc(pyFloat(o.range_ring_label_size ?? 0, 0)));
+  const labelPx = sizeOpt > 0 ? sizeOpt : Math.max(8, Math.trunc(w * 0.025));
+  const a = angle * Math.PI / 180;
+  const rings = fractions.map((frac) => {
+    const r = pxPerNm * range * frac;
+    const ax = cx + r * Math.sin(a), ay = cy - r * Math.cos(a);
+    // label rect: top-left = anchor + (_LABEL_DX 4, 0), _LABEL_W 80 wide, px + 6 tall
+    return { frac, r, text: formatRangeNm(range * frac),
+             label: { x: ax + 4, y: ay, w: 80, h: labelPx + 6 } };
+  });
+  return { cx, cy, range, rangePx, rings, labels, color, alpha, strokeW, labelPx };
+}
+
+// pyefis.display_metrics.pixels_per_mm from main:'s screen size and
+// diagonal. The device's next source, Qt's reported DPI, is not knowable
+// here, so a missing or implausible diagonal goes straight to the nominal 96.
+function displayPxPerMm(screen) {
+  const s = screen || {};
+  const w = Number(s.width), h = Number(s.height), d = Number(s.inches);
+  let dpi = null;
+  if (w > 0 && h > 0 && d > 0) {
+    const v = Math.hypot(w, h) / d;
+    if (v >= 40 && v <= 500) dpi = v;
+  }
+  return (dpi ?? 96) / 25.4;
+}
+
+// MovingMap._ladder, then _rail_ladder's sorted(set(...)): str(range_ladder)
+// split on commas, every entry a float or the whole ladder falls back to
+// [10]. A YAML list is not a comma string to str(), so it falls back too.
+function railLadder(o) {
+  const raw = (o && o.range_ladder !== undefined) ? o.range_ladder : "2,5,10,20,40,80,160";
+  const vals = [];
+  if (raw !== null && typeof raw !== "object" && typeof raw !== "boolean") {
+    for (const part of String(raw).split(",")) {
+      if (!part) continue;
+      const v = pyFloat(part, null);
+      if (v === null) return [10];
+      vals.push(v);
+    }
+  } else {
+    return [10];
+  }
+  return vals.length ? [...new Set(vals)].sort((a, b) => a - b) : [10];
+}
+
+// A port of the pyEfis MovingMap zoom rail (G22, pyEfis #205):
+// zoom_rail_geometry() plus the strokes _paint_zoom_rail() draws at rest, in
+// widget pixels for a w x h map. Null when zoom_rail is off or the map is too
+// short to hold it. Pure, so the tests can pin it against the real widget.
+function zoomRailGeom(o, w, h, pxPerMm, range) {
+  o = o || {};
+  if (!o.zoom_rail || !(w > 0) || !(h > 0)) return null;
+  const chipH = Math.max(9, Math.trunc(w * 0.03)) + 6;
+  const top = 4 + 2 * chipH;                 // one chip-height below the chip
+  const avail = h * 0.75 - top;              // _ZOOM_RAIL_BOTTOM_FRAC
+  if (avail <= 0) return null;
+  const touch = Math.max(24, Math.min(20 * pxPerMm, w * 0.25));   // 20 mm column
+  const total = Math.min(avail, 2 * touch + 0.38 * h);            // _ZOOM_RAIL_TRACK_FRAC
+  const cap = Math.min(touch, total / 3);
+  const x0 = o.zoom_rail_side === "right" ? w - touch : 0;
+  const claim = { x: x0, y: top, w: touch, h: total };
+  const plus = { x: x0, y: top, w: touch, h: cap };
+  const minus = { x: x0, y: top + total - cap, w: touch, h: cap };
+  const x = x0 + touch / 2, y0 = plus.y + plus.h, y1 = minus.y;
+  const ladder = railLadder(o);
+  const n = ladder.length;
+  const step = n > 1 ? (y1 - y0) / (n - 1) : 0;
+  const rungY = ladder.map((_, i) => n === 1 ? (y0 + y1) / 2 : y0 + i * step);
+  // _rail_thumb_y: a rung sits on its detent, a range between rungs is
+  // interpolated in log space, anything past the ends clamps to them.
+  let thumbY = rungY[0];
+  if (!(range <= ladder[0] || n === 1)) {
+    if (range >= ladder[n - 1]) thumbY = rungY[n - 1];
+    else {
+      for (let i = 0; i < n - 1; i++) {
+        if (ladder[i] <= range && range <= ladder[i + 1]) {
+          thumbY = rungY[i] + Math.log(range / ladder[i]) / Math.log(ladder[i + 1] / ladder[i]) * step;
+          break;
+        }
+      }
     }
   }
+  const lw = Math.max(2, w * 0.004);
+  const tick = Math.max(4, touch * 0.12);
+  const glyph = Math.max(5, touch * 0.15);
+  const r = Math.max(6, touch * 0.14);
+  // The path: the line, a tick per rung, "+" in the top cap, "-" in the bottom.
+  const segments = [[[x, y0], [x, y1]], ...rungY.map((y) => [[x - tick, y], [x + tick, y]])];
+  for (const [rc, vertical] of [[plus, true], [minus, false]]) {
+    const cx = rc.x + rc.w / 2, cy = rc.y + rc.h / 2;
+    segments.push([[cx - glyph, cy], [cx + glyph, cy]]);
+    if (vertical) segments.push([[cx, cy - glyph], [cx, cy + glyph]]);
+  }
+  return { claim, plus, minus, x, y0, y1, ladder, touch, rungY, thumbY,
+           lw, r, segments };
+}
+
+// The rail at rest, as SVG: _RAIL_HALO under _RAIL_REST, round caps, then the
+// thumb -- a halo ring just outside an opaque disc.
+function zoomRailSvg(g) {
+  if (!g) return "";
+  const d = g.segments.map((s) => `M${s[0][0]},${s[0][1]} L${s[1][0]},${s[1][1]}`).join(" ");
+  const HALO = `stroke="#000000" stroke-opacity="${(170 / 255).toFixed(4)}"`;
+  return `
+  <path d="${d}" fill="none" ${HALO} stroke-width="${g.lw + 3}" stroke-linecap="round"/>
+  <path d="${d}" fill="none" stroke="rgb(205,205,205)" stroke-width="${g.lw}" stroke-linecap="round"/>
+  <circle cx="${g.x}" cy="${g.thumbY}" r="${g.r + 1}" fill="none" ${HALO} stroke-width="2"/>
+  <circle cx="${g.x}" cy="${g.thumbY}" r="${g.r}" fill="rgb(205,205,205)"/>`;
+}
+
+// --- moving map ND mode (G11a EXPANDED MAP, G11b CTR MAP) ---------------------
+// A port of pyEfis instruments/map/nd.py (billmallard/pyEfis#134): the pure
+// geometry, the corner-block models over read(key) -> [value, old, bad, fail]
+// or null, and paint() as a list of draw ops in widget px (ndPaintOps), which
+// ndOpsSvg turns into markup. The tests pin all three against what the real
+// module computes and paints (tools/nd_mode_oracle.py).
+
+// nd.normalize_mode: str(mode or "off") stripped + lower-cased, anything
+// unknown is "off". A YAML list or map is not a mode string to str().
+function ndMode(o) {
+  const v = o && o.nd_mode;
+  if (v !== null && typeof v === "object") return "off";
+  const m = String(v || "off").trim().toLowerCase();
+  return ["off", "expanded", "ctr"].includes(m) ? m : "off";
+}
+
+// nd.EXPANDED_OWN_Y_FRAC (the HSI arc's own_y) / CTR_OWN_Y_FRAC: ownship
+// height as a fraction of the map height, down from the top.
+function ndOwnYFrac(mode) { return mode === "ctr" ? 0.5 : 0.82; }
+
+function ndFontPx(w, h) { return Math.max(11, Math.trunc(Math.min(w, h) * 0.035)); }
+function ndStatusChipHeight(w) { return Math.max(9, Math.trunc(w * 0.03)) + 6; }
+
+function ndVdevGeometry(w, h) {
+  const fs = ndFontPx(w, h);
+  return { x: w - fs * 1.5, y0: h * 0.5, half: h * 0.18, fs };
+}
+
+function ndArcReach(w, h) {
+  const fs = ndFontPx(w, h);
+  return Math.max(1, Math.min(0.96 * w / 2, ndVdevGeometry(w, h).x - fs - w / 2));
+}
+
+// nd.expanded_geometry / ctr_geometry / geometry. r is the compass radius:
+// the selected range in px. EXPANDED spans ARC_HALF_DEG 60 on a landscape
+// panel and shrinks r until it spans ARC_MIN_HALF_DEG 40 on a tall one; CTR
+// is the largest closed rose that fits.
+function ndGeometry(mode, w, h) {
+  const fs = ndFontPx(w, h);
+  const ownY = h * ndOwnYFrac(mode);
+  const boxH = fs * 1.5;
+  const reach = ndArcReach(w, h);
+  let r, half;
+  if (mode === "ctr") {
+    r = Math.max(1, Math.min(ownY - (4 + boxH + fs * 0.5), h - ownY - fs, reach));
+    half = 180;
+  } else {
+    r = ownY - (4 + boxH + fs * 0.5);
+    r = Math.max(1, Math.min(r, reach / Math.sin(40 * Math.PI / 180)));
+    half = reach >= r ? 60 : Math.min(60, Math.asin(reach / r) * 180 / Math.PI);
+  }
+  return { fs, own_y: ownY, r, apex: ownY - r, box_h: boxH, half };
+}
+
+// nd.tick_bearings: every multiple of 5 within half of the top bearing, ends
+// included on an arc; a closed rose lists each bearing once.
+function ndTickBearings(up, half) {
+  const first = Math.ceil((up - half) / 5) * 5;
+  const last = half >= 180 ? first + 355 : Math.floor(up + half);
+  const out = [];
+  for (let b = first; b <= last; b += 5) out.push(b);
+  return out;
+}
+
+function ndVdevPointerY(g, pointer) { return g.y0 - pointer * g.half; }
+
+// Python's round() (half-even on exact binary ties) and "%.1f" (the same,
+// via the exact binary value), where JS rounds a tie up.
+function pyRound(v) {
+  const f = Math.floor(v);
+  return (v - f !== 0.5) ? Math.round(v) : (f % 2 === 0 ? f : f + 1);
+}
+function pyFixed1(v) {
+  return (Number.isInteger(v * 4) && !Number.isInteger(v * 2))
+    ? (pyRound(v * 10) / 10).toFixed(1) : v.toFixed(1);
+}
+// int(x) over a raw value (FPLSTATE): a number truncates, a bool is 1/0, an
+// integer string parses, anything else raises (null here).
+function pyInt(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? Math.trunc(v) : null;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (typeof v === "string" && /^\s*[+-]?\d+\s*$/.test(v)) return parseInt(v, 10);
+  return null;
+}
+// bool() over a raw YAML option (the layer_<id> switches); unset = default.
+function pyTruthy(v, dflt) {
+  if (v === undefined) return dflt;
+  if (v === null) return false;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string" || Array.isArray(v)) return v.length > 0;
+  if (typeof v === "object") return Object.keys(v).length > 0;
+  return !!v;
+}
+
+const ND_WHITE = "#ffffff", ND_MAGENTA = "#ff00ff", ND_CYAN = "#00ffff",
+  ND_RED = "#ff0000", ND_GREY = "#808080";
+const ND_FAIL = "XXX";
+
+const _ndFmtInt = (v) => String(pyRound(v));
+const _ndFmtDeg = (v) => String(((pyRound(v) % 360) + 360) % 360 || 360).padStart(3, "0");
+
+// nd._field: [text, colour], or null when the key is absent.
+function ndField(read, key, fmt) {
+  const r = read(key);
+  if (r == null) return null;
+  const [value, old, bad, fail] = r;
+  if (fail) return [ND_FAIL, ND_RED];
+  const v = pyFloat(value, null);
+  if (v === null || !Number.isFinite(v)) return [ND_FAIL, ND_RED];
+  return [fmt(v), (old || bad) ? ND_GREY : ND_WHITE];
+}
+
+// nd.top_left: GS/TAS, then wind dir/speed, and the wind arrow's
+// from-direction or null.
+function ndTopLeft(read) {
+  const lines = [], speeds = [];
+  for (const key of ["GS", "TAS"]) {
+    const f = ndField(read, key, _ndFmtInt);
+    if (f) speeds.push([key, ND_WHITE], f);
+  }
+  if (speeds.length) lines.push(speeds);
+  const wdir = ndField(read, "WINDDIR", _ndFmtDeg);
+  const wspd = ndField(read, "WINDSPD", _ndFmtInt);
+  let arrow = null;
+  if (wdir && wspd) {
+    if (wdir[0] === ND_FAIL || wspd[0] === ND_FAIL) lines.push([[ND_FAIL, ND_RED]]);
+    else if (wdir[1] === ND_GREY || wspd[1] === ND_GREY) lines.push([[`${wdir[0]}°/${wspd[0]}`, ND_GREY]]);
+    else {
+      lines.push([[`${wdir[0]}°/${wspd[0]}`, ND_WHITE]]);
+      arrow = pyFloat(read("WINDDIR")[0], null);
+    }
+  }
+  return { lines, arrow };
+}
+
+// nd.eta_text: UTC HHMM.Mz at now + WPETE seconds.
+function ndEtaText(eteS, now) {
+  const t = Math.floor(now + eteS);
+  const d = new Date(t * 1000);
+  const tenths = Math.trunc((d.getUTCSeconds() / 60) * 10);
+  return `${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}.${tenths}z`;
+}
+
+// nd.top_right: the active waypoint block (ident, ETA, distance), drawn only
+// while FPLSTATE != 0, by the FP7 rules quoted there.
+function ndTopRight(read, now) {
+  const st = read("FPLSTATE");
+  if (st == null || read("WPNAME") == null) return [];
+  const state = pyInt(st[0] || 0) ?? 0;
+  if (state === 0) return [];
+  const stale = !!st[1];
+  let ident = read("WPNAME")[0];
+  ident = typeof ident === "string" ? ident.trim() : "";
+  let lines = [[[ident, ND_MAGENTA]]];
+  const ph = read("FPLPHASE");
+  const phase = ph != null && typeof ph[0] === "string" ? ph[0].trim() : "";
+  if (phase !== "VECTORS") {
+    const ete = read("WPETE");
+    if (ete != null) {
+      if (ete[3]) lines.push([[ND_FAIL, ND_RED]]);
+      else if (ete[2]) lines.push([["--:--", ND_GREY]]);
+      else {
+        const s = pyFloat(ete[0], null);
+        lines.push(s === null || !Number.isFinite(s) ? [[ND_FAIL, ND_RED]] : [[ndEtaText(s, now), ND_WHITE]]);
+      }
+    }
+    const dis = ndField(read, "WPDIS", (v) => v < 100 ? pyFixed1(v) : String(pyRound(v)));
+    if (dis) lines.push(dis[0] === ND_FAIL ? [dis] : [dis, ["NM", dis[1]]]);
+  }
+  if (stale) lines = lines.map((line) => line.map(([t]) => [t, ND_GREY]));
+  return lines;
+}
+
+// nd.bottom_left: the selected map options, cyan (WXR has no layer here).
+function ndBottomLeft(enabled) {
+  return [["airports", "ARPT"], ["fixes", "WPT"], ["navaids", "STA"]]
+    .filter(([id]) => enabled.has(id)).map(([, label]) => [[label, ND_CYAN]]);
+}
+
+// The ND's layers that bottom_left lists, enabled as MovingMap.layer_enabled
+// reads them: bool(layer_<id>), airports/navaids on and fixes off by default.
+function ndEnabledLayers(o) {
+  const on = new Set();
+  for (const [id, dflt] of [["airports", true], ["navaids", true], ["fixes", false]]) {
+    if (pyTruthy(o["layer_" + id], dflt)) on.add(id);
+  }
+  return on;
+}
+
+// nd.vdev: the vertical deviation scale's state, or null when not drawn.
+function ndVdev(read) {
+  const gsi = read("GSI");
+  if (gsi == null) return null;
+  const gsv = read("GSV");
+  let gsvV = null;
+  if (gsv != null) {
+    gsvV = pyFloat(gsv[0], null);
+    if (gsvV === null) gsvV = 0;
+    if (gsvV < 0.5) return null;
+  }
+  const [value, old, bad, fail] = gsi;
+  let pointer = null;
+  if (!(old || bad || fail)) {
+    // max(-1, min(1, nan)) is 1 in Python: min keeps its first argument.
+    const v = pyFloat(value, null);
+    if (v !== null) pointer = Number.isNaN(v) ? 1 : Math.max(-1, Math.min(1, v));
+  }
+  return { pointer, flag: gsvV !== null && !!(bad || fail) };
+}
+
+// QFontMetrics over DejaVu Sans Condensed (the map's font): Qt adds each
+// glyph's advance, and each kerning pair, rounded to whole px. Advances in
+// font units (2048/em) for printable ASCII, then the degree sign; then the
+// font's kern pairs over the characters the ND draws; regular, then bold.
+// Qt's hinting moves a glyph by 1 px at some sizes, which this does not
+// follow, so a width can be a px or two off the device's.
+const ND_ADV = [
+  [585,738,847,1544,1172,1751,1437,506,719,719,921,1544,585,665,585,621,1172,1172,1172,1172,1172,1172,1172,1172,1172,1172,621,621,1544,1544,1544,978,1843,1260,1264,1287,1419,1164,1060,1428,1386,543,543,1208,1026,1590,1378,1450,1111,1450,1280,1170,1125,1349,1260,1822,1262,1125,1262,719,621,719,1544,921,921,1129,1170,1013,1170,1134,648,1170,1168,512,512,1067,512,1795,1168,1127,1170,1170,757,960,722,1168,1090,1507,1090,1090,967,1172,621,1172,1544,921],
+  [641,840,960,1544,1282,1846,1607,564,842,842,963,1544,700,765,700,673,1282,1282,1282,1282,1282,1282,1282,1282,1282,1282,737,737,1544,1544,1544,1069,1843,1426,1404,1352,1530,1259,1259,1512,1542,685,685,1428,1174,1834,1542,1566,1350,1566,1419,1327,1257,1496,1426,2033,1421,1334,1336,842,673,842,1544,921,921,1243,1319,1092,1319,1250,801,1319,1312,631,631,1225,631,1920,1312,1266,1319,1319,909,1097,881,1312,1201,1702,1188,1201,1072,1312,673,1312,1544,921],
+];
+const ND_KERN = [
+  {"AA":57,"AC":-36,"AG":-36,"AO":-36,"AQ":-36,"AT":-159,"AV":-131,"AW":-112,"AY":-159,"A.":-36,"A:":-36,"A-":-45,"BC":-36,"BG":-36,"BO":-36,"BS":-36,"BV":-63,"BW":-73,"BY":-112,"CY":-36,"DA":-36,"DV":-36,"DY":-112,"FA":-188,"FS":-36,"FT":-36,"F.":-329,"F:":-159,"GT":-73,"GY":-102,"H.":-36,"JA":-36,"J-":-73,"KA":-36,"KC":-112,"KO":-112,"KT":-159,"KU":-55,"KW":-73,"KY":-73,"K-":-215,"LA":47,"LO":-73,"LT":-282,"LU":-102,"LV":-225,"LW":-188,"LY":-272,"L-":-36,"OA":-36,"OV":-36,"OX":-131,"OY":-112,"O.":-83,"O:":-36,"O-":57,"PA":-131,"PY":-45,"P.":-319,"P-":-45,"Q-":57,"RA":-83,"RC":-102,"RT":-149,"RV":-112,"RW":-83,"RY":-131,"R.":-73,"R:":-63,"R-":-83,"SA":38,"TA":-159,"TC":-120,"TT":-36,"T.":-243,"T:":-225,"T-":-188,"UZ":-36,"VA":-131,"VO":-36,"V.":-264,"V:":-167,"V-":-120,"WA":-112,"W.":-235,"W:":-120,"W-":-83,"XC":-149,"XO":-131,"XT":-36,"X-":-102,"YA":-159,"YC":-112,"YO":-112,"Y.":-415,"Y:":-272,"Y-":-243,"Z-":-36,"-A":-45,"-B":-73,"-G":75,"-J":114,"-O":57,"-Q":75,"-T":-188,"-V":-120,"-W":-83,"-X":-102,"-Y":-243},
+  {"AT":-159,"AU":-63,"AV":-139,"AW":-92,"AY":-196,"A.":38,"A:":38,"BV":-83,"BW":-112,"BY":-112,"CS":38,"C-":47,"DY":-149,"D-":38,"FA":-235,"F.":-301,"F:":-112,"F-":-63,"GT":-36,"GY":-45,"KC":-92,"KO":-92,"KU":-36,"K-":-178,"LO":-73,"LT":-339,"LU":-73,"LV":-282,"LW":-159,"LY":-319,"OA":-55,"OV":-55,"OX":-73,"OY":-73,"O.":-45,"O-":38,"PA":-188,"P.":-376,"P-":-36,"Q-":38,"RT":-92,"RY":-112,"R.":38,"SS":-92,"TA":-159,"TT":47,"T.":-311,"T:":-112,"T-":-301,"UA":-63,"VA":-139,"VO":-36,"V.":-264,"V:":-92,"V-":-149,"WA":-92,"W.":-167,"W:":-63,"W-":-92,"XC":-73,"XO":-73,"X-":-167,"YA":-196,"YC":-73,"YO":-73,"Y.":-339,"Y:":-178,"Y-":-301,"Z-":-36,"-T":-301,"-V":-149,"-W":-92,"-X":-167,"-Y":-301},
+];
+function ndAdvance(text, px, bold) {
+  const t = ND_ADV[bold ? 1 : 0], k = ND_KERN[bold ? 1 : 0];
+  let w = 0, prev = "";
+  for (const ch of String(text)) {
+    const c = ch.codePointAt(0);
+    const a = (c >= 32 && c <= 126) ? t[c - 32] : (c === 0xb0 ? t[95] : 1229);  // else ~0.6 em
+    w += Math.round(a * px / 2048) + (prev ? Math.round((k[prev + ch] || 0) * px / 2048) : 0);
+    prev = ch;
+  }
+  return w;
+}
+// QFontMetrics ascent / descent: the hhea values (1901 / 483) rounded.
+function ndFont(px, bold) {
+  px = Math.max(1, Math.trunc(px));
+  const ascent = Math.round(1901 * px / 2048), descent = Math.round(483 * px / 2048);
+  return { px, bold: !!bold, ascent, descent, height: ascent + descent };
+}
+
+// nd.paint as draw ops, in widget px: { mode, w, h, cx, cy, up, track,
+// trackOld, read, now, enabled }. cx/cy is ownship; up the bearing at the top
+// of the screen (always track-up in ND). Op shapes follow the oracle's
+// recording painter, with the arc kept as an arc.
+function ndPaintOps(a) {
+  const { w, h, cx, cy, up, read, now } = a;
+  const g = ndGeometry(a.mode, w, h);
+  const fs = g.fs, r = g.r, half = g.half;
+  const lw = Math.max(1.5, w * 0.003);
+  const white = { rgb: ND_WHITE, width: lw };
+  const ops = [];
+  const tick = fs * 0.6, ticks = [], numerals = [];
+  for (const b of ndTickBearings(up, half)) {
+    const rel = (b - up) * Math.PI / 180;
+    const sx = Math.sin(rel), sy = -Math.cos(rel);
+    const tl = b % 10 === 0 ? tick : tick * 0.5;
+    ticks.push([[cx + r * sx, cy + r * sy], [cx + (r - tl) * sx, cy + (r - tl) * sy]]);
+    if (b % 30 === 0) {
+      const rr = r - tick - fs * 0.7;
+      numerals.push([cx + rr * sx, cy + rr * sy, String(Math.trunc((((b % 360) + 360) % 360) / 10))]);
+    }
+  }
+  ops.push({ op: "path", pen: white, brush: null, arc: { cx, cy, r, half }, ticks });
+  const f = ndFont(fs, false);
+  for (const [nx, ny, label] of numerals) {
+    ops.push({ op: "text_rect", pen: white, rect: { x: nx - fs * 1.5, y: ny - fs * 0.7, w: fs * 3, h: fs * 1.4 },
+               text: label, font: f });
+  }
+
+  // TRK box at the top centre, the lubber triangle under it.
+  const col = a.trackOld ? ND_GREY : ND_WHITE;
+  const sp = ndAdvance(" ", fs, true);
+  const runs = [["TRK", fs * 0.8], [_ndFmtDeg(a.track), fs * 1.05], ["MAG", fs * 0.8]];
+  const widths = runs.map(([t, px]) => ndAdvance(t, ndFont(px, true).px, true));
+  const bw = widths.reduce((s, x) => s + x, 0) + sp * 4;
+  const apexY = cy - r;
+  const box = { x: cx - bw / 2, y: apexY - fs * 0.5 - g.box_h, w: bw, h: g.box_h };
+  const pen = { rgb: col, width: lw };
+  ops.push({ op: "rect", pen, brush: null, rect: box });
+  let tx = box.x + sp;
+  runs.forEach(([t, px], i) => {
+    ops.push({ op: "text_rect", pen, rect: { x: tx, y: box.y, w: widths[i], h: box.h }, text: t, font: ndFont(px, true) });
+    tx += widths[i] + sp;
+  });
+  const t = fs * 0.45;
+  ops.push({ op: "polygon", pen, brush: col, pts: [[cx, apexY], [cx - t, apexY - t], [cx + t, apexY - t]] });
+
+  // Corner blocks: _draw_lines, left aligned at x or right aligned at right.
+  const lh = fs * 1.3;
+  const drawLines = (lines, x, y, right) => {
+    const space = ndAdvance(" ", fs, false);
+    for (const line of lines) {
+      const rs = line.filter(([txt]) => txt);
+      const width = rs.reduce((s, [txt]) => s + ndAdvance(txt, fs, false), 0) + space * Math.max(0, rs.length - 1);
+      let x0 = right != null ? right - width : x;
+      for (const [txt, c] of rs) {
+        ops.push({ op: "text_at", pen: { rgb: c, width: 1 }, pt: [x0, y + f.ascent], text: txt, font: f });
+        x0 += ndAdvance(txt, fs, false) + space;
+      }
+      y += lh;
+    }
+    return y;
+  };
+  const top = 4 + ndStatusChipHeight(w) + 2;
+  const tl = ndTopLeft(read);
+  const y = drawLines(tl.lines, 6, top, null);
+  if (tl.arrow !== null) {
+    // _wind_arrow: a line through (6 + fs, y + fs), head at the -length end,
+    // rotated by arrow + 180 - up (the way the wind blows, on screen).
+    const len = fs * 0.9, head = len * 0.4;
+    const deg = (tl.arrow + 180 - up) * Math.PI / 180, c = Math.cos(deg), s = Math.sin(deg);
+    const at = (px, py) => [6 + fs + px * c - py * s, y + fs + px * s + py * c];
+    for (const [p0, p1] of [[[0, len], [0, -len]], [[0, -len], [-head * 0.6, -len + head]], [[0, -len], [head * 0.6, -len + head]]]) {
+      ops.push({ op: "line", pen: white, pts: [at(...p0), at(...p1)] });
+    }
+  }
+  drawLines(ndTopRight(read, now), 0, top, w - 6);
+  const bl = ndBottomLeft(a.enabled);
+  drawLines(bl, 6, h - 6 - lh * bl.length, null);
+
+  // The vertical deviation scale.
+  const vg = ndVdevGeometry(w, h), vs = ndVdev(read);
+  if (vs) {
+    const { x: x0, y0, half: vh } = vg;
+    ops.push({ op: "line", pen: white, pts: [[x0 - fs * 0.6, y0], [x0 + fs * 0.6, y0]] });
+    for (const d of [-1, -0.5, 0.5, 1]) {
+      const yy = y0 - d * vh;
+      ops.push({ op: "line", pen: white, pts: [[x0 - fs * 0.3, yy], [x0 + fs * 0.3, yy]] });
+    }
+    if (vs.pointer !== null) {
+      const py = ndVdevPointerY(vg, vs.pointer), ds = fs * 0.45;
+      ops.push({ op: "polygon", pen: { rgb: ND_MAGENTA, width: lw }, brush: null,
+                 pts: [[x0, py - ds], [x0 + ds, py], [x0, py + ds], [x0 - ds, py]] });
+    }
+    if (vs.flag) {
+      const bf = ndFont(fs, true), pad = fs * 0.3, tw = ndAdvance("GS", bf.px, true);
+      const rect = { x: x0 - tw / 2 - pad, y: y0 - bf.height / 2 - pad, w: tw + 2 * pad, h: bf.height + 2 * pad };
+      const rp = { rgb: ND_RED, width: Math.max(2, fs * 0.12) };
+      ops.push({ op: "rect", pen: rp, brush: "#000000", rect });
+      ops.push({ op: "text_rect", pen: rp, rect, text: "GS", font: bf });
+    }
+  }
+  return ops;
+}
+
+function _ndEsc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// The ops as SVG. Qt's default pen is square-capped and bevel-joined; text in
+// a rect is centred both ways (Qt: top + (rect h - font height) / 2 + ascent).
+function ndOpsSvg(ops) {
+  const FONT = `font-family="DejaVu Sans Condensed, DejaVu Sans, sans-serif"`;
+  const stroke = (p) => p ? `stroke="${p.rgb}" stroke-width="${p.width}" stroke-linecap="square" stroke-linejoin="bevel"` : `stroke="none"`;
+  const fill = (b) => `fill="${b || "none"}"`;
+  const fontAttr = (fo) => `${FONT} font-size="${fo.px}"${fo.bold ? ` font-weight="bold"` : ""}`;
+  let out = "";
+  for (const op of ops) {
+    if (op.op === "path") {
+      const { cx, cy, r, half } = op.arc;
+      const pt = (deg) => [cx + r * Math.sin(deg * Math.PI / 180), cy - r * Math.cos(deg * Math.PI / 180)];
+      let d;
+      if (half >= 180) {
+        const [x0, y0] = pt(0), [x1, y1] = pt(180);
+        d = `M${x0},${y0} A${r},${r} 0 0 0 ${x1},${y1} A${r},${r} 0 0 0 ${x0},${y0}`;
+      } else {
+        const [x0, y0] = pt(-half), [x1, y1] = pt(half);
+        d = `M${x0},${y0} A${r},${r} 0 ${half > 90 ? 1 : 0} 1 ${x1},${y1}`;
+      }
+      d += op.ticks.map(([p, q]) => ` M${p[0]},${p[1]} L${q[0]},${q[1]}`).join("");
+      out += `<path d="${d}" fill="none" ${stroke(op.pen)}/>`;
+    } else if (op.op === "text_rect") {
+      const R = op.rect, fo = op.font;
+      const base = R.y + (R.h - fo.height) / 2 + fo.ascent;
+      out += `<text x="${R.x + R.w / 2}" y="${base}" text-anchor="middle" ${fontAttr(fo)} fill="${op.pen.rgb}" style="white-space:pre">${_ndEsc(op.text)}</text>`;
+    } else if (op.op === "text_at") {
+      out += `<text x="${op.pt[0]}" y="${op.pt[1]}" ${fontAttr(op.font)} fill="${op.pen.rgb}" style="white-space:pre">${_ndEsc(op.text)}</text>`;
+    } else if (op.op === "rect") {
+      const R = op.rect;
+      out += `<rect x="${R.x}" y="${R.y}" width="${R.w}" height="${R.h}" ${fill(op.brush)} ${stroke(op.pen)}/>`;
+    } else if (op.op === "polygon") {
+      out += `<polygon points="${op.pts.map((p) => p.join(",")).join(" ")}" ${fill(op.brush)} ${stroke(op.pen)}/>`;
+    } else if (op.op === "line") {
+      const [p, q] = op.pts;
+      out += `<line x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" ${stroke(op.pen)}/>`;
+    }
+  }
+  return out;
+}
+
+// Preview FIX values for the ND blocks: the schema's category-3 preview,
+// keyed by FIX key, read as good data. A key with no preview value reads as
+// absent and its block is left out, as on a gateway that does not define it.
+function ndPreviewRead(preview) {
+  const pv = preview || {};
+  return (key) => Object.prototype.hasOwnProperty.call(pv, key) ? [pv[key], false, false, false] : null;
+}
+
+// The map widget's size in device pixels: its share of the 110x200 grid on
+// the target screen. The device scales stroke, label and chip sizes off it.
+function mapDevicePx(inst) {
+  return {
+    w: Math.max(1, (inst.span?.columns ?? 1) / state.layout.columns * state.screen.width),
+    h: Math.max(1, (inst.span?.rows ?? 1) / state.layout.rows * state.screen.height),
+  };
+}
+
+// map_style picks the palette like pyEfis map_layers.map_style():
+// stripped + lower-cased, anything unknown is "standard". The nav_only
+// colours are NAV_ONLY_PALETTE's background / range_ring / range_ring_label.
+// Standard leaves ring/ringLabel null: there range_ring_color and
+// range_ring_opacity style the rings (RangeRingsLayer.colors), while any
+// other style's palette owns its ring colours.
+function movingMapPalette(o) {
+  const style = String((o && o.map_style) || "standard").trim().toLowerCase();
+  if (style === "nav_only") {
+    return { background: "#000000", ring: "rgb(120,120,120)", ringLabel: "rgb(170,170,170)" };
+  }
+  return { background: "#101820", ring: null, ringLabel: null };
+}
+
+// Moving map twin: a port of MovingMap.paintEvent's no-data frame in device
+// pixels -- dark ground, the range-ring layer (rangeRingGeom), the top-down
+// ownship at the configurable anchor, with nd_mode the ND overlay
+// (ndPaintOps: compass arc or rose, TRK box, option list; ownship and range
+// follow the ND), the status chip and, with zoom_rail, the zoom rail at rest
+// (zoomRailGeom). Terrain/airport
+// layers draw on-device from local data; the twin mirrors the no-data
+// presentation (fidelity, not decoration). Text tops follow Qt's AlignTop:
+// baseline = rect top + the DejaVu ascent (0.928 em).
+function buildMovingMap(inst) {
+  const o = inst.options || {};
+  const { w, h } = mapDevicePx(inst);
+  const g = rangeRingGeom(o, w, h);
+  const ASC = 0.928, FONT = `font-family="DejaVu Sans Condensed, DejaVu Sans, sans-serif"`;
+  const sym = o.symbol_color || "#ffff00";
+  const nd = ndMode(o);
+  // The ND is track-up whatever orientation says (view_orientation).
+  const mode = (nd === "off" && o.orientation === "north_up") ? "NORTH UP" : "TRK UP";
+  const pal = movingMapPalette(o);
+  let ringsSvg = "";
+  if (o.layer_range_rings !== false) {
+    // Standard: the configured colour at the configured opacity, ring and
+    // label alike. Any other style: the palette's opaque ring / label colours.
+    const op = pal.ring == null ? (g.alpha / 255).toFixed(4) : "1.0000";
+    const ringC = pal.ring ?? g.color, labelC = pal.ringLabel ?? g.color;
+    for (const ring of g.rings) {
+      ringsSvg += `<circle cx="${g.cx}" cy="${g.cy}" r="${ring.r}" fill="none"
+        stroke="${ringC}" stroke-opacity="${op}" stroke-width="${g.strokeW}"/>`;
+      if (g.labels) {
+        const L = ring.label;   // drawText clips to the label rect
+        ringsSvg += `<svg x="${L.x}" y="${L.y}" width="${L.w}" height="${L.h}" overflow="hidden">
+          <text x="0" y="${g.labelPx * ASC}" ${FONT} font-size="${g.labelPx}"
+          fill="${labelC}" fill-opacity="${op}">${ring.text}</text></svg>`;
+      }
+    }
+  }
+  const s = Math.max(8, w * 0.025);
+  const chipPx = Math.max(9, Math.trunc(w * 0.03));
+  const rail = zoomRailSvg(zoomRailGeom(o, w, h, displayPxPerMm(state.screen), g.range));
+  // ND overlay (map/nd.py paint), over the layers and ownship, under the chip.
+  // The frame's pose is the twin's: track 000, position good.
+  let ndSvg = "";
+  if (nd !== "off") {
+    const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
+    ndSvg = ndOpsSvg(ndPaintOps({
+      mode: nd, w, h, cx: g.cx, cy: g.cy, up: 0, track: 0, trackOld: false,
+      read: ndPreviewRead(meta.preview), now: Date.now() / 1000, enabled: ndEnabledLayers(o) }));
+  }
   return svgFromString(`
-<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" class="gauge-svg">
-  <rect x="0" y="0" width="100" height="100" fill="#101820"/>
+<svg viewBox="0 0 ${w} ${h}" class="gauge-svg">
+  <rect x="0" y="0" width="${w}" height="${h}" fill="${pal.background}"/>
   ${ringsSvg}
-  <polygon points="50,${cy - 3} 51.8,${cy + 2.4} 50,${cy + 1} 48.2,${cy + 2.4}"
-    fill="${sym}" stroke="#000" stroke-width="0.25"/>
-  <text x="2" y="5" fill="rgba(255,255,255,0.85)" font-size="3.4">${range} NM  ${mode}</text>
+  <polygon points="${g.cx},${g.cy - s} ${g.cx + s * 0.6},${g.cy + s * 0.8} ${g.cx},${g.cy + s * 0.35} ${g.cx - s * 0.6},${g.cy + s * 0.8}"
+    fill="${sym}" stroke="#000" stroke-width="1"/>${ndSvg}
+  <text x="6" y="${4 + chipPx * ASC}" ${FONT} font-size="${chipPx}" style="white-space:pre"
+    fill="rgba(255,255,255,0.784)">${formatRangeNm(g.range)} NM  ${mode}</text>
+  ${rail}
 </svg>`);
 }
 
@@ -1982,6 +2621,16 @@ const inchLabel = (e) => e.cls ? `${e.in}″ (${e.cls}″ class)` : `${e.in}″`
 function gcd(a, b) { return b ? gcd(b, a % b) : a; }
 function aspect(w, h) { const g = gcd(w, h), aw = w / g, ah = h / g; return ah <= 20 ? `${aw}:${ah}` : `${(w / h).toFixed(2)}:1`; }
 function dpi() { return state.screen.inches ? Math.round(Math.hypot(state.screen.width, state.screen.height) / state.screen.inches) : null; }
+
+function buildThemeControl() {
+  const sel = $("theme-sel");
+  sel.innerHTML = "";
+  for (const t of PANEL_THEMES) {
+    const o = document.createElement("option"); o.value = t.id; o.textContent = t.label; sel.appendChild(o);
+  }
+  sel.value = state.theme;
+  sel.addEventListener("change", () => { state.theme = sel.value; renderCanvas(); renderProps(); });
+}
 
 function buildScreenControls() {
   const res = $("res");
@@ -2173,7 +2822,12 @@ function buildButton(inst) {
   const txt = (o.text != null && o.text !== "" ? String(o.text) : "Button")
                 .replace(/\\n/g, "\n");
   const lines = Math.max(1, txt.split("\n").length);
-  el.style.fontSize = Math.max(8, (0.45 / lines) * rect(inst).h) + "px";
+  // Font size multiplies the label size (button/__init__.py setStyle, pyEfis
+  // #229). The device's font_mask clamp (multiplier <= 1) isn't modelled: the
+  // inline Button never reads font_mask from its config, so the clamp branch
+  // is unreachable from a configurator design.
+  const scale = fontScale(o.font_percent);
+  el.style.fontSize = Math.max(8, (0.45 / lines) * rect(inst).h * scale) + "px";
   el.textContent = txt;
   return el;
 }
@@ -2221,6 +2875,10 @@ function renderCanvas() {
 // top-level one has (AER-345 sec 4f). `ci`/`depth` are only consulted by the
 // container branch below; depth caps recursion at 1 (see there).
 function buildInstrumentTwin(el, inst, meta, ci, depth) {
+  // Draw what the device draws: colour tokens resolved through the active panel
+  // theme. A container keeps the real record (its twin writes activeTab) and
+  // resolves its own colours.
+  if (!(depth === 0 && meta.containers && meta.containers.length)) inst = themedInstrument(inst);
   if (inst.type === "group") {
       el.classList.add("group");
       const def = state.groupsById[inst.id];
@@ -2274,18 +2932,19 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       const content = document.createElement("div");
       content.className = "inst-text";
       content.style.fontFamily = '"' + (o.font_family || def.font) + '"';
-      const fg = o.fg_color || def.fg;
+      const schemaDefault = (name) => meta.options?.[name]?.default;
+      const fg = o.fg_color || schemaDefault("fg_color");
       if (fg) content.style.color = fg;
       // Background fill honours bg_opacity (heading_display): 0 = transparent so
       // the screen behind shows through, like the widget. The fg-coloured frame
       // stays for legibility, matching HeadingDisplay's drawRect outline.
-      const bgc = o.bg_color || def.bg;
+      const bgc = o.bg_color || schemaDefault("bg_color");
       if (bgc) content.style.background =
         rgbaFromColor(bgc, bgOpacity(o));
       if (def.bold) content.style.fontWeight = "bold";
       if (def.framed) {
         content.style.boxSizing = "border-box";
-        content.style.border = "1px solid " + (fg || "#aaaaaa");
+        content.style.border = "1px solid " + (fg || "currentColor");
       }
       // font_percent: whole-number percent (40) or legacy fraction (0.40).
       const _vh = rect(inst).h;
@@ -2434,7 +3093,7 @@ canvas.addEventListener("drop", (e) => {
       // the screen's -- the same nested-space math buildContainerTwin uses.
       // cbox is the content area within box, net of the tab bar on whichever
       // edge tab_position names (AER-665) -- top-only was the sec-4b original.
-      const cbox = tabContentGeom(box, tabPosition(sel));
+      const cbox = tabContentGeom(box, tabPosition(sel), tabBarThickness(sel));
       const gw = cbox.w / (tabLayout.columns || 1);
       const gh = cbox.h / (tabLayout.rows || 1);
       dropped.column = clamp(snapTo((mx - box.x - cbox.x) / gw), 0, tabLayout.columns - 1);
@@ -2837,6 +3496,41 @@ function buildContainerEditor(inst, slot) {
 // size). One constant approximates sizeHint on whichever axis it reserves.
 const TAB_BAR_THICKNESS = 22;
 
+// Font size on tab_section scales the tab LABELS only (pyEfis #223): label px
+// = max(TAB_MIN_LABEL_PX, round(TAB_LABEL_PX * scale)) when set, the inherited
+// size when unset. The device bar is the label plus a fixed padding at every
+// size (offscreen render: 8 px label -> 20 px bar, 12 -> 24, 18 -> 30, 36 -> 48),
+// so the strip grows by the label's change, not proportionally.
+const TAB_LABEL_PX = 11;       // .tab-twin-chip font-size
+const TAB_MIN_LABEL_PX = 8;    // tab_section._MIN_TAB_LABEL_PX
+
+// The common Font size option as a multiplier on a widget's own built-in text
+// size (pyEfis helpers.font_scale), normalised from raw YAML the way
+// screenbuilder_preferences.normalize_font_percent does: > 1 is a whole-number
+// percent (150 -> 1.5), <= 1 already a fraction. Unset, zero, negative or
+// non-numeric means 1.0 -- today's size.
+function fontScale(v) {
+  if (v == null || v === "") return 1;
+  let n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  if (n > 1) n = n / 100;
+  return n;
+}
+
+// The tab label size in px, or null when Font size leaves it at the
+// inherited .tab-twin-chip size.
+function tabLabelPx(inst) {
+  const scale = fontScale(inst?.options?.font_percent);
+  if (scale === 1) return null;
+  return Math.max(TAB_MIN_LABEL_PX, Math.round(TAB_LABEL_PX * scale));
+}
+
+// The strip's thickness on whichever axis it reserves.
+function tabBarThickness(inst) {
+  const px = tabLabelPx(inst);
+  return px == null ? TAB_BAR_THICKNESS : TAB_BAR_THICKNESS + px - TAB_LABEL_PX;
+}
+
 // Which edge the tab bar sits on (tab_position option, AER-665; default
 // "top" matches both the schema default and pyEfis's own `_TAB_BAR_SHAPE`
 // fallback for an unrecognised value).
@@ -2847,8 +3541,7 @@ function tabPosition(inst) {
 
 // The tab bar's own box within the container, box-local px -- mirrors
 // tab_section/__init__.py _layout_pages' `bar_geom` exactly.
-function tabStripGeom(box, position) {
-  const t = TAB_BAR_THICKNESS;
+function tabStripGeom(box, position, t = TAB_BAR_THICKNESS) {
   if (position === "bottom") return { x: 0, y: Math.max(0, box.h - t), w: box.w, h: t };
   if (position === "left") return { x: 0, y: 0, w: t, h: box.h };
   if (position === "right") return { x: Math.max(0, box.w - t), y: 0, w: t, h: box.h };
@@ -2857,8 +3550,7 @@ function tabStripGeom(box, position) {
 
 // The active tab's own content box, box-local px -- mirrors _layout_pages'
 // `stack_geom`: whatever the strip doesn't occupy.
-function tabContentGeom(box, position) {
-  const t = TAB_BAR_THICKNESS;
+function tabContentGeom(box, position, t = TAB_BAR_THICKNESS) {
   if (position === "bottom") return { x: 0, y: 0, w: box.w, h: Math.max(0, box.h - t) };
   if (position === "left") return { x: t, y: 0, w: Math.max(0, box.w - t), h: box.h };
   if (position === "right") return { x: 0, y: 0, w: Math.max(0, box.w - t), h: box.h };
@@ -2880,15 +3572,19 @@ function buildContainerTwin(inst, meta, ci) {
   const position = tabPosition(inst);
   const vertical = position === "left" || position === "right";
   const box = rect(inst);   // a container is always top-level -> root space
-  const stripGeom = tabStripGeom(box, position);
-  const contentGeom = tabContentGeom(box, position);
+  const thickness = tabBarThickness(inst);
+  const stripGeom = tabStripGeom(box, position, thickness);
+  const contentGeom = tabContentGeom(box, position, thickness);
+  const labelPx = tabLabelPx(inst);
 
   // fg_color/bg_color (AER-665): a fixed override applied uniformly to every
   // chip, active or not -- matches the device's stylesheet rule, which has
   // no `:selected` clause (tab_section/__init__.py _apply_tab_bar_style).
   // Unset (null, the schema default) leaves the inherited .tab-twin-chip /
   // .active CSS legibility floor untouched.
-  const fg = inst.options?.fg_color, bg = inst.options?.bg_color;
+  // Tokens resolve through the active panel theme, as everywhere else.
+  const themed = themedInstrument(inst).options || {};
+  const fg = themed.fg_color, bg = themed.bg_color;
 
   const strip = document.createElement("div");
   strip.className = "tab-twin-strip";
@@ -2909,6 +3605,7 @@ function buildContainerTwin(inst, meta, ci) {
     // rotation for RoundedWest/RoundedEast (tab_section/__init__.py
     // _TAB_BAR_SHAPE). vertical-rl alone gives the East reading; West flips it.
     if (position === "left") chip.style.transform = "rotate(180deg)";
+    if (labelPx != null) chip.style.fontSize = labelPx + "px";
     if (fg) chip.style.color = fg;
     if (bg) chip.style.background = bg;
     chip.addEventListener("mousedown", (e) => {
@@ -3029,6 +3726,202 @@ function buildFixKeyDatalist() {
   }
 }
 
+// --- Colour tokens (style contract, CAP-121; pyEfis S1, #368) ----------------
+// A colour option's value may be a semantic token name or a literal:
+// `fg_color: ink.primary` and `fg_color: "#ffffff"` are both legal on the
+// device. This is the twin of pyefis/screens/color_tokens.py: the vocabulary,
+// which token each colour prop reads (Prop.token in the REGISTRY), and
+// apply_theme_colors(), the order the device resolves them in. Pinned against
+// the real module by test/color_tokens_twin.test.mjs (fixture from
+// tools/color_tokens_oracle.py); update all three together.
+//
+// [name, built-in value, description]. A null value: no shipped prop reads the
+// token yet, so on the device an option naming it falls back to the widget's
+// own default.
+const COLOR_TOKENS = [
+  ["surface.base", "#000000", "panel ground"],
+  ["surface.raised", "#101418", "readout boxes, plates, buttons"],
+  ["ink.primary", "#ffffff", "primary data values"],
+  ["ink.secondary", "#ffffff", "labels, units, prefixes"],
+  ["ink.muted", "#aaaaaa", "inactive, section headers, disabled"],
+  ["line.border", "#ffffff", "borders and frames"],
+  ["line.major", null, "cardinal / 30 degree ticks"],
+  ["line.minor", null, "10 degree ticks"],
+  ["line.fine", null, "5 degree ticks"],
+  ["accent", "#00ffff", "interactive / selected / focused"],
+  ["state.valid", "#00ff00", "received, complete, in-range"],
+  ["state.caution", "#ffaa00", "attention"],
+  ["state.warning", null, "exceeded, failed"],
+  ["nav.course", "#ff00ff", "active course and track"],
+  ["nav.reference", "#00ffff", "bugs, selected values"],
+  ["nav.ownship", "#ffff00", "own-ship symbology"],
+  ["map.road", "#c0c0c0", "roads and highways"],
+  ["map.water", "#4a6d8c", "water bodies and rivers"],
+  ["map.terrain", null, "terrain base"],
+];
+const COLOR_TOKEN_INDEX = Object.fromEntries(COLOR_TOKENS.map((t) => [t[0], t]));
+// Token groups a theme may not redefine: a theme changes how the panel feels,
+// never what a colour means.
+const COLOR_TOKEN_IMMUTABLE = ["nav", "state"];
+// {type: {colour prop: token}}; "" = a declared colour prop with no token.
+const COLOR_PROP_TOKENS = {
+  altimeter_tape: { alt_bug_color: "", alt_bug_alert_color: "" },
+  altimeter_trend_tape: { bg_color: "surface.base" },
+  atitude_indicator: { symbol_color: "nav.ownship", horizon_heading_color: "ink.primary" },
+  button: { bg_color: "surface.raised", fg_color: "accent" },
+  checklist: { text_color: "ink.primary", response_color: "accent", done_color: "state.valid",
+    current_color: "state.caution", section_color: "ink.muted" },
+  flight_plan: { active_color: "", future_color: "", past_color: "" },
+  heading_display: { fg_color: "ink.primary", bg_color: "surface.base" },
+  horizontal_situation_indicator: { fg_color: "ink.primary", bg_color: "surface.base",
+    needle_color: "nav.ownship", course_color: "nav.course", vloc_color: "state.valid",
+    heading_bug_color: "nav.reference", track_color: "nav.course", bearing_color: "nav.reference" },
+  moving_map: { symbol_color: "nav.ownship", range_ring_color: "", road_color: "map.road",
+    road_casing_color: "", river_color: "map.water" },
+  nav_status: { active_color: "", text_color: "" },
+  tab_section: { fg_color: "", bg_color: "" },
+  value_text: { prefix_color: "ink.secondary", value_color: "ink.primary",
+    border_color: "line.border", bg_color: "surface.base" },
+  virtual_vfr: { symbol_color: "nav.ownship", horizon_heading_color: "ink.primary",
+    svs_road_color: "", svs_road_casing_color: "" },
+};
+
+// Panel themes the configurator can offer. A theme is the preferences the
+// device would hold (style: + styles: colors:); null = pyEfis's shipped
+// preferences, which define no colors: block, so every token keeps its built-in
+// value. pyEfis ships no other theme yet.
+const PANEL_THEMES = [
+  { id: "builtin", label: "pyEfis built-in", preferences: null },
+];
+function activeThemePreferences() {
+  const t = PANEL_THEMES.find((x) => x.id === state.theme) || PANEL_THEMES[0];
+  return t.preferences;
+}
+
+function isColorToken(v) { return typeof v === "string" && Object.hasOwn(COLOR_TOKEN_INDEX, v); }
+function isImmutableToken(t) { return COLOR_TOKEN_IMMUTABLE.includes(t.split(".")[0]); }
+function colorTokenDefault(t) { return COLOR_TOKEN_INDEX[t][1]; }
+
+// theme_colors(): every enabled style's styles: colors: <style> block, merged
+// in style: order, later styles winning; unknown and immutable tokens dropped.
+function themeColors(prefs) {
+  const colors = {};
+  const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+  if (!isObj(prefs)) return colors;
+  const styles = prefs.styles || {};
+  const blocks = isObj(styles) ? styles.colors : null;
+  if (!isObj(blocks)) return colors;
+  for (const [style, enabled] of Object.entries(prefs.style || {})) {
+    if (!enabled) continue;
+    const block = blocks[style];
+    if (!isObj(block)) continue;
+    for (const [token, value] of Object.entries(block)) {
+      if (!isColorToken(token) || isImmutableToken(token)) continue;
+      if (value !== null && value !== undefined) colors[token] = value;
+    }
+  }
+  return colors;
+}
+
+// resolve(): a token becomes the theme's value, else its built-in value; any
+// other value (a literal, a Qt colour name) is returned unchanged.
+function resolveColorToken(value, colors) {
+  if (!isColorToken(value)) return value;
+  if (Object.hasOwn(colors, value) && !isImmutableToken(value)) return colors[value];
+  return colorTokenDefault(value);
+}
+
+// apply_theme_colors(): level 4 (the theme fills a mapped colour prop nothing
+// else set), then token resolution LAST on whatever value won. Returns the
+// options the device would build the widget with; never mutates `options`.
+function applyThemeColors(type, options, prefs) {
+  const colorProps = COLOR_PROP_TOKENS[type] || {};
+  const colors = themeColors(prefs);
+  let out = { ...(options || {}) };
+  const filled = {};
+  for (const [name, token] of Object.entries(colorProps))
+    if (token && !Object.hasOwn(out, name) && Object.hasOwn(colors, token)) filled[name] = token;
+  out = { ...filled, ...out };
+  for (const name of Object.keys(out)) {
+    const value = out[name];
+    const isColorOpt = Object.hasOwn(colorProps, name) || name.endsWith("color") || name.endsWith("colour");
+    if (!isColorToken(value) || !isColorOpt) continue;
+    const resolved = resolveColorToken(value, colors);
+    if (resolved === null || resolved === undefined) delete out[name];
+    else out[name] = resolved;
+  }
+  return out;
+}
+
+// The instrument as the twin should draw it: colour tokens resolved against
+// the active panel theme. The SAME object when nothing changes, so a panel
+// with no tokens renders exactly as it did before tokens existed.
+function themedInstrument(inst) {
+  const before = inst.options || {};
+  const after = applyThemeColors(inst.type, before, activeThemePreferences());
+  const keys = Object.keys(after);
+  if (keys.length === Object.keys(before).length && keys.every((k) => after[k] === before[k])) return inst;
+  return { ...inst, options: after };
+}
+
+// Token-or-custom colour control: a dropdown of the active theme's tokens
+// (the cohesive path, default) plus "Custom..." revealing the colour picker
+// (the free path). A custom colour is a first-class choice: the dropdown just
+// shows "Custom...", nothing more. Raw hex also stays editable in the YAML pane.
+function colorTokenField(inst, name, spec, cur) {
+  const wrap = document.createElement("div"); wrap.className = "color-field";
+  const sel = document.createElement("select");
+  const swatch = document.createElement("span"); swatch.className = "swatch";
+  const pick = document.createElement("input"); pick.type = "color";
+  const mapped = (COLOR_PROP_TOKENS[inst.type] || {})[name] || "";
+  const colors = themeColors(activeThemePreferences());
+  const value = (t) => resolveColorToken(t, colors);
+
+  const add = (parent, v, text, title) => {
+    const op = document.createElement("option"); op.value = v; op.textContent = text;
+    if (title) op.title = title;
+    parent.appendChild(op); return op;
+  };
+  add(sel, "", mapped ? `Default (${mapped})` : "Default");
+  const groups = {};
+  for (const [t, , desc] of COLOR_TOKENS) {
+    if (value(t) == null && t !== cur) continue;   // no value: same as Default
+    const g = t.split(".")[0];
+    if (!groups[g]) { groups[g] = document.createElement("optgroup"); groups[g].label = g; sel.appendChild(groups[g]); }
+    add(groups[g], t, value(t) == null ? `${t} (widget default)` : t, `${desc}: ${value(t) ?? "widget default"}`);
+  }
+  add(sel, "custom", "Custom…");
+
+  // What the device would paint for the current choice.
+  const shown = () => {
+    const c = (inst.options || {})[name];
+    if (c === undefined) return (mapped && Object.hasOwn(colors, mapped)) ? colors[mapped] : spec.default;
+    return value(c) ?? spec.default;
+  };
+  const refresh = () => {
+    const c = (inst.options || {})[name];
+    sel.value = c === undefined ? "" : isColorToken(c) ? c : "custom";
+    const isCustom = sel.value === "custom";
+    pick.classList.toggle("hidden", !isCustom);
+    if (isCustom) pick.value = String(c).slice(0, 7);
+    const s = shown();
+    swatch.style.background = s || "transparent";
+    swatch.title = s || "widget default";
+  };
+  sel.addEventListener("change", () => {
+    if (sel.value === "") setOpt(inst, name, undefined);
+    else if (sel.value === "custom") setOpt(inst, name, String(shown() || "#000000").slice(0, 7));
+    else setOpt(inst, name, sel.value);
+    refresh();
+  });
+  pick.addEventListener("input", () => { setOpt(inst, name, pick.value); refresh(); });
+  const row = document.createElement("div"); row.className = "color-row";
+  row.append(swatch, sel);
+  wrap.append(row, pick);
+  refresh();
+  return wrap;
+}
+
 function optionField(inst, name, spec) {
   const f = document.createElement("div"); f.className = "field";
   const l = document.createElement("label"); l.textContent = spec.label || name;
@@ -3053,10 +3946,8 @@ function optionField(inst, name, spec) {
     inp.value = cur ?? spec.default ?? spec.enum[0];
     inp.addEventListener("change", () => setOpt(inst, name, inp.value));
   } else if (spec.type === "color") {
-    inp = document.createElement("input"); inp.type = "color";
-    inp.value = (cur ?? spec.default ?? "#000000").slice(0, 7);
-    inp.addEventListener("input", () => setOpt(inst, name, inp.value));
-  } else if (spec.type === "number") {
+    inp = colorTokenField(inst, name, spec, cur);
+  } else if (spec.type === "number" || spec.type === "integer") {
     inp = document.createElement("input"); inp.type = "number"; if (spec.step) inp.step = spec.step;
     inp.placeholder = spec.default ?? "";
     if (cur !== undefined) inp.value = cur;
@@ -3740,6 +4631,23 @@ function expandGroups(instruments) {
   return out;
 }
 
+// A quoted scalar from the Code pane ("5") or a legacy save would otherwise
+// reach the device as a string (makerplane-data#10). Coerce string values of
+// schema number/integer options with Number(); a blank or non-numeric string is
+// dropped so the device falls back to its default. Every other type -- and any
+// option the schema doesn't declare -- passes through untouched.
+function coerceNumericOptions(options, specs) {
+  const out = { ...options };
+  for (const [name, v] of Object.entries(out)) {
+    const t = specs?.[name]?.type;
+    if ((t !== "number" && t !== "integer") || typeof v !== "string") continue;
+    const n = v.trim() === "" ? NaN : Number(v);
+    if (Number.isFinite(n)) out[name] = n;
+    else delete out[name];
+  }
+  return out;
+}
+
 // One editor instrument -> one pyEfis screenbuilder instrument. Recurses into
 // any container slots the schema declares for this type (e.g. tab_section's
 // "tabs") -- each tab is its own {label, layout, instruments} nested screen,
@@ -3753,10 +4661,10 @@ function toScreenInstrument(inst) {
     column: round1(inst.column),
     span: { rows: round1(inst.span.rows), columns: round1(inst.span.columns) },
   };
-  const opts = { ...(inst.options || {}) };
+  const meta = state.schema.instruments[inst.type];
+  const opts = coerceNumericOptions(inst.options || {}, { ...state.schema.common_options, ...meta?.options });
   delete opts.preview_scene;          // editor-only: which SVS preview image to show
   if (Object.keys(opts).length) out.options = opts;
-  const meta = state.schema.instruments[inst.type];
   for (const slot of (meta?.containers || [])) {
     const tabs = inst[slot.name];
     if (!Array.isArray(tabs)) continue;
@@ -3953,6 +4861,7 @@ async function boot() {
   }
   await load();
   buildScreenControls();
+  buildThemeControl();
   $("gridToggle").addEventListener("change", (e) => $("canvas").classList.toggle("grid", e.target.checked));
   $("snapToggle").addEventListener("change", (e) => { state.snap = e.target.checked; });
   $("canvas").classList.toggle("grid", $("gridToggle").checked);

@@ -14,7 +14,9 @@ the generator owns only the ``.html`` pages beside them and
     reports/index.html                     every pack with a record
     reports/check.html                     check it yourself (plan 5.5)
     reports/<id>/index.html                history of one pack (plan 5.3)
-    reports/<id>/<cycle>/report.html       one edition (plan 5.2)
+    reports/<id>/<cycle>/report.html       one edition (plan 5.2); its "known
+                                           since" section reads status.json
+                                           (packtools/community.py, TV8)
 
 Ported from efis-voice-lab's ``report.py``/``site.py``: one self-contained
 page per record, one table of per-edition numbers (:func:`edition_row`)
@@ -36,9 +38,11 @@ import json
 import os
 import re
 import subprocess
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
+from . import diffmap
 from .manifest import NOTICE
 from .report import publish_blockers, validate_report
 
@@ -49,7 +53,8 @@ REPO = "billmallard/makerplane-data"
 REPO_URL = f"https://github.com/{REPO}"
 BUILDER_REPOS = {"pyEfis": "https://github.com/billmallard/pyEfis"}
 
-# Plan section 4.7, "What this report is and is not", verbatim (D3).
+# Plan section 4.7 standing text, verbatim (D3). Rendered as the boxed
+# p.standing alone; the section heading was dropped on 2026-11-01 (AER-4532).
 STANDING_TEXT = (
     "These are the checks we ran on this pack, what each one measured, and what "
     "each one cannot catch. It is evidence, not a warranty and not a certification. "
@@ -78,6 +83,12 @@ KIND_LABELS = {"navdata": "Airports & runways", "airports": "Airports (regional)
                "procedures": "Procedures & airways", "cifp": "Procedures & waypoints",
                "terrain": "Terrain", "water": "Water", "highways": "Roads & highways",
                "rivers": "Rivers"}
+# Kinds the in-browser pack inspector (site/inspect.html, TV6) opens whole.
+# Must match SQLITE_KINDS in site/assets/inspect-core.js; a test holds them
+# together.
+INSPECTOR_KINDS = ("navdata", "airports", "navaids", "obstacles", "procedures")
+# The locator fields the inspector reads (docs/pack_inspector.md).
+INSPECTOR_LOCATOR_KEYS = ("table", "row_id", "lat", "lon")
 STATUS_ORDER = ("fail", "warn", "not-run", "pass")
 STATUS_LABEL = {"pass": "pass", "warn": "warn", "fail": "fail", "not-run": "not run"}
 
@@ -316,8 +327,7 @@ def page(title: str, body: str, *, root: str, commit: str) -> str:
 
 
 def standing_block() -> str:
-    return (f'<section><h2>What this report is and is not</h2>'
-            f'<p class="standing">{e(STANDING_TEXT)}</p></section>')
+    return f'<section><p class="standing">{e(STANDING_TEXT)}</p></section>'
 
 
 # --- one edition ------------------------------------------------------------
@@ -381,14 +391,31 @@ def sources_html(rec: dict) -> str:
             f"<th>sha256</th></tr>{rows}</table>")
 
 
-def auspex_html(rec: dict) -> str:
+def inspector_href(pack: dict, locator: dict | None, root: str) -> str | None:
+    """Link opening ``pack`` (and the place ``locator`` names) in the pack
+    inspector, pinned to the record's sha256; None for a kind it cannot open."""
+    if pack.get("kind") not in INSPECTOR_KINDS:
+        return None
+    q = {"pack": pack["id"], "cycle": pack["cycle"], "sha256": pack["sha256"]}
+    for k in INSPECTOR_LOCATOR_KEYS:
+        v = (locator or {}).get(k)
+        if isinstance(v, (str, int, float)) and not isinstance(v, bool):
+            q[k] = str(v)
+    return f"{root}inspect.html?{urllib.parse.urlencode(q)}"
+
+
+def auspex_html(rec: dict, root: str = "") -> str:
     a = rec.get("auspex")
     if not a:
         return ("<section><h2>Black-box check (Auspex)</h2><p>Not run for this edition.</p>"
                 "</section>")
     cov = a.get("coverage") or {}
+    def opener(f: dict) -> str:
+        href = inspector_href(rec["pack"], f.get("locator"), root)
+        return f' <a href="{e(href)}">open in the inspector</a>' if href else ""
     findings = "".join(
-        f"<li><span class=mono>{e(json.dumps(f.get('locator'), sort_keys=True))}</span><br>"
+        f"<li><span class=mono>{e(json.dumps(f.get('locator'), sort_keys=True))}</span>"
+        f"{opener(f)}<br>"
         f"{e(f.get('statement'))} Expected: {e(f.get('expected'))}. Actual: {e(f.get('actual'))}. "
         f"{e(f.get('issue'))}</li>" for f in a.get("findings") or [])
     when = ("in the signed build record (run before publish)" if a.get("when") == "pre-publish"
@@ -405,8 +432,64 @@ def auspex_html(rec: dict) -> str:
             f"<p class=sub>{e(a.get('what_a_pass_means'))}</p></section>")
 
 
+def known_html(pack_id: str, cycle: str) -> str:
+    """The "known since" section (plan 4.5, TV8). Everything else on the page
+    is the build record; this is filled in the browser from the unsigned
+    nightly ``status.json`` beside the page, so the page bytes do not change
+    when an issue does, and issue titles (the community's words, not ours)
+    never pass through :func:`lint`. Without the overlay it still links the
+    label query and the form."""
+    q = urllib.parse.urlencode
+    issues = f"{REPO_URL}/issues?" + q({"q": f'label:"pack:{pack_id}"'})
+    form = f"{REPO_URL}/issues/new?" + q({"template": "data_problem.yml",
+                                          "pack": pack_id, "cycle": cycle})
+    return f"""<section id="known"><h2>Known since this edition was built</h2>
+<p class="sub">Everything above is the build record: fixed at publish and covered by the
+catalog signature. This section is not. It is read from <a href="status.json">status.json</a>,
+rewritten nightly from the live catalog and from makerplane-data issues labelled
+<span class="mono">pack:{e(pack_id)}</span>.</p>
+<div id="overlay"><p>See the {link(issues, f"issues labelled pack:{pack_id}")}.</p></div>
+<p>Found something wrong in this data? {link(form, "Report a data problem")}.</p>
+<script>
+fetch("status.json", {{cache: "no-store"}}).then(r => r.ok ? r.json() : Promise.reject())
+.then(s => {{
+  const box = document.getElementById("overlay"); box.textContent = "";
+  const add = (tag, text, parent) => {{ const n = document.createElement(tag);
+    if (text != null) n.textContent = text; (parent || box).appendChild(n); return n; }};
+  const a = (href, text, parent) => {{ const n = add("a", text, parent);
+    if (/^https:\\/\\/(github\\.com|navdata\\.aerocommons\\.org)\\//.test(href)) n.href = href;
+    return n; }};
+  const st = add("p"); st.append("As of " + s.as_of + ": "); add("b", s.state, st);
+  st.append(" \\u2014 " + s.state_reason + ".");
+  add("h3", "Issues labelled pack:" + s.pack.id);
+  if (!s.known_issues.length) add("p", "None.");
+  else {{ const ul = add("ul"); s.known_issues.forEach(i => {{ const li = add("li", null, ul);
+    a(i.url, "#" + i.number + " " + i.title, li);
+    li.append(" (" + i.state + (i.closed ? " " + i.closed : "") + ", opened " + i.opened +
+      (i.reported_cycle ? ", reported against " + i.reported_cycle : "") + ")"); }}); }}
+  if (s.auspex_addenda.length) {{ add("h3", "Auspex addenda (run after publish)");
+    const ul = add("ul"); s.auspex_addenda.forEach(x => {{ const li = add("li", null, ul);
+      a(x.url, x.name, li); li.append(" sha256 " + x.sha256); }}); }}
+}}).catch(() => {{}});
+</script></section>"""
+
+
+def diffmap_html(rec: dict, prev_rec: dict | None) -> str:
+    """The per-state diff maps (TV7) for an OSM edition against the record
+    it was compared with, or nothing."""
+    if not prev_rec:
+        return ""
+    maps = diffmap.page(rec, prev_rec)
+    if not maps:
+        return ""
+    return ('<section><h2>Changes by state or province</h2>'
+            '<p>Each state or province coloured by its change against the previous edition '
+            '(checks OSM-002 and OSM-006). Hover a state, or open the table, for the '
+            f'numbers.</p>{maps}</section>')
+
+
 def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
-                *, commit: str) -> str:
+                *, commit: str, prev_rec: dict | None = None) -> str:
     rec, p, b = ed["rec"], ed["rec"]["pack"], ed["rec"].get("built") or {}
     t = row["tally"]
     head = [f'<span class="tag">{e(rec["origin"])}</span>', e(p["kind"])]
@@ -433,7 +516,19 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
     prev_cycle = (rec.get("previous") or {}).get("cycle")
     prev_link = (f'<a href="../{e(prev["cycle"])}/report.html">{e(prev["cycle"])}</a>'
                  if prev else e(prev_cycle) if prev_cycle else "none")
-    blockers = ("".join(f"<li>{e(x)}</li>" for x in row["blockers"]))
+    shown = row["blockers"]
+    stop = "This record would stop a publish:"
+    if rec["record"] == "retro":
+        # Only a build record can clear the gate, so every retro record
+        # "would stop a publish"; say what else today's gate would refuse.
+        shown = [x for x in shown if not x.startswith("record is retro")]
+        stop = ("Judged by today's publish gate as a new build, this edition would be "
+                "refused for:")
+    blockers = ("".join(f"<li>{e(x)}</li>" for x in shown))
+    inspect = inspector_href(p, None, "../../../")
+    inspect = (f'<p>Or query this edition in your browser: <a href="{e(inspect)}">pack '
+               f'inspector</a>. It checks the bytes against the signed catalog before '
+               f'opening them.</p>' if inspect else "")
     body = f"""
 <section class="lede"><h1>{e(pack_label(rec))} <span class="mono">{e(p['id'])}</span>
 &middot; {e(p['cycle'])}</h1>
@@ -445,7 +540,7 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
 <p class="tallies">{pill('pass')} {t['pass']} &nbsp; {pill('warn')} {t['warn']} &nbsp;
 {pill('fail')} {t['fail']} &nbsp; {pill('not-run')} {t['not-run']}</p>
 {callouts(rec)}
-{f'<p class="banner bad">This record would stop a publish:</p><ul>{blockers}</ul>' if blockers else ''}
+{f'<p class="banner bad">{e(stop)}</p><ul>{blockers}</ul>' if blockers else ''}
 <p class="filter">Show: <label><input type="checkbox" value="pass" checked> pass</label>
 <label><input type="checkbox" value="warn" checked> warn</label>
 <label><input type="checkbox" value="fail" checked> fail</label>
@@ -454,8 +549,9 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
 <th>Measured</th><th>Expected</th><th>Cannot catch</th><th></th></tr>{check_rows(rec)}</table></div>
 </section>
 
-{auspex_html(rec)}
+{auspex_html(rec, "../../../")}
 {tables_html(rec, prev_cycle)}
+{diffmap_html(rec, prev_rec)}
 
 <section><h2>Identity</h2><table class="kv">
 <tr><th>Pack sha256</th><td class="mono">{e(p['sha256'])}</td></tr>
@@ -470,16 +566,14 @@ def report_page(ed: dict, row: dict, entry: dict | None, prev: dict | None,
 </table>
 <h3>Sources</h3>{sources_html(rec)}</section>
 
-<section><h2>Known issues</h2><p>Issues found after this edition was built are not listed
-here yet. Until they are, see the
-<a href="{REPO_URL}/issues">makerplane-data issues</a>.</p></section>
+{known_html(p['id'], p['cycle'])}
 
 {standing_block()}
 
 <section><h2>Check it yourself</h2>
 <pre>packtool report --check {e(p['id'])}-{e(p['cycle'])}.pack</pre>
 <p>Re-runs every open check on the pack you downloaded and compares the result with this
-record. <a href="../../check.html">How to do it</a>.</p></section>
+record. <a href="../../check.html">How to do it</a>.</p>{inspect}</section>
 <script>
 document.querySelector(".filter").addEventListener("change", () => {{
   const on = new Set([...document.querySelectorAll(".filter input:checked")].map(i => i.value));
@@ -617,13 +711,39 @@ its <code>report.json</code>;</li>
 <li>device acceptance needs a pyEfis checkout (<code>--pyefis-src</code>);</li>
 <li>results from Auspex, a proprietary AI test engine, cannot be re-run outside. Each of
 its findings is printed with the location it names, so you can look at that place in the
-pack yourself.</li></ul></section>
+pack yourself. For airports, navaids, obstacles and procedures, the finding's
+<b>open in the inspector</b> link on the report page does that in your browser.</li></ul>
+<p>To query any of those packs without installing anything, use the
+<a href="../inspect.html">pack inspector</a>. It verifies the catalog signature and the
+pack's sha256 before it opens the pack.</p></section>
 
 <section><h2>4. Check the catalog signature by hand</h2>
 <p>The catalog is signed with an ed25519 key in minisign format. The public key is
 <a href="{REPO_URL}/blob/main/keys/minisign.pub">keys/minisign.pub</a> in the repository:</p>
 <pre>minisign -Vm manifest.json -P RWQXjK7+q8WvsWtCd+QPQNxO7OcI5XuF1uxY7MGp+R2JidxFSO/20AR4</pre>
 <p>or, with the tools from step 1, <code>packtool verify manifest.json --pub minisign.pub</code>.</p></section>
+
+<section><h2>5. Check which code built a pack</h2>
+<p>A pack built by one of our GitHub Actions workflows carries a build provenance
+attestation: a statement, signed for that one workflow run through Sigstore and kept in a
+public transparency log, of which workflow, commit and run produced the pack's sha256. Our
+signing key cannot make one. With the <a href="https://cli.github.com">GitHub CLI</a>,
+signed in to any GitHub account:</p>
+<pre>gh attestation verify highways-conus-2026q3r1.pack \
+  --repo billmallard/makerplane-data \
+  --signer-workflow billmallard/makerplane-data/.github/workflows/roads.yml \
+  --deny-self-hosted-runners</pre>
+<p>It exits nonzero if the signature, the signer or the file does not match, or if the pack
+has no attestation. The workflow is <code>cyclical.yml</code> for airports, navaids,
+obstacles and procedures, <code>roads.yml</code> for roads and <code>water.yml</code> for
+<code>water-conus</code>. It says which public code made the bytes, not that the data is
+right.</p>
+<p><b>Terrain packs have no attestation.</b> They are built on our own build machine from a
+private repository, and GitHub issues these attestations from private repositories only
+on its paid Enterprise plan. Packs built on a workstation (today <code>water-na</code> and
+<code>airports-canada</code>) and editions published before attestations began have none either. For
+those, the signed catalog and the test record are what you can check.
+<a href="{REPO_URL}/blob/main/docs/provenance.md">Details</a>.</p></section>
 
 <section><h2>If your numbers differ</h2>
 <p>Please <a href="{REPO_URL}/issues/new">open an issue</a> with the pack id and edition,
@@ -654,8 +774,10 @@ def build(records: list[dict], manifest: dict | None, *, commit: str = "") -> di
         for i, (ed, row) in enumerate(pairs):
             prev_cycle = (ed["rec"].get("previous") or {}).get("cycle")
             prev = next((r for r in rows if r["cycle"] == prev_cycle), None)
+            prev_ed = next((x for x in eds if x["cycle"] == prev_cycle), None)
             out[f"{PREFIX}{pack_id}/{ed['cycle']}/report.html"] = report_page(
-                ed, row, entries.get((pack_id, ed["cycle"])), prev, commit=commit)
+                ed, row, entries.get((pack_id, ed["cycle"])), prev, commit=commit,
+                prev_rec=prev_ed["rec"] if prev_ed else None)
             index.setdefault(pack_id, {})[ed["cycle"]] = {
                 "record": row["record"], "origin": row["origin"],
                 "summary": {k.replace("-", "_"): v for k, v in row["tally"].items()},
@@ -748,3 +870,4 @@ vertical-align:top;white-space:nowrap}table.kv td{padding:4px 0;word-break:break
 footer.site{border-top:1px solid var(--line);padding:20px 0 36px;color:var(--muted);font-size:13px}
 footer.site a{color:var(--muted)}
 """
+CSS += diffmap.CSS

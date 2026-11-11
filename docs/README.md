@@ -20,7 +20,7 @@ in the workspace ledger (`makerplane/STATE.md`, local umbrella dir).
 | [panel_config_format.md](panel_config_format.md) | Panel/screen config format the configurator emits |
 | [device_deployment.md](device_deployment.md) | Device pairing + config-pull deployment path |
 | [on_device_pack_picker.md](on_device_pack_picker.md) | On-device pack picker (shipped) |
-| [terrain.md](terrain.md) · [water.md](water.md) · [roads.md](roads.md) | Per-kind pack build notes |
+| [terrain.md](terrain.md) · [water.md](water.md) · [roads.md](roads.md) · [airspace_cifp.md](airspace_cifp.md) | Per-kind pack build notes |
 | [LICENSE-AUDIT.md](LICENSE-AUDIT.md) | Component → license map (authoritative with per-file SPDX) |
 | [AC-DP-001-architecture-disclosure.md](AC-DP-001-architecture-disclosure.md) | Defensive publication — awaiting Bill's TDCommons submission |
 
@@ -28,7 +28,7 @@ in the workspace ledger (`makerplane/STATE.md`, local umbrella dir).
 
 | Doc | Status |
 |---|---|
-| [pack_report.md](pack_report.md) | SCHEMA 2026-10-28 — `pack-report/1` per-pack test record + the five additive manifest fields (TV1); the `auspex` section is **pending Bill's sign-off at TV14** |
+| [pack_report.md](pack_report.md) | SCHEMA 2026-10-28 — `pack-report/1` per-pack test record + the five additive manifest fields (TV1); the `auspex` section approved 2026-11-01, AER-4581 (`packtool report --auspex`) |
 | [environments.md](environments.md) | SPEC, §9 locked 2026-07-08 — DEV/QA/PROD env split; **implementation not started** |
 | [dev_navdata_environment.md](dev_navdata_environment.md) | DESIGN NOTE 2026-08-01 — a DEV pack origin (`dev.navdata`); fills the "navdata OUT" gap in environments.md; **open decisions for Bill** |
 | [canfix_configurator.md](canfix_configurator.md) | SPEC — V-speed/gauge-band profiles → fixgw init_data; **awaiting Bill's review** |

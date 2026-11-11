@@ -26,6 +26,7 @@ import {
   setClaimCode,
   touchLastPull,
 } from "./db";
+import { checkAircraftProfilePut } from "./aircraft_profile";
 import { claimCode, randomToken, sha256B64url } from "./crypto";
 import { devicePreferences, serveDeviceConfig } from "./device_prefs";
 import { emailRequest, emailVerify } from "./email";
@@ -106,14 +107,12 @@ app.get("/api/projects/:id/aircraft", async (c) => {
 });
 
 app.put("/api/projects/:id/aircraft", async (c) => {
-  const body = await c.req.json<{ profile?: unknown }>().catch(() => ({}) as { profile?: unknown });
-  if (!body.profile || typeof body.profile !== "object")
-    return c.json({ error: "profile object required" }, 400);
-  const text = JSON.stringify(body.profile);
-  if (text.length > 256 * 1024)
-    return c.json({ error: "profile too large" }, 413);
+  const body = await c.req.json<unknown>().catch(() => ({}));
+  const checked = checkAircraftProfilePut(body);
+  if (!checked.ok)
+    return c.json({ error: checked.error, errors: checked.errors }, checked.status);
   const saved = await saveAircraftProfile(
-    c.env.DB, c.get("userId"), Number(c.req.param("id")), text);
+    c.env.DB, c.get("userId"), Number(c.req.param("id")), checked.text);
   if (!saved) return c.json({ error: "not found" }, 404);
   return c.json({ ok: true, version: saved.version });
 });

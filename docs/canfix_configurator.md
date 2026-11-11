@@ -61,7 +61,7 @@ is live data; its *capacity* is).
 | **Airspeeds** | IAS | Vs, Vs0, Vfe, Vno, Vne, Va, Vx, Vy, Vmc, V1, V2, Min, Max | Arcs derive: white = Vs0..Vfe, green = Vs..Vno, yellow = Vno..Vne, red >= Vne. Va/Vx/Vy shown as bugs where supported. Vmc/V1/V2 hidden behind a "twin/turbine" toggle. |
 | **Engine (per engine)** | TACHx, MAPx, OILPx, OILTx | Min, Max, lowWarn, highWarn, lowAlarm, highAlarm | Repeated group per engine; the **engine-type provider** (section 6a) decides which parameters exist. |
 | **Cylinders (per engine)** | CHTxy, EGTxy, CHTMAXx | Min, Max, highWarn, highAlarm | Cylinder count is free-form (4/6 common, 8 rare, radials odd counts up to 28); one shared band set applied to all cylinders, per-cylinder override escape hatch later. |
-| **Fuel** | FUELQx (capacity = Max, lowWarn, lowAlarm), FUELFx, FUELPx | Min, Max, warns/alarms | Tank count 1..4. FUELQT derives (sum) — display only. |
+| **Fuel** | FUELQx (capacity = Max, lowWarn, lowAlarm), FUELFx, FUELPx | Min, Max, warns/alarms | Tank count 1..8, one slot (`FUELQn`) per tank; capacity and unusable fuel set `FUELQn.Max = capacity - unusable` (section 6b). FUELQT derives (sum) — display only. |
 | **Electrical** | VOLT, CURRNT | Min, Max, lowWarn, highWarn, lowAlarm, highAlarm | 12 V / 24 V presets. |
 | **Air / misc** | OAT, CAT, AOA | bands; AOA calibration refs (Min/Max/0g/warn/stall as defined in database.yaml) | AOA numbers come from flight-test calibration — the form stores what the OnSpeed/AOA source needs displayed. |
 
@@ -98,9 +98,28 @@ Mirror the instrument-schema pattern (pyEfis generates
   "12V"}}`. `meta.baro_unit` (`inHg` | `hPa`, #108) is the one meta key
   delivered to the device today, as `preferences.units.Pressure` on the
   served panel config (see panel_config_format.md).
+- Ownship identity (P3e, AER-5147): `meta.registration` (the aircraft's
+  registration, identity only, no owner data) and `meta.icao_address` (six
+  hex digits, optional). The address the ADS-B traffic writer filters as
+  ownship (fix-gateway `ownship_address`, pyEfis
+  `docs/fix_dynamic_list_spec.md` section 4.8) is the hex entry if set, else
+  the one a US N-number derives (FAA allocation order, A00001-ADF7C7), else
+  none: blank filters nothing beyond the receiver's own report.
+  `src/ownship.ts`. Saved and shown on the aircraft page, **not yet
+  delivered to the device**: config-pull writes only pyEfis config today.
 - API: `GET/PUT /api/projects/:id/aircraft` (active profile),
   `GET .../aircraft/versions`, `POST .../aircraft/activate/:v`.
   Ownership-scoped through user_id like everything else.
+- The PUT refuses (422, with an `errors` list) a profile that breaks the
+  section-6 ordering -- `Vs0 <= Vs < Vno < Vne <= Max`, `Vfe` within
+  `[Vs0, Vno]`, `Min <= lowAlarm <= lowWarn <= highWarn <= highAlarm <= Max`
+  on every banded instance, checked across blanks -- or carries a non-number
+  value or an unknown `meta.speed_unit` / `meta.baro_unit`
+  (`src/aircraft_profile.ts`, AER-5060), or a malformed ownship identity: a
+  registration that is not up to 10 letters, digits and hyphens, one starting
+  with N that is not an assignable N-number, or a hex address that is not six
+  digits or is 000000 (AER-5147). Versions saved before that stay
+  stored and can still be re-activated; the check runs on save only.
 - Starter templates: ship a few read-only presets (the c170b numbers,
   a generic O-320 single, Rotax 912) + "import .ini" (paste an existing
   init_data file — parse the exact fixgw dialect) so nobody starts from
@@ -167,11 +186,18 @@ provider/topology model, not just a count:
   transfer), or none. That directed graph IS the fuel system.
 - Quantities/bands stay per-tank FIX aux (FUELQt Max/lowWarn/
   lowAlarm) as today; the topology lives in the profile's
-  `meta.fuel` array — forward data for fuel totalizer logic, the
+  `meta.fuel` (schema 2 since FUEL1a, AER-5271: a tank list with
+  stable ids, labels, slots and an edge list; the page migrates a
+  schema-1 positional array on load) — forward data for fuel totalizer logic, the
   in-EFIS fuel page, and the system diagram (6c). Nothing in
   fix-gateway consumes it yet; the profile is the canonical record.
 - Validation: every engine should be fed by at least one tank
   (warning, not error); transfer cycles flagged.
+- **Labels, stable tank ids and gauge binding** (FUEL1, proposed
+  2026-11-08): see [fuel_provider_model.md](fuel_provider_model.md). It
+  covers the per-tank schema, the tank-count path past four, delivery, the
+  `aircraft_ref` Prop kind and the build rows. Accepted by Bill on
+  2026-11-09.
 
 ## 6c. Future: aircraft system ("node") diagram
 

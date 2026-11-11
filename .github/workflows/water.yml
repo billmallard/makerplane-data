@@ -14,17 +14,49 @@ name: water-packs
 # its record goes to reports/rejected/. A published (id, cycle) is
 # immutable: a rebuild needs a new cycle tag. Build notes come only from the
 # person dispatching (`notes`), for this edition.
+#
+# Staged input (AER-4676): the full `na` scope (water-na) is a ~30 GB
+# Geofabrik pull and a many-hour build -- it cannot run on a hosted runner.
+# Build it on a workstation, upload the unsigned water.sqlite (and its
+# sources.json) to `staging/` in the bucket, then dispatch with `staged_key`
+# + `staged_sha256`. The runner skips fetch + build, refuses bytes whose
+# sha256 differs, and runs the same gate + sign + upload as a runner build.
+# The test record's `built` names the workstation build (runner: local, its
+# start time and pyEfis commit); the CI-built provenance attestation (TV10) is
+# skipped, since this workflow did not build those bytes. Nothing under
+# `staging/` is listed in the manifest.
 on:
   workflow_dispatch:
     inputs:
       states:
-        description: "Geofabrik states (e.g. 'texas' or 'conus')"
+        description: "Geofabrik states (e.g. 'texas' or 'conus'); ignored with staged_key"
         default: "texas"
       cycle:
         description: "Edition tag (a published cycle cannot be republished: use a new tag)"
         default: "2026q2"
       notes:
         description: "Build notes for checks that warn, written for this edition: JSON, e.g. {\"ROW-002\": \"why\"}"
+        default: ""
+      pack_id:
+        description: "Pack id to publish (water-conus, water-na, ...)"
+        default: "water-conus"
+      regions:
+        description: "Space-separated manifest regions for the pack"
+        default: "conus"
+      staged_key:
+        description: "R2 key of a pre-built water.sqlite under staging/ (skips fetch + build); empty = build on the runner"
+        default: ""
+      staged_sha256:
+        description: "Required with staged_key: sha256 the staged water.sqlite must match"
+        default: ""
+      staged_sources_key:
+        description: "Optional with staged_key: R2 key of the build's sources.json (the test record's sources[])"
+        default: ""
+      staged_built_at:
+        description: "Required with staged_key: ISO-8601 UTC time the workstation build started (the record's built.at)"
+        default: ""
+      staged_pyefis_sha:
+        description: "Required with staged_key: full pyEfis commit the workstation build ran (the record's builder_refs)"
         default: ""
 
 env:
@@ -34,6 +66,10 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.published.outputs.published }}
+    permissions:
+      contents: write      # the publish event's GitHub Release (TV8)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,10 +85,42 @@ jobs:
 
       - name: Fetch + build water.sqlite (pyEfis tools)
         id: build
+        if: ${{ inputs.staged_key == '' }}
         run: |
           python pyefis-src/tools/fetch_geofabrik_water.py --states "${{ inputs.states }}"
           # produces water.sqlite via build_water_db (see the tool's --help for
           # the ocean coastline extract it expects)
+
+      # Staged input: the workstation-built bytes, checked against the sha256
+      # the dispatcher names. A mismatch stops the run before anything is
+      # signed or written to the manifest.
+      - name: Fetch staged water.sqlite (sha256-checked)
+        id: staged
+        if: ${{ inputs.staged_key != '' }}
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          STAGED_KEY:           ${{ inputs.staged_key }}
+          STAGED_SHA256:        ${{ inputs.staged_sha256 }}
+          SOURCES_KEY:          ${{ inputs.staged_sources_key }}
+          BUILT_AT:             ${{ inputs.staged_built_at }}
+          PYEFIS_SHA:           ${{ inputs.staged_pyefis_sha }}
+        run: |
+          case "$STAGED_KEY" in staging/*) ;; *) echo "staged_key must be under staging/"; exit 1;; esac
+          [ -n "$STAGED_SHA256" ] || { echo "staged_key needs staged_sha256"; exit 1; }
+          [ -n "$BUILT_AT" ] || { echo "staged_key needs staged_built_at"; exit 1; }
+          echo "$PYEFIS_SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "staged_key needs a 40-hex staged_pyefis_sha"; exit 1; }
+          python - <<'EOF'
+          import os
+          from packtools.upload import R2Store
+          s = R2Store.from_env("makerplane-data")
+          if not s.get_file(os.environ["STAGED_KEY"], "water.sqlite"):
+              raise SystemExit(f"staged object not found: {os.environ['STAGED_KEY']}")
+          if os.environ.get("SOURCES_KEY") and not s.get_file(os.environ["SOURCES_KEY"], "sources.json"):
+              raise SystemExit(f"staged sources not found: {os.environ['SOURCES_KEY']}")
+          EOF
+          echo "$STAGED_SHA256  water.sqlite" | sha256sum -c -
 
       - name: Pack + gate + upload (signed)
         id: publish
@@ -63,15 +131,61 @@ jobs:
           MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
           PYEFIS_SRC_DIR:       ${{ github.workspace }}/pyefis-src/src
           NOTES:                ${{ inputs.notes }}
+          PACK_ID:              ${{ inputs.pack_id }}
+          REGIONS:              ${{ inputs.regions }}
+          STAGED:               ${{ inputs.staged_key }}
+          BUILT_AT:             ${{ inputs.staged_built_at }}
+          PYEFIS_SHA:           ${{ inputs.staged_pyefis_sha }}
         run: |
           notes=()
           if [ -n "$NOTES" ]; then printf '%s' "$NOTES" > notes.json; notes=(--notes-file notes.json); fi
-          python -m packtools.cli build-pack water.sqlite "${notes[@]}" \
-            --id water-conus --kind water --cycle "${{ inputs.cycle }}" \
+          sources=()
+          if [ -f sources.json ]; then sources=(--sources sources.json); fi
+          # Staged: the record says where the bytes were built, not this run.
+          # Built here: the pyEfis checkout this run built from (CERT5a).
+          built=(--builder-ref "pyEfis=$(git -C pyefis-src rev-parse HEAD)")
+          if [ -n "$STAGED" ]; then
+            built=(--built-at "$BUILT_AT" --built-runner local --builder-ref "pyEfis=$PYEFIS_SHA")
+          fi
+          read -ra regions <<< "$REGIONS"
+          python -m packtools.cli build-pack water.sqlite "${notes[@]}" "${sources[@]}" "${built[@]}" \
+            --id "$PACK_ID" --kind water --cycle "${{ inputs.cycle }}" \
             --attribution "OpenStreetMap contributors (ODbL); Natural Earth" \
             --license "ODbL-1.0" --license-url "https://opendatacommons.org/licenses/odbl/1-0/" \
-            --regions conus --url-base https://navdata.aerocommons.org/packs \
+            --regions "${regions[@]}" --url-base https://navdata.aerocommons.org/packs \
             --upload --bucket makerplane-data
+
+      # The pack this run published, as a sha256sum line, for the attest job.
+      # Only after the gate accepted it and the manifest listing it is signed.
+      - name: List published pack
+        id: published
+        if: ${{ steps.publish.outcome == 'success' }}
+        env:
+          CYCLE:   ${{ inputs.cycle }}
+          PACK_ID: ${{ inputs.pack_id }}
+        run: |
+          { echo 'published<<END_PUBLISHED'; (cd work/packs && sha256sum "$PACK_ID-$CYCLE.pack"); echo 'END_PUBLISHED'; } >> "$GITHUB_OUTPUT"
+
+      # TV8: one GitHub Release per publish event, holding each published
+      # edition's report.json (the bytes its signed report_sha256 binds) and
+      # report.html. Only editions the live signed catalog now lists with that
+      # binding are included, so a refused or failed publish cuts no release,
+      # and a no-op run writes nothing. Tags are data/<date>/<run>, never v*.
+      - name: GitHub Release for this publish
+        if: ${{ !cancelled() }}
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          GH_TOKEN:             ${{ github.token }}
+        run: |
+          mkdir -p work/reports
+          packtool release-assets --records work/reports --out work/release --bucket makerplane-data
+          if [ -f work/release/tag.txt ]; then
+            gh release create "$(cat work/release/tag.txt)" work/release/assets/* \
+              --target "$GITHUB_SHA" --title "$(cat work/release/title.txt)" \
+              --notes-file work/release/notes.md --latest=false
+          fi
 
       # The public run page's record of what this run checked, rendered from
       # the test record the publish gate wrote (AER-4101). always(): a failed
@@ -81,12 +195,43 @@ jobs:
         env:
           STATES:  ${{ inputs.states }}
           CYCLE:   ${{ inputs.cycle }}
+          PACK_ID: ${{ inputs.pack_id }}
+          STAGED:  ${{ inputs.staged_key }}
           BUILD:   ${{ steps.build.outcome }}
+          FETCH:   ${{ steps.staged.outcome }}
           UPLOAD:  ${{ steps.publish.outcome }}
         run: |
           mkdir -p work/reports
-          packtool job-summary --title "water-packs: water-conus $CYCLE" \
+          src=(--input "states=$STATES" --input "fetch + build=$BUILD")
+          if [ -n "$STAGED" ]; then src=(--input "staged=$STAGED" --input "fetch staged (sha256-checked)=$FETCH"); fi
+          packtool job-summary --title "water-packs: $PACK_ID $CYCLE" \
             --records work/reports \
-            --file water.sqlite --file "work/packs/water-conus-$CYCLE.pack" \
-            --input "states=$STATES" --input "cycle=$CYCLE" \
-            --input "fetch + build=$BUILD" --input "gate + sign + upload=$UPLOAD"
+            --file water.sqlite --file "work/packs/$PACK_ID-$CYCLE.pack" \
+            "${src[@]}" --input "cycle=$CYCLE" \
+            --input "gate + sign + upload=$UPLOAD"
+
+  # Build provenance (TV10): a Sigstore-signed statement, kept in GitHub's
+  # public attestation store, that this workflow at this commit built each
+  # pack the build job published. It is a separate job so the OIDC token
+  # that signs it is never in reach of the build steps, which run pyEfis
+  # tools from another repo's dev branch. How to check one:
+  # docs/provenance.md (`gh attestation verify`).
+  attest:
+    needs: build
+    # Not for a staged publish: its bytes were built on a workstation, and
+    # this statement says "this workflow at this commit built" them. The
+    # record's `built` block carries a staged build's provenance instead.
+    if: ${{ always() && needs.build.outputs.published != '' && inputs.staged_key == '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Subjects (the packs the build job published)
+        env:
+          PUBLISHED: ${{ needs.build.outputs.published }}
+        run: printf '%s\n' "$PUBLISHED" > published.sha256
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: published.sha256

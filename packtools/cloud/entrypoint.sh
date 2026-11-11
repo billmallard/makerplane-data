@@ -15,13 +15,36 @@
 #                   $PACK_OUT/build-notes-$EDITION.txt (KEY=TEXT lines or a
 #                   JSON object; KEY is CHECK or terrain-<region>:CHECK).
 #                   A check that warns with no note refuses its pack.
+#
+# Stage mode (STAGE_ONLY=1, AER-4595): build every pack but upload nothing and
+# sign nothing. The packs stay in $PACK_OUT/packs/, each is diffed against the
+# published edition $PREV_EDITION (packtool wmask-diff), and the publish gate's
+# checks are previewed (packtool report). No R2 or signing secret is read.
+# A publish is a second run with STAGE_ONLY unset and the same EDITION.
+# FORCE_WMASK=1 rebuilds every .wmask (build_water_masks.py --force); it is
+# refused outside stage mode, so rebuilt masks are always seen before they ship.
 set -euo pipefail
 
+STAGE_ONLY="${STAGE_ONLY:-0}"
+FORCE_WMASK="${FORCE_WMASK:-0}"
+if [ "$FORCE_WMASK" = 1 ] && [ "$STAGE_ONLY" != 1 ]; then
+  echo "ERROR: FORCE_WMASK=1 needs STAGE_ONLY=1: rebuild and verify the masks in a stage"
+  echo "       run, then publish them with a second run that does not force."
+  exit 2
+fi
+
 # ---- required (env / .env) ----
-: "${R2_ENDPOINT:?set R2_ENDPOINT}"
-: "${R2_ACCESS_KEY_ID:?set R2_ACCESS_KEY_ID}"
-: "${R2_SECRET_ACCESS_KEY:?set R2_SECRET_ACCESS_KEY}"
-: "${MINISIGN_SECRET_KEY:?set MINISIGN_SECRET_KEY (base64 signing blob = contents of keys/minisign.sec)}"
+if [ "$STAGE_ONLY" != 1 ]; then
+  : "${R2_ENDPOINT:?set R2_ENDPOINT}"
+  : "${R2_ACCESS_KEY_ID:?set R2_ACCESS_KEY_ID}"
+  : "${R2_SECRET_ACCESS_KEY:?set R2_SECRET_ACCESS_KEY}"
+  : "${MINISIGN_SECRET_KEY:?set MINISIGN_SECRET_KEY (base64 signing blob = contents of keys/minisign.sec)}"
+else
+  # What the staged packs are diffed against: the edition now published.
+  : "${PREV_EDITION:?set PREV_EDITION (the published terrain edition to diff against, e.g. 2024edr1)}"
+  # Unset so no step below can reach R2 or sign, whatever .env holds.
+  unset R2_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY MINISIGN_SECRET_KEY
+fi
 # No default: an edition id is published to the live manifest, so the caller
 # names it every run. A default goes stale -- it pointed at 2024ed after that
 # edition was retracted (AER-3350, AER-3528).
@@ -38,15 +61,33 @@ MANIFEST_URL="${MANIFEST_URL:-https://navdata.aerocommons.org/manifest.json}"
 R2_BUCKET="${R2_BUCKET:-makerplane-data}"
 WATER_PACK_ID="${WATER_PACK_ID:-water-na}"         # water.sqlite source for step 2b
 WATER_CACHE="${WATER_CACHE:-/data/water-cache}"    # persists; re-runs reuse a sha-matching copy
-export R2_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY MINISIGN_SECRET_KEY R2_BUCKET
+# Stage mode: "region=TILE:LEVEL:EDGES" border spot checks (packtool wmask-diff
+# --border); each runs on that region's staged pack only.
+WMASK_BORDERS="${WMASK_BORDERS:-us-central=N27W097:5:SE}"
+if [ "$STAGE_ONLY" = 1 ]; then
+  UPLOAD_ARGS=()
+  MODE="STAGE ONLY (no upload, no signing; diff against $PREV_EDITION)"
+else
+  export R2_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY MINISIGN_SECRET_KEY
+  UPLOAD_ARGS=(--upload --bucket "$R2_BUCKET")
+  MODE="publish"
+fi
+export R2_BUCKET
 
 echo ">> terrain build: tile_root=$TILE_ROOT edition=$EDITION jobs=${JOBS} ref=$CODE_REF"
+echo "   mode: $MODE"
 if [ ! -d "$TILE_ROOT" ] || [ -z "$(ls -A "$TILE_ROOT" 2>/dev/null)" ]; then
   echo "ERROR: $TILE_ROOT missing/empty. On QNAP this almost always means the"
   echo "       volume was mounted with a symlink/UNC path instead of the native"
   echo "       /share/<POOL>/... path — see README (empty-volume gotcha)."
   exit 2
 fi
+# One packtools cloud job at a time on this /data: retro.sh (TV4) holds the
+# same lock, and both rewrite the manifest.
+LOCK="${CLOUD_LOCK:-/data/.packtools-cloud.lock}"
+mkdir -p "$(dirname "$LOCK")"
+exec 9>"$LOCK"
+flock -n 9 || { echo "ERROR: $LOCK is held: another packtools cloud job (retro records?) is running."; exit 3; }
 
 # ---- code: pyEfis is cloned fresh each run so map iterations are always
 #      current. makerplane-data: when this script runs from inside a checkout
@@ -122,11 +163,50 @@ PYTHONPATH=/opt/pyEfis/src python /opt/pyEfis/tools/build_terrain_mosaic.py "$TI
 #          tool's closing pack_check scans the whole tree and ignores --only,
 #          so a region-limited mask build would fail its own self-check.
 #          Existing masks are skipped (no --force), so only the first run
-#          pays the full cost; re-runs just fill gaps. --
+#          pays the full cost; re-runs just fill gaps. FORCE_WMASK=1 (stage
+#          mode only) rebuilds all of them: a mask-builder fix (AER-4594)
+#          changes masks that already exist. An interrupted forced run leaves
+#          old and new masks mixed, so re-run it forced, not plain. --
 WATER_MASK_TOOL="/opt/pyEfis/tools/build_water_masks.py"
 [ -f "$WATER_MASK_TOOL" ] || { echo "ERROR: $WATER_MASK_TOOL not found on pyEfis $PYEFIS_REF"; exit 1; }
-echo ">> [2b/5] building water masks (jobs=$JOBS)..."
-PYTHONPATH=/opt/pyEfis/src python "$WATER_MASK_TOOL" "$TILE_ROOT" "$WATER_DB" -j "$JOBS"
+MASK_ARGS=()
+[ "$FORCE_WMASK" = 1 ] && MASK_ARGS+=(--force)
+echo ">> [2b/5] building water masks (jobs=$JOBS${MASK_ARGS[@]+ ${MASK_ARGS[*]}})..."
+PYTHONPATH=/opt/pyEfis/src python "$WATER_MASK_TOOL" "$TILE_ROOT" "$WATER_DB" -j "$JOBS" \
+  ${MASK_ARGS[@]+"${MASK_ARGS[@]}"}
+
+# Stage mode: diff one staged pack against its published edition and preview
+# the publish gate's checks on it. Never fatal on its own (the run carries on
+# to the next pack); a failure sets fail=1 and lands in the stage summary.
+STAGE_SUMMARY="$PACK_OUT/stage-$EDITION-summary.txt"
+stage_check() {   # stage_check <pack id> <region key or "mosaic">
+  local id="$1" key="$2" pack="$PACK_OUT/packs/$1-$EDITION.pack"
+  local log="$PACK_OUT/stage-$EDITION-$id.txt" borders=() spec ok=PASS
+  for spec in $WMASK_BORDERS; do
+    [ "${spec%%=*}" = "$key" ] && borders+=(--border "${spec#*=}")
+  done
+  {
+    echo "== $id $EDITION: $(sha256sum "$pack" | cut -d' ' -f1)  $(stat -c %s "$pack") bytes"
+    echo "-- packtool wmask-diff (against $URL_BASE/$id-$PREV_EDITION.pack)"
+  } > "$log"
+  PYTHONPATH=. python -m packtools.cli wmask-diff "$pack" \
+      --against "$URL_BASE/$id-$PREV_EDITION.pack" ${borders[@]+"${borders[@]}"} \
+      >> "$log" 2>&1 || ok=FAIL
+  # The gate reads the previous edition's record; fetch the published one.
+  local prev_rec="$PACK_OUT/prev-$id-$PREV_EDITION.report.json"
+  echo "-- packtool report (publish-gate preview, previous = $PREV_EDITION record)" >> "$log"
+  if curl -fsS -A makerplane-data-stage "${URL_BASE%/packs}/reports/$id/$PREV_EDITION/report.json" \
+        -o "$prev_rec" >> "$log" 2>&1; then
+    PYTHONPATH=. python -m packtools.cli report "$pack" --previous "$prev_rec" \
+        --origin federal --out "$PACK_OUT/stage-$EDITION-$id.report.json" \
+        ${GATE_ARGS[@]+"${GATE_ARGS[@]}"} >> "$log" 2>&1 || ok=FAIL
+  else
+    echo "!! no published record for $id $PREV_EDITION" >> "$log"; ok=FAIL
+  fi
+  cat "$log"
+  echo "$ok  $id  ($log)" >> "$STAGE_SUMMARY"
+  [ "$ok" = PASS ] || fail=1
+}
 
 # ---- 3. build + upload each region pack (re-signs the manifest per region) --
 # Packs ship COMPRESSED (DEFLATE): ~50% smaller on R2 and on the wire, at the
@@ -135,13 +215,18 @@ PYTHONPATH=/opt/pyEfis/src python "$WATER_MASK_TOOL" "$TILE_ROOT" "$WATER_DB" -j
 cd "$DATA_DIR"
 mkdir -p "$PACK_OUT"
 fail=0
+[ "$STAGE_ONLY" = 1 ] && : > "$STAGE_SUMMARY"
 for r in $REGIONS; do
   echo ">> [3/5] region $r  $(date -u +%H:%M:%S)"
   if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
         --edition "$EDITION" --only "$r" --out "$PACK_OUT" \
-        --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET" \
+        --url-base "$URL_BASE" --require-wmask ${UPLOAD_ARGS[@]+"${UPLOAD_ARGS[@]}"} \
         ${GATE_ARGS[@]+"${GATE_ARGS[@]}"}; then
-    rm -f "$PACK_OUT/packs/terrain-$r-$EDITION.pack"          # free scratch as we go
+    if [ "$STAGE_ONLY" = 1 ]; then
+      stage_check "terrain-$r" "$r"                             # staged packs are kept
+    else
+      rm -f "$PACK_OUT/packs/terrain-$r-$EDITION.pack"        # free scratch as we go
+    fi
   else
     echo "!! FAILED: $r"; fail=1
   fi
@@ -153,11 +238,22 @@ done
 echo ">> [4/5] mosaic pack  $(date -u +%H:%M:%S)"
 if PYTHONPATH=. python -m packtools.cli make-terrain "$TILE_ROOT" \
       --edition "$EDITION" --mosaic --out "$PACK_OUT" \
-      --url-base "$URL_BASE" --require-wmask --upload --bucket "$R2_BUCKET" \
+      --url-base "$URL_BASE" --require-wmask ${UPLOAD_ARGS[@]+"${UPLOAD_ARGS[@]}"} \
       ${GATE_ARGS[@]+"${GATE_ARGS[@]}"}; then
-  rm -f "$PACK_OUT/packs/terrain-mosaic-$EDITION.pack"
+  if [ "$STAGE_ONLY" = 1 ]; then
+    stage_check terrain-mosaic mosaic
+  else
+    rm -f "$PACK_OUT/packs/terrain-mosaic-$EDITION.pack"
+  fi
 else
   echo "!! FAILED: mosaic pack"; fail=1
+fi
+
+if [ "$STAGE_ONLY" = 1 ]; then
+  echo ">> [5/5] STAGE ONLY: nothing uploaded, nothing signed. Packs: $PACK_OUT/packs/"
+  [ -f "$STAGE_SUMMARY" ] && cat "$STAGE_SUMMARY"
+  echo ">> DONE (exit $fail)"
+  exit $fail
 fi
 
 # ---- 5. verify the published manifest (signature + that it parses). A

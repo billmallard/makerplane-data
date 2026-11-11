@@ -1,0 +1,31 @@
+# Retro records (TV4) -- same image as the terrain build, run once, exits.
+# A separate file because docker-compose.yml refuses to load without EDITION.
+#
+#   docker compose -f docker-compose.retro.yml up --build
+#   docker compose -f docker-compose.retro.yml logs -f retro-records
+#
+# Memory is capped: one unbounded run took the whole NAS down once (AER-2644).
+# The work is one pack at a time and streams (sha256, zip members, SQLite page
+# cache), so 4 GB is headroom, not a working set; raise RETRO_MEM only with a
+# reason. Shares /data and its lock with the terrain build, so the two never
+# run together (retro.sh exits 3 if the lock is held).
+#
+# Same native-volume gotcha as docker-compose.yml (see README).
+services:
+  retro-records:
+    build: .
+    image: makerplane/terrain-build:latest
+    container_name: retro-records
+    entrypoint: ["/usr/local/bin/retro.sh"]
+    volumes:
+      - /share/ZFS22_DATA/pyEfisData/EarthData:/data
+    env_file:
+      - .env                    # R2_* creds + MINISIGN_SECRET_KEY -- gitignored, never commit
+    environment:
+      SCRATCH:  /data/retro-scratch      # one pack at a time, deleted before the next
+      OUT:      /data/retro-out          # records, schemas and the run summary, per run
+      CODE_REF: dev
+      ONLY:     "${ONLY:-}"              # comma list of pack ids; empty = every unbound entry
+    mem_limit: "${RETRO_MEM:-4g}"
+    memswap_limit: "${RETRO_MEM:-4g}"
+    restart: "no"

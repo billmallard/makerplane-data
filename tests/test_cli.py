@@ -236,3 +236,19 @@ def test_build_pack_noncyclical_cycle_only_ok(tmp_path):
     m = Manifest.read(out / "manifest.json")
     e = next(p for p in m.packs if p.id == "water-conus")
     assert e.cycle == "2026q2" and e.effective is None     # non-cyclical entry
+
+
+def test_build_pack_carries_a_staged_builds_provenance_to_the_gate(tmp_path):
+    # AER-4676: staged-publish flags reach gate.Options.built; without them
+    # the gate gets nothing and the record describes the run itself.
+    from packtools import cli as _cli
+    import argparse
+    args = argparse.Namespace(notes_file=None, note=None, origin=None, sources=None,
+                              pyefis_src=None, built_at="2026-11-02T15:43:00Z",
+                              built_runner="local", builder_ref=["pyEfis=" + "d" * 40])
+    o = _cli._gate_options(args, tmp_path)
+    assert o.built == {"at": "2026-11-02T15:43:00Z", "runner": "local",
+                       "builder_refs": {"pyEfis": "d" * 40}}
+    args = argparse.Namespace(notes_file=None, note=None, origin=None, sources=None,
+                              pyefis_src=None)
+    assert _cli._gate_options(args, tmp_path).built == {}

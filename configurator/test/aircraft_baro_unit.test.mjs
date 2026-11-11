@@ -15,8 +15,12 @@ import { devicePreferences } from "../src/device_prefs.ts";
 
 const SRC = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)),
   "..", "public", "aircraft.html"), "utf8");
+// normalizeProfile also migrates meta.fuel to schema 2 (AER-5271), so its
+// helpers come along.
 const { normalizeProfile } = new Function(
-  extractConst(SRC, "BARO_UNITS") + "\n" + extractFunction(SRC, "normalizeProfile")
+  ["BARO_UNITS", "FUEL_ROLES", "TANK_CEILING"].map(n => extractConst(SRC, n)).join("\n") + "\n"
+  + ["normalizeProfile", "newTankId", "migrateFuel", "adoptTankValues"]
+      .map(n => extractFunction(SRC, n)).join("\n")
   + "\nreturn { normalizeProfile };")();
 
 // The save/load path: PUT body JSON -> D1 TEXT -> GET JSON.parse -> normalize.

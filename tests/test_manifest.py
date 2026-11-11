@@ -361,8 +361,83 @@ def test_signing_refuses_a_repointed_record():
     moved["packs"][0]["report_sha256"] = "c" * 64
     with pytest.raises(ManifestError, match="immutable"):
         validate(moved, previous=prev)
-    # Binding a record to an entry that had none (a retro record) is allowed.
+    # Binding a record to an entry that had none needs a retro record (TV4).
     bare = json.loads(json.dumps(prev))
     for f in ("report_url", "report_sha256"):
         bare["packs"][0][f] = ""
-    validate(prev, previous=bare)
+    with pytest.raises(ManifestError, match="only a retro record"):
+        validate(prev, previous=bare)
+
+
+# --- TV4: a retro record binds to an entry published without one -------------
+
+def _retro_case(record="retro", **pack):
+    import hashlib
+    bare = {"manifest_version": 1, "generated": "2026-06-14T00:00:00Z", "packs": [
+        {"id": "x", "kind": "water", "cycle": "1", "bytes": 10, "sha256": "a" * 64,
+         "url": "https://h/packs/x-1.pack"}]}
+    rec = {"record": record, "pack": {"id": "x", "cycle": "1", "sha256": "a" * 64,
+                                      "bytes": 10, **pack}}
+    raw = json.dumps(rec).encode()
+    bound = json.loads(json.dumps(bare))
+    bound["packs"][0].update(report_url="https://h/reports/x/1/report.json",
+                             report_sha256=hashlib.sha256(raw).hexdigest())
+    return bare, bound, raw
+
+
+def test_retro_record_binds_to_a_blank_entry():
+    bare, bound, raw = _retro_case()
+    validate(bound, previous=bare, retro={("x", "1"): raw})
+
+
+def test_retro_binding_refuses_a_build_record():
+    bare, bound, raw = _retro_case(record="build")
+    with pytest.raises(ManifestError, match="not retro"):
+        validate(bound, previous=bare, retro={("x", "1"): raw})
+
+
+def test_retro_binding_refuses_bytes_that_are_not_the_record():
+    bare, bound, raw = _retro_case()
+    with pytest.raises(ManifestError, match="not the sha256"):
+        validate(bound, previous=bare, retro={("x", "1"): raw + b" "})
+
+
+def test_retro_binding_refuses_a_record_about_other_bytes():
+    bare, bound, raw = _retro_case(sha256="d" * 64)
+    with pytest.raises(ManifestError, match="pack.sha256"):
+        validate(bound, previous=bare, retro={("x", "1"): raw})
+
+
+def test_retro_binding_refuses_a_changed_pack():
+    bare, bound, raw = _retro_case()
+    bound["packs"][0]["url"] = "https://h/packs/other.pack"
+    with pytest.raises(ManifestError, match="changes its url"):
+        validate(bound, previous=bare, retro={("x", "1"): raw})
+
+
+def test_retro_never_replaces_an_existing_binding():
+    bare, bound, raw = _retro_case()
+    # Same binding, retro offered again: refused, not silently accepted.
+    with pytest.raises(ManifestError, match="never replaces"):
+        validate(bound, previous=bound, retro={("x", "1"): raw})
+    # A different retro record over an existing binding: immutable.
+    _, other, raw2 = _retro_case(schema_version="2")
+    with pytest.raises(ManifestError, match="immutable"):
+        validate(other, previous=bound, retro={("x", "1"): raw2})
+
+
+def test_retro_never_binds_a_new_entry():
+    bare, bound, raw = _retro_case()
+    bound["packs"][0]["notice"] = "n"
+    with pytest.raises(ManifestError, match="is new"):
+        validate(bound, previous={"packs": []}, retro={("x", "1"): raw})
+
+
+def test_retro_record_must_be_used_and_needs_previous():
+    bare, _, raw = _retro_case()
+    with pytest.raises(ManifestError, match="not bound"):
+        validate(bare, previous=bare, retro={("x", "1"): raw})
+    with pytest.raises(ManifestError, match="not in this manifest"):
+        validate(bare, previous=bare, retro={("y", "1"): raw})
+    with pytest.raises(ManifestError, match="needs the previous"):
+        validate(bare, retro={("x", "1"): raw})

@@ -26,6 +26,9 @@
           border-radius:7px; font:inherit; background:#fff; }
   .field input.err { border-color: var(--red); background:#fff6f5; }
   .field .unit { font-size:11px; color:var(--muted); margin-left:4px; }
+  .field.setting { max-width:560px; margin-top:12px; }
+  .field.setting input { max-width:150px; }
+  .field .help { font-size:12.5px; color:var(--muted); margin:4px 0 0; white-space:normal; }
   .counts { display:flex; gap:18px; flex-wrap:wrap; }
   .counts .field { min-width:130px; }
   .btn { background:#fff; border:1px solid var(--line); border-radius:8px; padding:7px 13px;
@@ -33,10 +36,14 @@
   .btn:hover { border-color:var(--orange); color:var(--orange); }
   .btn.primary { background:var(--orange); border-color:var(--orange); color:#fff; }
   .btn.primary:disabled { background:#cfd4dc; border-color:#cfd4dc; cursor:default; }
-  .errors { color:var(--red); font-size:13px; margin:8px 0 0; }
+  .errors { color:var(--red); font-size:13px; margin:8px 0 0; white-space:pre-line; }
   .ok { color:var(--green); font-size:13.5px; }
   canvas#arc { width:100%; height:44px; border:1px solid var(--line); border-radius:8px;
                background:#fafbfc; margin-top:10px; }
+  .grid.tank { border-top:1px solid var(--line); padding-top:10px; margin-bottom:10px; align-items:end; }
+  .field.feeds label.check { display:inline-flex; align-items:center; gap:4px; margin:0 10px 2px 0;
+                             font-size:13px; color:inherit; }
+  .field.feeds input { width:auto; }
   .subhead { font-weight:600; font-size:13.5px; color:var(--navy); margin:14px 0 6px; }
   .footer-note { color:var(--muted); font-size:12.5px; }
   .pill { font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:20px;
@@ -76,8 +83,6 @@
         <select id="engines"></select></div>
       <div class="field"><label>Cylinders per engine</label>
         <select id="cylinders"></select></div>
-      <div class="field"><label>Fuel tanks</label>
-        <select id="tanks"></select></div>
       <div class="field"><label>Airspeed entry unit</label>
         <select id="speedunit">
           <option value="kt">knots (default)</option>
@@ -94,6 +99,21 @@
           <option value="1">Show Vmc/V1/V2</option></select></div>
     </div>
   </div>
+  <div class="card">
+    <h2>Ownship identity</h2>
+    <p class="sub">Hides your own aircraft's ADS-B reports from the traffic
+      display. Matched on this address only, never on position: a target that
+      does not carry it is always shown.</p>
+    <div class="counts">
+      <div class="field"><label>Registration</label>
+        <input id="registration" maxlength="10" autocomplete="off" spellcheck="false"
+               placeholder="e.g. N825V"></div>
+      <div class="field"><label>ICAO address override (hex)</label>
+        <input id="icaoaddr" maxlength="8" autocomplete="off" spellcheck="false"
+               placeholder="e.g. A1B2C3"></div>
+    </div>
+    <p class="help" id="ownship-out"></p>
+  </div>
   <div id="groups"></div>
   <p class="footer-note">Aircraft Parameter Profile — schema from fix-gateway
     (<span id="schema-ver"></span>). Delivered today by downloading
@@ -102,7 +122,10 @@
     <code>initialization files</code>; device push arrives with config
     delivery (Phase C). The altimeter setting units are the exception: they
     reach every paired display of this aircraft with its next
-    <code>pyefis-data config-pull</code>, and every screen starts in them.</p>
+    <code>pyefis-data config-pull</code>, and every screen starts in them.
+    The ownship identity is saved with the profile but is not sent to the
+    aircraft yet: until it is, the address shown above is the value for
+    <code>ownship_address</code> in fix-gateway's stratux connection.</p>
 </main>
 <input type="file" id="inifile" accept=".ini,text/plain" style="display:none">
 <script>
@@ -117,6 +140,7 @@ const SPEED_ORDER = ["Vs0","Vs","Vfe","Vno","Vne","Va","Vx","Vy","Vmc","V1","V2"
 const TWIN_ONLY = new Set(["Vmc","V1","V2"]);
 const DEEMPH = new Set(["Min","Max"]);
 const KT = {kt:1, mph:1.15078, kph:1.852};   // 1 kt = X unit
+const SPEED_UNIT_LABEL = {kt:"kt", mph:"mph", kph:"km/h"};
 
 let schema = null;
 let profile = { schema_version: 1,
@@ -136,7 +160,288 @@ function normalizeProfile(p) {
   if (!p.meta || typeof p.meta !== "object") p.meta = {};
   if (!p.values || typeof p.values !== "object") p.values = {};
   if (!BARO_UNITS.includes(p.meta.baro_unit)) p.meta.baro_unit = "inHg";
+  migrateFuel(p.meta, p.values, newTankId);
   return p;
+}
+
+// ---- fuel-system provider, meta.fuel schema 2 ----------------------------------
+// docs/fuel_provider_model.md section 2. Each tank has a stable id (what a
+// gauge will reference), a label (the only name a tank has: no Left, Center
+// or Right is ever defaulted), and a slot, the n of the FUELQn its sender
+// writes. Order in the list only decides how tanks are shown. FUELQn.Min/Max
+// are written from the tank (Max = capacity - unusable) whenever the tank is
+// edited; loading never rewrites values, so a migrated profile compiles to the
+// same aircraft.ini.
+const FUEL_ROLES = ["main", "aux", "tip", "header", "transfer"];
+// Copies of src/fuel_profile.ts: the UI ceiling, and the provisional label
+// limit F6 replaces with the measured one.
+const TANK_CEILING = 8;
+const TANK_LABEL_MAX = 12;
+
+function newTankId(taken) {
+  for (;;) {
+    const b = crypto.getRandomValues(new Uint8Array(4));
+    const id = "tk_" + Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+    if (!taken.has(id)) return id;
+  }
+}
+
+// Schema 1 (a positional [{role, feeds: "E<n>"|"T<n>"|""}], entry t-1 is tank t,
+// padded to meta.tanks with the page's old default) -> schema 2, in place.
+// Tank t gets slot t and label "Tank t"; "T<n>" becomes an edge to tank n's new
+// id; capacity is read from FUELQt.Max with unusable 0, so Max is unchanged.
+// An edge the old page could not show (a tank or engine beyond the counts) is
+// dropped, as that page displayed it: "feeds: nothing".
+function migrateFuel(meta, values, newId) {
+  if (meta.fuel && typeof meta.fuel === "object" && !Array.isArray(meta.fuel)
+      && meta.fuel.schema === 2 && Array.isArray(meta.fuel.tanks)) {
+    meta.tanks = meta.fuel.tanks.length;
+    return;
+  }
+  const old = Array.isArray(meta.fuel) ? meta.fuel : [];
+  const engines = Number.isInteger(meta.engines) ? meta.engines : 1;
+  const count = Math.max(0, Math.min(TANK_CEILING, Number.isInteger(meta.tanks) ? meta.tanks : 0));
+  const taken = new Set(), ids = [];
+  for (let t = 1; t <= count; t++) { ids[t] = newId(taken); taken.add(ids[t]); }
+  const tanks = [];
+  for (let t = 1; t <= count; t++) {
+    const o = old[t - 1] && typeof old[t - 1] === "object" ? old[t - 1] : { role: "main", feeds: "E1" };
+    const feeds = [], m = /^([ET])(\d+)$/.exec(typeof o.feeds === "string" ? o.feeds : "");
+    if (m && m[1] === "E" && Number(m[2]) >= 1 && Number(m[2]) <= engines)
+      feeds.push({ to: "engine", n: Number(m[2]) });
+    if (m && m[1] === "T" && Number(m[2]) >= 1 && Number(m[2]) <= count && Number(m[2]) !== t)
+      feeds.push({ to: "tank", id: ids[Number(m[2])] });
+    tanks.push({ id: ids[t], label: "Tank " + t, role: FUEL_ROLES.includes(o.role) ? o.role : "main",
+                 slot: t, feeds, capacity: null, unusable: 0 });
+  }
+  meta.fuel = { schema: 2, tanks };
+  meta.tanks = tanks.length;
+  adoptTankValues(meta, values);
+}
+
+// FUELQn.Max -> capacity (+ unusable), for each tank whose slot has a Max above
+// 0: after a migration, a template or an .ini import wrote values directly.
+function adoptTankValues(meta, values) {
+  if (!meta.fuel || !Array.isArray(meta.fuel.tanks)) return;
+  for (const t of meta.fuel.tanks) {
+    const max = values["FUELQ" + t.slot + ".Max"];
+    if (typeof max === "number" && max > 0) t.capacity = max + (t.unusable || 0);
+  }
+}
+
+// The tank -> its FUELQn.Min/Max (Max = capacity - unusable: the gauge reads
+// usable fuel, brief D2). No capacity, no Min/Max.
+function syncTankValues(t, values) {
+  const k = "FUELQ" + t.slot;
+  if (typeof t.capacity === "number" && t.capacity > 0) {
+    values[k + ".Min"] = 0;
+    values[k + ".Max"] = Math.round((t.capacity - (t.unusable || 0)) * 1e6) / 1e6;
+  } else { delete values[k + ".Min"]; delete values[k + ".Max"]; }
+}
+
+// A new tank takes the lowest free slot and a neutral "Tank n" label.
+function addTank(meta, values, newId) {
+  const tanks = meta.fuel.tanks;
+  if (tanks.length >= TANK_CEILING) return null;
+  const used = new Set(tanks.map(t => t.slot)), labels = new Set(tanks.map(t => t.label.trim().toUpperCase()));
+  let slot = 1; while (used.has(slot)) slot++;
+  let label = "Tank " + slot;
+  for (let i = 2; labels.has(label.toUpperCase()); i++) label = "Tank " + slot + "-" + i;
+  const t = { id: newId(new Set(tanks.map(x => x.id))), label, role: "main", slot,
+              feeds: [{ to: "engine", n: 1 }], capacity: null, unusable: 0 };
+  tanks.push(t);
+  meta.tanks = tanks.length;
+  return t;
+}
+
+// Removing a tank changes no other tank: slots, labels and edges stay put.
+// Edges into the removed tank go, and so do its slot's FUELQn values.
+function removeTank(meta, values, id) {
+  const tanks = meta.fuel.tanks, i = tanks.findIndex(t => t.id === id);
+  if (i < 0) return;
+  const [gone] = tanks.splice(i, 1);
+  for (const t of tanks) t.feeds = t.feeds.filter(e => !(e.to === "tank" && e.id === id));
+  for (const k of Object.keys(values)) if (k.startsWith("FUELQ" + gone.slot + ".")) delete values[k];
+  meta.tanks = tanks.length;
+}
+
+// A rewire: the tank's FUELQn values move with it to the new slot.
+function setTankSlot(meta, values, id, slot) {
+  const t = meta.fuel.tanks.find(x => x.id === id);
+  if (!t || t.slot === slot || meta.fuel.tanks.some(x => x.slot === slot)) return;
+  for (const k of Object.keys(values)) {
+    const m = /^FUELQ(\d+)\.(.+)$/.exec(k);
+    if (m && Number(m[1]) === t.slot) { values["FUELQ" + slot + "." + m[2]] = values[k]; delete values[k]; }
+  }
+  t.slot = slot;
+}
+
+// Copy of fuelCheck() in src/fuel_profile.ts (test/fuel_profile.test.mjs).
+function fuelCheck(meta, values) {
+  const errors = [], warnings = [];
+  const fuel = meta && meta.fuel;
+  if (fuel === undefined || Array.isArray(fuel)) return { errors, warnings };
+  if (!fuel || typeof fuel !== "object" || fuel.schema !== 2 || !Array.isArray(fuel.tanks)) {
+    errors.push("meta.fuel must be a schema-2 tank list");
+    return { errors, warnings };
+  }
+  const tanks = fuel.tanks;
+  const engines = Number.isInteger(meta.engines) ? meta.engines : 1;
+  const V = values && typeof values === "object" ? values : {};
+  if (tanks.length > TANK_CEILING) errors.push(`at most ${TANK_CEILING} fuel tanks`);
+  const name = (t, i) =>
+    t && typeof t.label === "string" && t.label.trim() ? t.label.trim() : `tank ${i + 1}`;
+  const ids = new Map(), slots = new Map(), labels = new Map();
+  tanks.forEach((t, i) => {
+    if (!t || typeof t !== "object") { errors.push(`tank ${i + 1}: must be an object`); return; }
+    const n = name(t, i);
+    if (typeof t.id !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(t.id))
+      errors.push(`${n}: id must be 1-32 letters, digits, _ or -`);
+    else if (ids.has(t.id)) errors.push(`${n}: duplicate id ${t.id}`);
+    else ids.set(t.id, i);
+    if (typeof t.label !== "string" || !t.label.trim()) errors.push(`tank ${i + 1}: label required`);
+    else if (t.label.length > TANK_LABEL_MAX)
+      errors.push(`${n}: label at most ${TANK_LABEL_MAX} characters`);
+    else {
+      const key = t.label.trim().toUpperCase();
+      if (labels.has(key)) errors.push(`${n}: label used by another tank`);
+      else labels.set(key, i);
+    }
+    if (!FUEL_ROLES.includes(t.role)) errors.push(`${n}: role must be one of ${FUEL_ROLES.join(", ")}`);
+    if (!Number.isInteger(t.slot) || t.slot < 1 || t.slot > TANK_CEILING)
+      errors.push(`${n}: slot must be 1-${TANK_CEILING}`);
+    else if (slots.has(t.slot)) errors.push(`${n}: slot ${t.slot} (FUELQ${t.slot}) used by another tank`);
+    else slots.set(t.slot, i);
+    const cap = t.capacity, unu = t.unusable == null ? 0 : t.unusable;
+    const capSet = cap !== null && cap !== undefined;
+    if (capSet && (typeof cap !== "number" || !Number.isFinite(cap) || cap <= 0))
+      errors.push(`${n}: capacity must be a number above 0`);
+    else if (typeof unu !== "number" || !Number.isFinite(unu) || unu < 0)
+      errors.push(`${n}: unusable must be 0 or more`);
+    else if (!capSet && unu > 0) errors.push(`${n}: unusable needs a capacity`);
+    else if (capSet && unu >= cap) errors.push(`${n}: unusable must be less than capacity`);
+    else if (capSet && Number.isInteger(t.slot)) {
+      const max = V[`FUELQ${t.slot}.Max`];
+      if (typeof max !== "number" || Math.abs(max - (cap - unu)) > 1e-6)
+        errors.push(`${n}: FUELQ${t.slot}.Max must be capacity - unusable (${cap - unu})`);
+    }
+  });
+  // Edges, once every id is known.
+  const fed = new Set(), out = new Map();
+  tanks.forEach((t, i) => {
+    if (!t || typeof t !== "object") return;
+    const n = name(t, i), tankEdges = [];
+    if (!Array.isArray(t.feeds)) { errors.push(`${n}: feeds must be a list`); return; }
+    for (const e of t.feeds) {
+      if (e && e.to === "engine" && Number.isInteger(e.n) && e.n >= 1 && e.n <= engines) fed.add(e.n);
+      else if (e && e.to === "engine") errors.push(`${n}: feeds engine ${e.n}, which does not exist`);
+      else if (e && e.to === "tank" && e.id === t.id) errors.push(`${n}: a tank cannot feed itself`);
+      else if (e && e.to === "tank" && ids.has(e.id)) tankEdges.push(ids.get(e.id));
+      else if (e && e.to === "tank") errors.push(`${n}: feeds a tank that does not exist`);
+      else errors.push(`${n}: a feed must go to an engine or a tank`);
+    }
+    out.set(i, tankEdges);
+    const toEngine = t.feeds.some((e) => e && e.to === "engine");
+    if (t.role === "header" && !toEngine) warnings.push(`${n}: a header tank should feed an engine`);
+    if ((t.role === "tip" || t.role === "transfer") && !tankEdges.length)
+      warnings.push(`${n}: a ${t.role} tank should feed another tank`);
+  });
+  if (tanks.length)
+    for (let e = 1; e <= engines; e++)
+      if (!fed.has(e)) warnings.push(`engine ${e} is fed by no tank`);
+  // Spec 6b: a transfer cycle is flagged, not refused. Report the first one.
+  const state = new Map(), path = [];
+  let cycle = null;
+  const visit = (i) => {
+    state.set(i, 1); path.push(i);
+    for (const j of out.get(i) || []) {
+      if (cycle) break;
+      if (state.get(j) === 1) cycle = path.slice(path.indexOf(j)).concat(j);
+      else if (!state.has(j)) visit(j);
+    }
+    path.pop(); state.set(i, 2);
+  };
+  for (const i of out.keys()) if (!cycle && !state.has(i)) visit(i);
+  if (cycle) warnings.push(`tank feeds form a cycle: ${cycle.map(i => name(tanks[i], i)).join(" -> ")}`);
+  // Values for a slot no tank holds still compile into aircraft.ini.
+  const orphan = new Set();
+  for (const k of Object.keys(V)) {
+    const m = /^FUELQ(\d+)\./.exec(k);
+    if (m && !slots.has(Number(m[1]))) orphan.add(`FUELQ${m[1]}`);
+  }
+  for (const k of [...orphan].sort())
+    warnings.push(`${k} values belong to no tank but still go into aircraft.ini`);
+  return { errors, warnings };
+}
+
+// ---- ownship identity (P3e) ----------------------------------------------------
+// Copy of src/ownship.ts (this page cannot load .ts); test/ownship.test.mjs
+// holds the two equal over every N-number. A US N-number derives its 24-bit
+// address (A00001-ADF7C7, FAA allocation order); other states enter the hex,
+// and the hex wins whenever both are set.
+const N_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+function normalizeRegistration(raw) {
+  return typeof raw === "string" ? raw.toUpperCase().replace(/\s+/g, "") : "";
+}
+
+function nNumberAddress(reg) {
+  const s = normalizeRegistration(reg);
+  if (!/^N[1-9][0-9]{0,4}$|^N[1-9][0-9]{0,3}[A-HJ-NP-Z]$|^N[1-9][0-9]{0,2}[A-HJ-NP-Z]{2}$/.test(s))
+    return null;
+  const SUFFIXES = 1 + N_LETTERS.length * (1 + N_LETTERS.length);
+  const BLOCK = [101711, 10111, 951, 35];
+  let a = 0xa00001 + (Number(s[1]) - 1) * BLOCK[0];
+  for (let i = 2; i < s.length; i++) {
+    const c = s[i], letter = N_LETTERS.indexOf(c);
+    if (i === 5) return a + (letter >= 0 ? 1 + letter : 1 + N_LETTERS.length + Number(c));
+    if (letter >= 0) {
+      a += 1 + letter * (1 + N_LETTERS.length);
+      if (i + 1 < s.length) a += 1 + N_LETTERS.indexOf(s[i + 1]);
+      return a;
+    }
+    a += SUFFIXES + Number(c) * BLOCK[i - 1];
+  }
+  return a;
+}
+
+function parseIcaoAddress(raw) {
+  if (typeof raw !== "string") return null;
+  const m = /^(?:0X)?([0-9A-F]{6})$/.exec(raw.trim().toUpperCase());
+  if (!m) return null;
+  const a = parseInt(m[1], 16);
+  return a === 0 ? null : a;
+}
+
+// The two inputs -> { hard, warn, text }: what to block Save on, what to
+// flag, and the line shown under the fields (which address the filter uses).
+function ownshipStatus(meta) {
+  const reg = normalizeRegistration(meta.registration);
+  const rawHex = typeof meta.icao_address === "string" ? meta.icao_address.trim() : "";
+  const hex6 = a => a.toString(16).toUpperCase().padStart(6, "0");
+  const out = { hard: [], warn: [], text: "" };
+  const derived = reg ? nNumberAddress(reg) : null;
+  const hex = rawHex ? parseIcaoAddress(rawHex) : null;
+  if (reg && !/^[A-Z0-9][A-Z0-9-]{0,9}$/.test(reg))
+    out.hard.push("Registration: up to 10 letters, digits and hyphens");
+  else if (reg.startsWith("N") && derived === null)
+    out.hard.push(`Registration: ${reg} is not a valid US N-number`);
+  if (rawHex && hex === null)
+    out.hard.push("ICAO address: 6 hex digits (not 000000)");
+  if (out.hard.length) { out.text = out.hard.join("; ") + "."; return out; }
+  if (hex !== null) {
+    out.text = `Traffic with ICAO address ${hex6(hex)} is hidden as ownship (from the override).`;
+    if (derived !== null && derived !== hex)
+      out.warn.push(`ICAO address override ${hex6(hex)} differs from ${reg}'s ${hex6(derived)}; the override is used`);
+  } else if (derived !== null) {
+    out.text = `Traffic with ICAO address ${hex6(derived)} is hidden as ownship (derived from ${reg}).`;
+  } else if (reg) {
+    out.text = `No address can be derived from ${reg} (only US N-numbers derive). Enter the hex address from your registration certificate or transponder.`;
+    out.warn.push(`no ICAO address for ${reg}: enter it in hex, or only the receiver's own ownship report is filtered`);
+  } else {
+    out.text = "Not set: only the receiver's own ownship report is filtered.";
+  }
+  return out;
 }
 
 // ---- templates (STARTING POINTS -- verify against the POH) ----------------
@@ -185,7 +490,7 @@ function instances(keyTmpl, repeat) {
     for (let e=1; e<=m.engines; e++)
       out.push(keyTmpl.replace(/ec$|e$/, String(e)));   // shared per engine
   } else if (repeat === "tank") {
-    for (let t=1; t<=m.tanks; t++) out.push(keyTmpl.replace(/t$/, String(t)));
+    for (const t of (m.fuel && m.fuel.tanks) || []) out.push(keyTmpl.replace(/t$/, String(t.slot)));
   } else out.push(keyTmpl);
   return out;
 }
@@ -194,6 +499,47 @@ function isSpeed(groupId) { return groupId === "speeds"; }
 function toNative(v, gid) { return isSpeed(gid) ? v / KT[profile.meta.speed_unit] : v; }
 function toDisplay(v, gid) { return isSpeed(gid) ? v * KT[profile.meta.speed_unit] : v; }
 function fmt(v) { return (Math.round(v * 100) / 100).toString(); }
+function unitLabel(gid, units) { return isSpeed(gid) ? SPEED_UNIT_LABEL[profile.meta.speed_unit] : (units || ""); }
+
+// Aux slots that are settings rather than published limits (fix-gateway
+// aux_meta, e.g. IAS.Vgnd, AER-4619): label, help, and min/max/default in
+// the key's native units. Only slots the key actually lists are returned.
+function auxSettings(k) {
+  const m = (k && k.aux_meta) || {};
+  return Object.keys(m).filter(a => (k.aux || []).includes(a)).map(a => [a, m[a]]);
+}
+
+// A typed entry -> profile.values (native units); blank = leave unset.
+function setEntry(fk, raw, gid) {
+  raw = raw.trim();
+  if (raw === "") delete profile.values[fk];
+  else {
+    const n = Number(raw);
+    if (isFinite(n)) profile.values[fk] = toNative(n, gid);
+  }
+  validate(); if (gid === "speeds") drawArc();
+}
+
+function settingField(fk, m, gid, units) {
+  const u = unitLabel(gid, units), d = x => fmt(toDisplay(x, gid));
+  const f = document.createElement("div"); f.className = "field setting";
+  const lab = document.createElement("label");
+  lab.textContent = (m.label || fk.split(".")[1]) + (u ? ` (${u})` : "");
+  const inp = document.createElement("input");
+  inp.type = "number"; inp.step = "any"; inp.dataset.fk = fk; inp.dataset.gid = gid;
+  if (m.min != null) inp.min = d(m.min);
+  if (m.max != null) inp.max = d(m.max);
+  if (m.default != null) inp.placeholder = d(m.default) + " (default)";
+  const v = profile.values[fk];
+  if (v != null) inp.value = d(v);
+  inp.addEventListener("input", () => setEntry(fk, inp.value, gid));
+  const help = document.createElement("p"); help.className = "help";
+  const range = m.min != null && m.max != null ? ` Range ${d(m.min)}-${d(m.max)} ${u}.` : "";
+  const dflt = m.default != null ? ` Blank uses the shipped default (${d(m.default)} ${u}).` : "";
+  help.textContent = (m.help || "") + range + dflt;
+  f.append(lab, inp, help);
+  return f;
+}
 
 // ---- rendering --------------------------------------------------------------
 function fillCounts() {
@@ -202,10 +548,11 @@ function fillCounts() {
     el.value = v; };
   opt("engines", 4, profile.meta.engines);
   opt("cylinders", 28, profile.meta.cylinders);
-  opt("tanks", 8, profile.meta.tanks);
   $("speedunit").value = profile.meta.speed_unit;
   $("barounit").value = profile.meta.baro_unit;
   $("twinspeeds").value = profile.meta.twin_speeds ? "1" : "0";
+  $("registration").value = profile.meta.registration || "";
+  $("icaoaddr").value = profile.meta.icao_address || "";
 }
 
 function render() {
@@ -217,49 +564,20 @@ function render() {
     card.innerHTML = `<h2>${g.label}</h2>`;
     if (g.id === "aoa")
       card.innerHTML += `<p class="sub">Placeholder — values firm up with the AOA/OnSpeed integration.</p>`;
-    if (g.id === "fuel") {
-      // Fuel-system provider (spec 6b): per-tank role + feeds edge.
-      if (!Array.isArray(profile.meta.fuel)) profile.meta.fuel = [];
-      while (profile.meta.fuel.length < profile.meta.tanks)
-        profile.meta.fuel.push({ role: "main", feeds: "E1" });
-      profile.meta.fuel.length = profile.meta.tanks;
-      const tg = document.createElement("div"); tg.className = "grid";
-      for (let t = 1; t <= profile.meta.tanks; t++) {
-        const cfg = profile.meta.fuel[t - 1];
-        const f = document.createElement("div"); f.className = "field";
-        const lab = document.createElement("label");
-        lab.textContent = `Tank ${t} role / feeds`;
-        const role = document.createElement("select");
-        for (const r of ["main","aux","tip","header","transfer"]) {
-          const o = document.createElement("option"); o.value = r;
-          o.textContent = r; role.appendChild(o);
-        }
-        role.value = cfg.role;
-        role.addEventListener("change", () => { cfg.role = role.value; });
-        const feeds = document.createElement("select");
-        const fo = (v, txt) => { const o = document.createElement("option");
-          o.value = v; o.textContent = txt; feeds.appendChild(o); };
-        fo("", "feeds: nothing");
-        for (let e = 1; e <= profile.meta.engines; e++) fo("E"+e, "feeds: engine "+e);
-        for (let o2 = 1; o2 <= profile.meta.tanks; o2++)
-          if (o2 !== t) fo("T"+o2, "feeds: tank "+o2);
-        feeds.value = cfg.feeds || "";
-        feeds.addEventListener("change", () => { cfg.feeds = feeds.value; });
-        f.append(lab, role, feeds); tg.appendChild(f);
-      }
-      const sh = document.createElement("div"); sh.className = "subhead";
-      sh.textContent = "Fuel system (roles + feed graph -- e.g. tips feed mains, mains feed the engine; header tanks feed the engine and are fed by the rest)";
-      card.append(sh, tg);
-    }
+    if (g.id === "fuel") card.append(...fuelEditor());
     for (const k of g.keys) {
       for (const inst of instances(k.key, g.repeat)) {
         const sh = document.createElement("div"); sh.className = "subhead";
-        sh.textContent = `${inst} — ${k.label.replace(/%e|%c|%t/g, s => inst.match(/\d+/) || "")}`
+        const tank = g.repeat === "tank" && profile.meta.fuel.tanks.find(t => "FUELQ" + t.slot === inst);
+        sh.textContent = (tank ? `${inst} — ${tank.label}`
+          : `${inst} — ${k.label.replace(/%e|%c|%t/g, s => inst.match(/\d+/) || "")}`)
           + (k.units ? ` (${k.units}${isSpeed(g.id) ? ", entered as " + profile.meta.speed_unit : ""})` : "");
         card.appendChild(sh);
         const grid = document.createElement("div"); grid.className = "grid";
+        // A tank's Min/Max are written from its capacity and unusable fuel.
         const auxList = isSpeed(g.id)
           ? SPEED_ORDER.filter(a => k.aux.includes(a))
+          : g.repeat === "tank" ? k.band_aux.filter(a => a !== "Min" && a !== "Max")
           : k.band_aux;
         for (const aux of auxList) {
           if (isSpeed(g.id) && TWIN_ONLY.has(aux) && !profile.meta.twin_speeds) continue;
@@ -271,18 +589,12 @@ function render() {
           inp.type = "number"; inp.step = "any"; inp.dataset.fk = fk; inp.dataset.gid = g.id;
           const v = profile.values[fk];
           if (v != null) inp.value = fmt(toDisplay(v, g.id));
-          inp.addEventListener("input", () => {
-            const raw = inp.value.trim();
-            if (raw === "") delete profile.values[fk];
-            else {
-              const n = Number(raw);
-              if (isFinite(n)) profile.values[fk] = toNative(n, g.id);
-            }
-            validate(); if (g.id === "speeds") drawArc();
-          });
+          inp.addEventListener("input", () => setEntry(fk, inp.value, g.id));
           f.append(lab, inp); grid.appendChild(f);
         }
         card.appendChild(grid);
+        for (const [aux, m] of auxSettings(k))
+          card.appendChild(settingField(inst + "." + aux, m, g.id, k.units));
       }
     }
     if (g.id === "speeds") {
@@ -293,36 +605,165 @@ function render() {
   validate(); drawArc();
 }
 
+// The Fuel card's tank list: label, role, slot, feeds, capacity, unusable, and
+// add / remove. Edits update meta.fuel in place; anything that changes what
+// other rows offer (a label, a slot, the tank set) re-renders.
+function fuelEditor() {
+  const meta = profile.meta, tanks = meta.fuel.tanks, out = [];
+  const el = (tag, cls, txt) => { const e = document.createElement(tag);
+    if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+  const sh = el("div", "subhead", "Fuel system: each tank's label is what the pilot reads; "
+    + "its slot is the FUELQn its sender writes. Tips feed mains, mains feed the engine; "
+    + "header tanks feed the engine and are fed by the rest.");
+  out.push(sh);
+  for (const t of tanks) {
+    const row = el("div", "grid tank"); row.dataset.tank = t.id;
+    const field = (label, input) => { const f = el("div", "field");
+      f.append(el("label", null, label), input); row.appendChild(f); return input; };
+    const lab = field("Label", el("input"));
+    lab.maxLength = TANK_LABEL_MAX; lab.value = t.label; lab.dataset.tankField = "label";
+    lab.addEventListener("input", () => { t.label = lab.value; validate(); });
+    lab.addEventListener("change", render);
+    const role = field("Role", el("select"));
+    for (const r of FUEL_ROLES) role.appendChild(Object.assign(el("option", null, r), { value: r }));
+    role.value = t.role;
+    role.addEventListener("change", () => { t.role = role.value; validate(); });
+    const slot = field("Slot (sender)", el("select"));
+    for (let n = 1; n <= TANK_CEILING; n++)
+      if (n === t.slot || !tanks.some(x => x.slot === n))
+        slot.appendChild(Object.assign(el("option", null, "FUELQ" + n), { value: n }));
+    slot.value = t.slot;
+    slot.addEventListener("change", () => { setTankSlot(meta, profile.values, t.id, Number(slot.value)); render(); });
+    const num = (label, key) => {
+      const inp = field(label + " (gal)", el("input"));
+      inp.type = "number"; inp.step = "any"; inp.min = "0"; inp.dataset.tankField = key;
+      if (t[key] != null) inp.value = fmt(t[key]);
+      inp.addEventListener("input", () => {
+        const v = inp.value.trim() === "" ? null : Number(inp.value);
+        t[key] = key === "unusable" ? (v ?? 0) : v;
+        syncTankValues(t, profile.values); validate();
+      });
+    };
+    num("Capacity", "capacity"); num("Unusable", "unusable");
+    const feeds = el("div", "field feeds"); feeds.appendChild(el("label", null, "Feeds"));
+    const edge = (txt, match, make) => {
+      const l = el("label", "check"), cb = el("input");
+      cb.type = "checkbox"; cb.checked = t.feeds.some(match);
+      cb.addEventListener("change", () => {
+        t.feeds = t.feeds.filter(e => !match(e));
+        if (cb.checked) t.feeds.push(make());
+        validate();
+      });
+      l.append(cb, " " + txt); feeds.appendChild(l);
+    };
+    for (let e = 1; e <= meta.engines; e++)
+      edge("engine " + e, x => x.to === "engine" && x.n === e, () => ({ to: "engine", n: e }));
+    for (const o of tanks) if (o !== t)
+      edge(o.label, x => x.to === "tank" && x.id === o.id, () => ({ to: "tank", id: o.id }));
+    row.appendChild(feeds);
+    const rm = el("button", "btn", "Remove tank");
+    rm.addEventListener("click", () => {
+      if (!confirm(`Remove ${t.label}? Its FUELQ${t.slot} values go with it.`)) return;
+      removeTank(meta, profile.values, t.id); render();
+    });
+    row.appendChild(rm);
+    out.push(row);
+  }
+  const add = el("button", "btn", tanks.length ? "Add tank" : "Add a fuel tank");
+  add.disabled = tanks.length >= TANK_CEILING;
+  add.addEventListener("click", () => { addTank(meta, profile.values, newTankId); render(); });
+  out.push(add);
+  return out;
+}
+
 // ---- validation --------------------------------------------------------------
+// Copy of the section-6 chains and chainErrors() in src/aircraft_profile.ts
+// (test/aircraft_speed_order.test.mjs). Every pair present is checked, not
+// only neighbours, so a blank cannot hide an inversion; a pair is strict if
+// any link between them is "<".
+const AIRSPEED_CHAIN = [
+  ["Vs0", "<="], ["Vs", "<"], ["Vno", "<"], ["Vne", "<="], ["Max", "<="],
+];
+const VFE_CHAIN = [["Vs0", "<="], ["Vfe", "<="], ["Vno", "<="]];
+const BAND_CHAIN = [
+  ["Min", "<="], ["lowAlarm", "<="], ["lowWarn", "<="],
+  ["highWarn", "<="], ["highAlarm", "<="], ["Max", "<="],
+];
+
+// `mark`, when given, is called with both keys of every pair that fails.
+function chainErrors(values, inst, chain, mark) {
+  const errs = [];
+  for (let i = 0; i < chain.length; i++) {
+    const a = values[`${inst}.${chain[i][0]}`];
+    if (typeof a !== "number") continue;
+    let strict = false;
+    for (let j = i + 1; j < chain.length; j++) {
+      strict = strict || chain[j - 1][1] === "<";
+      const b = values[`${inst}.${chain[j][0]}`];
+      if (typeof b !== "number") continue;
+      if (strict ? !(a < b) : !(a <= b)) {
+        errs.push(`${inst}: ${chain[i][0]} (${a}) must be ${strict ? "<" : "<="} `
+                  + `${chain[j][0]} (${b})`);
+        mark?.(`${inst}.${chain[i][0]}`); mark?.(`${inst}.${chain[j][0]}`);
+      }
+    }
+  }
+  return errs;
+}
+
+// Returns { errs, hard }: errs are "check this" warnings that still save;
+// hard errors are what the server refuses (ordering, a setting outside its
+// fix-gateway bounds, ownship, fuel) and block Save and Download.
 function validate() {
   document.querySelectorAll("input.err").forEach(i => i.classList.remove("err"));
-  const errs = [], V = profile.values;
+  const errs = [], hard = [], V = profile.values;
   const mark = fk => { const el = document.querySelector(`input[data-fk="${fk}"]`);
                        if (el) el.classList.add("err"); };
-  const ord = (aFk, bFk, label) => {
-    if (V[aFk] != null && V[bFk] != null && V[aFk] > V[bFk]) {
-      errs.push(label); mark(aFk); mark(bFk); } };
-  ord("IAS.Vs0","IAS.Vs","Vs0 must be <= Vs");
-  ord("IAS.Vs","IAS.Vno","Vs must be <= Vno");
-  ord("IAS.Vno","IAS.Vne","Vno must be <= Vne");
-  ord("IAS.Vne","IAS.Max","Vne must be <= Max (display range)");
-  ord("IAS.Vs0","IAS.Vfe","Vfe must be >= Vs0");
-  ord("IAS.Vfe","IAS.Vno","Vfe should be <= Vno");
-  // warn/alarm ordering on every banded instance present
+  // Speed and band ordering: the server refuses these, so they block Save.
+  // Values are in native units, as stored; the unit conversion is monotonic.
+  hard.push(...chainErrors(V, "IAS", AIRSPEED_CHAIN, mark),
+            ...chainErrors(V, "IAS", VFE_CHAIN, mark));
   const insts = new Set(Object.keys(V).map(k => k.split(".")[0]));
-  for (const i of insts) {
-    if (i === "IAS") continue;
-    ord(i+".Min", i+".Max", i+": Min <= Max");
-    ord(i+".lowAlarm", i+".lowWarn", i+": lowAlarm <= lowWarn");
-    ord(i+".highWarn", i+".highAlarm", i+": highWarn <= highAlarm");
-    ord(i+".lowWarn", i+".highWarn", i+": lowWarn <= highWarn");
+  for (const i of insts)
+    if (i !== "IAS") hard.push(...chainErrors(V, i, BAND_CHAIN, mark));
+  // aux_meta settings: outside [min, max] is a hard error. Compared at the
+  // displayed precision, so the converted bound itself (115.08 mph) passes.
+  let vgnd = null;
+  for (const g of schema.groups) for (const k of g.keys) for (const [aux, m] of auxSettings(k))
+    for (const inst of instances(k.key, g.repeat)) {
+      const fk = inst + "." + aux, v = V[fk];
+      if (fk === "IAS.Vgnd") vgnd = { v: v ?? m.default, set: v != null, m, gid: g.id };
+      if (v == null) continue;
+      const d = x => Number(fmt(toDisplay(x, g.id))), u = unitLabel(g.id, k.units);
+      if ((m.min != null && d(v) < d(m.min)) || (m.max != null && d(v) > d(m.max))) {
+        hard.push(`${m.label || fk}: must be ${d(m.min)}-${d(m.max)} ${u}`); mark(fk); }
+    }
+  // Vgnd at or above Vs0 can silence the engine alarms in flight (AER-4619);
+  // a blank Vgnd means the shipped default, so that is checked too.
+  if (vgnd && vgnd.v != null && V["IAS.Vs0"] != null && vgnd.v >= V["IAS.Vs0"]) {
+    const u = unitLabel(vgnd.gid);
+    errs.push(`${vgnd.set ? "on-ground IAS limit" : "default on-ground IAS limit ("
+      + fmt(toDisplay(vgnd.v, vgnd.gid)) + " " + u + ")"} should be below Vs0,`
+      + " or the engine alarms can go quiet in flight");
+    mark("IAS.Vgnd"); mark("IAS.Vs0");
   }
+  // Ownship identity: a malformed entry would be refused by the server.
+  const own = ownshipStatus(profile.meta);
+  $("ownship-out").textContent = own.text;
+  $("registration").classList.toggle("err", own.hard.some(e => e.startsWith("Registration")));
+  $("icaoaddr").classList.toggle("err", own.hard.some(e => e.startsWith("ICAO")));
+  hard.push(...own.hard); errs.push(...own.warn);
+  // Fuel system: the same errors the server refuses, and its warnings.
+  const fuel = fuelCheck(profile.meta, V);
+  hard.push(...fuel.errors); errs.push(...fuel.warnings);
   let box = $("errbox");
   if (!box) { box = document.createElement("p"); box.id = "errbox"; box.className = "errors";
               $("groups").prepend(box); }
-  box.textContent = errs.length ? "Check: " + errs.join(" · ") : "";
-  $("save").style.background = errs.length ? "var(--amber)" : "";
-  return errs;
+  box.textContent = [hard.length ? "Fix before saving: " + hard.join(" · ") : "",
+                     errs.length ? "Check: " + errs.join(" · ") : ""].filter(Boolean).join("\n");
+  $("save").style.background = errs.length && !hard.length ? "var(--amber)" : "";
+  $("save").disabled = hard.length > 0;
+  return { errs, hard };
 }
 
 // ---- airspeed arc preview ------------------------------------------------------
@@ -391,6 +832,7 @@ function importIni(text) {
     const m = /^\s*([A-Za-z0-9]+\.[A-Za-z0-9]+)\s*=\s*(-?[\d.]+)\s*$/.exec(line);
     if (m) { profile.values[m[1]] = Number(m[2]); n++; }
   }
+  adoptTankValues(profile.meta, profile.values);
   render();
   $("msg").textContent = `imported ${n} values`;
 }
@@ -415,10 +857,12 @@ async function boot() {
       }
     }
   } else { $("proj-label").textContent = "demo mode (not saved)"; }
+  profile = normalizeProfile(profile);   // a new profile starts on schema 2 too
   render();
 }
 
 $("save").addEventListener("click", async () => {
+  if (validate().hard.length) { $("msg").textContent = "fix the errors first"; return; }
   if (DEMO) { $("msg").textContent = "demo mode - not saved"; return; }
   const res = await fetch(`/api/projects/${PROJECT}/aircraft`, {
     method: "PUT", credentials: "same-origin",
@@ -428,11 +872,18 @@ $("save").addEventListener("click", async () => {
   if (res.ok) { const d = await res.json(); savedVersion = d.version;
     $("ver-label").textContent = "v" + d.version + " active";
     $("msg").innerHTML = '<span class="ok">saved</span>';
+  } else if (res.status === 422) {
+    // The server enforces the section-6 ordering the form only warns about
+    // (AER-5060); say which rule, and leave the message up (no 4 s clear).
+    const d = await res.json().catch(() => ({}));
+    $("msg").textContent = "not saved: " + (d.errors || [d.error]).join(" · ");
+    return;
   } else $("msg").textContent = "save failed (" + res.status + ")";
   setTimeout(() => $("msg").textContent = "", 4000);
 });
 
 $("download").addEventListener("click", () => {
+  if (validate().hard.length) { $("msg").textContent = "fix the errors first"; return; }
   const blob = new Blob([buildIni()], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = "aircraft.ini";
@@ -449,16 +900,35 @@ $("template").addEventListener("change", e => {
   if (!t) return;
   if (!confirm(`Load "${t.label}" values over the current form?`)) return;
   Object.assign(profile.values, t.values);
-  if (t.counts) Object.assign(profile.meta, t.counts);
+  const { tanks, ...counts } = t.counts || {};
+  Object.assign(profile.meta, counts);
+  // A template's tank count adds neutral "Tank n" tanks; it never labels them.
+  while (tanks && profile.meta.fuel.tanks.length < tanks
+         && addTank(profile.meta, profile.values, newTankId));
+  adoptTankValues(profile.meta, profile.values);
   render();
 });
 
-for (const [id, key, num] of [["engines","engines",1],["cylinders","cylinders",1],
-                              ["tanks","tanks",1]])
+for (const [id, key, num] of [["engines","engines",1],["cylinders","cylinders",1]])
   $(id).addEventListener("change", e => { profile.meta[key] = Number(e.target.value); render(); });
+// Fewer engines: drop feeds into the engines that went, or the error would
+// name an engine the Fuel card no longer offers to untick.
+$("engines").addEventListener("change", () => {
+  for (const t of profile.meta.fuel.tanks)
+    t.feeds = t.feeds.filter(e => e.to !== "engine" || e.n <= profile.meta.engines);
+  render();
+});
 $("speedunit").addEventListener("change", e => { profile.meta.speed_unit = e.target.value; render(); });
 $("barounit").addEventListener("change", e => { profile.meta.baro_unit = e.target.value; });
 $("twinspeeds").addEventListener("change", e => { profile.meta.twin_speeds = e.target.value === "1"; render(); });
+// Stored as typed-normalized text; blank removes the key (= not set).
+for (const [id, key, norm] of [["registration", "registration", normalizeRegistration],
+                               ["icaoaddr", "icao_address", v => v.trim().toUpperCase()]])
+  $(id).addEventListener("input", e => {
+    const v = norm(e.target.value);
+    if (v) profile.meta[key] = v; else delete profile.meta[key];
+    validate();
+  });
 
 boot();
 </script>
