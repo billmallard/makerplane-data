@@ -196,15 +196,13 @@ a build.
   under `/data/makerplane-data/...`) at install time, keeping any explicit `svs`
   the panel already carries. Flat `svs_*` editor options override that block
   key by key, as pyEfis resolves them.
-- **Legacy Virtual VFR (CIFP) is deprecated.** A `virtual_vfr` with SVS off
-  (`svs_enabled: false`) falls back to the legacy CIFP overlay -- 2D runway
-  outlines, airport labels and an assumed-3-degree PAPI from the raw FAA CIFP
-  file. That overlay is **deprecated** and will be removed; Synthetic Vision
-  replaces it, drawing airports, runways and a PAPI at the published angle from
-  the NASR airports pack. With SVS on (pyEfis #349, CIFP1) the legacy overlay is
-  not loaded and **no CIFP download is needed**. Only an SVS-off panel needs the
-  `screens/virtualvfr_db.yaml` include (`dbpath`/`indexpath`), and `config-pull`
-  adds it only there. The `virtual_vfr` type itself stays: it hosts SVS.
+- **Legacy Virtual VFR (CIFP) is removed.** pyEfis #457 (VVFR1) deleted the
+  legacy CIFP overlay. A `virtual_vfr` is the attitude display with Synthetic
+  Vision, which draws airports, runways and a PAPI from the NASR airports pack;
+  with SVS off (`svs_enabled: false`) it shows the plain sky/ground attitude
+  view. No CIFP download is needed, and `config-pull` adds no
+  `screens/virtualvfr_db.yaml` include. The `virtual_vfr` type itself stays:
+  it hosts SVS.
 - **No `include:` emitted.** The editor places concrete instruments, so it never
   emits pyEfis `include,…` instruments. Stock screens that use includes still
   work on the device; the editor simply doesn't generate them.
