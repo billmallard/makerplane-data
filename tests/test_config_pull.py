@@ -98,9 +98,8 @@ def test_non_stock_boot_screen_is_woven_into_the_loaded_list(tmp_path):
 
 
 def test_single_screen_injects_svs_without_cifp_include(tmp_path):
-    """An SVS-enabled virtual_vfr is pulled WITHOUT screens/virtualvfr_db.yaml:
-    pyEfis #349 (CIFP1) never builds the legacy CIFP overlay under SVS, so the
-    include's dbpath/indexpath are dead weight (AER-4354)."""
+    """An SVS-enabled virtual_vfr is pulled WITHOUT screens/virtualvfr_db.yaml
+    (AER-4354; since AER-5421 no virtual_vfr gets it, SVS on or off)."""
     cd = _config_dir(tmp_path)
     config_pull.install_config(yaml.safe_dump(_doc("PANEL", vfr_on="PANEL")), cd=cd)
     screen = _read(cd, "screens/managed.yaml")["PFD_AI_ONLY"]
@@ -113,26 +112,43 @@ def _vfr_screen_with(options):
     return {"instruments": [{"type": "virtual_vfr", "options": options}]}
 
 
-def test_svs_off_keeps_legacy_cifp_include():
-    """A panel that turns SVS off runs the deprecated legacy overlay, which
-    still crashes on a None dbpath -- it keeps the include. Covers both the
-    flat editor key and an explicit nested svs block."""
-    for opts in ({"svs_enabled": False}, {"svs": {"enabled": False}}):
+def test_svs_off_gets_no_cifp_include():
+    """A panel that turns SVS off is pulled WITHOUT screens/virtualvfr_db.yaml:
+    pyEfis #457 (VVFR1) deleted the legacy CIFP overlay, so nothing reads the
+    include's dbpath (AER-5421). Covers both the flat editor key and an
+    explicit nested svs block, and the flat key overriding the nested one."""
+    for opts in ({"svs_enabled": False}, {"svs": {"enabled": False}},
+                 {"svs": {"enabled": True}, "svs_enabled": False}):
         out = config_pull._prep_screen(_vfr_screen_with(opts))
-        assert out["include"] == ["screens/virtualvfr_db.yaml"], opts
+        assert "screens/virtualvfr_db.yaml" not in (out.get("include") or []), opts
+        assert "include" not in out, opts
 
 
-def test_flat_svs_enabled_overrides_nested_block():
-    """Resolved like pyEfis's screenbuilder_factory: flat svs_* over nested svs."""
-    off = config_pull._prep_screen(_vfr_screen_with(
-        {"svs": {"enabled": True}, "svs_enabled": False}))
-    assert "screens/virtualvfr_db.yaml" in off["include"]
-    on = config_pull._prep_screen(_vfr_screen_with(
-        {"svs": {"enabled": False}, "svs_enabled": True}))
-    assert "screens/virtualvfr_db.yaml" not in (on.get("include") or [])
+def test_svs_off_panel_installs_without_cifp_include(tmp_path):
+    """End to end through install_config: an SVS-off virtual_vfr lands in
+    screens/managed.yaml with its flat svs_enabled kept and no CIFP include."""
+    cd = _config_dir(tmp_path)
+    doc = _doc("PANEL", vfr_on="PANEL")
+    for inst in doc["screens"]["PANEL"]["instruments"]:
+        if inst["type"] == "virtual_vfr":
+            inst.setdefault("options", {})["svs_enabled"] = False
+    config_pull.install_config(yaml.safe_dump(doc), cd=cd)
+    screen = _read(cd, "screens/managed.yaml")["PFD_AI_ONLY"]
+    vfr = next(i for i in screen["instruments"] if i["type"] == "virtual_vfr")
+    assert vfr["options"]["svs_enabled"] is False
+    assert "screens/virtualvfr_db.yaml" not in (screen.get("include") or [])
+
+
+def test_explicit_svs_block_is_kept():
+    """setdefault: a panel's own svs block is not replaced by the injected one."""
+    own = {"enabled": False, "tile_path": "/elsewhere"}
+    out = config_pull._prep_screen(_vfr_screen_with({"svs": own}))
+    assert out["instruments"][0]["options"]["svs"] == own
 
 
 def test_existing_include_is_left_alone_and_not_duplicated():
+    """An include a pulled screen already lists stays; pyEfis keeps the file
+    as an empty stub, so it still loads."""
     screen = _vfr_screen_with({"svs_enabled": False})
     screen["include"] = ["screens/virtualvfr_db.yaml", "screens/other.yaml"]
     out = config_pull._prep_screen(screen)
