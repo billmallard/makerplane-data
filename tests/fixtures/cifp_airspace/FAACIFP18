@@ -1,0 +1,255 @@
+HDR01FAACIFP18      001P013203973042611  07-OCT-202615:55:03  U.S.A. DOT FAA                                                9D60747B
+HDR02                                 FEDERAL AVIATION ADMINISTRATION                                                               
+HDR03                                 AERONAUTICAL INFORMATION SERVICES                                                             
+HDR04                                 CODED INSTRUMENT FLIGHT PROCEDURES VOLUME 2611  EFFECTIVE 29 OCT 2026                         
+HDR05                                 REPORT DATA ERRORS TO FAA                 TEL 800 638 8972                                    
+SCANUCPAZPAEI PAD  A00100     CE                   N64395600W1470605000047       GND  A03000MFAIRBANKS, EIELSON AFB        147281703
+SCANURPAMDELTA2    A00101L    G N64311700W146093100                              05000M17999MDELTA 2 MOA                   160871703
+SCANURPAMDELTA2    A00102C                                                                         FAA ANCHORAGE ARTCC     160881812
+SCANURPAMDELTA2    A00200L    G N64245500W145420700                                                                        160891703
+SCANURPAMDELTA2    A00300L    G N64125100W146033100                                                                        160901703
+SCANURPAMDELTA2    A00400L    G N64053000W146163100                                                                        160911703
+SCANURPAMDELTA2    A00500L    G N64144400W146432300                                                                        160921703
+SCANURPAMDELTA2    A00600L    GEN64174300W147032900                                                                        160931703
+SPACURPGR7201A     A00101B    CE                   N16010400E1460331000120       GND  AFL600MR-7201A                       243371707
+SPACURPGR7201A     A00102C                                                                         FAA GUAM CERAP          243381707
+SPACURPGR7201A     B00200B    CE                   N16010400E1460331000030       GND  A00000AR-7201A                       243391707
+SUSAUCK2AKSBA PAC  A00100     CE                   N34253429W1195029370050       GND  A04000MSANTA BARBARA MUNI            597552502
+SUSAUCK2AKSBA PAC  B00200     R N34253369W119382405N34253429W11950293701000900   01500M04000MSANTA BARBARA MUNI            597562502
+SUSAUCK2AKSBA PAC  B00300     G N34294780W120012728                                                                        597572502
+SUSAUCK2AKSBA PAC  B00400     L N34274116W119555819N34253429W11950293700502950                                             597582502
+SUSAUCK2AKSBA PAC  B00500     GEN34253414W119442671                                                                        597592502
+SUSAUCK2TKLAX PAB  A00100     G N33595000W118444300                              GND  A10000MLOS ANGELES AREA A            611271703
+SUSAUCK2TKLAX PAB  A00200     G N34002300W118323300                                                                        611281703
+SUSAUCK2TKLAX PAB  A00300     G N33574200W118272300                                                                        611291703
+SUSAUCK2TKLAX PAB  A00400     G N33574200W118221000                                                                        611301703
+SUSAUCK2TKLAX PAB  A00500     G N34010000W118150000                                                                        611311703
+SUSAUCK2TKLAX PAB  A00600     G N33554800W118135200                                                                        611321703
+SUSAUCK2TKLAX PAB  A00700     G N33555100W118260500                                                                        611331703
+SUSAUCK2TKLAX PAB  A00800     G N33453400W118270100                                                                        611341703
+SUSAUCK2TKLAX PAB  A00900     GEN33451400W118322900                                                                        611351703
+SUSAUCK2TKLAX PAB  B01000     G N34010000W118150000                              02000M10000MLOS ANGELES AREA B            611361703
+SUSAUCK2TKLAX PAB  B01100     G N34000100W118075800                                                                        611371703
+SUSAUCK2TKLAX PAB  B01200     G N33561000W118072100                                                                        611381703
+SUSAUCK2TKLAX PAB  B01300     GEN33554800W118135200                                                                        611391703
+SUSAUCK2TKLAX PAB  C01400     G N33574200W118221000                              02500M10000MLOS ANGELES AREA C            611401703
+SUSAUCK2TKLAX PAB  C01500     G N34002000W118230500                                                                        611411703
+SUSAUCK2TKLAX PAB  C01600     G N34024900W118214800                                                                        611421703
+SUSAUCK2TKLAX PAB  C01700     G N34060000W118142400                                                                        611431703
+SUSAUCK2TKLAX PAB  C01800     G N34060000W118112300                                                                        611441703
+SUSAUCK2TKLAX PAB  C01900     G N34020300W118033900                                                                        611451703
+SUSAUCK2TKLAX PAB  C02000     G N33584000W118014900                                                                        611461703
+SUSAUCK2TKLAX PAB  C02100     G N33534400W118015200                                                                        611471703
+SUSAUCK2TKLAX PAB  C02200     G N33531700W118105000                                                                        611481703
+SUSAUCK2TKLAX PAB  C02300     G N33554800W118135200                                                                        611491703
+SUSAUCK2TKLAX PAB  C02400     G N33561000W118072100                                                                        611501703
+SUSAUCK2TKLAX PAB  C02500     G N34000100W118075800                                                                        611511703
+SUSAUCK2TKLAX PAB  C02600     GEN34010000W118150000                                                                        611521703
+SUSAUCK2TKLAX PAB  D02700     G N34060000W118112300                              04000M10000MLOS ANGELES AREA D            611531703
+SUSAUCK2TKLAX PAB  D02800     G N34004500W117540300                                                                        611541703
+SUSAUCK2TKLAX PAB  D02900     G N33574000W117533500                                                                        611551703
+SUSAUCK2TKLAX PAB  D03000     G N33540400W117543500                                                                        611561703
+SUSAUCK2TKLAX PAB  D03100     G N33534400W118015200                                                                        611571703
+SUSAUCK2TKLAX PAB  D03200     G N33584000W118014900                                                                        611581703
+SUSAUCK2TKLAX PAB  D03300     GEN34020300W118033900                                                                        611591703
+SUSAUCK2TKLAX PAB  E03400     G N33540400W117543500                              07000M10000MLOS ANGELES AREA E            611601703
+SUSAUCK2TKLAX PAB  E03500     G N33542300W117474200                                                                        611611703
+SUSAUCK2TKLAX PAB  E03600     G N34024200W117500000                                                                        611621703
+SUSAUCK2TKLAX PAB  E03700     G N34022200W117592300                                                                        611631703
+SUSAUCK2TKLAX PAB  E03800     G N34004500W117540300                                                                        611641703
+SUSAUCK2TKLAX PAB  E03900     GEN33574000W117533500                                                                        611651703
+SUSAUCK2TKLAX PAB  F04000     G N33542300W117474200                              08000M10000MLOS ANGELES AREA F            611661703
+SUSAUCK2TKLAX PAB  F04100     G N33543100W117444500                                                                        611671703
+SUSAUCK2TKLAX PAB  F04200     G N34025700W117451600                                                                        611681703
+SUSAUCK2TKLAX PAB  F04300     GEN34024200W117500000                                                                        611691703
+SUSAUCK2TKLAX PAB  G04400     G N33543100W117444500                              09000M10000MLOS ANGELES AREA G            611701703
+SUSAUCK2TKLAX PAB  G04500     G N33543900W117414800                                                                        611711703
+SUSAUCK2TKLAX PAB  G04600     G N34004400W117405400                                                                        611721703
+SUSAUCK2TKLAX PAB  G04700     G N34025900W117442900                                                                        611731703
+SUSAUCK2TKLAX PAB  G04800     GEN34025700W117451600                                                                        611741703
+SUSAUCK2TKLAX PAB  H04900     G N33534400W118015200                              05000M10000MLOS ANGELES AREA H            611751703
+SUSAUCK2TKLAX PAB  H05000     G N33470000W118031700                                                                        611761703
+SUSAUCK2TKLAX PAB  H05100     G N33464000W118085300                                                                        611771703
+SUSAUCK2TKLAX PAB  H05200     G N33453400W118270100                                                                        611781703
+SUSAUCK2TKLAX PAB  H05300     G N33555100W118260500                                                                        611791703
+SUSAUCK2TKLAX PAB  H05400     G N33554800W118135200                                                                        611801703
+SUSAUCK2TKLAX PAB  H05500     GEN33531700W118105000                                                                        611811703
+SUSAUCK2TKLAX PAB  I05600     G N33540400W117543500                              06000M10000MLOS ANGELES AREA I            611821703
+SUSAUCK2TKLAX PAB  I05700     G N33472300W117574000                                                                        611831703
+SUSAUCK2TKLAX PAB  I05800     G N33470000W118031700                                                                        611841703
+SUSAUCK2TKLAX PAB  I05900     GEN33534400W118015200                                                                        611851703
+SUSAUCK2TKLAX PAB  J06000     G N33472300W117574000                              07000M10000MLOS ANGELES AREA J            611861703
+SUSAUCK2TKLAX PAB  J06100     G N33355200W117535900                                                                        611871703
+SUSAUCK2TKLAX PAB  J06200     G N33313400W118031100                                                                        611881703
+SUSAUCK2TKLAX PAB  J06300     G N33375600W118090400                                                                        611891703
+SUSAUCK2TKLAX PAB  J06400     G N33464000W118085300                                                                        611901703
+SUSAUCK2TKLAX PAB  J06500     GEN33470000W118031700                                                                        611911703
+SUSAUCK2TKLAX PAB  K06600     G N33375600W118090400                              08000M10000MLOS ANGELES AREA K            611921703
+SUSAUCK2TKLAX PAB  K06700     G N33360900W118253800                                                                        611931703
+SUSAUCK2TKLAX PAB  K06800     G N33453400W118270100                                                                        611941703
+SUSAUCK2TKLAX PAB  K06900     GEN33464000W118085300                                                                        611951703
+SUSAUCK2TKLAX PAB  L07000     G N33360900W118253800                              05000M10000MLOS ANGELES AREA L            611961703
+SUSAUCK2TKLAX PAB  L07100     G N33351100W118343100                                                                        611971703
+SUSAUCK2TKLAX PAB  L07200     G N33442700W118422300                                                                        611981703
+SUSAUCK2TKLAX PAB  L07300     G N33451400W118322900                                                                        611991703
+SUSAUCK2TKLAX PAB  L07400     GEN33453400W118270100                                                                        612001703
+SUSAUCK2TKLAX PAB  M07500     G N33442700W118422300                              02000M10000MLOS ANGELES AREA M            612011703
+SUSAUCK2TKLAX PAB  M07600     G N33584800W118542700                                                                        612021703
+SUSAUCK2TKLAX PAB  M07700     G N33592600W118532300                                                                        612031703
+SUSAUCK2TKLAX PAB  M07800     G N33595000W118444300                                                                        612041703
+SUSAUCK2TKLAX PAB  M07900     GEN33451400W118322900                                                                        612051703
+SUSAUCK2TKLAX PAB  N08000     G N33592600W118532300                              05000M10000MLOS ANGELES AREA N            612061703
+SUSAUCK2TKLAX PAB  N08100     G N34060000W118421200                                                                        612071703
+SUSAUCK2TKLAX PAB  N08200     G N34060000W118142400                                                                        612081703
+SUSAUCK2TKLAX PAB  N08300     G N34024900W118214800                                                                        612091703
+SUSAUCK2TKLAX PAB  N08400     G N34002000W118230500                                                                        612101703
+SUSAUCK2TKLAX PAB  N08500     G N33574200W118221000                                                                        612111703
+SUSAUCK2TKLAX PAB  N08600     G N33574200W118272300                                                                        612121703
+SUSAUCK2TKLAX PAB  N08700     G N34002300W118323300                                                                        612131703
+SUSAUCK2TKLAX PAB  N08800     GEN33595000W118444300                                                                        612141703
+SUSAUCK4AKOKC PAC  A00100     R N35201939W097312456N35233500W09736030000501306   GND  A05300MWILL ROGERS WORLD AIRPORT, OKC637071809
+SUSAUCK4AKOKC PAC  A00200     L N35274630W097324150N35265700W09731590000103248                                             637081809
+SUSAUCK4AKOKC PAC  A00300     G N35262280W097305900                                                                        637091809
+SUSAUCK4AKOKC PAC  A00400     G N35254773W097305995                                                                        637101809
+SUSAUCK4AKOKC PAC  A00500     G N35242964W097312898                                                                        637111809
+SUSAUCK4AKOKC PAC  A00600     G N35242200W097313049                                                                        637121809
+SUSAUCK4AKOKC PAC  A00700     G N35223801W097313170                                                                        637131809
+SUSAUCK4AKOKC PAC  A00800     G N35223789W097313170                                                                        637141809
+SUSAUCK4AKOKC PAC  A00900     G N35223776W097313170                                                                        637151809
+SUSAUCK4AKOKC PAC  A01000     G N35223789W097313170                                                                        637161809
+SUSAUCK4AKOKC PAC  A01100     G N35215461W097313102                                                                        637171809
+SUSAUCK4AKOKC PAC  A01200     G N35211858W097313433                                                                        637181809
+SUSAUCK4AKOKC PAC  A01300     GEN35202804W097312766                                                                        637191809
+SUSAUCK4AKOKC PAC  B01400     G N35201939W097312456                              03000M05300MWILL ROGERS WORLD AIRPORT, OKC637201809
+SUSAUCK4AKOKC PAC  B01500     G N35202804W097312766                                                                        637211809
+SUSAUCK4AKOKC PAC  B01600     G N35211858W097313433                                                                        637221809
+SUSAUCK4AKOKC PAC  B01700     G N35215461W097313102                                                                        637231809
+SUSAUCK4AKOKC PAC  B01800     G N35223789W097313170                                                                        637241809
+SUSAUCK4AKOKC PAC  B01900     G N35223776W097313170                                                                        637251809
+SUSAUCK4AKOKC PAC  B02000     G N35223789W097313170                                                                        637261809
+SUSAUCK4AKOKC PAC  B02100     G N35223801W097313170                                                                        637271809
+SUSAUCK4AKOKC PAC  B02200     G N35242200W097313049                                                                        637281809
+SUSAUCK4AKOKC PAC  B02300     G N35242964W097312898                                                                        637291809
+SUSAUCK4AKOKC PAC  B02400     G N35254773W097305995                                                                        637301809
+SUSAUCK4AKOKC PAC  B02500     REN35262280W097305900N35233500W09736030000500560                                             637311809
+SUSAUCK4AKOKC PAC  C02600     G N35331350W097324350                              02500M05300MWILL ROGERS WORLD AIRPORT, OKC637321809
+SUSAUCK4AKOKC PAC  C02700     G N35274720W097324310                                                                        637331809
+SUSAUCK4AKOKC PAC  C02800     L N35274630W097324150N35265700W09731590000103248                                             637341809
+SUSAUCK4AKOKC PAC  C02900     G N35262280W097305900                                                                        637351809
+SUSAUCK4AKOKC PAC  C03000     G N35254773W097305995                                                                        637361809
+SUSAUCK4AKOKC PAC  C03100     G N35242964W097312898                                                                        637371809
+SUSAUCK4AKOKC PAC  C03200     G N35242200W097313049                                                                        637381809
+SUSAUCK4AKOKC PAC  C03300     G N35223801W097313170                                                                        637391809
+SUSAUCK4AKOKC PAC  C03400     G N35223789W097313170                                                                        637401809
+SUSAUCK4AKOKC PAC  C03500     G N35223776W097313170                                                                        637411809
+SUSAUCK4AKOKC PAC  C03600     G N35223789W097313170                                                                        637421809
+SUSAUCK4AKOKC PAC  C03700     G N35215461W097313102                                                                        637431809
+SUSAUCK4AKOKC PAC  C03800     G N35211858W097313433                                                                        637441809
+SUSAUCK4AKOKC PAC  C03900     G N35202804W097312766                                                                        637451809
+SUSAUCK4AKOKC PAC  C04000     G N35201939W097312456                                                                        637461809
+SUSAUCK4AKOKC PAC  C04100     G N35194841W097311344                                                                        637471809
+SUSAUCK4AKOKC PAC  C04200     G N35175088W097311298                                                                        637481809
+SUSAUCK4AKOKC PAC  C04300     G N35172831W097310907                                                                        637491809
+SUSAUCK4AKOKC PAC  C04400     G N35165580W097305764                                                                        637501809
+SUSAUCK4AKOKC PAC  C04500     L N35165109W097305599N35144400W09728200000303148                                             637511809
+SUSAUCK4AKOKC PAC  C04600     REN35140950W097315570N35233500W09736030001001603                                             637521809
+SUSAUCK4AKOKC PAC  D04700     R N35331350W097324350N35233500W09736030001000157   03000M05300MWILL ROGERS WORLD AIRPORT, OKC637531809
+SUSAUCK4AKOKC PAC  D04800     G N35292384W097260515                                                                        637541809
+SUSAUCK4AKOKC PAC  D04900     G N35284442W097260461                                                                        637551809
+SUSAUCK4AKOKC PAC  D05000     G N35273648W097261626                                                                        637561809
+SUSAUCK4AKOKC PAC  D05100     G N35271770W097262548                                                                        637571809
+SUSAUCK4AKOKC PAC  D05200     G N35270057W097263908                                                                        637581809
+SUSAUCK4AKOKC PAC  D05300     G N35264422W097265903                                                                        637591809
+SUSAUCK4AKOKC PAC  D05400     G N35263223W097272037                                                                        637601809
+SUSAUCK4AKOKC PAC  D05500     G N35251796W097272218                                                                        637611809
+SUSAUCK4AKOKC PAC  D05600     G N35235862W097275251                                                                        637621809
+SUSAUCK4AKOKC PAC  D05700     G N35223815W097275230                                                                        637631809
+SUSAUCK4AKOKC PAC  D05800     G N35205953W097275127                                                                        637641809
+SUSAUCK4AKOKC PAC  D05900     G N35202841W097273902                                                                        637651809
+SUSAUCK4AKOKC PAC  D06000     G N35200523W097273474                                                                        637661809
+SUSAUCK4AKOKC PAC  D06100     G N35180495W097273427                                                                        637671809
+SUSAUCK4AKOKC PAC  D06200     G N35171765W097271707                                                                        637681809
+SUSAUCK4AKOKC PAC  D06300     G N35165815W097271347                                                                        637691809
+SUSAUCK4AKOKC PAC  D06400     R N35163657W097271658N35233500W09736030001001341                                             637701809
+SUSAUCK4AKOKC PAC  D06500     R N35140950W097315570N35144400W09728200000302590                                             637711809
+SUSAUCK4AKOKC PAC  D06600     G N35165109W097305599                                                                        637721809
+SUSAUCK4AKOKC PAC  D06700     G N35165580W097305764                                                                        637731809
+SUSAUCK4AKOKC PAC  D06800     G N35172831W097310907                                                                        637741809
+SUSAUCK4AKOKC PAC  D06900     G N35175088W097311298                                                                        637751809
+SUSAUCK4AKOKC PAC  D07000     G N35194841W097311344                                                                        637761809
+SUSAUCK4AKOKC PAC  D07100     G N35201939W097312456                                                                        637771809
+SUSAUCK4AKOKC PAC  D07200     G N35202804W097312766                                                                        637781809
+SUSAUCK4AKOKC PAC  D07300     G N35211858W097313433                                                                        637791809
+SUSAUCK4AKOKC PAC  D07400     G N35215461W097313102                                                                        637801809
+SUSAUCK4AKOKC PAC  D07500     G N35223789W097313170                                                                        637811809
+SUSAUCK4AKOKC PAC  D07600     G N35223776W097313170                                                                        637821809
+SUSAUCK4AKOKC PAC  D07700     G N35223789W097313170                                                                        637831809
+SUSAUCK4AKOKC PAC  D07800     G N35223801W097313170                                                                        637841809
+SUSAUCK4AKOKC PAC  D07900     G N35242200W097313049                                                                        637851809
+SUSAUCK4AKOKC PAC  D08000     G N35242964W097312898                                                                        637861809
+SUSAUCK4AKOKC PAC  D08100     G N35254773W097305995                                                                        637871809
+SUSAUCK4AKOKC PAC  D08200     R N35262280W097305900N35265700W09731590000101249                                             637881809
+SUSAUCK4AKOKC PAC  D08300     G N35274630W097324150                                                                        637891809
+SUSAUCK4AKOKC PAC  D08400     GEN35274720W097324310                                                                        637901809
+SUSAUCK6AKBGR PAC  A00100     G N44470800W068445700                              GND  A04200MBANGOR                        669162405
+SUSAUCK6AKBGR PAC  A00200     G N44464300W068460700                                                                        669172405
+SUSAUCK6AKBGR PAC  A00300     G N44461900W068461900                                                                        669182405
+SUSAUCK6AKBGR PAC  A00400     L N44442048W068454092N44482680W06849413000501452                                             669192405
+SUSAUCK6AKBGR PAC  A00500     GEN44462524W068431617                                                                        669202405
+SUSAUCK6AKBGR PAC  B00600     G N44464300W068460700                              00700M04200MBANGOR                        669212405
+SUSAUCK6AKBGR PAC  B00700     G N44470800W068445700                                                                        669222405
+SUSAUCK6AKBGR PAC  B00800     R N44462524W068431617N44482680W06849413000501139                                             669232405
+SUSAUCK6AKBGR PAC  B00900     G N44442048W068454092                                                                        669242405
+SUSAUCK6AKBGR PAC  B01000     GEN44461900W068461900                                                                        669252405
+SUSAUCK6AKBGR PAC  C01100     R N44460072W068360417N44482680W06849413001001040   02000M04200MBANGOR                        669262405
+SUSAUCK6AKBGR PAC  C01200     G N44444583W069024441                                                                        669272405
+SUSAUCK6AKBGR PAC  C01300     L N44480821W068564185N44482680W06849413000502665                                             669282405
+SUSAUCK6AKBGR PAC  C01400     GEN44475063W068424302                                                                        669292405
+SUSAUCK6AKBGR PAC  D01500     L N44475063W068424302N44482680W06849413000500969   01500M04200MBANGOR                        669302405
+SUSAUCK6AKBGR PAC  D01600     G N44480821W068564185                                                                        669312405
+SUSAUCK6AKBGR PAC  D01700     R N44444583W069024441N44482680W06849413001002485                                             669322405
+SUSAUCK6AKBGR PAC  D01800     GEN44460072W068360417                                                                        669332405
+SUSAURK2MROBERTS   A00101L    G N35443000W120424400                              00500A14999MROBERTS MOA                   777051703
+SUSAURK2MROBERTS   A00102C                                                                         FAA OAKLAND ARTCC       777061703
+SUSAURK2MROBERTS   A00200L    G N35394000W120432400                                                                        777071703
+SUSAURK2MROBERTS   A00300L    G N36033000W121064400                                                                        777081703
+SUSAURK2MROBERTS   A00400L    GEN35510000W120462400                                                                        777091703
+SUSAURK2MROBERTS   B00500L    G N35511100W120475900                              GND  A00000AROBERTS MOA                   777101703
+SUSAURK2MROBERTS   B00600L    G N35510000W120462900                                                                        777111703
+SUSAURK2MROBERTS   B00700L    G N35491000W120454400                                                                        777121703
+SUSAURK2MROBERTS   B00800L    G N35475400W120455300                                                                        777131703
+SUSAURK2MROBERTS   B00900L    G N35471800W120444900                                                                        777141703
+SUSAURK2MROBERTS   B01000L    G N35463800W120444200                                                                        777151703
+SUSAURK2MROBERTS   B01100L    G N35425800W120453700                                                                        777161703
+SUSAURK2MROBERTS   B01200L    G N35424160W120462080                                                                        777171703
+SUSAURK2MROBERTS   B01300L    G N35462580W120495950                                                                        777181703
+SUSAURK2MROBERTS   B01400L    GEN35485000W120500200                                                                        777191703
+SUSAURK2R2508      A00101HC   H N35070000W116340300                              20000MUNLTDMR-2508                        793102611
+SUSAURK2R2508      A00102C                                                                         JOSHUA CONTROL FACILITY 793111703
+SUSAURK2R2508      A00200H    G N35070000W116474800                                                                        793122611
+SUSAURK2R2508      A00300H    G N35085000W116484300                                                                        793132611
+SUSAURK2R2508      A00400H    G N35063000W116584300                                                                        793142611
+SUSAURK2R2508      A00500H    G N34562000W117090200                                                                        793152611
+SUSAURK2R2508      A00600H    G N34533000W117115300                                                                        793162611
+SUSAURK2R2508      A00700H    G N34511700W117260300                                                                        793172611
+SUSAURK2R2508      A00800H    G N34502000W117320300                                                                        793182611
+SUSAURK2R2508      A00900H    G N34483000W117320300                                                                        793192611
+SUSAURK2R2508      A01000H    H N34480000W117350300                                                                        793202611
+SUSAURK2R2508      A01100H    G N34480000W118010300                                                                        793212611
+SUSAURK2R2508      A01200H    G N34494000W118054800                                                                        793222611
+SUSAURK2R2508      A01300H    G N34513000W118054800                                                                        793232611
+SUSAURK2R2508      A01400H    G N34560000W118210300                                                                        793242611
+SUSAURK2R2508      A01500H    G N35150000W118350300                                                                        793252611
+SUSAURK2R2508      A01600H    G N35400000W118350300                                                                        793262611
+SUSAURK2R2508      A01700H    G N36080000W118350300                                                                        793272611
+SUSAURK2R2508      A01800H    G N36355000W118350300                                                                        793282611
+SUSAURK2R2508      A01900H    G N37045000W118350300                                                                        793292611
+SUSAURK2R2508      A02000H    H N37120000W118350300                                                                        793302611
+SUSAURK2R2508      A02100H    H N37120000W118260300                                                                        793312611
+SUSAURK2R2508      A02200H    H N37120000W118000300                                                                        793322611
+SUSAURK2R2508      A02300H    G N37120000W117200300                                                                        793332611
+SUSAURK2R2508      A02400H    G N36300000W116551800                                                                        793342611
+SUSAURK2R2508      A02500H    G N35343000W116233300                                                                        793352611
+SUSAURK2R2508      A02600H    G N35283500W116184800                                                                        793362611
+SUSAURK2R2508      A02700H    G N35254800W116184800                                                                        793372611
+SUSAURK2R2508      A02800H    GEN35184500W116184800                                                                        793382611

@@ -1,0 +1,22 @@
+main:
+  screenWidth: 1024
+  screenHeight: 600
+  defaultScreen: MAP
+  screenDiagonalInches: 7
+screens:
+  MAP:
+    module: pyefis.screens.screenbuilder
+    title: MAP
+    layout:
+      rows: 110
+      columns: 200
+    instruments:
+      - type: moving_map
+        row: 0
+        column: 0
+        span:
+          rows: 110
+          columns: 200
+        options:
+          range_nm: 10
+          zoom_rail: true

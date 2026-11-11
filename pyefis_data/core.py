@@ -10,6 +10,11 @@ The safety contract (this is avionics-adjacent, so it matters):
     signed manifest, and only THEN moved into place and the ``current``
     symlink atomically flipped. A bad download/signature can never disturb
     the live data a running pyEfis is serving.
+  * A validly signed manifest OLDER than the cached one (by ``generated``) is
+    refused, not cached, and nothing is installed from it: a signature
+    proves who signed, not when, so a replayed old manifest would otherwise
+    re-serve superseded cycles as current. ``allow_rollback`` is the
+    explicit operator override, and every use of it is logged to disk.
   * POSIX rename semantics: flipping ``current`` does not affect a process
     that already has the old file open; the new data applies on restart /
     next cache miss.
@@ -40,6 +45,7 @@ EXPIRES = "EXPIRES"
 EXPIRED = "EXPIRED"
 MISSING = "MISSING"
 UNKNOWN = "unknown"
+ROLLBACK = "CATALOG REFUSED"     # an older signed manifest was offered and refused
 
 # kind -> (subdirectory under root, canonical filename pyEfis opens)
 SQLITE_KINDS: dict[str, tuple[str, str]] = {
@@ -103,7 +109,7 @@ KIND_LABELS = {
 # restricts (old data with awareness beats no data).
 SEVERITY = {
     CURRENT: "none", STAGED: "none",
-    EXPIRES: "white", MISSING: "white", UNKNOWN: "white",
+    EXPIRES: "white", MISSING: "white", UNKNOWN: "white", ROLLBACK: "white",
     UPDATE: "amber", EXPIRED: "amber",
 }
 
@@ -341,6 +347,10 @@ class PackStatus:
     next_cycle: str | None = None
     next_effective: str | None = None
     next_staged: bool = False
+    # The installed cycle's manifest ``notice`` (L1), so pyEfis's About
+    # screen can show it from status.json without reading the manifest.
+    # "" when nothing is installed or the entry predates the field.
+    notice: str = ""
 
     @property
     def severity(self) -> str:
@@ -354,13 +364,34 @@ class PackStatus:
             "effective": self.effective, "next_cycle": self.next_cycle,
             "next_effective": self.next_effective,
             "next_staged": self.next_staged,
+            "notice": self.notice,
             "detail": self.detail,
         }
 
 
+def _generated_at(stamp) -> _dt.datetime | None:
+    """A manifest's ``generated`` stamp as an aware datetime, or None when it
+    is not a parseable ISO-8601 time (never raises)."""
+    if not isinstance(stamp, str):
+        return None
+    try:
+        t = _dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=_dt.timezone.utc)
+
+
+def _entry_notice(entry: PackEntry | None) -> str:
+    """The entry's notice, or "" -- a missing entry, a pre-TV1 entry, or a
+    malformed (non-string) value never raises."""
+    notice = getattr(entry, "notice", "") if entry is not None else ""
+    return notice if isinstance(notice, str) else ""
+
+
 class Updater:
     def __init__(self, config: Config, public_key: str, *,
-                 remote=None, today: _dt.date | None = None, log=print):
+                 remote=None, today: _dt.date | None = None, log=print,
+                 allow_rollback: bool = False):
         self.config = config
         self.public_key = public_key
         self.remote = remote if remote is not None else HttpRemote()
@@ -370,6 +401,11 @@ class Updater:
         self.errors: list[str] = []   # verification failures during the last update
         self.manifest_generated: str | None = None   # set on each fetch
         self.progress = None          # optional sink: callable(event_dict)
+        # Operator override: accept a manifest older than the cache (logged).
+        self.allow_rollback = allow_rollback
+        # {"offered", "cached"} generated stamps when the last fetch refused
+        # an older manifest; None otherwise.
+        self.rollback_refused: dict | None = None
 
     def _emit(self, ev: dict) -> None:
         if self.progress:
@@ -415,15 +451,33 @@ class Updater:
         "try again later", and re-fetching never helps (AER-1935). So it is
         parsed -- and only on success cached -- before anything is written to
         disk: a bad manifest must never overwrite the last good cache.
+
+        A verified manifest whose ``generated`` is older than the cached one
+        is refused (CERT3): the cached manifest is returned instead and
+        ``rollback_refused`` records both stamps, so ``update`` installs
+        nothing and ``status`` reports it. ``allow_rollback`` accepts it.
         """
         remote = remote or self.remote
         cache = self.config.root / "manifest.json"
         cache_sig = self.config.root / "manifest.json.minisig"
+        self.rollback_refused = None
         try:
             raw = remote.get_bytes(self.config.manifest_url)
             sig = remote.get_bytes(self.config.sig_url).decode("ascii")
             self._verify(raw, sig)                       # before trust/cache
             m = self._loaded(raw)                         # before caching
+            newer = self._newer_cache(m, cache, cache_sig)
+            if newer is not None:
+                cached_raw, cached_gen = newer
+                if not self.allow_rollback:
+                    self.rollback_refused = {"offered": m.generated,
+                                             "cached": cached_gen}
+                    self.log(f"catalog: refused manifest generated {m.generated}, "
+                             f"older than the cached {cached_gen}; nothing "
+                             "installed from it (use --allow-rollback to roll "
+                             "back deliberately)")
+                    return self._loaded(cached_raw)
+                self._record_rollback(m.generated, cached_gen, remote)
             self.config.root.mkdir(parents=True, exist_ok=True)
             cache.write_bytes(raw)
             cache_sig.write_text(sig, encoding="ascii")
@@ -437,6 +491,48 @@ class Updater:
                 self.log(f"offline: using cached manifest ({type(e).__name__})")
                 return self._loaded(raw)
             raise
+
+    def _newer_cache(self, m: Manifest, cache: Path, cache_sig: Path):
+        """(raw, generated) of the cached manifest when it verifies and is
+        strictly newer than ``m``; otherwise None. A cache that is missing,
+        fails its signature, or carries an unparseable stamp is no baseline
+        -- the same trust rule as the offline fallback."""
+        if not (cache.exists() and cache_sig.exists()):
+            return None
+        try:
+            raw = cache.read_bytes()
+            self._verify(raw, cache_sig.read_text("ascii"))
+            cached_gen = json.loads(raw).get("generated")
+        except Exception as e:
+            self.log(f"catalog: cached manifest unusable as a baseline "
+                     f"({type(e).__name__}); not checked for rollback")
+            return None
+        old, new = _generated_at(cached_gen), _generated_at(m.generated)
+        if old is None or new is None:
+            self.log("catalog: manifest 'generated' not comparable "
+                     f"({m.generated!r} vs cached {cached_gen!r}); not checked "
+                     "for rollback")
+            return None
+        return (raw, cached_gen) if new < old else None
+
+    def _record_rollback(self, offered: str, cached: str, remote) -> None:
+        """The operator accepted an older manifest: say so, and append an
+        audit line to ``<root>/rollback.log`` that outlives the console."""
+        self.log(f"catalog: ROLLBACK ACCEPTED (--allow-rollback): manifest "
+                 f"generated {offered} replaces the cached {cached}")
+        rec = {"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+               "offered": offered, "cached": cached,
+               "manifest_url": self.config.manifest_url,
+               "source": str(getattr(remote, "root", "")) or "network"}
+        self.config.root.mkdir(parents=True, exist_ok=True)
+        with open(self.config.root / "rollback.log", "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, sort_keys=True) + "\n")
+
+    def _rollback_row(self) -> PackStatus:
+        r = self.rollback_refused
+        return PackStatus("catalog", ROLLBACK,
+                          f"older catalog {r['offered']} refused; kept {r['cached']}",
+                          name="Catalog")
 
     def _loaded(self, raw: bytes) -> Manifest:
         m = Manifest.from_bytes(raw, lenient=True)
@@ -473,7 +569,10 @@ class Updater:
     # --- status ---
     def status(self) -> list[PackStatus]:
         m = self.fetch_manifest()
-        return [self._status_for(m, pid) for pid in self._tracked_ids(m)]
+        rows = [self._status_for(m, pid) for pid in self._tracked_ids(m)]
+        if self.rollback_refused:
+            rows.insert(0, self._rollback_row())
+        return rows
 
     def _status_for(self, m: Manifest, pid: str) -> PackStatus:
         entries = m.for_id(pid)
@@ -492,7 +591,8 @@ class Updater:
                           effective=inst_entry.effective if inst_entry else None,
                           next_cycle=nxt.cycle if nxt else None,
                           next_effective=nxt.effective if nxt else None,
-                          next_staged=bool(nxt and inv.get("staged") == nxt.cycle))
+                          next_staged=bool(nxt and inv.get("staged") == nxt.cycle),
+                          notice=_entry_notice(inst_entry))
 
     def _classify(self, m, pid, entries, inv, installed, inst_entry, days,
                   nxt=None):
@@ -782,6 +882,8 @@ class Updater:
         remote = remote or self.remote
         m = self.fetch_manifest(remote)
         self.errors = []
+        if self.rollback_refused:
+            return [self._rollback_row()]     # install nothing from a replay
         results: list[PackStatus] = []
         tracked = self._tracked_ids(m)
         # Reconcile: drop installed packs no longer selected, so the drive

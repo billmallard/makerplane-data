@@ -56,7 +56,10 @@ packtool build-roads --states conus --dest highways.sqlite
 #   subregion extracts instead. A state that comes back empty or non-zip is a
 #   hard failure, never a silent skip (makerplane-data#17: the June 2026 build
 #   used a bare 'california' entry and shipped a pack with zero California
-#   roads without anyone noticing until someone flew there). A transient
+#   roads without anyone noticing until someone flew there). The build step
+#   re-checks this on disk: any state dir under <cache-dir>/extracted without
+#   a non-empty roads .shp -- including a leftover from an earlier failed
+#   run -- stops the build before pyEfis's builder runs. A transient
 #   Geofabrik 502/503/timeout on a state is routine over an ~80-minute CONUS
 #   fetch, not exceptional (makerplane-data#60): fetch_state retries a single
 #   state a few times with short backoff, and any state still down after that

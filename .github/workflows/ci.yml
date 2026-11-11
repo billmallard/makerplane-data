@@ -16,10 +16,29 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .[dev,plates]
+      # node runs the pack inspector's JS (site/assets/inspect-core.js), both
+      # on its own and against the Python signer in tests/test_inspector.py.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # The stock binary checks packtools.signing against the real minisign
+      # wire format; its own tests would pass a drift that matched on both
+      # sides (tests/test_minisign_interop.py). REQUIRE turns a missing
+      # binary into a failure, not a skip.
+      - name: Install stock minisign
+        run: sudo apt-get update -q && sudo apt-get install -y -q minisign && minisign -v
       - name: SPDX license headers present
         run: python scripts/spdx_check.py
+      - name: Stock minisign verifies a packtools signature
+        env:
+          MAKERPLANE_REQUIRE_MINISIGN: "1"
+        run: python -m pytest -v tests/test_minisign_interop.py
       - name: Unit tests
+        env:
+          MAKERPLANE_REQUIRE_MINISIGN: "1"
         run: python -m pytest
+      - name: Pack inspector JS tests
+        run: node --test tests/inspector/*.test.mjs
       - name: Pipeline dry-run (no network, no secrets)
         run: python -m packtools.run_cyclical --dry-run --date 2026-06-14
 

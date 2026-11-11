@@ -10,8 +10,8 @@ every site edit waited on him. The ``site.yml`` workflow runs this with the
 repo's R2 secrets instead.
 
 Each file is written to its own key, and only when its bytes differ from the
-live object. A key the pack pipeline owns (the manifest, its signature, or
-anything under ``packs/``) is refused outright, so a stray file under
+live object. A key the pack pipeline owns (the manifest, the advisory feed,
+their signatures, or anything under ``packs/``, ``reports/`` or ``schema/``) is refused outright, so a stray file under
 ``site/`` can never overwrite signed data.
 """
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .advisories import FEED_KEY, FEED_SIG_KEY
 from .publish import MANIFEST_KEY, SIG_KEY
 
 CONTENT_TYPES = {
@@ -29,10 +30,11 @@ CONTENT_TYPES = {
     ".js": "text/javascript; charset=utf-8",
 }
 
-_RESERVED_KEYS = {MANIFEST_KEY, SIG_KEY}
+_RESERVED_KEYS = {MANIFEST_KEY, SIG_KEY, FEED_KEY, FEED_SIG_KEY}
 # reports/ belongs to the publish paths (records) and `packtool report-site`
-# (the pages rendered from them), never to site/.
-_RESERVED_PREFIXES = ("packs/", "reports/")
+# (the pages rendered from them), never to site/; schema/ likewise to the
+# publish paths (captures) and `packtool schema-site` (SCH1).
+_RESERVED_PREFIXES = ("packs/", "reports/", "schema/")
 
 
 def site_files(root: str | Path) -> list[tuple[str, Path, str]]:

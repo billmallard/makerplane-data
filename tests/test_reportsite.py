@@ -86,6 +86,14 @@ def test_every_record_page_carries_the_standing_text_verbatim(site):
             assert block in data.decode(), key
 
 
+def test_no_page_carries_the_standing_text_heading(site):
+    # Bill, 2026-11-01 (AER-4532): the boxed text stands alone, no heading.
+    pages = dict(site, **rs.build([], _manifest()))
+    for key, data in pages.items():
+        if key.endswith(".html"):
+            assert "What this report is and is not" not in data.decode(), key
+
+
 def test_standing_text_is_the_plan_4_7_block():
     # Pinned so an edit to it is a visible diff, not a quiet drift.
     assert rs.STANDING_TEXT.startswith("These are the checks we ran on this pack,")
@@ -293,3 +301,14 @@ def test_analytics_uses_the_zone_token_and_never_loads_twice():
     assert 'var TOKEN = "3522e4f857de4e05b4384a6a5777c4ed";' in js
     # The guard runs before the beacon is created.
     assert js.index('querySelector("script[data-cf-beacon]")') < js.index("createElement")
+
+
+def test_check_page_shows_attestation_check_and_terrain_gap():
+    # TV10: the check page carries the `gh attestation verify` command and
+    # says plainly that terrain packs have none, and why.
+    page = rs.check_page(commit="")
+    assert "gh attestation verify" in page
+    assert "--signer-workflow billmallard/makerplane-data/.github/workflows/" in page
+    assert "Terrain packs have no attestation" in page
+    assert "private repository" in page
+    assert rs.lint(page) == []

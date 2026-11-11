@@ -11,6 +11,10 @@ this one deliberately does not duplicate:
   fits the wider avionics stack (pyEfis, FIX-Gateway, the instrument-widget
   pipeline). Not a git repo itself; each subdir is.
 
+> **The wiki is generated.** The GitHub wiki is generated from `docs/wiki/` by
+> `.github/workflows/wiki-sync.yml` on every merge to `dev`. Edit the pages here,
+> not in the wiki; direct wiki edits are overwritten.
+
 ## What this repo is (two products, one MIT-rooted repo)
 
 1. **A Garmin-style nav-data currency system** — the Python side (`packtools/`
@@ -56,17 +60,19 @@ downloaded to `staging/`, sha256-verified against the signed manifest, and only
 **then** moved into place and the `current` symlink atomically flipped. A bad
 download, bad signature, or interrupted transfer can **never** disturb the live
 data a running pyEfis is serving. Offline falls back to the last good cached
-(still-verified) manifest. When editing `pyefis_data/core.py` or the CLIs,
+(still-verified) manifest. A verified manifest whose `generated` is older than
+the cached one is refused and nothing installs from it (CERT3: a signature
+proves who signed, not when); `--allow-rollback` is the logged override. When editing `pyefis_data/core.py` or the CLIs,
 preserve verify-then-swap; don't introduce a path that installs before verifying.
 
 ## Package map
 
 | Path | Leg | What |
 |---|---|---|
-| **`packtools/`** | 1 | Pack builder. `cycles` (AIRAC/DOF date math), `signing` (minisign ed25519, pure PyNaCl — shared with the Pi), `packmeta` (self-describing header inside every pack), `manifest` (catalog schema + canonical bytes + validation + prune), `regions`/`regions.yaml` (8 N-America bboxes), `sources` (upstream FAA URLs), `fetch`, `build/` (shim to pyEfis tools), `upload` (R2/S3 + LocalStore), `publish`, `make_terrain`, `ourairports`, `run_cyclical` (the daily orchestrator), `cli` (`packtool`). |
-| **`pyefis_data/`** | 3 | On-Pi updater. `config` (`~/.makerplane/pyefis/data.yaml`, construct-never-raises), `core` (`Updater`, `Remote`, inventory, the verify-then-swap install), `config_pull` (device panel-config pull + install + rollback), `cli` (`pyefis-data`), `systemd/` (user service + timer + USB-import udev/service). |
+| **`packtools/`** | 1 | Pack builder. `cycles` (AIRAC/DOF date math), `signing` (minisign ed25519, pure PyNaCl — shared with the Pi), `packmeta` (self-describing header inside every pack), `manifest` (catalog schema + canonical bytes + validation + prune), `regions`/`regions.yaml` (8 N-America bboxes), `sources` (upstream FAA URLs), `fetch`, `build/` (shim to pyEfis tools), `upload` (R2/S3 + LocalStore), `publish`, `advisories` (safety advisory feed schema + signed publish, L5), `make_terrain`, `ourairports`, `run_cyclical` (the daily orchestrator), `cli` (`packtool`). |
+| **`pyefis_data/`** | 3 | On-Pi updater. `config` (`~/.makerplane/pyefis/data.yaml`, construct-never-raises), `core` (`Updater`, `Remote`, inventory, the verify-then-swap install), `config_pull` (device panel-config pull + install + rollback), `advisories` (opt-in advisory feed: verify, match on device, report into status.json), `cli` (`pyefis-data`), `systemd/` (user service + timer + USB-import udev/service). |
 | **`configurator/`** | — | The web panel editor (Worker, TS). Own CLAUDE.md. |
-| `.github/workflows/` | 1/2 | `ci.yml` (SPDX check + pytest + no-secrets dry-run), `cyclical.yml` (daily build+sign+upload), `terrain.yml`, `water.yml` (dispatch builds), `site.yml` (deploys `site/` to the bucket root: on push to `main`, or dispatched). |
+| `.github/workflows/` | 1/2 | `ci.yml` (SPDX check + pytest + no-secrets dry-run), `cyclical.yml` (daily build+sign+upload), `terrain.yml`, `water.yml` (dispatch builds), `impact.yml` (TV9: builder PRs get a fixture-pack diff comment, docs/pr_impact.md), `site.yml` (deploys `site/` to the bucket root: on push to `main`, or dispatched), `advisories.yml` (dispatch: sign + upload `advisories/feed.json`, docs/advisories.md). |
 | `site/` | 2 | Static Cloudflare site + on-device pack picker (`data.yaml.sample`). |
 | `docs/` | — | Phase plan (`data_manager_implementation.md`), Cloudflare runbook, per-kind build notes (terrain/water/roads), licensing audit, the AC-DP-001 defensive publication, panel-config format, device deployment. |
 | `keys/minisign.pub` | — | Signing **public** key (committed). The secret never is. |
@@ -85,6 +91,7 @@ packtool genkey --out keys                      # throwaway keypair (commit .pub
 packtool build-pack SRC --id X --kind K ...      # built sqlite/zip -> signed pack (+ --upload to R2)
 packtool make-terrain HGT_TREE --edition ...     # Copernicus GLO-30 -> region terrain packs
 packtool verify work/manifest.json --pub keys/minisign.pub
+packtool advisories advisories/feed.json --check-only   # validate the safety advisory feed (advisories.yml publishes it)
 python -m packtools.run_cyclical --dry-run       # what today's cron would build (no net, no secrets)
 ```
 
@@ -93,10 +100,12 @@ verification needs no file and no network):
 ```bash
 pyefis-data status | catalog | sources | drives     # (+ --json; the picker drives these)
 pyefis-data update [--only id,id] [--source DIR] [--progress]   # pull+verify+atomic-swap
+                   [--allow-rollback]                  # accept an OLDER signed catalog (logged)
 pyefis-data import <dir>                              # USB path, same verify contract
 pyefis-data verify [path]                            # check a manifest signature
 pyefis-data pair <code>                              # redeem a configurator claim code -> device token
 pyefis-data config-pull [--wait-online N]            # pull this device's panel, install, restart pyEfis, roll back on crash
+pyefis-data advisories [--enable|--disable|--check]  # opt-in signed safety advisory feed, matched on the device
 ```
 
 `update --only` persists the selection to `data.yaml` (the on-device picker *is*
@@ -165,7 +174,7 @@ placeholder).
   (Worker + D1 migrations). Old feature branches (`feat/accounts-auth`, …) are
   parked history. Live thread state: `../STATE.md`.
 - `packtools`/`pyefis_data` Phases A–F are complete and live end-to-end.
-  Package version **0.4.0** (`pyproject.toml`; README agrees).
+  Package version **0.5.0** (`pyproject.toml`; README agrees).
 - `ssh pyefis` reaches the Pi 5 test bench; mid-flight patching is explicitly OK
   (it's a debug bench, not a certified article).
 

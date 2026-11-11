@@ -174,3 +174,19 @@ test("SVS twin: roll has no effect -- renderSVS does not model attitude at all",
     "renderSVS output changed with meta.cam.roll -- it now models roll; replace this pinned-absence test " +
     "with a real sign check (needs a second real capture with nonzero roll to validate against)");
 });
+
+test("SVS twin: a stale svs_terrain_fill:false still previews filled terrain (AER-5151)", () => {
+  // Bill, 2026-11-07 (AER-5142 / pyEfis #395, #427): the option is removed
+  // because the device never built a wireframe mode -- it always fills. A
+  // screen saved before the schema dropped the key can still carry it, so
+  // the twin must ignore it rather than preview a wireframe the glass will
+  // never show.
+  const patch = loadPatch();
+  const ref = render(patch, {}).getContext("2d").getImageData(0, 0, 1920, 1080).data;
+  const stale = render(patch, { svs_terrain_fill: false })
+    .getContext("2d").getImageData(0, 0, 1920, 1080).data;
+  assert.ok(Buffer.compare(Buffer.from(ref.buffer), Buffer.from(stale.buffer)) === 0,
+    "svs_terrain_fill:false changed the preview -- the twin is honouring a removed option");
+  assert.ok(!extractFunction(SRC, "renderSVS").includes("svs_terrain_fill"),
+    "renderSVS reads svs_terrain_fill again -- the device has no wireframe mode");
+});

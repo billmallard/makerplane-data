@@ -192,3 +192,57 @@ def test_builder_refusal_fails_the_run_but_healthy_sources_publish(tmp_path, err
     assert ("obstacles-conus", "260611") in {(p.id, p.cycle) for p in m.packs}
     assert not any(p.id == "airports-conus" for p in m.packs)
     assert not store.exists("packs/airports-conus-2606.pack")
+
+
+def _read_checksums(path):
+    return sorted(tuple(line.split("  ")) for line in path.read_text().splitlines())
+
+
+def test_published_checksums_list_exactly_the_packs_the_manifest_gained(tmp_path):
+    # TV10: the workflow attests these lines, so they must be the published
+    # packs' own digests -- the ones the manifest lists and a download hashes to.
+    runner, store, pub = make_runner(tmp_path)
+    out = tmp_path / "published.sha256"
+    runner.published_checksums = out
+    m = runner.run([AIRPORTS, OBSTACLES])
+
+    want = sorted((p.sha256, f"{p.id}-{p.cycle}.pack") for p in m.packs)
+    assert len(want) == 3
+    assert _read_checksums(out) == want
+    import hashlib
+    for digest, name in want:
+        assert hashlib.sha256(store.get_bytes(f"packs/{name}")).hexdigest() == digest
+
+    # A second run publishes nothing new, so it lists nothing: an edition
+    # attested once is not attested again by a later run that skipped it.
+    runner.run([AIRPORTS, OBSTACLES])
+    assert out.read_text() == ""
+
+
+def test_published_checksums_omit_a_pack_the_gate_refused(tmp_path):
+    runner, store, pub = make_runner(tmp_path)
+    out = tmp_path / "published.sha256"
+    runner.published_checksums = out
+
+    def refusing_airports(path, **kw):
+        rec = standin_reporter(path, **kw)
+        if rec["pack"]["id"] == "airports-conus":
+            c = next(c for c in rec["checks"] if c["blocking"])
+            c["status"] = "fail"
+            rec["summary"].update({"pass": rec["summary"]["pass"] - 1, "fail": 1})
+        return rec
+
+    runner.reporter = refusing_airports
+    from packtools.run_cyclical import PipelineFailure
+    with pytest.raises(PipelineFailure):
+        runner.run([AIRPORTS, OBSTACLES])
+
+    assert [name for _, name in _read_checksums(out)] == ["obstacles-conus-260611.pack"]
+    assert store.exists("packs/obstacles-conus-260611.pack")
+    assert not store.exists("packs/airports-conus-2606.pack")
+
+
+def test_no_checksums_file_unless_asked(tmp_path):
+    runner, store, pub = make_runner(tmp_path)
+    runner.run([OBSTACLES])
+    assert not list(tmp_path.rglob("*.sha256"))

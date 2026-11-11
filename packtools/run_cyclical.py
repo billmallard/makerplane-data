@@ -36,11 +36,11 @@ import tempfile
 from pathlib import Path
 
 from . import build as _build
-from . import cycles, fetch, gate, report, schema_guard, signing, summary
+from . import cycles, fetch, gate, report, schema_guard, schemasite, signing, summary
 from .manifest import Manifest
-from .packmeta import PackMeta, embed_sqlite
+from .packmeta import PackMeta, detect_content_schema_version, embed_sqlite
 from .manifest import PackEntry
-from .publish import sign_and_put
+from .publish import ManifestConflict, changed_ids, commit, read_live
 from .regions import load_regions, manifest_regions_block
 from .schema_guard import SchemaGuardError
 from .sources import Source, cyclical_sources
@@ -68,6 +68,8 @@ class CyclicalRunner:
                  guard=schema_guard.DEFAULT,
                  reporter=report.build_report,
                  notes: dict | None = None,
+                 published_checksums: str | Path | None = None,
+                 pyefis_commit=_build.pyefis_commit,
                  today: _dt.date | None = None):
         self.store = store
         self.secret = secret
@@ -86,6 +88,13 @@ class CyclicalRunner:
         # edition (``<pack id>@<cycle>:<CHECK>``) so a note cannot carry over
         # to the next cycle. The scheduled run has none.
         self.notes = _edition_notes(notes)
+        # Where to list the packs this run put in the signed manifest, as
+        # sha256sum lines: the subjects the workflow's build-provenance
+        # attestation covers (TV10). None writes nothing.
+        self.published_checksums = Path(published_checksums) if published_checksums else None
+        # Names the pyEfis commit a pyEfis builder ran (CERT5a). Injected so
+        # tests can point it at a fixture checkout.
+        self.pyefis_commit = pyefis_commit
         self.today = today or _dt.date.today()
         self.log = print
         # One row per (source, cycle) decision, for the job summary.
@@ -97,6 +106,9 @@ class CyclicalRunner:
         self.previous: dict = {"packs": []}
         self.accepted: dict = {}
         self._cur: dict = {}
+        # (live, previous, etag) as this run read it: the version its
+        # manifest write must still find live (MANIFEST1).
+        self._state = None
 
     def _cycles_for(self, source: Source) -> list[cycles.Cycle]:
         cur, nxt = cycles.current_and_next(source.cadence, today=self.today)
@@ -108,17 +120,30 @@ class CyclicalRunner:
         """The live manifest to build on. A real run verifies its signature
         first (the gate decides from it); a dry run writes nothing and holds
         no key, so it parses it unverified."""
-        stamp = f"{self.today.isoformat()}T00:00:00Z"
         if dry_run:
             raw = self.store.get_bytes(MANIFEST_KEY)
             live = Manifest.from_bytes(raw) if raw else None
         else:
-            live, self.previous = gate.load_signed(self.store, self.secret)
+            self._state = read_live(self.store, self.secret)
+            live, self.previous, _etag = self._state
         self.live = live
-        if live is None:
-            return Manifest.new(stamp)
-        m = Manifest.from_bytes(live.to_bytes())
+        return self._base(live)
+
+    def _base(self, live: Manifest | None) -> Manifest:
+        """What this run writes before its own builds: a copy of ``live``
+        stamped with today, the regions block, and every entry's URL
+        re-rooted onto url_base. Re-derived from whatever is live on a
+        manifest write retry (MANIFEST1)."""
+        stamp = f"{self.today.isoformat()}T00:00:00Z"
+        m = Manifest.new(stamp) if live is None else Manifest.from_bytes(live.to_bytes())
         m.generated = stamp
+        m.regions = manifest_regions_block(load_regions())
+        # url_base is the single source of truth for the serving origin:
+        # re-root every existing entry's URL onto it so a base change (e.g.
+        # r2.dev -> custom domain) is corrected on the next run, even for
+        # packs that are skipped (already present) and never rebuilt.
+        for p in m.packs:
+            p.url = f"{self.url_base}/{p.id}-{p.cycle}.pack"
         return m
 
     def _sources(self, urls, cycle_work: Path, c: cycles.Cycle) -> list[dict]:
@@ -149,6 +174,8 @@ class CyclicalRunner:
         # Contract check 1-3, against the live download, before we build.
         self.guard.check_inputs(source, Path(extracted))
         pack_path = cycle_work / f"{source.pack_id}-{c.cycle}.pack"
+        # Which pyEfis commit this build runs, read before it runs (CERT5a).
+        pyefis_sha = self.pyefis_commit() if builder in _build.PYEFIS_BUILDERS else None
         self.log(f"  build {source.builder} -> {pack_path.name}")
         builder(Path(extracted), pack_path)
         # Contract check 4, against the built sqlite, before it is embedded /
@@ -158,7 +185,11 @@ class CyclicalRunner:
                         effective=c.effective.isoformat(),
                         expires=c.expires.isoformat(),
                         attribution=source.attribution,
-                        license=source.license, license_url=source.license_url)
+                        license=source.license, license_url=source.license_url,
+                        pyefis_commit=pyefis_sha)
+        detected = detect_content_schema_version(source.kind, pack_path)
+        if detected is not None:
+            meta.schema_version = detected
         embed_sqlite(pack_path, meta)
         url = f"{self.url_base}/{pack_path.name}"
         entry = PackEntry.from_pack(pack_path, meta, url=url, regions=list(source.regions))
@@ -167,7 +198,8 @@ class CyclicalRunner:
         mine = {k: v for (pid, cyc, k), v in self.notes.items()
                 if (pid, cyc) == (source.pack_id, c.cycle)}
         g = gate.gate_one(self.store, self.live, entry, pack_path, local=self.accepted,
-                          opts=gate.Options(notes=mine, inputs=Path(extracted),
+                          opts=gate.Options(notes=mine, origin=source.origin or None,
+                                            inputs=Path(extracted),
                                             sources=self._sources(urls, cycle_work, c),
                                             record_dir=self.work_dir / "reports",
                                             reporter=self.reporter),
@@ -181,6 +213,7 @@ class CyclicalRunner:
             dry_run: bool = False) -> Manifest:
         sources = sources if sources is not None else cyclical_sources()
         self.checks = []
+        self.accepted = {}
         try:
             return self._load_and_run(sources, dry_run=dry_run)
         finally:
@@ -188,13 +221,6 @@ class CyclicalRunner:
 
     def _load_and_run(self, sources: list[Source], *, dry_run: bool) -> Manifest:
         m = self._load_manifest(dry_run=dry_run)
-        m.regions = manifest_regions_block(load_regions())
-        # url_base is the single source of truth for the serving origin:
-        # re-root every existing entry's URL onto it so a base change (e.g.
-        # r2.dev -> custom domain) is corrected on the next run, even for
-        # packs that are skipped (already present) and never rebuilt.
-        for p in m.packs:
-            p.url = f"{self.url_base}/{p.id}-{p.cycle}.pack"
         return self._run(sources, m, dry_run=dry_run)
 
     def _record(self, source: Source, c: cycles.Cycle, decision: str, detail: str = "") -> None:
@@ -206,6 +232,7 @@ class CyclicalRunner:
     def _run(self, sources: list[Source], m: Manifest, *, dry_run: bool) -> Manifest:
         built = 0
         failures: list[str] = []
+        published: list[tuple[Path, dict]] = []
 
         for source in sources:
             for c in self._cycles_for(source):
@@ -248,6 +275,7 @@ class CyclicalRunner:
                 self.store.put_file(key, pack_path, content_type="application/octet-stream")
                 m.upsert(entry)
                 self.accepted[(entry.id, entry.cycle)] = (entry, self._cur["gate"].record)
+                published.append((pack_path, self._cur["gate"].record))
                 built += 1
                 self.log(f"built+uploaded {source.pack_id} {c.cycle} "
                          f"sha256={entry.sha256[:12]}… {entry.bytes:,} B")
@@ -260,9 +288,10 @@ class CyclicalRunner:
             self.log(f"dry-run: {built} pack(s) would be built; manifest not written")
             return m
 
-        sign_and_put(self.store, self.secret, m, previous=self.previous, sign=signing.sign,
-                     comment=f"generated {self.today.isoformat()}")
+        m = self._commit(m)
         self.log(f"manifest: {len(m.packs)} pack(s), {built} new, signed + uploaded")
+        self._write_published_checksums()
+        schemasite.put_captures(self.store, published, log=self.log)
 
         # Healthy sources have published; now surface any hard failures as a
         # nonzero exit (a red run is the whole point of the guard).
@@ -272,6 +301,48 @@ class CyclicalRunner:
                 f"healthy sources were still published:\n  - "
                 + "\n  - ".join(failures))
         return m
+
+    def _commit(self, first: Manifest) -> Manifest:
+        """Write the manifest as a compare-and-set (MANIFEST1). The first
+        attempt writes ``first``; if another writer published since this run
+        read the manifest, re-derive from what is live now (its entries
+        kept) and re-apply this run's accepted builds and prune."""
+        built = sorted({e.id for e, _record in self.accepted.values()})
+        out = [first]
+
+        def edit(live, previous):
+            self.previous = previous
+            if out[0] is first and live is self.live:
+                return first
+            moved = changed_ids(self.live, live, built)
+            if moved:
+                raise ManifestConflict(
+                    f"another writer changed {', '.join(moved)} in {MANIFEST_KEY} after "
+                    "this run gated it; nothing written, re-run")
+            m = self._base(live)
+            for e, _record in self.accepted.values():
+                m.upsert(e)
+            m.prune_old_cycles(keep=2)
+            out[0] = m
+            return m
+
+        commit(self.store, self.secret, edit, sign=signing.sign,
+               comment=f"generated {self.today.isoformat()}", state=self._state,
+               log=self.log)
+        return out[0]
+
+    def _write_published_checksums(self) -> None:
+        """One ``<sha256>  <pack file>`` line per pack this run accepted, written
+        only once the manifest listing them is signed and uploaded. A pack the
+        gate refused, or one that failed to build, is not listed, so it gets no
+        attestation. The file is written even when empty, so the workflow can
+        tell "nothing new" from "never ran"."""
+        if self.published_checksums is None:
+            return
+        lines = [f"{e.sha256}  {e.id}-{e.cycle}.pack\n"
+                 for e, _record in self.accepted.values()]
+        self.published_checksums.parent.mkdir(parents=True, exist_ok=True)
+        self.published_checksums.write_text("".join(lines))
 
     def summary_markdown(self, *, dry_run: bool = False) -> str:
         """``$GITHUB_STEP_SUMMARY``: one row per (pack, cycle) decision, then
@@ -343,6 +414,9 @@ def main(argv=None) -> int:
                     help="build notes a person wrote for a check that warned: a JSON object "
                          "or KEY=TEXT lines, KEY = <pack id>@<cycle>:<CHECK>. Never set this "
                          "on the scheduled run")
+    ap.add_argument("--published-checksums", dest="published_checksums",
+                    help="write a sha256sum-format list of the packs this run published "
+                         "(the build-provenance attestation's subjects)")
     args = ap.parse_args(argv)
 
     today = _dt.date.fromisoformat(args.date) if args.date else _dt.date.today()
@@ -356,7 +430,8 @@ def main(argv=None) -> int:
     secret = None if args.dry_run else _secret(args)
     runner = CyclicalRunner(store=store, secret=secret,
                             url_base=args.url_base, work_dir=work, today=today,
-                            notes=gate.read_notes_file(args.notes_file))
+                            notes=gate.read_notes_file(args.notes_file),
+                            published_checksums=args.published_checksums)
     srcs = cyclical_sources()
     if args.only:
         srcs = [s for s in srcs if s.pack_id in set(args.only)]

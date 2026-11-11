@@ -14,7 +14,7 @@ flight-data bus; that contract lives in `canfix.json` / FIX-Gateway.
 > website with an on-device pack picker, and the in-EFIS DATA flag, all proven
 > end-to-end against live FAA/OSM data and the production origin
 > (**`navdata.aerocommons.org`**, Cloudflare R2, zero egress). Current release:
-> **0.4.0**. CIFP packs remain deferred (GPL indexer). See
+> **0.5.0**. CIFP packs remain deferred (GPL indexer). See
 > [docs/data_manager_implementation.md](docs/data_manager_implementation.md)
 > for the full phase plan (A–G).
 
@@ -164,13 +164,26 @@ python -m packtools.run_cyclical --no-upload --only airports-conus \
   untouched.
 - **`systemd/`** — user service + daily timer, and a udev rule + templated
   service for the USB-stick import path (hangars without WiFi).
+- **`acknowledge.py`** — the software notice. `update` and `import` install
+  nothing until the notice is accepted for the installed `pyefis-data`
+  version. A terminal is asked to type `accept`; unattended runs proceed only
+  on a recorded accept. Each accept is appended to
+  `~/.local/state/makerplane/acknowledgments.jsonl`, outside the config trees.
+  See [docs/install_acknowledgment.md](docs/install_acknowledgment.md).
+- **`advisories.py`** — the opt-in safety advisory channel. When on, `update`
+  and `import` also fetch the signed `advisories.json`, match it against the
+  installed software and packs on the device, and write the result into
+  `status.json` for the About/System screen. Nothing about the device is sent.
+  See [docs/advisories.md](docs/advisories.md).
 
 ```bash
+pyefis-data accept                 # accept the software notice (first install / new version)
 pyefis-data verify                 # check the live manifest signature
 pyefis-data status                 # installed vs catalog, per-pack currency
 pyefis-data catalog                # every available pack (the picker view)
 pyefis-data update                 # pull stale packs, verify, atomic-swap
 pyefis-data import /media/usb/makerplane-data   # same verify path, offline
+pyefis-data advisories --enable     # opt in to the signed safety advisory feed
 ```
 
 On the EFIS this is wrapped by a touch **pack picker** (the Update screen):

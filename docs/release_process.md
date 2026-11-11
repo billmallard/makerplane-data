@@ -63,6 +63,10 @@ device on the current pack format. Cut it as **0.3.0** (from 0.2.11).
    If the range touches `site/`, the push to `main` also runs `site.yml`, which
    deploys navdata.aerocommons.org; confirm its verify step is green.
 5. **Tag** `vX.Y.Z` on `main` and push the tag. The tag is the release.
+   The publish workflows also tag `data/<date>/<run>` for each data publish's
+   GitHub Release ([community_loop.md](community_loop.md)); the last version
+   tag is the newest `v*` tag (`git describe --tags --match 'v*'`), not the
+   newest tag.
 6. **Post-release** — publish any packs that were waiting on the kind reaching
    `main` (see below), then re-check cron health the next morning
    (`watch/FAILURES.md`).

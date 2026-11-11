@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Blank issues stay open: code bugs, configurator problems and feature
+# requests have no form yet.
+blank_issues_enabled: true
+contact_links:
+  - name: Test reports for every data pack
+    url: https://navdata.aerocommons.org/reports/index.html
+    about: What was checked on each pack edition, and what the checks cannot catch.
+  - name: Check a pack yourself
+    url: https://navdata.aerocommons.org/reports/check.html
+    about: Re-run the open checks on the pack you downloaded.

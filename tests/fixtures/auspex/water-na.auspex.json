@@ -1,0 +1,30 @@
+{
+  "check": "pack_check",
+  "coverage": {
+    "checked": 3,
+    "covered": 3,
+    "skipped": 0,
+    "unreadable": 0
+  },
+  "engine": "Auspex -- proprietary AI test engine; method not published",
+  "engine_build": "2026.11.01-r3",
+  "findings": [
+    {
+      "actual": "the hole ring crosses the outer ring",
+      "expected": "every hole ring lies inside its polygon's outer ring",
+      "issue": "#212",
+      "locator": {
+        "hole": 0,
+        "lat": 47.65,
+        "lon": -122.35,
+        "row_id": 2,
+        "table": "water_polygons"
+      },
+      "statement": "water_polygons row 2 has a hole that leaves its outer ring"
+    }
+  ],
+  "run_at": "2026-11-01T14:05:00Z",
+  "verdict": "fail",
+  "what_a_pass_means": "The pack does not contradict itself. It never means the pack is right about the world.",
+  "when": "pre-publish"
+}

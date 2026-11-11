@@ -1,0 +1,54 @@
+name: advisories
+
+# Publish the safety advisory feed (BACKLOG L5, docs/advisories.md):
+# `packtool advisories` validates advisories/feed.json, checks its sequence
+# against the live feed (which must verify against the signing key first),
+# signs it with the same key as the manifest, and uploads advisories.json +
+# advisories.json.minisig to the bucket root beside manifest.json.
+#
+# The committed file is the source of truth, so every advisory, edit and
+# withdrawal is a reviewed commit. Dispatch only; `dry_run` (default on)
+# checks against the live feed and writes nothing. A real publish runs only
+# from main.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "check against the live feed; write nothing"
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    concurrency: advisories
+    permissions:
+      contents: read
+    steps:
+      - name: Refuse a real publish from anything but main
+        if: ${{ !inputs.dry_run && github.ref != 'refs/heads/main' }}
+        run: |
+          echo "advisories publish only from main (got ${{ github.ref }}); use dry_run elsewhere" >&2
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .[build]
+
+      - name: Validate, sign and upload the feed
+        env:
+          R2_ENDPOINT:          ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MINISIGN_SECRET_KEY:  ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          packtool advisories advisories/feed.json --bucket makerplane-data \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Verify what devices will fetch
+        if: ${{ !inputs.dry_run }}
+        run: |
+          curl -fsS https://navdata.aerocommons.org/advisories.json -o advisories.json
+          curl -fsS https://navdata.aerocommons.org/advisories.json.minisig -o advisories.json.minisig
+          pyefis-data verify advisories.json

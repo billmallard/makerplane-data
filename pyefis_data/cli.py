@@ -10,6 +10,10 @@
         [--root path]                    install to + persist this data root
     pyefis-data import <dir>         install from a USB stick (same verify path)
     pyefis-data verify [path]        check a manifest's signature
+    pyefis-data notice [--json]      the software notice + acknowledgment history
+    pyefis-data accept [--yes]       accept the notice (update/import require it)
+    pyefis-data advisories [--json]  safety advisories that apply here (opt-in)
+        [--enable | --disable] [--check]
 
 The signing public key is embedded below so verification needs no file and
 no network — the Pi trusts this key and nothing else. If the key is ever
@@ -28,7 +32,7 @@ from packtools import signing
 
 from .config import Config
 from .core import (Updater, detect_sources, disk_info, list_drives,
-                   EXPIRED, EXPIRES, UPDATE, MISSING, UNKNOWN)
+                   EXPIRED, EXPIRES, UPDATE, MISSING, UNKNOWN, ROLLBACK)
 
 # makerplane-data production signing key (key id 178caefeabc5afb1).
 # Mirrors keys/minisign.pub in the repo; embedded for runtime independence.
@@ -39,12 +43,85 @@ PUBLIC_KEY = (
 )
 
 # statuses that mean "the EFIS should annunciate" — also used for exit codes.
-_ATTENTION = {EXPIRED, EXPIRES, UPDATE, MISSING}
+_ATTENTION = {EXPIRED, EXPIRES, UPDATE, MISSING, ROLLBACK}
 
 # Exit code for a user-cancelled update (the on-device picker sends SIGTERM
 # when the user taps Cancel on the progress screen). Distinct from the
 # verification-error code (2) so the caller can tell "interrupted" from "broke".
 CANCELED_RC = 130
+
+# Exit code when the software notice has not been accepted for this version
+# (no terminal to ask at, or the user declined). Nothing was installed.
+NOTICE_RC = 3
+
+
+def _software_args(args) -> dict | None:
+    """``--software name=ver`` (repeatable) as a dict, or None (after printing
+    why) when one is malformed."""
+    extra = {}
+    for item in getattr(args, "software", None) or []:
+        name, sep, ver = item.partition("=")
+        if not sep or not name or not ver:
+            print(f"--software expects name=version, got {item!r}", file=sys.stderr)
+            return None
+        extra[name] = ver
+    return extra
+
+
+def _require_acceptance(args, up: Updater, trigger: str) -> int | None:
+    """The install/update gate: proceed only once the software notice is
+    accepted for this pyefis-data version, appending a record on each new
+    accept. Returns None to proceed, or an exit code to stop. Runs before any
+    selection is persisted or any pack fetched, so a decline changes nothing.
+
+    Unattended runs (timer, USB import) never prompt: they proceed on a
+    recorded accept and otherwise stop. A caller that displayed the notice
+    itself (the pyEfis installer or picker) passes --accept-notice. A bench
+    unit (``bench_auto_accept: true``) never waits on a person: it accepts
+    automatically, once per pyefis-data version, recorded as ``via: bench``."""
+    from . import acknowledge as ack
+    extra = _software_args(args)
+    if extra is None:
+        return 2
+    path = ack.default_log_path()
+    via = None
+    if getattr(args, "accept_notice", False):
+        via = "caller"
+    elif ack.find_acceptance(path=path) is not None:
+        return None
+    elif up.config.bench_auto_accept:
+        if ack.find_acceptance(path=path, include_bench=True) is not None:
+            return None
+        via = ack.BENCH_VIA
+    elif sys.stdin.isatty():
+        if not ack.prompt(sys.stdin, sys.stdout):
+            print("notice not accepted; nothing installed", file=sys.stderr)
+            return NOTICE_RC
+        via = "tty"
+    else:
+        if getattr(args, "progress", False):
+            print(json.dumps({"event": "notice_required", "notice": ack.NOTICE_TEXT,
+                              "notice_id": ack.NOTICE_ID}), flush=True)
+        print(f"{ack.NOTICE_TEXT}\n\nThis notice has not been accepted for "
+              f"pyefis-data {ack.__version__}. Run `pyefis-data accept` at a "
+              f"terminal; nothing installed.", file=sys.stderr)
+        return NOTICE_RC
+    rec = ack.make_record(via=via, trigger=trigger,
+                          software=ack.software_versions(extra),
+                          packs=ack.pack_versions(up.inventory))
+    try:
+        ack.append_record(rec, path)
+    except Exception as e:
+        print(f"could not record the acknowledgment at {path}: {e}; "
+              f"nothing installed", file=sys.stderr)
+        return 2
+    if via == ack.BENCH_VIA:
+        print(f"notice auto-accepted (bench unit); recorded in {path}", file=sys.stderr)
+    else:
+        print(f"notice accepted; recorded in {path}", file=sys.stderr)
+    if via == "tty":
+        print("\n" + _adv_disclosure(), file=sys.stderr)
+    return None
 
 
 class UpdateCancelled(Exception):
@@ -82,7 +159,32 @@ def _updater(args, *, override: dict | None = None) -> Updater:
     if src:
         from .core import LocalDirRemote
         remote = LocalDirRemote(Path(src))
-    return Updater(cfg, PUBLIC_KEY, remote=remote)
+    return Updater(cfg, PUBLIC_KEY, remote=remote,
+                   allow_rollback=getattr(args, "allow_rollback", False))
+
+
+def _rollback_dry_run(args) -> bool:
+    """--allow-rollback with --dry-run is refused: the fetch itself makes the
+    older manifest the cached baseline, so a "dry" run would roll back."""
+    if getattr(args, "allow_rollback", False) and args.dry_run:
+        print("--allow-rollback cannot be combined with --dry-run: accepting "
+              "the older catalog is itself the change", file=sys.stderr)
+        return True
+    return False
+
+
+def _report_refusal(up) -> bool:
+    """Print why an older manifest was refused (nothing was installed from
+    it) and how to roll back on purpose. True when there was a refusal."""
+    r = up.rollback_refused
+    if not r:
+        return False
+    print(f"REFUSED: the offered catalog (generated {r['offered']}) is older than "
+          f"the one this device already trusts ({r['cached']}); nothing installed, "
+          "current data left untouched. To roll back deliberately, rerun with "
+          "--allow-rollback (logged to rollback.log in the data root).",
+          file=sys.stderr)
+    return True
 
 
 def _fmt_bytes(n: int) -> str:
@@ -105,7 +207,8 @@ def _replace(cfg: Config, **kw) -> Config:
 _SEV_RANK = {"none": 0, "white": 1, "amber": 2}
 
 
-def _status_doc(up) -> dict:
+def _status_doc(up, software: dict | None = None) -> dict:
+    from . import advisories as adv
     rows = up.status()
     worst = max((r.severity for r in rows), key=lambda s: _SEV_RANK.get(s, 1), default="none")
     return {
@@ -113,8 +216,26 @@ def _status_doc(up) -> dict:
         "generated": up.manifest_generated,
         "worst": worst,
         "any_attention": any(r.status in _ATTENTION for r in rows),
+        "rollback_refused": up.rollback_refused,
         "packs": [r.as_dict() for r in rows],
+        "advisories": adv.report(up.config, up.public_key, up.inventory, software),
     }
+
+
+def _check_advisories(up, remote, software: dict | None) -> None:
+    """After an update or import: fetch + verify the advisory feed when the
+    channel is on, and print what applies. Never changes the exit code and
+    never raises; an empty feed prints nothing."""
+    from . import advisories as adv
+    if not up.config.advisories:
+        return
+    try:
+        adv.check(up.config, up.public_key, remote or up.remote,
+                  log=lambda m: print(m, file=sys.stderr))
+        for line in adv.lines(adv.report(up.config, up.public_key, up.inventory, software)):
+            print(line)
+    except Exception as e:
+        print(f"advisories: check failed ({type(e).__name__})", file=sys.stderr)
 
 
 def _write_status_json(doc: dict, path) -> Path:
@@ -216,6 +337,12 @@ def cmd_update(args) -> int:
     # data.yaml so the next auto-update tracks the same set (the on-device
     # picker uses this; it turns the picker into the yaml editor). A --root
     # given alongside --only is also persisted (the picker's storage chooser).
+    if _rollback_dry_run(args):
+        return 2
+    if not args.dry_run:
+        rc = _require_acceptance(args, _updater(args), "update")
+        if rc is not None:
+            return rc
     override = None
     only = getattr(args, "only", None)
     if only is not None:
@@ -262,15 +389,20 @@ def cmd_update(args) -> int:
             signal.signal(signal.SIGTERM, prev_term)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
+    software = _software_args(args) or None
+    if not args.dry_run:
+        _check_advisories(up, None, software)
     # Refresh the status JSON the EFIS reads, so the boot screen / DATA flag
     # reflect the result of this update (this is why a manual Update on the
     # device flips amber -> green without a separate `status` call).
     if not args.dry_run:
         try:
             from .config import default_status_path
-            _write_status_json(_status_doc(up), default_status_path())
+            _write_status_json(_status_doc(up, software), default_status_path())
         except Exception as e:
             print(f"(could not refresh status.json: {e})", file=sys.stderr)
+    if _report_refusal(up):
+        return 2
     if up.errors:
         print(f"FAILED: {len(up.errors)} verification error(s); current data left untouched",
               file=sys.stderr)
@@ -279,14 +411,25 @@ def cmd_update(args) -> int:
 
 
 def cmd_import(args) -> int:
+    if _rollback_dry_run(args):
+        return 2
     up = _updater(args)
     src = Path(args.path)
     if not (src / "manifest.json").exists():
         print(f"no manifest.json under {src}", file=sys.stderr)
         return 2
+    if not args.dry_run:
+        rc = _require_acceptance(args, up, "import")
+        if rc is not None:
+            return rc
     rows = up.import_dir(src, dry_run=args.dry_run)
     for r in rows:
         print(f"  {r.pack_id:<22} {r.status:<18} {r.detail}")
+    if not args.dry_run:
+        from .core import LocalDirRemote
+        _check_advisories(up, LocalDirRemote(src), _software_args(args) or None)
+    if _report_refusal(up):
+        return 2
     return 2 if up.errors else 0
 
 
@@ -309,6 +452,127 @@ def cmd_verify(args) -> int:
         print(f"INVALID or unreachable: {e}", file=sys.stderr)
         return 2
     print(f"OK  signature valid; {len(m.packs)} pack(s); generated {m.generated}")
+    return 0
+
+
+def cmd_notice(args) -> int:
+    """Print the software notice and the acknowledgment history (the pyEfis
+    About screen and startup banner read --json)."""
+    from . import acknowledge as ack
+    path = ack.default_log_path()
+    records = ack.read_records(path)
+    current = ack.find_acceptance(path=path)
+    bench = Config.load(args.config).bench_auto_accept
+    bench_rec = ack.find_acceptance(path=path, include_bench=True) if bench else None
+    if args.json:
+        # `accepted` is a person's accept only; a bench auto-accept is reported
+        # separately so no reader mistakes it for one.
+        print(json.dumps({
+            "notice_id": ack.NOTICE_ID, "notice_sha256": ack.NOTICE_SHA256,
+            "notice": ack.NOTICE_TEXT, "software": ack.software_versions(),
+            "accepted": current is not None, "bench_auto_accept": bench,
+            "advisory_disclosure": _adv_disclosure(),
+            "log": str(path), "records": records}, indent=2))
+        return 0
+    print(ack.NOTICE_TEXT + "\n")
+    if current:
+        print(f"accepted for pyefis-data {ack.__version__} on {current['timestamp']} "
+              f"by {current['user']}@{current['host']}")
+    elif bench_rec:
+        print(f"auto-accepted for pyefis-data {ack.__version__} on "
+              f"{bench_rec['timestamp']} (bench unit; not a pilot's accept)")
+    else:
+        print(f"not yet accepted for pyefis-data {ack.__version__}")
+    print(f"{len(records)} acknowledgment record(s) in {path}")
+    return 0
+
+
+def _adv_disclosure() -> str:
+    from . import advisories as adv
+    return adv.DISCLOSURE
+
+
+def cmd_advisories(args) -> int:
+    """Show the safety advisories that apply to this device, from the last
+    verified feed (BACKLOG L5). --enable/--disable switch the opt-in channel
+    in data.yaml; --check fetches the feed now. Exit 0 whether or not any
+    advisory applies; 2 only when the setting cannot be written."""
+    from . import advisories as adv
+    from .config import write_config
+    if args.enable or args.disable:
+        on = bool(args.enable)
+        try:
+            saved = write_config(args.config, {"advisories": on})
+        except Exception as e:
+            print(f"could not write data.yaml: {e}", file=sys.stderr)
+            return 2
+        if on:
+            print(adv.DISCLOSURE + "\n")
+        print(f"safety advisories {'on' if on else 'off'}; saved to {saved}")
+        if not on:
+            return 0
+    up = _updater(args)
+    software = _software_args(args)
+    if software is None:
+        return 2
+    if args.check or args.enable:
+        adv.check(up.config, up.public_key, up.remote,
+                  log=lambda m: print(m, file=sys.stderr))
+    block = adv.report(up.config, up.public_key, up.inventory, software or None)
+    if args.json:
+        print(json.dumps(block, indent=2))
+        return 0
+    if not block["enabled"]:
+        print("safety advisories are off (turn on: pyefis-data advisories --enable)")
+        return 0
+    out = adv.lines(block)
+    if out:
+        print("\n".join(out))
+    elif block.get("sequence") is None:
+        print("no verified advisory feed on this device yet; nothing checked")
+    else:
+        print("no safety advisories apply to this device")
+    if block.get("error"):
+        print(f"(last check: {block['error']})", file=sys.stderr)
+    elif block.get("checked"):
+        print(f"(feed sequence {block['sequence']}, checked {block['checked']})")
+    return 0
+
+
+def cmd_accept(args) -> int:
+    """Record an accept of the software notice. At a terminal it shows the
+    notice and asks; --yes is for a caller (the pyEfis installer or picker)
+    that has displayed the full notice itself and collected the accept."""
+    from . import acknowledge as ack
+    from .core import Inventory
+    extra = _software_args(args)
+    if extra is None:
+        return 2
+    if args.yes:
+        via = "caller"
+    elif sys.stdin.isatty():
+        if not ack.prompt(sys.stdin, sys.stdout):
+            print("notice not accepted", file=sys.stderr)
+            return NOTICE_RC
+        via = "tty"
+    else:
+        print("no terminal to show the notice on; a caller that displayed it "
+              "itself passes --yes", file=sys.stderr)
+        return NOTICE_RC
+    cfg = Config.load(args.config)
+    if getattr(args, "root", None):
+        cfg = _replace(cfg, root=Path(args.root))
+    rec = ack.make_record(
+        via=via, trigger=args.trigger, software=ack.software_versions(extra),
+        packs=ack.pack_versions(Inventory.load(cfg.root / "installed.json")))
+    try:
+        path = ack.append_record(rec)
+    except Exception as e:
+        print(f"could not record the acknowledgment: {e}", file=sys.stderr)
+        return 2
+    print(f"notice accepted; recorded in {path}")
+    if via == "tty":
+        print("\n" + _adv_disclosure())
     return 0
 
 
@@ -463,6 +727,15 @@ def cmd_config_pull(args) -> int:
     return 1
 
 
+_SOFTWARE_HELP = ("also record this component version in an accept (repeatable), "
+                  "e.g. --software pyefis=2.1.0")
+_ALLOW_ROLLBACK_HELP = ("accept a validly signed catalog OLDER than the one this "
+                        "device already trusts (a deliberate rollback); "
+                        "recorded in rollback.log under the data root")
+_ACCEPT_NOTICE_HELP = ("the caller displayed the full software notice and the user "
+                       "accepted it; record that and proceed (no prompt)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="pyefis-data")
     ap.add_argument("--config", help="path to data.yaml (default ~/.makerplane/pyefis/data.yaml)")
@@ -496,16 +769,50 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--source", help="install from a USB/local dir instead of the network")
     u.add_argument("--progress", action="store_true",
                    help="emit JSON progress events on stdout (for the on-device picker)")
+    u.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
+    u.add_argument("--allow-rollback", action="store_true", help=_ALLOW_ROLLBACK_HELP)
+    u.add_argument("--software", action="append", metavar="NAME=VERSION",
+                   help=_SOFTWARE_HELP)
     u.set_defaults(func=cmd_update)
 
     i = sub.add_parser("import", help="install from a USB/local directory")
     i.add_argument("path")
     i.add_argument("--dry-run", action="store_true")
+    i.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
+    i.add_argument("--allow-rollback", action="store_true", help=_ALLOW_ROLLBACK_HELP)
+    i.add_argument("--software", action="append", metavar="NAME=VERSION",
+                   help=_SOFTWARE_HELP)
     i.set_defaults(func=cmd_import)
 
     v = sub.add_parser("verify", help="verify a manifest signature")
     v.add_argument("path", nargs="?", help="manifest file (default: fetch live)")
     v.set_defaults(func=cmd_verify)
+
+    n = sub.add_parser("notice", help="show the software notice and acknowledgment history")
+    n.add_argument("--json", action="store_true")
+    n.set_defaults(func=cmd_notice)
+
+    a = sub.add_parser("accept", help="accept the software notice and record it")
+    a.add_argument("--yes", action="store_true",
+                   help="record an accept the caller collected after displaying the "
+                        "full notice itself (no prompt)")
+    a.add_argument("--software", action="append", metavar="NAME=VERSION",
+                   help=_SOFTWARE_HELP)
+    a.add_argument("--trigger", default="install",
+                   help="what prompted the accept, recorded as-is (default: install)")
+    a.set_defaults(func=cmd_accept)
+
+    ad = sub.add_parser("advisories", help="safety advisories that apply here (opt-in)")
+    onoff = ad.add_mutually_exclusive_group()
+    onoff.add_argument("--enable", action="store_true",
+                       help="turn the advisory channel on (saved in data.yaml) and check now")
+    onoff.add_argument("--disable", action="store_true",
+                       help="turn it off; nothing is fetched after this")
+    ad.add_argument("--check", action="store_true", help="fetch and verify the feed now")
+    ad.add_argument("--json", action="store_true")
+    ad.add_argument("--software", action="append", metavar="NAME=VERSION",
+                    help=_SOFTWARE_HELP)
+    ad.set_defaults(func=cmd_advisories)
 
     pr = sub.add_parser("pair", help="redeem a claim code from the configurator dashboard")
     pr.add_argument("code", help="the claim code shown in the dashboard")
@@ -525,6 +832,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    # Bench mode must never be silent: every run says so while it is on.
+    if Config.load(args.config).bench_auto_accept:
+        print(f"pyefis-data: BENCH UNIT: bench_auto_accept is on in "
+              f"{args.config or '~/.makerplane/pyefis/data.yaml'}; `update` and "
+              f"`import` accept the software notice automatically and record it "
+              f"as a bench accept (an explicit `accept` still asks, and records "
+              f"a person's accept). This must never be set on an aircraft.",
+              file=sys.stderr)
     return args.func(args)
 
 

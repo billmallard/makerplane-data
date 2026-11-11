@@ -36,9 +36,17 @@ regions:
   # Aleutians / Bering Sea -- Adak (PADK), Atka (PAAK), Gambell (PAGM),
   # Savoonga (PASA), St. Paul Island (PASN), westmost at PADK's real
   # -176.643. -177 adds 41 real Copernicus GLO-30 tiles (346 MB raw source);
-  # built and compressed the same way the pipeline ships, that's ~210 MB
-  # added to the live terrain-alaska pack, a measured +4.4% growth
-  # (docs/aer-1990-alaska-region-gap.md).
+  # built and compressed the same way the pipeline ships, AER-1990 measured
+  # that at ~210 MB, a +4.4% growth of terrain-alaska
+  # (docs/aer-1990-alaska-region-gap.md). Widening the bbox did not put
+  # those tiles in the pack: the GLO-30 source tree was fetched for lon
+  # -170 and up, so terrain-alaska-2024edr1 and -2024edr2 stop at W170
+  # (554 native tiles). The tiles were added to the tree on 2026-11-03
+  # (AER-4710). The live packs, 2024edr3 and 2024edr4, carry them: their
+  # reports show 595 native tiles and TER-007 "595 of the 595 Copernicus
+  # tiles inside alaska present; 0 missing" (checked 2026-11-08, AER-5175).
+  # A wider bbox here needs scripts/make_glo30_tiles.py rerun and the tree
+  # refetched; tests/test_glo30_tiles.py fails until the list is rerun.
   #
   # Deliberately NOT widened all the way to the -180 dateline: at this
   # latitude band, -178 through -180 is mostly Chukotka Peninsula (Russia),

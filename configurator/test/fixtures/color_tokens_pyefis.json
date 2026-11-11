@@ -1,0 +1,2824 @@
+{
+ "pyefis_commit": "de037c4b8852240bdfe44f495b18a7a6f31f758d",
+ "shipped_theme_colors": {},
+ "tokens": [
+  {
+   "name": "surface.base",
+   "value": "#000000",
+   "description": "panel ground"
+  },
+  {
+   "name": "surface.raised",
+   "value": "#101418",
+   "description": "readout boxes, plates, buttons"
+  },
+  {
+   "name": "ink.primary",
+   "value": "#ffffff",
+   "description": "primary data values"
+  },
+  {
+   "name": "ink.secondary",
+   "value": "#ffffff",
+   "description": "labels, units, prefixes"
+  },
+  {
+   "name": "ink.muted",
+   "value": "#aaaaaa",
+   "description": "inactive, section headers, disabled"
+  },
+  {
+   "name": "line.border",
+   "value": "#ffffff",
+   "description": "borders and frames"
+  },
+  {
+   "name": "line.major",
+   "value": null,
+   "description": "cardinal / 30 degree ticks"
+  },
+  {
+   "name": "line.minor",
+   "value": null,
+   "description": "10 degree ticks"
+  },
+  {
+   "name": "line.fine",
+   "value": null,
+   "description": "5 degree ticks"
+  },
+  {
+   "name": "accent",
+   "value": "#00ffff",
+   "description": "interactive / selected / focused"
+  },
+  {
+   "name": "state.valid",
+   "value": "#00ff00",
+   "description": "received, complete, in-range"
+  },
+  {
+   "name": "state.caution",
+   "value": "#ffaa00",
+   "description": "attention"
+  },
+  {
+   "name": "state.warning",
+   "value": null,
+   "description": "exceeded, failed"
+  },
+  {
+   "name": "nav.course",
+   "value": "#ff00ff",
+   "description": "active course and track"
+  },
+  {
+   "name": "nav.reference",
+   "value": "#00ffff",
+   "description": "bugs, selected values"
+  },
+  {
+   "name": "nav.ownship",
+   "value": "#ffff00",
+   "description": "own-ship symbology"
+  },
+  {
+   "name": "map.road",
+   "value": "#c0c0c0",
+   "description": "roads and highways"
+  },
+  {
+   "name": "map.water",
+   "value": "#4a6d8c",
+   "description": "water bodies and rivers"
+  },
+  {
+   "name": "map.terrain",
+   "value": null,
+   "description": "terrain base"
+  }
+ ],
+ "immutable_groups": [
+  "nav",
+  "state"
+ ],
+ "colors_key": "colors",
+ "prop_tokens": {
+  "altimeter_tape": {
+   "alt_bug_color": "",
+   "alt_bug_alert_color": ""
+  },
+  "altimeter_trend_tape": {
+   "bg_color": "surface.base"
+  },
+  "atitude_indicator": {
+   "symbol_color": "nav.ownship",
+   "horizon_heading_color": "ink.primary"
+  },
+  "button": {
+   "bg_color": "surface.raised",
+   "fg_color": "accent"
+  },
+  "checklist": {
+   "text_color": "ink.primary",
+   "response_color": "accent",
+   "done_color": "state.valid",
+   "current_color": "state.caution",
+   "section_color": "ink.muted"
+  },
+  "flight_plan": {
+   "active_color": "",
+   "future_color": "",
+   "past_color": ""
+  },
+  "heading_display": {
+   "fg_color": "ink.primary",
+   "bg_color": "surface.base"
+  },
+  "horizontal_situation_indicator": {
+   "fg_color": "ink.primary",
+   "bg_color": "surface.base",
+   "needle_color": "nav.ownship",
+   "course_color": "nav.course",
+   "vloc_color": "state.valid",
+   "heading_bug_color": "nav.reference",
+   "track_color": "nav.course",
+   "bearing_color": "nav.reference"
+  },
+  "moving_map": {
+   "symbol_color": "nav.ownship",
+   "range_ring_color": "",
+   "road_color": "map.road",
+   "road_casing_color": "",
+   "river_color": "map.water"
+  },
+  "nav_status": {
+   "active_color": "",
+   "text_color": ""
+  },
+  "tab_section": {
+   "fg_color": "",
+   "bg_color": ""
+  },
+  "value_text": {
+   "prefix_color": "ink.secondary",
+   "value_color": "ink.primary",
+   "border_color": "line.border",
+   "bg_color": "surface.base"
+  },
+  "virtual_vfr": {
+   "symbol_color": "nav.ownship",
+   "horizon_heading_color": "ink.primary",
+   "svs_road_color": "",
+   "svs_road_casing_color": ""
+  }
+ },
+ "preferences": {
+  "none": null,
+  "empty": {},
+  "no_colors": {
+   "style": {
+    "basic": true
+   },
+   "styles": {}
+  },
+  "dark": {
+   "style": {
+    "basic": true
+   },
+   "styles": {
+    "colors": {
+     "basic": {
+      "surface.base": "#0b0f14",
+      "ink.primary": "#e6edf3",
+      "accent": "#58a6ff",
+      "surface.raised": "#161b22"
+     }
+    }
+   }
+  },
+  "disabled": {
+   "style": {
+    "basic": false
+   },
+   "styles": {
+    "colors": {
+     "basic": {
+      "surface.base": "#0b0f14",
+      "ink.primary": "#e6edf3",
+      "accent": "#58a6ff",
+      "surface.raised": "#161b22"
+     }
+    }
+   }
+  },
+  "two_styles_later_wins": {
+   "style": {
+    "basic": true,
+    "night": true
+   },
+   "styles": {
+    "colors": {
+     "basic": {
+      "surface.base": "#0b0f14",
+      "ink.primary": "#e6edf3",
+      "accent": "#58a6ff",
+      "surface.raised": "#161b22"
+     },
+     "night": {
+      "ink.primary": "#ff8800"
+     }
+    }
+   }
+  },
+  "immutable_and_unknown": {
+   "style": {
+    "basic": true
+   },
+   "styles": {
+    "colors": {
+     "basic": {
+      "nav.course": "#123456",
+      "state.valid": "#654321",
+      "ink.bogus": "#ffffff",
+      "accent": "#00aa00"
+     }
+    }
+   }
+  },
+  "null_value": {
+   "style": {
+    "basic": true
+   },
+   "styles": {
+    "colors": {
+     "basic": {
+      "ink.primary": null,
+      "accent": "#00aa00"
+     }
+    }
+   }
+  },
+  "block_not_dict": {
+   "style": {
+    "basic": true
+   },
+   "styles": {
+    "colors": {
+     "basic": "red"
+    }
+   }
+  },
+  "colors_not_dict": {
+   "style": {
+    "basic": true
+   },
+   "styles": {
+    "colors": [
+     "x"
+    ]
+   }
+  },
+  "valueless_token_themed": {
+   "style": {
+    "basic": true
+   },
+   "styles": {
+    "colors": {
+     "basic": {
+      "line.major": "#777777"
+     }
+    }
+   }
+  }
+ },
+ "theme_colors": {
+  "none": {},
+  "empty": {},
+  "no_colors": {},
+  "dark": {
+   "surface.base": "#0b0f14",
+   "ink.primary": "#e6edf3",
+   "accent": "#58a6ff",
+   "surface.raised": "#161b22"
+  },
+  "disabled": {},
+  "two_styles_later_wins": {
+   "surface.base": "#0b0f14",
+   "ink.primary": "#ff8800",
+   "accent": "#58a6ff",
+   "surface.raised": "#161b22"
+  },
+  "immutable_and_unknown": {
+   "accent": "#00aa00"
+  },
+  "null_value": {
+   "accent": "#00aa00"
+  },
+  "block_not_dict": {},
+  "colors_not_dict": {},
+  "valueless_token_themed": {
+   "line.major": "#777777"
+  }
+ },
+ "cases": [
+  {
+   "prefs": "none",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "none",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "course_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "none",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "button",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "none",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ffffff",
+    "bg_color": "#000000"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "value_text",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "none",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "text_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "none",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#00ffff",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "none",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "fg_color": "#ffffff"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#00ffff",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "none",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "empty",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "course_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "empty",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "button",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "empty",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ffffff",
+    "bg_color": "#000000"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "value_text",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "empty",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "text_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "empty",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#00ffff",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "empty",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "fg_color": "#ffffff"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#00ffff",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "empty",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "no_colors",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "course_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "no_colors",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "button",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "no_colors",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ffffff",
+    "bg_color": "#000000"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "value_text",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "no_colors",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "text_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "no_colors",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#00ffff",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "no_colors",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "fg_color": "#ffffff"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#00ffff",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "no_colors",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {
+    "fg_color": "#e6edf3",
+    "bg_color": "#0b0f14"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "fg_color": "#e6edf3",
+    "bg_color": "#0b0f14",
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "fg_color": "#e6edf3",
+    "bg_color": "#0b0f14",
+    "course_color": "#58a6ff"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {
+    "fg_color": "#e6edf3"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "button",
+   "options": {},
+   "out": {
+    "bg_color": "#161b22",
+    "fg_color": "#58a6ff"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#e6edf3",
+    "bg_color": "#0b0f14"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "value_text",
+   "options": {},
+   "out": {
+    "value_color": "#e6edf3",
+    "bg_color": "#0b0f14"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "value_color": "#e6edf3",
+    "bg_color": "#0b0f14",
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "response_color": "#58a6ff",
+    "text_color": "#58a6ff"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "dark",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#58a6ff",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "dark",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "fg_color": "#e6edf3"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#58a6ff"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#58a6ff",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "dark",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "disabled",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "course_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "disabled",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "button",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "disabled",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ffffff",
+    "bg_color": "#000000"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "value_text",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "disabled",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "text_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "disabled",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#00ffff",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "disabled",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "fg_color": "#ffffff"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#00ffff",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "disabled",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {
+    "fg_color": "#ff8800",
+    "bg_color": "#0b0f14"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "fg_color": "#ff8800",
+    "bg_color": "#0b0f14",
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "fg_color": "#ff8800",
+    "bg_color": "#0b0f14",
+    "course_color": "#58a6ff"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {
+    "fg_color": "#ff8800"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "button",
+   "options": {},
+   "out": {
+    "bg_color": "#161b22",
+    "fg_color": "#58a6ff"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ff8800",
+    "bg_color": "#0b0f14"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "value_text",
+   "options": {},
+   "out": {
+    "value_color": "#ff8800",
+    "bg_color": "#0b0f14"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "value_color": "#ff8800",
+    "bg_color": "#0b0f14",
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "response_color": "#58a6ff",
+    "text_color": "#58a6ff"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#58a6ff",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "fg_color": "#ff8800"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#58a6ff"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#58a6ff",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "two_styles_later_wins",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "bg_color": "#0b0f14",
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "course_color": "#00aa00"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "button",
+   "options": {},
+   "out": {
+    "fg_color": "#00aa00"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ffffff",
+    "bg_color": "#000000"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "value_text",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "response_color": "#00aa00",
+    "text_color": "#00aa00"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#00aa00",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "fg_color": "#ffffff"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#00aa00"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#00aa00",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "immutable_and_unknown",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "null_value",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "course_color": "#00aa00"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "null_value",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "button",
+   "options": {},
+   "out": {
+    "fg_color": "#00aa00"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ffffff",
+    "bg_color": "#000000"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "value_text",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "null_value",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "response_color": "#00aa00",
+    "text_color": "#00aa00"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "null_value",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#00aa00",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "null_value",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "fg_color": "#ffffff"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#00aa00"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#00aa00",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "null_value",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "course_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "button",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ffffff",
+    "bg_color": "#000000"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "value_text",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "text_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#00ffff",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "fg_color": "#ffffff"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#00ffff",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "block_not_dict",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "course_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "button",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ffffff",
+    "bg_color": "#000000"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "value_text",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "text_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#00ffff",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "fg_color": "#ffffff"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#00ffff",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "colors_not_dict",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "value_color": "INK.PRIMARY"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "horizontal_situation_indicator",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "ink.muted"
+   },
+   "out": {
+    "fg_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "#ff0000"
+   },
+   "out": {
+    "fg_color": "#ff0000"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "nav.course"
+   },
+   "out": {
+    "course_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "course_color": "accent"
+   },
+   "out": {
+    "course_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "bg_color": "line.major"
+   },
+   "out": {
+    "bg_color": "#777777"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "horizontal_situation_indicator",
+   "options": {
+    "fg_color": "state.caution",
+    "bg_color": "red"
+   },
+   "out": {
+    "fg_color": "#ffaa00",
+    "bg_color": "red"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "button",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "button",
+   "options": {
+    "fg_color": "ink.primary",
+    "bg_color": "surface.base"
+   },
+   "out": {
+    "fg_color": "#ffffff",
+    "bg_color": "#000000"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "value_text",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "value_text",
+   "options": {
+    "value_color": "state.caution",
+    "prefix_color": "ink.muted"
+   },
+   "out": {
+    "value_color": "#ffaa00",
+    "prefix_color": "#aaaaaa"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "value_text",
+   "options": {
+    "border_color": "#80ffffff"
+   },
+   "out": {
+    "border_color": "#80ffffff"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "checklist",
+   "options": {
+    "text_color": "accent"
+   },
+   "out": {
+    "text_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "moving_map",
+   "options": {},
+   "out": {}
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "moving_map",
+   "options": {
+    "range_ring_color": "accent",
+    "road_color": "map.water"
+   },
+   "out": {
+    "range_ring_color": "#00ffff",
+    "road_color": "#4a6d8c"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "moving_map",
+   "options": {
+    "road_color": "map.terrain"
+   },
+   "out": {}
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "heading_display",
+   "options": {
+    "fg_color": "ink.primary"
+   },
+   "out": {
+    "fg_color": "#ffffff"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "flight_plan",
+   "options": {
+    "active_color": "nav.course"
+   },
+   "out": {
+    "active_color": "#ff00ff"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "tab_section",
+   "options": {
+    "fg_color": "accent"
+   },
+   "out": {
+    "fg_color": "#00ffff"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "arc_gauge",
+   "options": {
+    "some_color": "accent",
+    "font_family": "accent"
+   },
+   "out": {
+    "some_color": "#00ffff",
+    "font_family": "accent"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "not_a_type",
+   "options": {
+    "fg_colour": "ink.muted",
+    "label": "ink.muted"
+   },
+   "out": {
+    "fg_colour": "#aaaaaa",
+    "label": "ink.muted"
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "value_text",
+   "options": {
+    "value_color": 16777215
+   },
+   "out": {
+    "value_color": 16777215
+   }
+  },
+  {
+   "prefs": "valueless_token_themed",
+   "type": "value_text",
+   "options": {
+    "value_color": "INK.PRIMARY"
+   },
+   "out": {
+    "value_color": "INK.PRIMARY"
+   }
+  }
+ ]
+}

@@ -25,12 +25,44 @@ LICENSE = dict(attribution="FAA CIFP (public domain)", license="LicenseRef-us-pu
 
 # --- fixtures -----------------------------------------------------------------
 
+#: KSBA's RW07 MSA, the real 2611 PS record: one sector, 8100 ft, 25 nm.
+PS_RW07 = ("SUSAP KSBAK2SRW07 K2PG                0   18018008125" + " " * 66
+           + "M   096892211")
+
+
+def _proc_inputs(path, records=(PS_RW07,)):
+    """The extracted-CIFP directory PROC-MSA-001 counts PS records in:
+    ``<pack>.inputs/FAACIFP18`` holding ``records``."""
+    d = Path(f"{path}.inputs")
+    d.mkdir(exist_ok=True)
+    (d / "FAACIFP18").write_text("".join(r + "\n" for r in records), encoding="latin-1")
+    return d
+
+
+def _msa_row(con, cycle, *, airport="KSBA", centre="RW07", seq=1, start=180, end=180,
+             alt=8100, radius=25, lat=34.4275, record=None):
+    con.execute(
+        "INSERT INTO msa (airport, area, centre_ident, centre_icao, centre_section, "
+        "centre_subsection, centre_type, centre_lat, centre_lon, mag_true, sector_seq, "
+        "bearing_start, bearing_end, altitude_ft, radius_nm, cycle, record) "
+        "VALUES (?, 'USA', ?, 'K2', 'P', 'G', 'runway', ?, ?, 'M', ?, ?, ?, ?, ?, ?, ?)",
+        (airport, centre, lat, None if lat is None else -119.8546, seq, start, end, alt,
+         radius, cycle, record or json.dumps({"continuations": [], "fields": {
+             "airport": airport, "centre_ident": centre, "multiple_code": " "}})))
+
+
 def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=400,
-               jet=False):
+               jet=False, mora_bands=report.PROC_MORA_BAND_FLOOR, mora_unk=0,
+               mora_ft=3000, mora_cells=30):
     """A procedures pack: ``airways`` airways of 5 legs, ``collide`` of
     them carrying a second area's legs with the same sequence numbers (the
-    AER-1979 merge), and ``legs`` procedure legs of which ``unresolved``
-    name a fix with no coordinates. ``jet`` names the last airway J80."""
+    AER-1979 merge), ``legs`` procedure legs of which ``unresolved`` name a
+    fix with no coordinates, KSBA's one-sector RW07 MSA (with its source
+    file beside the pack, see ``_proc_inputs``), and ``mora_bands`` Grid
+    MORA bands of ``mora_cells`` cells each, all ``mora_ft`` except the
+    first ``mora_unk`` cells, which are UNK. ``jet`` names the last airway
+    J80."""
+    _proc_inputs(path)
     con = sqlite3.connect(path)
     con.executescript(PROC_SCHEMA)
     for a in range(1, airways + 1):
@@ -50,6 +82,19 @@ def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=
         con.execute("INSERT INTO legs (transition_id, seq, path_term, fix_id, fix_lat, "
                     "fix_lon, fix_type, flags) VALUES (1, ?, 'TF', ?, ?, ?, 'airport', 0)",
                     (i, f"FX{i}", lat, None if lat is None else -104.7))
+    n = 0
+    for b in range(1, mora_bands + 1):
+        lat_sw, lon_sw = b % 60, -180 + 30 * (b // 60)
+        con.execute("INSERT INTO grid_mora_bands (id, lat_sw, lon_sw, raw) VALUES (?, ?, ?, '')",
+                    (b, lat_sw, lon_sw))
+        for i in range(mora_cells):
+            unk = n < mora_unk
+            n += 1
+            con.execute("INSERT INTO grid_mora (band_id, lat_sw, lon_sw, mora_ft, raw) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (b, lat_sw, lon_sw + i, None if unk else mora_ft,
+                         "UNK" if unk else f"{mora_ft // 100:03d}"))
+    _msa_row(con, cycle)
     con.commit()
     con.close()
     packmeta.embed_sqlite(path, PackMeta(id="procedures-conus", kind="procedures",
@@ -68,9 +113,12 @@ def _hwy_pack(path, cycle, per_region):
     con.execute("CREATE VIRTUAL TABLE highway_rtree USING rtree(id, min_lat, max_lat, "
                 "min_lon, max_lon)")
     for (lat, lon), n in per_region.items():
+        # A real float32 (lat, lon) line, about 1.5 km, so OSM-006 has a
+        # length to compare (it blocks when no state clears its floor).
+        verts = struct.pack("<4f", lat, lon, lat + 0.01, lon + 0.01)
         con.executemany("INSERT INTO highway_lines (fclass, min_lat, max_lat, min_lon, max_lon, "
-                        "verts) VALUES ('primary', ?, ?, ?, ?, x'00')",
-                        [(lat, lat + 0.01, lon, lon + 0.01)] * n)
+                        "verts) VALUES ('primary', ?, ?, ?, ?, ?)",
+                        [(lat, lat + 0.01, lon, lon + 0.01, verts)] * n)
     con.execute("INSERT INTO highway_rtree SELECT id, min_lat, max_lat, min_lon, max_lon "
                 "FROM highway_lines")
     con.commit()
@@ -106,6 +154,8 @@ def _by_id(rec):
 
 
 def _rep(path, **kw):
+    if Path(f"{path}.inputs").is_dir():
+        kw.setdefault("inputs", Path(f"{path}.inputs"))
     kw.setdefault("probe", False)
     kw.setdefault("commit", "0" * 40)
     return report.build_report(path, **kw)
@@ -152,6 +202,30 @@ def test_unresolved_fix_legs_are_counted_with_their_expectation(tmp_path):
     assert c["status"] == "warn" and not c["blocking"]
 
 
+def test_a_first_edition_with_no_legs_table_is_refused(tmp_path):
+    # AER-4598: PROC-FIX-001 fails on a missing legs table but is
+    # non-blocking, ACC-001's procedures probe reads only airways, and
+    # ROW-003 needs a previous edition. On a first edition nothing blocked.
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.execute("DROP TABLE legs")
+    con.commit()
+    con.close()
+    rec = _rep(pack, first_edition=True)
+    # ACC-001 blocks only because this run has no device (--no-device).
+    assert _blocking_ids(rec) == ["ACC-001", "PROC-TBL-001"]
+    c = _by_id(rec)
+    assert c["PROC-FIX-001"]["status"] == "fail" and not c["PROC-FIX-001"]["blocking"]
+    assert (c["PROC-TBL-001"]["status"], c["PROC-TBL-001"]["measured"]) == ("fail", "missing: legs")
+
+
+def test_every_table_the_procedures_builder_creates_is_required(tmp_path):
+    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack"), first_edition=True))["PROC-TBL-001"]
+    assert c["status"] == "pass"
+    assert c["measured"] == ("8 of 8 present: airway_legs, airways, grid_mora, "
+                             "grid_mora_bands, legs, msa, procedures, transitions")
+
+
 def test_airway_area_collision_fails_as_the_aer1979_regression(tmp_path):
     good = _by_id(_rep(_proc_pack(tmp_path / "good.pack")))
     assert good["PROC-AWY-002"]["status"] == "pass"
@@ -160,6 +234,79 @@ def test_airway_area_collision_fails_as_the_aer1979_regression(tmp_path):
     assert (c["status"], c["measured"], c["blocking"], c["since"]) == ("fail", 3, True, "AER-1979")
     # Idents stay unique in a merged pack: that is why AWY-002 exists.
     assert bad["PROC-AWY-001"]["status"] == "pass"
+
+
+def test_msa_checks_pass_on_a_well_formed_msa(tmp_path):
+    rec = _by_id(_rep(_proc_pack(tmp_path / "p.pack")))
+    assert {i: rec[i]["status"] for i in ("PROC-MSA-001", "PROC-MSA-002", "PROC-MSA-003",
+                                         "PROC-MSA-004")} == dict.fromkeys(
+        ("PROC-MSA-001", "PROC-MSA-002", "PROC-MSA-003", "PROC-MSA-004"), "pass")
+    assert rec["PROC-MSA-001"]["measured"] == "1 of 1 PS records; 0 of 0 continuations"
+    assert rec["PROC-MSA-003"]["measured"] == ("0 altitudes, 0 radii, 0 bearing references out "
+                                               "of bounds (altitudes 8100-8100 ft, radii 25-25 nm)")
+
+
+def test_msa_census_fails_when_the_pack_is_missing_a_source_record(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    _proc_inputs(pack, (PS_RW07, PS_RW07.replace("RW07 ", "RW25 ")))
+    c = _by_id(_rep(pack))["PROC-MSA-001"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"] == "1 of 2 PS records; 0 of 0 continuations"
+
+
+def test_msa_census_without_the_source_file_blocks(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    rec = _rep(pack, inputs=None)
+    assert _by_id(rec)["PROC-MSA-001"]["status"] == "not-run"
+    assert "PROC-MSA-001" in _blocking_ids(rec)
+
+
+def test_msa_sectors_with_a_gap_fail_coverage(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    rec = json.dumps({"continuations": [], "fields": {
+        "airport": "KSBA", "centre_ident": "RZS", "multiple_code": " "}})
+    con = sqlite3.connect(pack)
+    for seq, (start, end) in enumerate(((30, 120), (130, 30)), 1):
+        _msa_row(con, "2611", centre="RZS", seq=seq, start=start, end=end, record=rec)
+    con.commit()
+    con.close()
+    c = _by_id(_rep(pack))["PROC-MSA-002"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"] == "1 records (KSBA RZS: gap or overlap [(30, 120), (130, 30)])"
+
+
+def test_msa_sectors_that_overlap_fail_coverage(tmp_path):
+    # Contiguous end to start, but wrapping the circle twice.
+    assert report._msa_coverage_fault([(1, 0, 180, 0, 0), (2, 180, 0, 0, 0),
+                                       (3, 0, 180, 0, 0), (4, 180, 0, 0, 0)]) == (
+        "sectors span 720 degrees [(0, 180), (180, 0), (0, 180), (180, 0)]")
+    # A full-circle code inside a multi-sector record.
+    assert report._msa_coverage_fault([(1, 0, 180, 0, 0), (2, 180, 0, 0, 0),
+                                       (3, 0, 0, 0, 0)]).startswith("zero-width sector")
+    assert report._msa_coverage_fault([(1, 30, 120, 0, 0), (2, 120, 210, 0, 0),
+                                       (3, 210, 300, 0, 0), (4, 300, 30, 0, 0)]) is None
+    assert report._msa_coverage_fault([(1, 180, 180, 0, 0)]) is None
+    assert report._msa_coverage_fault([(1, 360, 360, 0, 0)]) is None
+    assert report._msa_coverage_fault([(1, 180, 90, 0, 0)]) == "one sector (180, 90)"
+
+
+def test_msa_altitude_or_radius_out_of_bounds_fails(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    _sql(pack, "UPDATE msa SET altitude_ft = 810")
+    assert _by_id(_rep(pack))["PROC-MSA-003"]["status"] == "fail"
+    _sql(pack, "UPDATE msa SET altitude_ft = 8100, radius_nm = 81")
+    c = _by_id(_rep(pack))["PROC-MSA-003"]
+    assert (c["status"], c["blocking"]) == ("fail", True)
+    assert c["measured"].startswith("0 altitudes, 1 radii, 0 bearing references")
+
+
+def test_msa_unresolved_centre_is_listed_and_bounded(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    _sql(pack, "UPDATE msa SET centre_lat = NULL, centre_lon = NULL")
+    c = _by_id(_rep(pack))["PROC-MSA-004"]
+    assert (c["status"], c["blocking"]) == ("warn", False)
+    assert c["measured"] == "1 of 1 records (KSBA RW07)"
+    assert "does not accept" in c["expected"] and "KHRJ HQT" in c["expected"]
 
 
 def test_foreflight_differential_is_listed_as_not_run(tmp_path):
@@ -203,7 +350,7 @@ def test_a_table_that_disappears_fails_unless_the_schema_version_moved(tmp_path)
     assert kept["ROW-003"]["status"] == "fail"
     same = _by_id(_rep(_proc_pack(tmp_path / "y.pack"),
                        previous=report.previous_from(_proc_pack(tmp_path / "z.pack", "2610"))))
-    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 5 tables gone")
+    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 8 tables gone")
 
 
 def test_unmeasured_thresholds_are_labelled_provisional_in_the_record(tmp_path):
@@ -419,7 +566,9 @@ def test_osm_region_counts_and_schema_agreement_pass_on_a_steady_edition(tmp_pat
     c = _by_id(_rep(_hwy_pack(tmp_path / "r2.pack", "r2", {CA: 195, TX: 205}), previous=prev))
     assert c["OSM-001"]["status"] == "pass"
     assert c["OSM-003"]["measured"] == "declared 2, columns say 2"
-    assert c["OSM-002"]["status"] == "not-run" and "TV7" in c["OSM-002"]["note"]
+    # Catalogue v2 (TV7): the per-state counts run too, and pass on the same edition.
+    assert c["OSM-002"]["status"] == "pass"
+    assert "US-CA -2.5% (200 -> 195)" in c["OSM-002"]["measured"]
 
 
 def test_osm_region_wording_when_every_region_grew(tmp_path):
@@ -538,6 +687,24 @@ def test_water_declares_its_empty_waterway_table(tmp_path):
     hwy = _hwy_pack(tmp_path / "h.pack", "r1", {CA: 5})
     _sql(hwy, "CREATE TABLE waterway_lines (id INTEGER)")
     assert _by_id(_rep(hwy))["ROW-001"]["status"] == "fail"
+
+
+def test_a_staged_build_records_where_it_was_built(tmp_path, monkeypatch):
+    # AER-4676: water-na is built on a workstation and only gated + signed in
+    # CI. The record must say so, not describe the signing run as the build.
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_RUN_ID", "7")
+    rec = _rep(_water_pack(tmp_path / "w.pack"), runner="local",
+               built_at="2026-11-02T15:43:00Z", builder_refs={"pyEfis": "d" * 40})
+    b = rec["built"]
+    assert b["runner"] == "local" and b["at"] == "2026-11-02T15:43:00Z"
+    assert b["builder_refs"] == {"pyEfis": "d" * 40}
+    assert b["run_url"].endswith("/actions/runs/7")     # the run that gated and signed it
+    assert report.validate_report(rec) == []
+    # Without an override the environment still decides, as before.
+    assert _rep(_water_pack(tmp_path / "x.pack"))["built"]["runner"] == "github-hosted"
+    with pytest.raises(report.ReportError, match="runner"):
+        _rep(_water_pack(tmp_path / "y.pack"), runner="laptop")
 
 
 # --- terrain ------------------------------------------------------------------
@@ -732,14 +899,40 @@ def test_check_reproduces_the_published_numbers(tmp_path, capsys):
     published = tmp_path / "report.json"
     # Exit 1: device acceptance was switched off, which blocks a build record.
     assert cli.main(["report", str(pack), "--previous", str(prev_pack), "--no-device",
+                     "--inputs", f"{pack}.inputs",
                      "--note", "ROW-002=FAA withdrew airways", "-o", str(published)]) == 1
     printed = capsys.readouterr().out
     assert [ln.split()[2] for ln in printed.splitlines() if "BLOCKS PUBLISH" in ln] == ["ACC-001"]
     assert cli.main(["report", "--check", str(pack), "--against", str(published),
-                     "--previous", str(prev_pack), "--no-device"]) == 0
+                     "--previous", str(prev_pack), "--no-device",
+                     "--inputs", f"{pack}.inputs"]) == 0
     out = capsys.readouterr().out
     assert "0 mismatched" in out and "MISMATCH" not in out
     assert "PROC-FIX-001   reproduced" in out
+
+
+def test_notes_file_applies_the_gate_scoping(tmp_path, capsys):
+    # The stage-mode gate preview (entrypoint.sh, AER-4595) reads the same
+    # notes file the publish run gives make-terrain, scoped the same way.
+    prev_pack = _proc_pack(tmp_path / "2610.pack", "2610", airways=50, collide=2)
+    pack = _proc_pack(tmp_path / "2611.pack", unresolved=3, legs=1000)
+    args = ["report", str(pack), "--previous", str(prev_pack), "--no-device",
+            "--inputs", f"{pack}.inputs", "-o", str(tmp_path / "r.json")]
+
+    def blockers():
+        out = capsys.readouterr().out
+        return [ln.split()[2] for ln in out.splitlines() if "BLOCKS PUBLISH" in ln]
+
+    notes = tmp_path / "notes.txt"
+    notes.write_text("# for another pack only\nterrain-us-west:ROW-002=not this one\n")
+    cli.main(args + ["--notes-file", str(notes)])
+    assert "ROW-002" in blockers()
+    notes.write_text("procedures-conus:ROW-002=FAA withdrew airways\n")
+    cli.main(args + ["--notes-file", str(notes)])
+    assert blockers() == ["ACC-001"]
+    notes.write_text("NOPE-001=no such check\n")
+    with pytest.raises(SystemExit, match="NOPE-001"):
+        cli.main(args + ["--notes-file", str(notes)])
 
 
 def test_check_flags_a_number_that_does_not_reproduce(tmp_path, capsys):
@@ -785,6 +978,119 @@ def test_check_prints_auspex_findings_as_not_reproducible():
                       "statement": "ring crosses itself"}]}})
     assert "not reproducible here (Auspex)" in lines[0]
     assert "table=water, row_id=7" in lines[1]
+
+
+# --- the auspex section: carried verbatim, closed schema (AER-4606) -----------
+
+AUSPEX_FIXTURE = Path(__file__).parent / "fixtures" / "auspex" / "water-na.auspex.json"
+
+
+def _auspex(**changes):
+    a = json.loads(AUSPEX_FIXTURE.read_text(encoding="utf-8"))
+    a.update(changes)
+    return a
+
+
+def _report_with_auspex(tmp_path, section):
+    src = tmp_path / "auspex.json"
+    src.write_text(json.dumps(section), encoding="utf-8")
+    out = tmp_path / "out.report.json"
+    try:
+        rc = cli.main(["report", str(_water_pack(tmp_path / "w.pack")), "--first-edition",
+                       "--no-device", "--build-commit", "0" * 40,
+                       "--auspex", str(src), "-o", str(out)])
+    except SystemExit as e:
+        rc = e.code
+    return rc, out
+
+
+def test_a_water_build_record_carries_qas_auspex_section_verbatim(tmp_path):
+    section = _auspex()
+    assert report.validate_auspex(section) == []
+    _, out = _report_with_auspex(tmp_path, section)
+    raw = out.read_bytes()
+    rec = json.loads(raw)
+    assert rec["record"] == "build" and rec["pack"]["kind"] == "water"
+    assert rec["auspex"] == section
+    assert report.validate_report(rec) == []
+    # In the canonical bytes report_sha256 hashes, so the manifest signature covers it.
+    assert raw == report.to_bytes(rec)
+
+
+def _refused(tmp_path, section, capsys, why):
+    rc, out = _report_with_auspex(tmp_path, section)
+    assert rc not in (0, None)
+    assert not out.exists()
+    assert why in capsys.readouterr().err
+
+
+def test_an_auspex_section_with_an_unknown_field_is_refused_and_writes_nothing(tmp_path, capsys):
+    _refused(tmp_path, _auspex(precision=0.97), capsys,
+             "auspex.precision is not a field the schema defines")
+
+
+def test_unknown_fields_are_refused_at_every_level(tmp_path):
+    a = _auspex()
+    a["coverage"]["total_runs"] = 9
+    a["findings"][0]["rubric"] = "x"
+    a["findings"][0]["locator"]["corpus_id"] = 1
+    errs = report.validate_auspex(a)
+    assert "auspex.coverage.total_runs is not a field the schema defines" in errs
+    assert "auspex.findings[0].rubric is not a field the schema defines" in errs
+    assert "auspex.findings[0].locator.corpus_id is not a field the schema defines" in errs
+
+
+def test_a_pass_verdict_with_a_finding_is_refused(tmp_path, capsys):
+    _refused(tmp_path, _auspex(verdict="pass"), capsys,
+             "verdict is pass but findings is not empty")
+
+
+def test_a_fail_verdict_needs_a_finding_and_a_clean_pass_is_accepted():
+    assert "auspex.verdict is fail with no findings" in report.validate_auspex(
+        _auspex(findings=[]))
+    assert report.validate_auspex(_auspex(verdict="pass", findings=[])) == []
+    assert report.validate_auspex(_auspex(verdict="inconclusive", findings=[])) == []
+
+
+def test_a_lone_lat_is_refused(tmp_path, capsys):
+    a = _auspex()
+    del a["findings"][0]["locator"]["lon"]
+    _refused(tmp_path, a, capsys, "has only one of lat / lon")
+
+
+def test_a_bad_engine_build_is_refused(tmp_path, capsys):
+    _refused(tmp_path, _auspex(engine_build="build 7/rubric-v2"), capsys,
+             "engine_build is not [A-Za-z0-9._-]{1,64}")
+    assert report.validate_auspex(_auspex(engine_build="x" * 65))
+    assert report.validate_auspex(_auspex(engine_build=""))
+
+
+def test_the_approved_optional_fields_may_be_left_out():
+    a = _auspex()
+    del a["findings"][0]["issue"]
+    a["findings"][0]["locator"] = {"table": "water_polygons", "row_id": 2}
+    assert report.validate_auspex(a) == []
+    a["findings"][0]["locator"] = {"table": "water_polygons"}
+    assert "auspex.findings[0].locator.row_id is missing" in report.validate_auspex(a)
+
+
+def test_engine_line_capability_statement_and_when_are_fixed():
+    assert report.validate_auspex(_auspex(engine="Auspex v3, an LLM judge"))
+    assert report.validate_auspex(_auspex(what_a_pass_means="The pack is correct."))
+    # after-publish is an addendum beside the record, never inside it.
+    assert report.validate_auspex(_auspex(when="after-publish"))
+    assert report.validate_auspex(_auspex(when="after-publish"), in_record=False) == []
+    assert report.validate_auspex(_auspex(run_at="2026-11-01 14:05"))
+    assert report.validate_auspex(_auspex(coverage={"checked": -1, "covered": 0,
+                                                    "skipped": 0, "unreadable": 0}))
+
+
+def test_a_record_with_a_malformed_auspex_section_is_malformed(tmp_path):
+    # validate_report is what the gate and the report site use, so a hand-edited
+    # record cannot carry an extra field past them either.
+    rec = _rep(_water_pack(tmp_path / "w.pack"), first_edition=True)
+    rec["auspex"] = _auspex(method="...")
+    assert "auspex.method is not a field the schema defines" in report.validate_report(rec)
 
 
 # --- CLI and serialisation ----------------------------------------------------
@@ -841,3 +1147,76 @@ def test_http_get_never_sends_the_default_python_user_agent(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     assert fetch.http_get("https://navdata.aerocommons.org/manifest.json") == b"ok"
     assert seen["ua"] == fetch.USER_AGENT and "Python-urllib" not in seen["ua"]
+
+
+# --- Grid MORA (AER-4447) -------------------------------------------------------------
+
+def test_a_clean_grid_passes_every_mora_check(tmp_path):
+    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack", mora_unk=7)))
+    for cid in ("PROC-MORA-001", "PROC-MORA-002", "PROC-MORA-003"):
+        assert c[cid]["status"] == "pass", (cid, c[cid])
+        assert c[cid]["blocking"] is True
+    assert c["PROC-MORA-004"]["status"] == "pass"
+    assert c["PROC-MORA-004"]["measured"].startswith("7 of 3,600 cells UNK")
+
+
+def test_short_band_fails_the_cell_count(tmp_path):
+    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack", mora_cells=29)))["PROC-MORA-001"]
+    assert c["status"] == "fail"
+    assert "3,480 cells for 120 bands (expected 3,600)" in c["measured"]
+
+
+def test_too_few_bands_fails_the_floor(tmp_path):
+    c = _by_id(_rep(_proc_pack(tmp_path / "p.pack",
+                               mora_bands=report.PROC_MORA_BAND_FLOOR - 1)))
+    assert c["PROC-MORA-001"]["status"] == "fail"
+
+
+def test_missing_grid_fails(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.executescript("DROP TABLE grid_mora; DROP TABLE grid_mora_bands;")
+    con.close()
+    c = _by_id(_rep(pack))
+    assert all(c[f"PROC-MORA-00{i}"]["status"] == "fail" for i in (1, 2, 3, 4))
+
+
+def test_duplicate_cell_fails(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.execute("DROP INDEX idx_mora_cell")
+    con.execute("UPDATE grid_mora SET lon_sw = lon_sw - 1 WHERE rowid = 2")
+    con.commit()
+    con.close()
+    c = _by_id(_rep(pack))["PROC-MORA-002"]
+    assert (c["status"], c["measured"]) == ("fail", "1 duplicate cells")
+
+
+@pytest.mark.parametrize("ft, raw", [(900, "009"), (25100, "251")])
+def test_out_of_range_value_fails(tmp_path, ft, raw):
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.execute("UPDATE grid_mora SET mora_ft = ?, raw = ? WHERE rowid = 1", (ft, raw))
+    con.commit()
+    con.close()
+    c = _by_id(_rep(pack))["PROC-MORA-003"]
+    assert c["status"] == "fail" and c["measured"].startswith("1 cells outside")
+
+
+def test_garbled_field_fails(tmp_path):
+    pack = _proc_pack(tmp_path / "p.pack")
+    con = sqlite3.connect(pack)
+    con.execute("UPDATE grid_mora SET mora_ft = NULL, raw = '1 3' WHERE rowid = 1")
+    con.commit()
+    con.close()
+    c = _by_id(_rep(pack))["PROC-MORA-003"]
+    assert c["status"] == "fail" and "1 fields neither digits nor UNK" in c["measured"]
+
+
+def test_more_unk_than_last_edition_warns(tmp_path):
+    prev = report.previous_from(_proc_pack(tmp_path / "2610.pack", "2610", mora_unk=5))
+    more = _by_id(_rep(_proc_pack(tmp_path / "a.pack", mora_unk=6), previous=prev))
+    same = _by_id(_rep(_proc_pack(tmp_path / "b.pack", mora_unk=5), previous=prev))
+    assert more["PROC-MORA-004"]["status"] == "warn"
+    assert more["PROC-MORA-004"]["blocking"] is False
+    assert same["PROC-MORA-004"]["status"] == "pass"

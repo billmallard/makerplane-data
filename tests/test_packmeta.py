@@ -187,6 +187,57 @@ def test_detect_highways_schema_version_rejects_unknown_shape(tmp_path):
         packmeta.detect_highways_schema_version(db)
 
 
+def _make_tables(db, names):
+    con = sqlite3.connect(str(db))
+    for n in names:
+        con.execute(f"CREATE TABLE {n} (id INTEGER)")
+    con.commit()
+    con.close()
+
+
+_PROC_TABLES = ("airways", "airway_legs", "procedures", "transitions", "legs")
+
+
+def test_detect_procedures_schema_version_before_and_after_msa_and_grid_mora(tmp_path):
+    _make_tables(tmp_path / "v1.sqlite", _PROC_TABLES)
+    _make_tables(tmp_path / "v2.sqlite", _PROC_TABLES + ("msa",))
+    _make_tables(tmp_path / "v3.sqlite", _PROC_TABLES + ("msa", "grid_mora_bands", "grid_mora"))
+    assert packmeta.detect_procedures_schema_version(tmp_path / "v1.sqlite") == 1
+    assert packmeta.detect_procedures_schema_version(tmp_path / "v2.sqlite") == 2
+    assert packmeta.detect_procedures_schema_version(tmp_path / "v3.sqlite") == 3
+
+
+def test_grid_mora_without_msa_is_not_a_known_table_set(tmp_path):
+    # The builder always writes msa beside the grid, so this set is never
+    # built; it must not borrow msa's version 2 (AER-4446 and AER-4447 each
+    # claimed 2 for their own table before both landed).
+    db = tmp_path / "p.sqlite"
+    _make_tables(db, _PROC_TABLES + ("grid_mora_bands", "grid_mora"))
+    with pytest.raises(ValueError, match="unrecognised procedures table set"):
+        packmeta.detect_procedures_schema_version(db)
+
+
+def test_detect_procedures_schema_version_ignores_pack_meta(tmp_path):
+    db = tmp_path / "p.sqlite"
+    _make_tables(db, _PROC_TABLES + ("msa",))
+    packmeta.embed_sqlite(db, PackMeta(id="procedures-conus", kind="procedures", cycle="2611"))
+    assert packmeta.detect_procedures_schema_version(db) == 2
+
+
+def test_detect_procedures_schema_version_rejects_unknown_table_set(tmp_path):
+    db = tmp_path / "p.sqlite"
+    _make_tables(db, _PROC_TABLES + ("holds",))
+    with pytest.raises(ValueError, match="unrecognised procedures table set"):
+        packmeta.detect_procedures_schema_version(db)
+
+
+def test_detect_content_schema_version_only_for_tracked_kinds(tmp_path):
+    db = tmp_path / "p.sqlite"
+    _make_tables(db, _PROC_TABLES)
+    assert packmeta.detect_content_schema_version("procedures", db) == 1
+    assert packmeta.detect_content_schema_version("obstacles", db) is None
+
+
 def test_as_dict_emits_license_fields_older_readers_ignore_unknown_keys():
     # as_dict() always includes license/license_url (default "", not None,
     # so they are never dropped) -- forward direction of the compatibility
