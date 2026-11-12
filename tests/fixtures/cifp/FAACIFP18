@@ -30,6 +30,9 @@ SUSAEAENRT   TINKY K 0    C   B N24584843W078233726                       W0083 
 SUSAEAENRT   TOMDY K70    R   L N30560664W081252493                       W0072     NAR           TOMDY                    510932605
 SUSAEAENRT   URSUS K 0    C   B N24000019W079041128                       W0078     NAR           URSUS                    517942605
 SUSAEAENRT   WIGID K70    R     N31062140W081335607                       W0071     NAR           WIGID                    536282605
+SUSAEAENRT   INLET K70    R   L N33233390W079195459                       W0087     NAR           INLET                    388682504
+SUSAEAENRT   KIMMY K70    C   L N33162317W079300936                       W0086     NAR           KIMMY                    414032605
+SUSAEAENRT   PLANN K70    C   L N33333041W079053864                       W0089     NAR           PLANN                    471882605
 SUSAP 09J K7CMAVNK K70    R     N31041612W081254915                       W0072     NAR           MAVNK                    805582605
 SUSAP 09J K7CSAUSE K70    R     N30570925W081311240                       W0071     NAR           SAUSE                    805592504
 SUSAP KABQK2CBGEYE K20    W     N35073705W106390114                       E0079     NAR           BGEYE                    135222403
@@ -77,6 +80,9 @@ SUSAER       A509        0120EONNSK EA0E    O                         3309025333
 SUSAER       A509        0130JURERK7EA0E    O                         330801063308 03000     60000                         557472407
 SUSAER       A509        0140DHP  K7D 0V    O                         278307793308 08000     60000                         557482407
 SUSAER       A509        0150MARCIK7EA0EE   O                                 2777                                         557491709
+SUSAER       V1          0240KIMMYK7EA0E    OL                        054801120535 05000     17500                         634922405
+SUSAER       V1          0250INLETK7EA0E    OL                        054801550535 021000500017500                         634932405
+SUSAER       V1          0260PLANNK7EA0E    OL                        054802400535 021000500017500                         634942405
 SUSAP KSBAK2DFLOUT51RW07  010         0        VA                     0750        + 00413     18000                        096752303
 SUSAP KSBAK2DFLOUT51RW07  020         0    R   CIY                    2270                                                 096760804
 SUSAP KSBAK2DFLOUT51RW07  030FLOUTK2PC0EE      CF RZS K2      1970017619700110D                                            096771310

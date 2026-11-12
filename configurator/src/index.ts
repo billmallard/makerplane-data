@@ -28,7 +28,7 @@ import {
 } from "./db";
 import { checkAircraftProfilePut } from "./aircraft_profile";
 import { claimCode, randomToken, sha256B64url } from "./crypto";
-import { devicePreferences, serveDeviceConfig } from "./device_prefs";
+import { deviceFixgw, devicePreferences, serveDeviceConfig } from "./device_prefs";
 import { emailRequest, emailVerify } from "./email";
 import { googleCallback, googleStart } from "./google";
 import { endSession, requireUser } from "./session";
@@ -185,13 +185,14 @@ app.get("/api/devices/:id/config", async (c) => {
 // The device preferences the device would receive with its next pull (#108),
 // derived from the owning project's active aircraft profile by the same
 // function /device/config uses -- so the editor preview shows what the device
-// will. {} when the profile sets nothing.
+// will. {} when the profile sets nothing; `fixgw` likewise (P3f).
 app.get("/api/devices/:id/preferences", async (c) => {
   const userId = c.get("userId");
   const device = await getDevice(c.env.DB, userId, Number(c.req.param("id")));
   if (!device) return c.json({ error: "device not found" }, 404);
   const row = await getAircraftProfile(c.env.DB, userId, Number(device["project_id"]));
-  return c.json({ preferences: devicePreferences(row ? row["json"] : null) });
+  const profile = row ? row["json"] : null;
+  return c.json({ preferences: devicePreferences(profile), fixgw: deviceFixgw(profile) });
 });
 
 // Pairing: the owner mints a short claim code (KV holds it with a TTL); the
@@ -227,8 +228,9 @@ app.post("/device/pair", async (c) => {
   return c.json({ device_token: token, device_id: device["id"], name: device["name"] });
 });
 
-// The device pulls its latest panel config (native pyEfis YAML), plus a
-// `preferences:` block from the project's aircraft profile (#108). Authed by the
+// The device pulls its latest panel config (native pyEfis YAML), plus the
+// `preferences:` (#108) and `fixgw:` (P3f) blocks from the project's aircraft
+// profile. Authed by the
 // device token (Bearer). ETag = config version (+ a hash of the preferences
 // block when there is one -- see device_prefs.ts), so the on-Pi updater can
 // send If-None-Match and get a cheap 304 when nothing changed. #65 P2.
