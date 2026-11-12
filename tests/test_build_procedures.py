@@ -54,6 +54,24 @@ def test_build_procedures_airway_rows(input_dir, tmp_path):
     assert row == ("A315", "2609")
 
 
+def test_build_procedures_airway_legs_carry_min_alt2_ft(input_dir, tmp_path):
+    # AER-5460: the pack carries the reverse-direction MEA (real 2611 V1
+    # INLET/PLANN rows) so pyEfis can publish 5,000 ft, not 2,100, flying
+    # PLANN->INLET. NULL where the record leaves it blank.
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    rows = con.execute(
+        "SELECT al.fix_id, al.min_alt_ft, al.min_alt2_ft, al.max_alt_ft FROM airway_legs al "
+        "JOIN airways a ON a.id = al.airway_id WHERE a.ident='V1' ORDER BY al.seq").fetchall()
+    blank = con.execute(
+        "SELECT COUNT(*) FROM airway_legs al JOIN airways a ON a.id = al.airway_id "
+        "WHERE a.ident IN ('A315', 'A509') AND al.min_alt2_ft IS NOT NULL").fetchone()[0]
+    con.close()
+    assert rows == [("KIMMY", 5000, None, 17500), ("INLET", 2100, 5000, 17500),
+                    ("PLANN", 2100, 5000, 17500)]
+    assert blank == 0
+
+
 def test_build_procedures_derives_runway_and_approach_type(input_dir, tmp_path):
     out = build_procedures(input_dir, tmp_path / "out.pack")
     con = sqlite3.connect(str(out))
