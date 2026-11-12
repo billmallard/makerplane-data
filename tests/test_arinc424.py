@@ -128,8 +128,28 @@ def test_iter_airway_legs_a315():
 def test_iter_airway_legs_all_fixes_resolve():
     idx = a.build_fix_index(FIXTURE)
     legs = list(a.iter_airway_legs(FIXTURE, idx))
-    assert len(legs) == 17
+    assert len(legs) == 20
     assert all(l.fix_lat is not None and l.fix_lon is not None for l in legs)
+
+
+def test_iter_airway_legs_v1_carries_the_reverse_direction_mea():
+    # AER-5460: real 2611 V1 records. INLET->PLANN (and PLANN->CRE) is
+    # 2,100 ft flown in record order and 5,000 ft flown against it -- the
+    # second Minimum Altitude, cols 89-93. KIMMY's leg leaves it blank:
+    # one MEA both ways.
+    idx = a.build_fix_index(FIXTURE)
+    legs = {l.fix_id: l for l in a.iter_airway_legs(FIXTURE, idx) if l.route_ident == "V1"}
+    assert sorted(legs) == ["INLET", "KIMMY", "PLANN"]
+    assert (legs["INLET"].min_alt_ft, legs["INLET"].min_alt2_ft) == (2100, 5000)
+    assert (legs["PLANN"].min_alt_ft, legs["PLANN"].min_alt2_ft) == (2100, 5000)
+    assert (legs["KIMMY"].min_alt_ft, legs["KIMMY"].min_alt2_ft) == (5000, None)
+    assert all(l.max_alt_ft == 17500 for l in legs.values())
+
+
+def test_iter_airway_legs_blank_second_min_alt_is_none():
+    idx = a.build_fix_index(FIXTURE)
+    legs = [l for l in a.iter_airway_legs(FIXTURE, idx) if l.route_ident in ("A315", "A509")]
+    assert legs and all(l.min_alt2_ft is None for l in legs)
 
 
 def test_iter_airway_legs_carries_area_code():
