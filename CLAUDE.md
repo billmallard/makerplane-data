@@ -70,7 +70,7 @@ preserve verify-then-swap; don't introduce a path that installs before verifying
 | Path | Leg | What |
 |---|---|---|
 | **`packtools/`** | 1 | Pack builder. `cycles` (AIRAC/DOF date math), `signing` (minisign ed25519, pure PyNaCl — shared with the Pi), `packmeta` (self-describing header inside every pack), `manifest` (catalog schema + canonical bytes + validation + prune), `regions`/`regions.yaml` (8 N-America bboxes), `sources` (upstream FAA URLs), `fetch`, `build/` (shim to pyEfis tools), `upload` (R2/S3 + LocalStore), `publish`, `advisories` (safety advisory feed schema + signed publish, L5), `make_terrain`, `ourairports`, `run_cyclical` (the daily orchestrator), `cli` (`packtool`). |
-| **`pyefis_data/`** | 3 | On-Pi updater. `config` (`~/.makerplane/pyefis/data.yaml`, construct-never-raises), `core` (`Updater`, `Remote`, inventory, the verify-then-swap install), `config_pull` (device panel-config pull + install + rollback), `advisories` (opt-in advisory feed: verify, match on device, report into status.json), `cli` (`pyefis-data`), `systemd/` (user service + timer + USB-import udev/service). |
+| **`pyefis_data/`** | 3 | On-Pi updater. `config` (`~/.makerplane/pyefis/data.yaml`, construct-never-raises), `core` (`Updater`, `Remote`, inventory, the verify-then-swap install), `config_pull` (device panel-config pull + install + rollback), `panel_change` (CERT17: a pull that changed the panel stays on the Data Status screen until acknowledged, docs/panel_change_cue.md), `advisories` (opt-in advisory feed: verify, match on device, report into status.json), `cli` (`pyefis-data`), `systemd/` (user service + timer + USB-import udev/service). |
 | **`configurator/`** | — | The web panel editor (Worker, TS). Own CLAUDE.md. |
 | `.github/workflows/` | 1/2 | `ci.yml` (SPDX check + pytest + no-secrets dry-run), `cyclical.yml` (daily build+sign+upload), `terrain.yml`, `water.yml` (dispatch builds), `impact.yml` (TV9: builder PRs get a fixture-pack diff comment, docs/pr_impact.md), `site.yml` (deploys `site/` to the bucket root: on push to `main`, or dispatched), `advisories.yml` (dispatch: sign + upload `advisories/feed.json`, docs/advisories.md). |
 | `site/` | 2 | Static Cloudflare site + on-device pack picker (`data.yaml.sample`). |
@@ -105,6 +105,7 @@ pyefis-data import <dir>                              # USB path, same verify co
 pyefis-data verify [path]                            # check a manifest signature
 pyefis-data pair <code>                              # redeem a configurator claim code -> device token
 pyefis-data config-pull [--wait-online N]            # pull this device's panel, install, restart pyEfis, roll back on crash
+pyefis-data panel-ack [--yes --hash H]               # acknowledge a panel change a pull made (clears the Data Status cue)
 pyefis-data advisories [--enable|--disable|--check]  # opt-in signed safety advisory feed, matched on the device
 ```
 
