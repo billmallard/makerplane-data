@@ -5,6 +5,11 @@
 
 **Areas**
 - [[Navigation Data Currency]]
+  - [[The navdata Website]]
+  - [[Pack Format and the Manifest]]
+  - [[Building and Publishing Packs]]
+  - [[Pack Reports and Testing]]
+  - [[The On-Device Updater]]
 - [[The Configurator]]
 - [[Aircraft Parameters]]
 
