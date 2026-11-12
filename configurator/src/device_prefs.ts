@@ -16,6 +16,7 @@
 // Pure functions, so node:test can load this file directly.
 
 import { ownshipAddress } from "./ownship.ts";
+import { resolveAircraftRefs } from "./aircraft_refs.ts";
 
 export const BARO_UNITS = ["inHg", "hPa"] as const;
 export type BaroUnit = (typeof BARO_UNITS)[number];
@@ -65,21 +66,24 @@ async function shortHash(text: string): Promise<string> {
   return Array.from(new Uint8Array(buf).slice(0, 6), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// What GET /device/config serves: the stored panel YAML, plus a preferences
-// block and a fixgw block when the profile sets them, and the ETag covering
-// all of it.
+// What GET /device/config serves: the stored panel YAML with its aircraft
+// references resolved (aircraft_refs.ts), plus a preferences block and a
+// fixgw block when the profile sets them, and the ETag covering all of it.
 //
-// * The panel text is never re-serialised -- the blocks are appended as text,
-//   so the user's YAML reaches the device byte-for-byte (a js-yaml load/dump
-//   round trip would re-type scalars under YAML 1.2 rules that PyYAML reads as
-//   1.1, e.g. `1e3`).
-// * Neither block -> ETag stays `"v<n>"`, exactly as before #108, so
-//   deploying it re-pulls no device whose profile does not set one.
-// * Otherwise -> `"v<n>-p<hash>"`, the hash over the blocks' content (not the
-//   profile version), so editing an unrelated profile value does not make
-//   every device reinstall and restart pyEfis, but changing the unit or the
-//   address does. A preferences-only hash is the one #108 served, so adding
-//   the fixgw block re-pulls no device whose profile sets no address.
+// * A panel with no references is never re-serialised -- the blocks are
+//   appended as text, so the user's YAML reaches the device byte-for-byte (a
+//   js-yaml load/dump round trip would re-type scalars under YAML 1.2 rules
+//   that PyYAML reads as 1.1, e.g. `1e3`).
+// * No block and no reference -> ETag stays `"v<n>"`, exactly as before #108,
+//   so deploying it re-pulls no device whose profile does not set one.
+// * Otherwise -> `"v<n>-p<hash>"`, the hash over the blocks' content and the
+//   resolved bindings (not the profile version), so editing an unrelated
+//   profile value does not make every device reinstall and restart pyEfis,
+//   but changing the unit, the address, or a referenced tank's label or slot
+//   does. A preferences-only hash is the one #108 served, and a panel with no
+//   reference hashes what P3f served, so neither re-pulls a device.
+// * `retired` loads the last label of each id the profile no longer has. It
+//   is called only when a reference is unbound.
 // * A blob that already has its own top-level `preferences:` or `fixgw:` key
 //   is served without that block (a duplicate key would be resolved silently
 //   by PyYAML).
@@ -87,16 +91,22 @@ export async function serveDeviceConfig(
   panelYaml: string,
   version: number | string,
   profile: unknown,
+  retired?: () => Promise<Record<string, string>>,
 ): Promise<{ body: string; etag: string }> {
+  let refs = resolveAircraftRefs(panelYaml, profile);
+  if (retired && refs.bindings.some((b) => b.unbound))
+    refs = resolveAircraftRefs(panelYaml, profile, await retired());
+  const panel = refs.yaml;
   let prefs = devicePreferences(profile);
   let fixgw = deviceFixgw(profile);
-  if (/^preferences\s*:/m.test(panelYaml)) prefs = {};
-  if (/^fixgw\s*:/m.test(panelYaml)) fixgw = {};
+  if (/^preferences\s*:/m.test(panel)) prefs = {};
+  if (/^fixgw\s*:/m.test(panel)) fixgw = {};
   const withPrefs = !isEmpty(prefs), withFixgw = fixgw.ownship_address !== undefined;
-  if (!withPrefs && !withFixgw) {
-    return { body: panelYaml, etag: `"v${version}"` };
+  const withRefs = refs.bindings.length > 0;
+  if (!withPrefs && !withFixgw && !withRefs) {
+    return { body: panel, etag: `"v${version}"` };
   }
-  let body = panelYaml.replace(/\s*$/, "\n");
+  let body = panel.replace(/\s*$/, "\n");
   if (withPrefs) {
     body += "# Aircraft preferences from the configurator's aircraft profile (not part\n"
       + "# of the panel design); pyefis-data config-pull merges these into\n"
@@ -111,6 +121,7 @@ export async function serveDeviceConfig(
       + "fixgw:\n"
       + `  ownship_address: "${fixgw.ownship_address}"\n`;
   }
-  const block = withFixgw ? JSON.stringify({ preferences: prefs, fixgw }) : JSON.stringify(prefs);
+  const block = withRefs ? JSON.stringify({ preferences: prefs, fixgw, refs: refs.bindings })
+    : withFixgw ? JSON.stringify({ preferences: prefs, fixgw }) : JSON.stringify(prefs);
   return { body, etag: `"v${version}-p${await shortHash(block)}"` };
 }

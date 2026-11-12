@@ -223,6 +223,7 @@ export async function deviceByTokenHash(
   return db
     .prepare(
       `SELECT d.id,
+              d.project_id AS project_id,
               c.version    AS version,
               c.yaml_r2_key AS yaml_r2_key,
               (SELECT a.json FROM aircraft_profiles a
@@ -338,6 +339,24 @@ export async function saveAircraftProfile(
     ).bind(projectId, version, json),
   ]);
   return { version };
+}
+
+// Every saved version's profile JSON for one project, newest first: where an
+// orphaned aircraft reference finds its last label (aircraft_refs.js
+// retiredLabels). Not ownership-scoped -- callers have already resolved the
+// project from a session-owned row or a device token.
+export async function aircraftProfileHistory(
+  db: D1Database,
+  projectId: number,
+): Promise<string[]> {
+  const res = await db
+    .prepare(
+      `SELECT json FROM aircraft_profiles
+        WHERE project_id = ?1 ORDER BY version DESC`,
+    )
+    .bind(projectId)
+    .all<{ json: string }>();
+  return res.results.map((r) => r.json);
 }
 
 export async function listAircraftProfileVersions(
