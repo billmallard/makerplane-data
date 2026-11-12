@@ -6,6 +6,12 @@ and the `configurator`. Semver on the Python package; process in
 
 ## Unreleased
 
+### Device updater (pyefis_data)
+- **`config-pull` no longer adds `screens/virtualvfr_db.yaml` for SVS-off
+  panels either (AER-5421).** pyEfis #457 deleted the legacy CIFP Virtual
+  VFR overlay that read it. Release gate: a device must run a pyEfis that
+  carries #457 before it gets this `config-pull`.
+
 ## 0.5.0 — 2026-11-11
 
 Promotes the `dev` work since 0.4.0 (52 PRs). Its core is the device-side
