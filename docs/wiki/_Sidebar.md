@@ -11,6 +11,8 @@
   - [[Pack Reports and Testing]]
   - [[The On-Device Updater]]
 - [[The Configurator]]
+  - [[Pairing and Config Delivery]]
+  - [[Configurator Internals]]
 - [[Aircraft Parameters]]
 
 **Links**
