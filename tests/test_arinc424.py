@@ -128,7 +128,7 @@ def test_iter_airway_legs_a315():
 def test_iter_airway_legs_all_fixes_resolve():
     idx = a.build_fix_index(FIXTURE)
     legs = list(a.iter_airway_legs(FIXTURE, idx))
-    assert len(legs) == 17
+    assert len(legs) == 20
     assert all(l.fix_lat is not None and l.fix_lon is not None for l in legs)
 
 

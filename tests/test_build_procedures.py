@@ -41,7 +41,7 @@ def test_build_procedures_writes_all_tables(input_dir, tmp_path):
     finally:
         con.close()
     assert counts == {
-        "airways": 2, "airway_legs": 17,
+        "airways": 3, "airway_legs": 20,
         "procedures": 5, "transitions": 22, "legs": 76, "msa": 21,
     }
 
