@@ -209,6 +209,7 @@ _SEV_RANK = {"none": 0, "white": 1, "amber": 2}
 
 def _status_doc(up, software: dict | None = None) -> dict:
     from . import advisories as adv
+    from . import panel_change
     rows = up.status()
     worst = max((r.severity for r in rows), key=lambda s: _SEV_RANK.get(s, 1), default="none")
     return {
@@ -219,6 +220,7 @@ def _status_doc(up, software: dict | None = None) -> dict:
         "rollback_refused": up.rollback_refused,
         "packs": [r.as_dict() for r in rows],
         "advisories": adv.report(up.config, up.public_key, up.inventory, software),
+        "panel_change": panel_change.report(),
     }
 
 
@@ -268,7 +270,14 @@ def cmd_status(args) -> int:
         for p in doc["packs"]:
             mark = {"amber": "!", "white": "*", "none": " "}.get(p["severity"], " ")
             print(f" {mark} {p['name']:<24} {p['status']:<18} {p['detail']}")
+        for line in _panel_lines(doc.get("panel_change") or {}):
+            print(f" ! {line}")
     return 0
+
+
+def _panel_lines(block: dict) -> list[str]:
+    from . import panel_change
+    return panel_change.lines(block) if block.get("pending") else []
 
 
 def cmd_catalog(args) -> int:
@@ -702,6 +711,12 @@ def cmd_config_pull(args) -> int:
 
     from .config import write_config
     write_config(args.config, {"config_version": version, "config_etag": etag})
+    # CERT17: a pull that changed the panel stays on the Data Status screen
+    # until a pilot acknowledges it. Recorded, and status.json refreshed,
+    # before pyEfis restarts onto the new panel. A failure here is reported,
+    # never fatal: the panel is already installed.
+    trigger = "boot" if wait_online else "manual"
+    _record_panel_change(lambda pc: pc.record_change(text, version, trigger))
     if summary.get("units"):
         print("aircraft units: " + ", ".join(
             f"{g} {u}" for g, u in summary["units"].items()))
@@ -749,10 +764,70 @@ def cmd_config_pull(args) -> int:
     if config_pull.rollback_fixgw():
         _restart_fixgw_reported(config_pull)
     write_config(args.config, {"config_version": old_version, "config_etag": old_etag})
+    _record_panel_change(lambda pc: pc.record_rollback(text))
     config_pull.restart_pyefis(scope=cfg.pyefis_unit_scope)
     print(f"new config crashed pyEfis on load; rolled back to {restored} "
           f"(config v{version} left available to retry)", file=sys.stderr)
     return 1
+
+
+def _record_panel_change(write) -> None:
+    from . import panel_change
+    try:
+        write(panel_change)
+        panel_change.refresh_status()
+    except Exception as e:
+        print(f"could not record the panel change for the Data Status screen: {e}",
+              file=sys.stderr)
+
+
+def cmd_panel_ack(args) -> int:
+    """Acknowledge a panel change a config pull made (CERT17). The Data Status
+    screen passes --yes and the --hash it displayed; at a terminal the change
+    is shown and the user types the word. Exit 0 when acknowledged, or when
+    nothing is waiting (with --json either way); 2 when the hash shown is no
+    longer the installed config or the record cannot be written."""
+    from . import panel_change
+    block = panel_change.report()
+    if not block["pending"]:
+        if args.json:
+            print(json.dumps(block, indent=2))
+        else:
+            print("no panel change is waiting for acknowledgment")
+        return 0
+    if args.yes:
+        via = "caller"
+    elif sys.stdin.isatty():
+        print("\n".join(panel_change.lines(block)))
+        sys.stdout.write(f'Type "{panel_change.ACK_WORD}" once every instrument '
+                         f'reads the right source: ')
+        sys.stdout.flush()
+        if sys.stdin.readline().strip().lower() != panel_change.ACK_WORD:
+            print("not acknowledged", file=sys.stderr)
+            return NOTICE_RC
+        via = "tty"
+    else:
+        print("no terminal to show the change on; a caller that displayed it "
+              "itself passes --yes --hash <config_hash>", file=sys.stderr)
+        return NOTICE_RC
+    try:
+        panel_change.acknowledge(via, expect_hash=args.hash)
+    except LookupError as e:
+        print(f"not acknowledged: {e}", file=sys.stderr)
+        return 2
+    except Exception as e:
+        print(f"could not record the acknowledgment: {e}", file=sys.stderr)
+        return 2
+    try:
+        panel_change.refresh_status()
+    except Exception as e:
+        print(f"(could not refresh status.json: {e})", file=sys.stderr)
+    block = panel_change.report()
+    if args.json:
+        print(json.dumps(block, indent=2))
+    else:
+        print("\n".join(panel_change.lines(block)))
+    return 0
 
 
 _SOFTWARE_HELP = ("also record this component version in an accept (repeatable), "
@@ -829,6 +904,15 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--trigger", default="install",
                    help="what prompted the accept, recorded as-is (default: install)")
     a.set_defaults(func=cmd_accept)
+
+    pa = sub.add_parser("panel-ack", help="acknowledge a panel change made by a config pull")
+    pa.add_argument("--yes", action="store_true",
+                    help="record an acknowledgment the caller collected after "
+                         "displaying the change itself (no prompt)")
+    pa.add_argument("--hash", help="the config hash the caller displayed; refused "
+                                   "if the installed config is no longer that one")
+    pa.add_argument("--json", action="store_true")
+    pa.set_defaults(func=cmd_panel_ack)
 
     ad = sub.add_parser("advisories", help="safety advisories that apply here (opt-in)")
     onoff = ad.add_mutually_exclusive_group()
