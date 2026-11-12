@@ -6,6 +6,8 @@
 **Areas**
 - [[Navigation Data Currency]]
 - [[The Configurator]]
+  - [[Pairing and Config Delivery]]
+  - [[Configurator Internals]]
 - [[Aircraft Parameters]]
 
 **Links**
