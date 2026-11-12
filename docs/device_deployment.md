@@ -143,19 +143,18 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
   list + the SVS GL widget **segfaults the eglfs `QOpenGLCompositor`** — #71. The
   full set is fine.) Stock files untouched; a `.prepanel` backup is kept for
   rollback. A `virtual_vfr` gets an `svs` block (terrain). Validated on the Pi 5.
-  - **The `screens/virtualvfr_db.yaml` include is legacy-only (AER-4354).** It
-    carries the screen-level `dbpath`/`indexpath` for the **legacy CIFP Virtual
-    VFR overlay** (2D runway outlines, airport labels, assumed-3-degree PAPI from
-    the raw FAA CIFP file), which is **deprecated** and will be removed:
-    Synthetic Vision replaces it, drawing airports, runways and a PAPI at the
-    published angle from the NASR airports pack. With SVS enabled (pyEfis #349,
-    CIFP1) the legacy overlay is not loaded at all and no CIFP data is needed, so
-    `config-pull` now adds the include **only** when the instrument's SVS is off
-    (flat `svs_enabled` over the nested `svs:` block, as pyEfis resolves it).
-    Since the installer always injects `svs.enabled: true`, that means only a
-    panel that explicitly turns SVS off. **Release gate:** a device on a pyEfis
-    older than #349 crashes on the first resize without the include, so this
-    `config-pull` must not reach a device before its pyEfis carries #349.
+  - **No `screens/virtualvfr_db.yaml` include (AER-4354, AER-5421).** It
+    carried the screen-level `dbpath`/`indexpath` for the legacy CIFP Virtual
+    VFR overlay, which pyEfis #457 (VVFR1) deleted. Synthetic Vision draws
+    airports, runways and a PAPI from the NASR airports pack; with SVS off a
+    `virtual_vfr` is the plain sky/ground attitude view and reads no `dbpath`.
+    `config-pull` stopped adding the include for SVS-on panels in AER-4354
+    and for SVS-off panels in AER-5421. An include a screen already lists is
+    left alone: pyEfis keeps the file as an empty `{}` stub so it still loads.
+    **Release gate:** a device on a pyEfis older than #457 still builds the
+    legacy overlay for an SVS-off panel and crashes on the first resize
+    without the include, so this `config-pull` must not reach a device before
+    its pyEfis carries #457. (SVS-on panels are unaffected from #349 on.)
 - **P4 — Polish (mostly DONE):**
   - **Proper release (DONE):** `makerplane-data` **v0.2.2** wheel built + installed
     on the Pi, replacing the hot-patch (`pyefis-data pair` + `config-pull` ship in it).
