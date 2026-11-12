@@ -15,6 +15,9 @@ Fourteen more (AER-4446, MSA) were added on 2026-10-31 from cycle **2611**
 own last-revised stamp (cols 129-132); the header still says 2609, and
 `file_cycle()` reads only the header.
 
+Six more (AER-5460) were added on 2026-11-12 from the same cycle **2611**
+file: three `V1` airway legs and their three waypoint records.
+
 This is the brief's "golden-procedure fixture set" (`procedures_and_airways_plan.md`
 Sec. 7): a handful of real procedures with a known-correct parsed form that
 every downstream PA item can test against, so nobody re-derives them.
@@ -30,9 +33,11 @@ every downstream PA item can test against, so nobody re-derives them.
 | KABQ `H21-Y` RNP approach | 18 | real `RF` (radius-to-fix) arc legs |
 | `09J` `VOR-A` approach | 11 | `PI` (procedure turn) and `AF` (DME arc) legs |
 | `A315`, `A509` airways (USA only) | 17 | Enroute Airways (`ER`), one with a foreign-region (Bahamas) fix |
-| Resolving fix records | 54 | every VOR/NDB/waypoint/runway the above legs reference, so every fix resolves (`fix_lat`/`fix_lon` verified non-NULL for all 76 procedure legs and all 17 airway legs) |
+| Resolving fix records | 54 | every VOR/NDB/waypoint/runway the above legs reference, so every fix resolves (`fix_lat`/`fix_lon` verified non-NULL for all 76 procedure legs and all 17 `A315`/`A509` airway legs) |
 | `PS` MSA records (2611) | 10 | AER-4446: KSBA RZS, GVO, RW07 and KSBA (one per centre type, and the three on the KSBA plates in `docs/images/aer-4446/`); KABQ ABQ twice (multiple code blank and `A`); KABR AB (terminal NDB centre); KMSP MSP (DME-only centre); PABE BET (Alaska, coded under area `CAN`); KHRJ HQT (an NDB the file does not define, so it stays unresolved on purpose) |
 | MSA centre-fix records (2611) | 4 | KSBA's `PA` airport record, KABR's `PN` terminal NDB "AB", the D records for MSP (DME position only) and BET |
+| `V1` airway, seq 240-260 (2611) | 3 | AER-5460: KIMMY, INLET, PLANN. INLET's and PLANN's legs carry a second Minimum Altitude (cols 89-93): 2,100 ft flown in record order, 5,000 ft flown against it. KIMMY's leg leaves it blank |
+| `V1` waypoint records (2611) | 3 | the `EA` records for KIMMY, INLET and PLANN, so the three legs resolve |
 | `CFDXF`/`CFDXG`/`CFDXH` centre-fix waypoints | 3 | AER-1700: the RF legs' *Center Fix* (cols 107-116) references these idents but never defines them -- without these records every RF arc's centre silently resolves to `(None, None)`; added so the golden RF-arc radius test has a real centre to resolve against |
 
 KSBA (Santa Barbara) was chosen because it is also PA14's planned bench-validation

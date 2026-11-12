@@ -115,7 +115,7 @@ _ER = dict(
     course=slice(70, 74),
     dist=slice(74, 78),
     min_alt=slice(83, 88),
-    min_alt2=slice(88, 93),            # reciprocal-direction MEA; unused here
+    min_alt2=slice(88, 93),            # MEA against record order (AER-5460)
     max_alt=slice(93, 98),
 )
 
@@ -424,6 +424,10 @@ class AirwayLegRecord:
     min_alt_ft: int | None
     max_alt_ft: int | None
     direction: str | None
+    #: Second Minimum Altitude (cols 89-93): the MEA for travel against
+    #: record (sequence) order where it differs from ``min_alt_ft``; blank,
+    #: so ``None``, on most legs (AER-5460).
+    min_alt2_ft: int | None = None
 
 
 def iter_airway_legs(path: str | Path,
@@ -461,6 +465,7 @@ def iter_airway_legs(path: str | Path,
             min_alt_ft=_decode_altitude(line[f["min_alt"]]),
             max_alt_ft=_decode_altitude(line[f["max_alt"]]),
             direction=_strip(line[f["direction"]]),
+            min_alt2_ft=_decode_altitude(line[f["min_alt2"]]),
         )
 
 

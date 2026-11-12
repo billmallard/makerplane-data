@@ -623,6 +623,20 @@ def cmd_pair(args) -> int:
     return 0
 
 
+def _restart_fixgw_reported(config_pull) -> None:
+    """Restart fix-gateway after its preferences.yaml.custom changed; a failure
+    is reported, never fatal (the panel is pyEfis's, not fix-gateway's)."""
+    ok = config_pull.restart_fixgw()
+    if ok:
+        print("restarted fix-gateway")
+    elif ok is None:
+        print("no fix-gateway service found to restart; restart it to apply "
+              "the ownship address", file=sys.stderr)
+    else:
+        print("could not restart fix-gateway; restart it to apply the "
+              "ownship address", file=sys.stderr)
+
+
 def cmd_config_pull(args) -> int:
     """Pull this device's panel config from the configurator and install it,
     then restart pyEfis (#65 P3)."""
@@ -691,6 +705,14 @@ def cmd_config_pull(args) -> int:
     if summary.get("units"):
         print("aircraft units: " + ", ".join(
             f"{g} {u}" for g, u in summary["units"].items()))
+    fixgw = summary.get("fixgw") or {}
+    if fixgw.get("skipped"):
+        print(f"fix-gateway ownship address not written: {fixgw['skipped']}",
+              file=sys.stderr)
+    elif fixgw.get("changed"):
+        addr = fixgw.get("ownship_address")
+        print(f"fix-gateway ownship address: {addr}" if addr
+              else "fix-gateway ownship address: removed")
     n = summary.get("screens", 1)
     if n > 1:
         print(f"installed panel config v{version} -- {n} screens "
@@ -700,7 +722,11 @@ def cmd_config_pull(args) -> int:
         print(f"installed panel config v{version} (boot screen: {summary['boot_screen']})")
     if args.no_restart:
         print("(skipped pyEfis restart; --no-restart)")
+        if fixgw.get("changed"):
+            print("(skipped fix-gateway restart too; restart it to apply the address)")
         return 0
+    if fixgw.get("changed"):
+        _restart_fixgw_reported(config_pull)
     outcome = config_pull.restart_and_verify(scope=cfg.pyefis_unit_scope)
     if outcome == config_pull.RESTART_OK:
         print("restarted pyEfis -- panel is up")
@@ -720,6 +746,8 @@ def cmd_config_pull(args) -> int:
     # RESTART_CRASHED: the new config actually crashed pyEfis -> roll back to the
     # last working state so the device is never left on a screen it can't boot.
     restored = config_pull.rollback()
+    if config_pull.rollback_fixgw():
+        _restart_fixgw_reported(config_pull)
     write_config(args.config, {"config_version": old_version, "config_etag": old_etag})
     config_pull.restart_pyefis(scope=cfg.pyefis_unit_scope)
     print(f"new config crashed pyEfis on load; rolled back to {restored} "
