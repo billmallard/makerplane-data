@@ -7,9 +7,17 @@ the device, not here.
 """
 import textwrap
 
+import pytest
 import yaml
 
 from pyefis_data import config_pull
+
+
+@pytest.fixture(autouse=True)
+def _no_real_fixgw(tmp_path, monkeypatch):
+    """Point fix-gateway's config dir at a path that does not exist, so no
+    test can touch a developer's real ~/makerplane/fixgw/config."""
+    monkeypatch.setenv("FIXGW_CONFIG_DIR", str(tmp_path / "no-fixgw"))
 
 
 def _config_dir(tmp_path, default_screen="PFD_AI_ONLY", custom=None):
@@ -610,3 +618,230 @@ def test_cli_stores_etag_and_rollback_restores_the_old_one(tmp_path, monkeypatch
     assert cli.cmd_config_pull(args) == 1
     cfg = Config.load(data)
     assert (cfg.config_version, cfg.config_etag) == (5, '"v5-pabc"')
+
+
+# --- fix-gateway ownship address (P3f, AER-5458) ------------------------------
+
+# Exactly what GET /device/config appends for a profile with registration
+# N825V (configurator/src/device_prefs.ts serveDeviceConfig).
+_SERVED_N825V = (
+    "# fix-gateway settings from the aircraft profile; pyefis-data config-pull\n"
+    "# writes them into fix-gateway's preferences.yaml.custom.\n"
+    "fixgw:\n"
+    '  ownship_address: "AB4549"\n')
+
+# The bench Pi's fix-gateway override, comments and all: they must survive.
+_FIXGW_CUSTOM = (
+    "# Make changes to includes and enabled in this file.\n"
+    "# see preferences.yaml for a list of options\n"
+    "\n"
+    "includes:\n"
+    "  STRATUX_CONFIG: connections/stratux.yaml\n"
+    "\n"
+    "# This section is used to turn things on or off\n"
+    "enabled:\n"
+    "  GARMIN_GNX375: false  # hardware bench: on only when a GNX is under test\n"
+    "  STRATUX: true\n")
+
+
+def _fixgw_dir(tmp_path, text=_FIXGW_CUSTOM):
+    fcd = tmp_path / "fixgw"
+    fcd.mkdir()
+    if text is not None:
+        (fcd / "preferences.yaml.custom").write_text(text, encoding="utf-8")
+    return fcd
+
+
+def _fixgw_text(fcd):
+    return (fcd / "preferences.yaml.custom").read_text("utf-8")
+
+
+def _merged(fcd):
+    """What fix-gateway's server sees: preferences.yaml.custom loaded."""
+    return yaml.safe_load(_fixgw_text(fcd))
+
+
+def test_ownship_written_as_one_line_and_the_rest_kept_byte_for_byte(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path)
+    summary = config_pull.install_config(
+        _served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=fcd)
+    text = _fixgw_text(fcd)
+    assert text.startswith(_FIXGW_CUSTOM)
+    assert text[len(_FIXGW_CUSTOM):].count("\n") == 2      # marker + the key
+    assert 'ownship_address: "AB4549"\n' in text
+    merged = _merged(fcd)
+    assert merged["ownship_address"] == "AB4549"
+    assert merged["enabled"] == {"GARMIN_GNX375": False, "STRATUX": True}
+    assert summary["fixgw"] == {"ownship_address": "AB4549", "changed": True}
+    assert _read(cd, ".panel_prefs.yaml") == {"fixgw_ownship_address": "AB4549"}
+    # The pyEfis override gets no such key.
+    assert "ownship_address" not in _read(cd, "preferences.yaml.custom")
+
+
+def test_ownship_repull_is_a_no_op_and_a_change_replaces_the_line(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path)
+    served = _served("PFD_AI_ONLY", prefs=_SERVED_N825V)
+    config_pull.install_config(served, cd=cd, fcd=fcd)
+    first = _fixgw_text(fcd)
+    assert config_pull.install_config(served, cd=cd, fcd=fcd)["fixgw"]["changed"] is False
+    assert _fixgw_text(fcd) == first
+    other = _SERVED_N825V.replace("AB4549", "C0FFEE")
+    summary = config_pull.install_config(_served("PFD_AI_ONLY", prefs=other), cd=cd, fcd=fcd)
+    assert summary["fixgw"] == {"ownship_address": "C0FFEE", "changed": True}
+    assert _fixgw_text(fcd).count("ownship_address:") == 2   # marker comment + key
+    assert _merged(fcd)["ownship_address"] == "C0FFEE"
+
+
+def test_blank_address_removes_only_our_line(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path)
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=fcd)
+    summary = config_pull.install_config(_served("PFD_AI_ONLY", prefs=None), cd=cd, fcd=fcd)
+    assert _fixgw_text(fcd) == _FIXGW_CUSTOM                 # back byte-for-byte
+    assert summary["fixgw"] == {"ownship_address": None, "changed": True}
+    assert "fixgw_ownship_address" not in _read(cd, ".panel_prefs.yaml")
+
+
+def test_blank_address_leaves_a_hand_edited_value(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path)
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=fcd)
+    p = fcd / "preferences.yaml.custom"
+    p.write_text(_fixgw_text(fcd).replace("AB4549", "A00001"), encoding="utf-8")
+    hand = _fixgw_text(fcd)
+    summary = config_pull.install_config(_served("PFD_AI_ONLY", prefs=None), cd=cd, fcd=fcd)
+    assert _fixgw_text(fcd) == hand
+    assert summary["fixgw"]["changed"] is False
+    assert "fixgw_ownship_address" not in _read(cd, ".panel_prefs.yaml")
+
+
+def test_no_block_and_no_record_never_reads_fixgw(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path, text="{not: [valid\n")
+    summary = config_pull.install_config(_served("PFD_AI_ONLY"), cd=cd, fcd=fcd)
+    assert summary["fixgw"] == {"ownship_address": None, "changed": False}
+    assert _read(cd, ".panel_prefs.yaml") == {"units": ["Pressure"]}
+
+
+def test_malformed_fixgw_block_changes_nothing(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path)
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=fcd)
+    good = _fixgw_text(fcd)
+    for bad in ("fixgw: AB4549\n",
+                "fixgw:\n  ownship_address: 123456\n",          # unquoted -> int
+                'fixgw:\n  ownship_address: "AB454"\n',
+                'fixgw:\n  ownship_address: "000000"\n',
+                'fixgw:\n  ownship_address: "GHIJKL"\n'):
+        summary = config_pull.install_config(_served("PFD_AI_ONLY", prefs=bad), cd=cd, fcd=fcd)
+        assert _fixgw_text(fcd) == good, bad
+        assert summary["fixgw"]["changed"] is False, bad
+        assert summary["fixgw"]["skipped"] == "malformed fixgw block", bad
+        assert _read(cd, ".panel_prefs.yaml")["fixgw_ownship_address"] == "AB4549", bad
+
+
+def test_no_fixgw_install_is_skipped_and_not_recorded(tmp_path):
+    cd = _config_dir(tmp_path)
+    summary = config_pull.install_config(
+        _served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=tmp_path / "absent")
+    assert summary["fixgw"]["skipped"] == "no fix-gateway config dir"
+    assert not (tmp_path / "absent").exists()
+    assert not (cd / ".panel_prefs.yaml").exists()
+
+
+def test_unreadable_fixgw_custom_is_left_alone(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path, text="- a list\n- not a map\n")
+    summary = config_pull.install_config(
+        _served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=fcd)
+    assert _fixgw_text(fcd) == "- a list\n- not a map\n"
+    assert "not a readable YAML mapping" in summary["fixgw"]["skipped"]
+
+
+def test_missing_fixgw_custom_is_created(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path, text=None)
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=fcd)
+    assert _merged(fcd) == {"ownship_address": "AB4549"}
+
+
+def test_units_and_ownship_share_the_record(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path)
+    config_pull.install_config(
+        _served("PFD_AI_ONLY", prefs=_SERVED_HPA + _SERVED_N825V), cd=cd, fcd=fcd)
+    assert _read(cd, ".panel_prefs.yaml") == {
+        "units": ["Pressure"], "fixgw_ownship_address": "AB4549"}
+    assert _read(cd, "preferences.yaml.custom")["units"] == {"Pressure": "hPa"}
+    # Dropping the unit keeps the address, and the other way round.
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=fcd)
+    assert _read(cd, ".panel_prefs.yaml") == {"units": [], "fixgw_ownship_address": "AB4549"}
+    assert _merged(fcd)["ownship_address"] == "AB4549"
+
+
+def test_rollback_fixgw_restores_the_previous_file(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path)
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=fcd)
+    assert config_pull.rollback(cd=cd) == "previous panel"
+    assert config_pull.rollback_fixgw(cd=cd, fcd=fcd) is True
+    assert _fixgw_text(fcd) == _FIXGW_CUSTOM
+    assert not (cd / ".panel_prefs.yaml").exists()           # record of the failed install
+    assert config_pull.rollback_fixgw(cd=cd, fcd=fcd) is False   # nothing left to undo
+
+
+def test_rollback_fixgw_removes_a_file_the_failed_install_created(tmp_path):
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path, text=None)
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=_SERVED_N825V), cd=cd, fcd=fcd)
+    assert (fcd / "preferences.yaml.custom").exists()
+    assert config_pull.rollback_fixgw(cd=cd, fcd=fcd) is True
+    assert not (fcd / "preferences.yaml.custom").exists()
+
+
+def test_cli_restarts_fixgw_on_change_and_rolls_it_back_on_a_crash(tmp_path, monkeypatch):
+    import argparse
+    from pyefis_data import cli
+    from pyefis_data.config import write_config
+    cd, fcd = _config_dir(tmp_path), _fixgw_dir(tmp_path)
+    monkeypatch.setenv("FIXGW_CONFIG_DIR", str(fcd))
+    data = tmp_path / "data.yaml"
+    write_config(data, {"device_token": "t", "config_version": 4})
+    monkeypatch.setattr(config_pull, "config_dir", lambda: cd)
+    monkeypatch.setattr(config_pull, "fetch_config", lambda cfg: (
+        "updated", 5, _served("PFD_AI_ONLY", prefs=_SERVED_N825V), '"v5-p1"'))
+    calls = []
+    monkeypatch.setattr(config_pull, "restart_fixgw",
+                        lambda: calls.append(_merged(fcd).get("ownship_address")) or True)
+    monkeypatch.setattr(config_pull, "restart_pyefis", lambda **kw: True)
+    monkeypatch.setattr(config_pull, "restart_and_verify",
+                        lambda **kw: config_pull.RESTART_OK)
+    args = argparse.Namespace(config=str(data), configurator_url=None,
+                              no_restart=False, wait_online=0)
+    assert cli.cmd_config_pull(args) == 0
+    assert calls == ["AB4549"]                       # restarted with the new key
+    # Same address again (a panel-only change): no fix-gateway restart.
+    monkeypatch.setattr(config_pull, "fetch_config", lambda cfg: (
+        "updated", 6, _served("PFD_AI_ONLY", prefs=_SERVED_N825V), '"v6-p1"'))
+    assert cli.cmd_config_pull(args) == 0
+    assert calls == ["AB4549"]
+    # Blank address, and the new panel crashes pyEfis: the removal is undone.
+    monkeypatch.setattr(config_pull, "fetch_config", lambda cfg: (
+        "updated", 7, _served("PFD_AI_ONLY", prefs=None), '"v7"'))
+    monkeypatch.setattr(config_pull, "restart_and_verify",
+                        lambda **kw: config_pull.RESTART_CRASHED)
+    assert cli.cmd_config_pull(args) == 1
+    assert calls == ["AB4549", None, "AB4549"]      # removed, then rolled back
+    assert _merged(fcd)["ownship_address"] == "AB4549"
+    assert _read(cd, ".panel_prefs.yaml")["fixgw_ownship_address"] == "AB4549"
+
+
+def test_restart_fixgw_finds_the_loaded_unit(monkeypatch):
+    import subprocess as sp
+    seen = []
+
+    def run(argv, **kw):
+        seen.append(argv)
+        if "LoadState" in argv:
+            loaded = argv[-4] == "fixgateway" and "--user" not in argv
+            return sp.CompletedProcess(argv, 0, stdout="loaded" if loaded else "not-found")
+        return sp.CompletedProcess(argv, 0, stdout="")
+
+    monkeypatch.setattr(config_pull.subprocess, "run", run)
+    assert config_pull.restart_fixgw() is True
+    assert seen[-1] == ["systemctl", "restart", "fixgateway"]
+    monkeypatch.setattr(config_pull.subprocess, "run",
+                        lambda argv, **kw: sp.CompletedProcess(argv, 0, stdout="masked"))
+    assert config_pull.restart_fixgw() is None
+
