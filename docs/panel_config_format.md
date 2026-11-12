@@ -137,6 +137,7 @@ by the paired device:
 ```
 GET /device/config            Authorization: Bearer <device token>
   -> 200  application/x-yaml   + ETag: "v<n>" | "v<n>-p<hash>"  + X-Config-Version: <n>
+          (aircraft references resolved -- see "Aircraft references" below)
   -> 304  (when If-None-Match matches the current ETag — a cheap poll)
   -> 404  no config yet
   -> 401  missing / unknown token
@@ -218,6 +219,46 @@ fixgw:
   crashed install puts it back (or removes a file the install created) and
   restarts fix-gateway again.
 - The preview endpoint returns the block as `fixgw` beside `preferences`.
+
+### Aircraft references: a gauge bound to a tank (FUEL1 F3)
+
+A bar or arc gauge can hold a reference to a fuel tank on the aircraft
+profile instead of a FIX key: `tank: tk_19c2`, the tank's stable id
+([fuel_provider_model.md](fuel_provider_model.md) section 5). The stored panel
+keeps only the id. When the config is served, the Worker resolves it against
+the project's **active** profile (`resolveAircraftRefs`, `src/aircraft_refs.ts`
+over `public/aircraft_refs.js`) and the device receives plain pyEfis options:
+
+```yaml
+options:                options:                    options:
+  tank: tk_19c2   ->      dbkey: FUELQ3       or      name: L TIP     # its last label
+                          name: L TIP                 unbound: true   # no dbkey at all
+```
+
+- **Resolved:** `dbkey: FUELQ<slot>` and `name: <label>`; the `tank` key is
+  removed. A rename or a rewire on the aircraft page reaches the device on its
+  next pull with no panel edit.
+- **Orphaned** (the tank was removed, the profile has no fuel group, or there
+  is no active profile): no `dbkey`, `unbound: true`, and the label the tank
+  last had in any saved profile version (else the panel's own `name`). pyEfis
+  draws its failed-sensor state and never looks up a key (pyEfis#452), so a
+  removed tank can neither stop pyEfis at boot nor read another tank's value.
+- **ETag:** the hash covers the resolved bindings (each gauge's position, id,
+  key and label), so a rename, a rewire or a removal is a new config. Editing
+  another tank, or any value no binding uses, is not.
+- **A panel with no reference** is served exactly as before: the same text,
+  unparsed, and the same ETag. A panel with one is parsed and re-dumped the way
+  the editor saves it (js-yaml, `lineWidth: 100`), which is how every
+  editor-saved panel was written in the first place.
+- The same resolver serves three callers, so they cannot disagree:
+  `GET /device/config`; **Download YAML** in the editor
+  (`GET /api/devices/:id/config/served`, the last saved version exactly as the
+  next pull receives it, same ETag); and the editor preview, which imports
+  `/aircraft_refs.js` and resolves each gauge before drawing it.
+- The picker's data: `GET /api/projects/:id/aircraft/refs?source=aircraft.fuel.tanks`
+  (or `/api/devices/:id/aircraft/refs?...`) returns
+  `{source, items: [{id, label, slot, role, slot_key}], retired: {id: last label}}`.
+  An unknown source is a 400.
 
 Each pull stamps `last_pull_at`. The on-Pi updater then atomic-swaps the screen +
 `main` into the device's config (see [device_deployment.md](device_deployment.md),
