@@ -321,6 +321,7 @@
   <span id="status"></span>
   <button id="del">Delete</button>
   <button id="save" class="btn primary">Save</button>
+  <button id="download" title="The saved config exactly as the device's next pull receives it">Download YAML</button>
   <a class="btn" href="/">Done</a>
 </header>
 
@@ -348,6 +349,11 @@ const state = {
   // Altimeter-setting unit from the project's aircraft profile (#108), as the
   // device will receive it in preferences units.Pressure. inHg = pyEfis default.
   baroUnit: "inHg",
+  // Aircraft references (FUEL1 F3): the shared resolver module
+  // (/aircraft_refs.js, the one GET /device/config runs) and the profile's
+  // items and retired labels per source, so a gauge bound to a tank previews
+  // the dbkey and name the device will receive. null = no device / no module.
+  aircraftRefs: null,
   // Panel colour theme (PANEL_THEMES id) the twin resolves colour tokens with.
   theme: "builtin",
   screen: { width: 1280, height: 800, inches: 10.1 },  // device physical display (shared by all screens)
@@ -2981,7 +2987,7 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
   // Draw what the device draws: colour tokens resolved through the active panel
   // theme. A container keeps the real record (its twin writes activeTab) and
   // resolves its own colours.
-  if (!(depth === 0 && meta.containers && meta.containers.length)) inst = themedInstrument(inst);
+  if (!(depth === 0 && meta.containers && meta.containers.length)) inst = themedInstrument(refResolved(inst));
   if (inst.type === "group") {
       el.classList.add("group");
       const def = state.groupsById[inst.id];
@@ -3959,6 +3965,17 @@ function applyThemeColors(type, options, prefs) {
 // The instrument as the twin should draw it: colour tokens resolved against
 // the active panel theme. The SAME object when nothing changes, so a panel
 // with no tokens renders exactly as it did before tokens existed.
+// The instrument as the device will receive it: its aircraft references
+// resolved by the same function as GET /device/config. A tank reference
+// becomes the tank's slot key and label; a reference to a removed tank becomes
+// `unbound: true` under its last label.
+function refResolved(inst) {
+  const R = state.aircraftRefs;
+  if (!R || !inst.options) return inst;
+  const r = R.mod.resolveOptions(inst.type, inst.options, R.items, R.retired);
+  return r.options === inst.options ? inst : { ...inst, options: r.options };
+}
+
 function themedInstrument(inst) {
   const before = inst.options || {};
   const after = applyThemeColors(inst.type, before, activeThemePreferences());
@@ -4673,6 +4690,7 @@ document.addEventListener("keydown", (e) => {
 $("guides-sel").addEventListener("change", (e) => { state.guides = e.target.value; renderGuides(); });
 
 $("save").addEventListener("click", save);
+$("download").addEventListener("click", downloadServed);
 async function save() {
   if (!deviceId) { setStatus("No device - open the editor from a project."); return; }
   setStatus("Saving...");
@@ -4685,6 +4703,21 @@ async function save() {
   if (res.ok) { const { version } = await res.json(); setStatus("Saved (v" + version + ")"); }
   else if (res.status === 401) { setStatus("Signed out - reload."); }
   else { setStatus("Save failed (" + res.status + ")"); }
+}
+
+// The last SAVED version, resolved and with its profile blocks, from the
+// same function the device pull uses -- not the unsaved canvas.
+async function downloadServed() {
+  if (!deviceId) { setStatus("No device - open the editor from a project."); return; }
+  const res = await fetch(`/api/devices/${deviceId}/config/served`, { credentials: "same-origin" });
+  if (res.status === 404) { setStatus("Nothing saved yet."); return; }
+  if (!res.ok) { setStatus("Download failed (" + res.status + ")"); return; }
+  const m = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await res.blob());
+  a.download = m ? m[1] : "config.yaml";
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 async function load() {
@@ -4961,6 +4994,19 @@ async function boot() {
       const u = pr && pr.preferences && pr.preferences.units && pr.preferences.units.Pressure;
       if (u === "hPa" || u === "inHg") state.baroUnit = u;
     } catch (_) { /* no profile preferences -- preview the inHg default */ }
+    try {
+      const mod = await import("/aircraft_refs.js");
+      const refs = { mod, items: {}, retired: {} };
+      for (const src of new Set(Object.values(mod.AIRCRAFT_REFS).map((r) => r.source))) {
+        const res = await fetch(`/api/devices/${deviceId}/aircraft/refs?source=${encodeURIComponent(src)}`,
+          { credentials: "same-origin" });
+        if (!res.ok) continue;
+        const j = await res.json();
+        refs.items[src] = j.items || [];
+        Object.assign(refs.retired, j.retired || {});
+      }
+      state.aircraftRefs = refs;
+    } catch (_) { /* no resolver -- references preview as stored */ }
   }
   await load();
   buildScreenControls();
