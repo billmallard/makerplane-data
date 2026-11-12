@@ -6,7 +6,11 @@ Builds eight tables from one FAACIFP18-format file: ``airways`` +
 ``transitions`` + ``legs`` (SID/STAR/Approach, ``PD``/``PE``/``PF``),
 ``msa`` (Airport MSA, ``PS``; AER-4446, additive -- see ``_build_msa``) and
 ``grid_mora_bands`` + ``grid_mora`` (Grid MORA, ``AS``; AER-4447, additive).
-Each addition moves schema_version, see ``packmeta.PROCEDURES_TABLE_SCHEMAS``.
+Each table addition moves schema_version, see ``packmeta.PROCEDURES_TABLE_SCHEMAS``.
+A new column does not (readers select by name; the published format rule):
+``airway_legs.min_alt2_ft`` (AER-5460) is the ER record's second Minimum
+Altitude, the MEA for travel against ``seq`` order, NULL where the record
+leaves it blank -- and absent from packs built before it.
 Schema is brief section 3.3/3.4's, with one addition: ``idx_awy_ident`` is a
 UNIQUE index (AER-1979) so a route ident colliding across areas fails the
 build loudly instead of silently merging two airways into one row -- see
@@ -53,7 +57,8 @@ CREATE TABLE airway_legs (
     fix_type    TEXT,
     min_alt_ft  INTEGER,
     max_alt_ft  INTEGER,
-    direction   TEXT
+    direction   TEXT,
+    min_alt2_ft INTEGER   -- MEA against seq order; NULL = same as min_alt_ft
 );
 CREATE UNIQUE INDEX idx_awy_ident ON airways(ident);
 CREATE INDEX idx_awyleg_awy ON airway_legs(airway_id, seq);
@@ -222,10 +227,11 @@ def _build_airways(con: sqlite3.Connection, path: Path,
             airway_ids[leg.route_ident] = airway_id
         con.execute(
             "INSERT INTO airway_legs (airway_id, seq, fix_id, fix_lat, fix_lon, "
-            "fix_type, min_alt_ft, max_alt_ft, direction) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "fix_type, min_alt_ft, max_alt_ft, direction, min_alt2_ft) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (airway_id, leg.seq, leg.fix_id, leg.fix_lat, leg.fix_lon,
-             leg.fix_type, leg.min_alt_ft, leg.max_alt_ft, leg.direction))
+             leg.fix_type, leg.min_alt_ft, leg.max_alt_ft, leg.direction,
+             leg.min_alt2_ft))
         n += 1
     con.commit()
     return n
