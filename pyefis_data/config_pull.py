@@ -41,6 +41,18 @@ config-pull set is recorded in ``.panel_prefs.yaml``, so when the profile stops
 setting one (the block is absent) only a key config-pull itself wrote is
 removed -- a hand-set unit is never touched. A malformed block changes nothing.
 
+**fix-gateway settings** (P3f, AER-5458): the served YAML may also carry a
+top-level ``fixgw:`` block, today only ``ownship_address: "<6 hex>"``, the
+aircraft's own 24-bit ADS-B address. That one key is written as a top-level
+``ownship_address:`` line in fix-gateway's ``preferences.yaml.custom``, where
+the stratux traffic writer uses it when its connection's own value is blank.
+The file is edited as text, so every other line and comment there is kept
+byte-for-byte, and the edit is checked by re-parsing before it is written.
+The value written is recorded in ``.panel_prefs.yaml``; a blank address
+removes only a line config-pull wrote. fix-gateway's file is snapshotted with
+the panel, and a crashed install restores it. fix-gateway is restarted only
+when its file changed.
+
 The shipped config files are never modified. Before each install the current
 panel state is snapshotted to ``.panel_backup/`` so a config that crashes pyEfis
 is rolled back to the last working panel. Every write is atomic (temp +
@@ -69,6 +81,16 @@ _BACKUP_DIR = ".panel_backup"
 # (from the served preferences block), so a group the profile no longer sets is
 # removed without touching one the user set by hand. Snapshotted with the panel.
 _PREFS_RECORD = ".panel_prefs.yaml"
+
+# fix-gateway's user config dir (its server copies the package config here and
+# merges preferences.yaml.custom over preferences.yaml) and the one key
+# config-pull writes there. The snapshot copy lives under .panel_backup/.
+_DEFAULT_FIXGW_CONFIG = "~/makerplane/fixgw/config"
+_FIXGW_CUSTOM = "preferences.yaml.custom"
+_FIXGW_KEY = "ownship_address"
+_FIXGW_BACKUP = "fixgw/preferences.yaml.custom"
+_FIXGW_MARK = ("# ownship_address: set by pyefis-data config-pull from the "
+               "configurator's aircraft profile.")
 
 # Standard on-device SVS data layout (the makerplane-data updater installs here).
 # Injected into a virtual_vfr instrument so it renders terrain, mirroring the
@@ -126,6 +148,11 @@ def _switch_button_cfg(suffix: int, target: str) -> str:
 def config_dir() -> Path:
     return Path(os.path.expanduser(
         os.environ.get("PYEFIS_CONFIG_DIR", _DEFAULT_PYEFIS_CONFIG)))
+
+
+def fixgw_config_dir() -> Path:
+    return Path(os.path.expanduser(
+        os.environ.get("FIXGW_CONFIG_DIR", _DEFAULT_FIXGW_CONFIG)))
 
 
 def fetch_config(cfg) -> tuple[str, int | None, str | None]:
@@ -244,7 +271,7 @@ def _managed_rel_paths(cd: Path) -> list[str]:
     return rels
 
 
-def _snapshot(cd: Path) -> None:
+def _snapshot(cd: Path, fcd: Path | None = None) -> None:
     """Snapshot the current panel state to ``.panel_backup/`` so a failed swap
     can be rolled back to the last working panel. Taken before any install write,
     so it captures the PREVIOUS (working) config."""
@@ -260,11 +287,27 @@ def _snapshot(cd: Path) -> None:
             dst.write_text(src.read_text("utf-8"), encoding="utf-8")
             present.append(rel)
     (bk / "manifest.txt").write_text("\n".join(present), encoding="utf-8")
+    _snapshot_fixgw(bk, fcd)
     # Keep a one-time PRISTINE override (pre-ANY-panel) as the ultimate fallback.
     custom = cd / "preferences.yaml.custom"
     prepanel = cd / "preferences.yaml.custom.prepanel"
     if custom.exists() and not prepanel.exists():
         _atomic_write(prepanel, custom.read_text("utf-8"))
+
+
+def _snapshot_fixgw(bk: Path, fcd: Path | None) -> None:
+    """Add fix-gateway's preferences.yaml.custom to the snapshot: its text, or
+    an ``absent`` marker when there is none, so rollback can remove a file the
+    failed install created. Nothing when fix-gateway has no config dir here."""
+    if fcd is None or not fcd.is_dir():
+        return
+    src = fcd / _FIXGW_CUSTOM
+    dst = bk / _FIXGW_BACKUP
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if src.exists():
+        dst.write_text(src.read_text("utf-8"), encoding="utf-8")
+    else:
+        (bk / (_FIXGW_BACKUP + ".absent")).write_text("", encoding="utf-8")
 
 
 def _load_custom(cd: Path) -> dict:
@@ -307,14 +350,29 @@ def _served_units(prefs):
     return {g.strip(): u.strip() for g, u in units.items()}
 
 
-def _load_prefs_record(cd: Path) -> list[str]:
+def _load_record(cd: Path) -> dict:
     import yaml
     try:
         rec = yaml.safe_load((cd / _PREFS_RECORD).read_text("utf-8")) or {}
-        groups = rec.get("units") if isinstance(rec, dict) else None
-        return [g for g in groups if isinstance(g, str)] if isinstance(groups, list) else []
     except Exception:
-        return []
+        return {}
+    return rec if isinstance(rec, dict) else {}
+
+
+def _update_record(cd: Path, key: str, value) -> None:
+    """Set (or, for None, drop) one key of the record, keeping the others."""
+    import yaml
+    rec = _load_record(cd)
+    if value is None:
+        rec.pop(key, None)
+    else:
+        rec[key] = value
+    _atomic_write(cd / _PREFS_RECORD, yaml.safe_dump(rec, sort_keys=False))
+
+
+def _load_prefs_record(cd: Path) -> list[str]:
+    groups = _load_record(cd).get("units")
+    return [g for g in groups if isinstance(g, str)] if isinstance(groups, list) else []
 
 
 def _apply_preferences(cd: Path, custom: dict, prefs) -> dict:
@@ -326,7 +384,6 @@ def _apply_preferences(cd: Path, custom: dict, prefs) -> dict:
     Only ``units.<group>`` keys are written, and a group is only removed if
     the record says config-pull wrote it -- every other key in the file, and a
     unit the user set by hand, is left alone."""
-    import yaml
     served = _served_units(prefs)
     if served is _MALFORMED:
         return {}
@@ -346,9 +403,94 @@ def _apply_preferences(cd: Path, custom: dict, prefs) -> dict:
     else:
         custom.pop("units", None)
     if served or previous:
-        _atomic_write(cd / _PREFS_RECORD, yaml.safe_dump(
-            {"units": sorted(served)}, sort_keys=False))
+        _update_record(cd, "units", sorted(served))
     return served
+
+
+def _served_ownship(block):
+    """The ``ownship_address`` of a served ``fixgw:`` block, upper case.
+
+    None when the block is absent or sets no address (the profile does not
+    manage it); ``_MALFORMED`` when it is present but not a mapping, or the
+    address is not a quoted six-hex-digit string other than 000000. Never
+    raises."""
+    if block is None:
+        return None
+    if not isinstance(block, dict):
+        return _MALFORMED
+    addr = block.get(_FIXGW_KEY)
+    if addr is None or addr == "":
+        return None
+    if not (isinstance(addr, str) and re.fullmatch(r"[0-9A-Fa-f]{6}", addr.strip())
+            and int(addr, 16) != 0):
+        return _MALFORMED
+    return addr.strip().upper()
+
+
+def _ownship_lines_removed(text: str) -> str:
+    """``text`` without config-pull's marker comment and any top-level
+    ``ownship_address:`` line."""
+    out = [l for l in text.splitlines(keepends=True)
+           if l.rstrip("\r\n") != _FIXGW_MARK
+           and not re.match(r"ownship_address[ \t]*:", l)]
+    return "".join(out)
+
+
+def _apply_fixgw(cd: Path, fcd: Path | None, block) -> dict:
+    """Write the served ``fixgw:`` block's ownship address into fix-gateway's
+    preferences.yaml.custom, as one top-level line. Returns
+    ``{"ownship_address": <now managed, or None>, "changed": bool}`` plus a
+    ``skipped`` reason when nothing could be done.
+
+    The file is edited as text, never re-dumped, so its comments and layout
+    survive; the result must parse to exactly the old mapping with only this
+    key changed, or nothing is written. A blank address removes the line only
+    if it still holds the value config-pull recorded writing -- one the user
+    changed by hand is left. A malformed block changes nothing."""
+    import yaml
+    served = _served_ownship(block)
+    if served is _MALFORMED:
+        return {"ownship_address": None, "changed": False, "skipped": "malformed fixgw block"}
+    previous = _load_record(cd).get("fixgw_ownship_address")
+    previous = previous if isinstance(previous, str) else None
+    result = {"ownship_address": served, "changed": False}
+    if served is None and previous is None:
+        return result
+    if fcd is None or not fcd.is_dir():
+        result["skipped"] = "no fix-gateway config dir"
+        return result
+    path = fcd / _FIXGW_CUSTOM
+    try:
+        text = path.read_text("utf-8") if path.exists() else ""
+        old = yaml.safe_load(text) if text.strip() else {}
+    except Exception:
+        old = None
+    if not isinstance(old, dict):
+        result["skipped"] = f"{path} is not a readable YAML mapping"
+        return result
+    current = old.get(_FIXGW_KEY)
+    if served is None and current != previous:
+        _update_record(cd, "fixgw_ownship_address", None)   # not ours any more
+        return result
+    new_text = _ownship_lines_removed(text)
+    want = {k: v for k, v in old.items() if k != _FIXGW_KEY}
+    if served is not None:
+        if new_text and not new_text.endswith("\n"):
+            new_text += "\n"
+        new_text += f'{_FIXGW_MARK}\n{_FIXGW_KEY}: "{served}"\n'
+        want[_FIXGW_KEY] = served
+    try:
+        ok = (yaml.safe_load(new_text) or {}) == want
+    except Exception:
+        ok = False
+    if not ok:
+        result["skipped"] = f"could not edit {path} safely"
+        return result
+    if new_text != text:
+        _atomic_write(path, new_text)
+        result["changed"] = True
+    _update_record(cd, "fixgw_ownship_address", served)
+    return result
 
 
 def _clear_managed_includes(inc: dict, boot: str) -> None:
@@ -363,7 +505,8 @@ def _clear_managed_includes(inc: dict, boot: str) -> None:
         del inc[k]
 
 
-def install_config(yaml_text: str, cd: Path | None = None) -> dict:
+def install_config(yaml_text: str, cd: Path | None = None,
+                   fcd: Path | None = None) -> dict:
     """Install a pulled native config ({main, screens}) as the managed panel.
 
     Returns a summary dict (always with ``boot_screen`` + ``screens``). Raises
@@ -372,6 +515,7 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
     """
     import yaml
     cd = cd or config_dir()
+    fcd = fcd or fixgw_config_dir()
     doc = yaml.safe_load(yaml_text)
     if not isinstance(doc, dict) or not isinstance(doc.get("screens"), dict) or not doc["screens"]:
         raise ValueError("config is not native pyEfis form (no 'screens:' block) -- "
@@ -383,11 +527,12 @@ def install_config(yaml_text: str, cd: Path | None = None) -> dict:
         default_name = next(iter(screens))
     boot = _device_default_screen(cd)
 
-    _snapshot(cd)                       # capture the working state for rollback
+    _snapshot(cd, fcd)                  # capture the working state for rollback
     if len(screens) == 1:
         summary = _install_single(cd, screens[default_name], boot, prefs)
     else:
         summary = _install_multi(cd, screens, default_name, boot, prefs)
+    summary["fixgw"] = _apply_fixgw(cd, fcd, doc.get("fixgw"))
     summary["config_dir"] = str(cd)
     return summary
 
@@ -570,13 +715,13 @@ def _systemctl_base(scope: str) -> tuple[list[str], dict]:
     return (["systemctl"], env)
 
 
-def _unit_loaded(scope: str) -> bool:
-    """True if a pyefis unit is loaded in ``scope`` (LoadState is 'loaded', not
-    'not-found'/empty). Never raises -- a missing systemctl or unreachable bus
-    reads as 'not loaded here'."""
+def _unit_loaded(scope: str, unit: str = _UNIT) -> bool:
+    """True if ``unit`` (default pyefis) is loaded in ``scope`` (LoadState is
+    'loaded', not 'not-found'/'masked'/empty). Never raises -- a missing
+    systemctl or unreachable bus reads as 'not loaded here'."""
     base, env = _systemctl_base(scope)
     try:
-        out = subprocess.run(base + ["show", _UNIT, "-p", "LoadState", "--value"],
+        out = subprocess.run(base + ["show", unit, "-p", "LoadState", "--value"],
                              env=env, capture_output=True, text=True, timeout=10)
     except Exception:
         return False
@@ -620,6 +765,29 @@ def restart_pyefis(timeout: int = 120, scope: str | None = None) -> bool:
         return True
     except Exception:
         return False
+
+
+# fix-gateway's unit: `fixgw` on the Pi image (a venv build), `fixgateway` as
+# fix-gateway's own extras/fixgateway.service names it.
+_FIXGW_UNITS = ("fixgw", "fixgateway")
+
+
+def restart_fixgw(timeout: int = 60) -> bool | None:
+    """Restart fix-gateway so it re-reads preferences.yaml.custom. True on a
+    successful restart command, False if it failed, None if no fix-gateway
+    unit is loaded in either scope (nothing to restart here). Never raises."""
+    for unit in _FIXGW_UNITS:
+        for scope in ("user", "system"):
+            if _unit_loaded(scope, unit):
+                base, env = _systemctl_base(scope)
+                try:
+                    subprocess.run(base + ["restart", unit], check=True, env=env,
+                                   timeout=timeout, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
+                    return True
+                except Exception:
+                    return False
+    return None
 
 
 def _systemctl_show(prop: str, scope: str) -> str:
@@ -715,3 +883,23 @@ def rollback(cd: Path | None = None) -> str:
         _atomic_write(cd / "preferences.yaml.custom", prepanel.read_text("utf-8"))
         return "stock config"
     return "nothing to restore"
+
+
+def rollback_fixgw(cd: Path | None = None, fcd: Path | None = None) -> bool:
+    """Put fix-gateway's preferences.yaml.custom back as the pre-install
+    snapshot holds it (removing one the failed install created). Returns True
+    if the file changed, so the caller knows to restart fix-gateway."""
+    cd = cd or config_dir()
+    fcd = fcd or fixgw_config_dir()
+    bk = cd / _BACKUP_DIR
+    path = fcd / _FIXGW_CUSTOM
+    saved = bk / _FIXGW_BACKUP
+    if saved.exists():
+        text = saved.read_text("utf-8")
+        if not path.exists() or path.read_text("utf-8") != text:
+            _atomic_write(path, text)
+            return True
+    elif (bk / (_FIXGW_BACKUP + ".absent")).exists() and path.exists():
+        path.unlink()
+        return True
+    return False

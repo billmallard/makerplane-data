@@ -182,6 +182,43 @@ preferences:
   `GET /api/devices/:id/preferences` and shows a `pressure: true`
   `numeric_display` in that unit.
 
+### fix-gateway block: the ownship address (P3f)
+
+The ADS-B traffic writer in fix-gateway drops reports carrying the aircraft's
+own 24-bit address (`ownship_address`). The profile holds it as
+`meta.registration` (a US N-number derives the address) or `meta.icao_address`
+(hex, wins when both are set). When either yields an address, the served YAML
+gets a second top-level block:
+
+```yaml
+fixgw:
+  ownship_address: "AB4549"   # N825V; always quoted, six upper-case hex digits
+```
+
+- Absent when the profile sets neither, so the body and ETag are what they
+  were. The ETag hash covers this block too; a profile with only a baro unit
+  keeps exactly the hash it had before, so adding this block re-pulls no
+  device that has no address. A stored panel with its own top-level `fixgw:`
+  key gets no second one.
+- On the device, `pyefis-data config-pull` writes that one key as a top-level
+  `ownship_address:` line (under a marker comment) in fix-gateway's
+  `~/makerplane/fixgw/config/preferences.yaml.custom` (`FIXGW_CONFIG_DIR`
+  overrides the directory). The file is edited as text, so every other line
+  and comment is kept byte-for-byte; the edit is re-parsed and must change only
+  that key, or nothing is written. fix-gateway reads the key as the stratux
+  connection's `ownship_address` when the connection's own value is blank
+  (the fix-gateway change is AER-5468; a fix-gateway without it ignores the
+  key, so traffic is filtered by the receiver's own report only).
+- The value written is recorded in `.panel_prefs.yaml`. A blank address removes
+  the line only if it still holds the recorded value; a hand-edited one stays.
+  A malformed block, a missing fix-gateway config dir, or an unreadable
+  override changes nothing and is reported.
+- fix-gateway (`fixgw` or `fixgateway` unit, user or system scope) is restarted
+  only when its file changed. Its override is in the panel snapshot, so a
+  crashed install puts it back (or removes a file the install created) and
+  restarts fix-gateway again.
+- The preview endpoint returns the block as `fixgw` beside `preferences`.
+
 Each pull stamps `last_pull_at`. The on-Pi updater then atomic-swaps the screen +
 `main` into the device's config (see [device_deployment.md](device_deployment.md),
 P3). Because the artifact is already pyEfis config, "install" is a file drop, not
