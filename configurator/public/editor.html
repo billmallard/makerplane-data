@@ -112,6 +112,20 @@
   /* Horizontal: name top-left, value bottom-left, bar full width (HorizontalBar AlignLeft). */
   .bargauge.horiz { align-items: stretch; justify-content: space-between; }
   .bargauge.horiz .g-name, .bargauge.horiz .g-val { text-align: left; }
+  #props select.ref-orphan { border-color: #e0231f; color: #ff7b72; }
+  .ref-warn { color: #ff7b72; font-size: 12px; margin: 4px 0 0; }
+  .ref-note { font-size: 12px; margin: 4px 0 0; }
+  .ref-offer { margin: 10px 0; padding: 8px; border: 1px solid #30363d; border-radius: 6px; }
+  .ref-offer p { margin: 0 0 6px; font-size: 12px; }
+  /* Over the twin, not instead of the selection outline. */
+  /* A border only: the twin inside keeps the device's colours. */
+  .inst.orphan::after, .inst.migrating::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    border: 2px solid #e0231f; }
+  .inst.migrating::after { border: 2px dashed #58a6ff; }
+  /* Below the box, so it never covers what the twin draws. */
+  .inst-note { position: absolute; left: 0; top: 100%; margin-top: 2px; padding: 1px 4px; font: 11px/1.3 system-ui, sans-serif;
+    color: #c9d1d9; background: #161b22; border: 1px solid #30363d; border-radius: 3px; white-space: nowrap;
+    pointer-events: none; z-index: 60; }
   .bargauge .g-track { position: relative; border: 1px solid #30363d; border-radius: 2px; }
   .bargauge.vert .g-track { flex: 1; width: 32%; background: linear-gradient(to top, #e0231f 0 6%, #e8c21a 6% 18%, #22b03a 18% 82%, #e8c21a 82% 94%, #e0231f 94% 100%); }
   .bargauge.vert .g-mark { position: absolute; left: -18%; right: -18%; height: 2px; background: #fff; transform: translateY(50%); }
@@ -354,6 +368,12 @@ const state = {
   // items and retired labels per source, so a gauge bound to a tank previews
   // the dbkey and name the device will receive. null = no device / no module.
   aircraftRefs: null,
+  // The tank-label module (/fuel_label.js, FUEL1 F6): the bar twin's name
+  // line. null until it loads.
+  fuelLabel: null,
+  // A stock-bar migration being previewed in the twin (hover on its offer):
+  // {inst, id}, or null.
+  migrationPreview: null,
   // Panel colour theme (PANEL_THEMES id) the twin resolves colour tokens with.
   theme: "builtin",
   screen: { width: 1280, height: 800, inches: 10.1 },  // device physical display (shared by all screens)
@@ -541,27 +561,55 @@ function sampleGaugeValue(o) {
   return num + (o.show_units ? "°" : "");
 }
 
+// The unbound look (pyEfis AbstractGauge.setUnbound, pyEfis#452): the
+// widget's bad colour set, value text "xxx", the value held at 0 and no
+// bands. A tank reference whose tank is gone is served this way (FUEL1 F5),
+// so the twin draws it too. test/fuel_gauge_twin.test.mjs pins these to what
+// tools/fuel_gauge_oracle.py reads off the real widgets.
+const GAUGE_FAIL = { safe: "#808080", text: "#a0a0a4", pen: "#a0a0a4", value: "xxx" };
+
+// The name line a bar draws (fuel_label.js nameLine, measured off the real
+// widget): the first line of Qt's word wrap at device pixels, so a label too
+// wide for the bar wraps or overflows where the device's does. The whole
+// name until the module has loaded.
+let _nameCtx = null;
+function barNameLine(name, family, px, width) {
+  const F = state.fuelLabel;
+  if (!F || !name) return { text: name || "" };
+  _nameCtx = _nameCtx || document.createElement("canvas").getContext("2d");
+  _nameCtx.font = `${px}px "${family}"`;
+  return F.nameLine(name, width, (t) => _nameCtx.measureText(t).width);
+}
+
 function buildBarGauge(inst, vertical) {
   const o = inst.options || {};
   const r = rect(inst);
+  const fail = o.unbound === true;
+  const family = o.font_family || "DejaVu Sans Condensed";
   const wrap = document.createElement("div");
-  wrap.className = "gauge bargauge " + (vertical ? "vert" : "horiz");
-  wrap.style.color = o.fg_color || "#e6edf3";
-  wrap.style.fontFamily = '"' + (o.font_family || "DejaVu Sans Condensed") + '"';
-  // pyEfis draws the name in a small font and the value ~2x larger (HorizontalBar
-  // bigFont = 4 sections vs name 2; VerticalBar big_font 0.10 vs name 0.08).
-  const nameSz = vertical ? Math.max(7, Math.min(15, r.w * 0.22))
-                          : Math.max(7, Math.min(15, r.h * 0.17));
+  wrap.className = "gauge bargauge " + (vertical ? "vert" : "horiz") + (fail ? " fail" : "");
+  wrap.style.color = fail ? GAUGE_FAIL.text : (o.fg_color || "#e6edf3");
+  wrap.style.fontFamily = '"' + family + '"';
+  // The name font as the widget sizes it, in device pixels: VerticalBar
+  // smallFont = round(h * small_font_percent) over the full width,
+  // HorizontalBar round(h / 12 * 2) from x = 1. Scaled to the canvas.
+  const dev = mapDevicePx(inst), k = r.h / dev.h;
+  const namePx = vertical ? Math.round(dev.h * (o.small_font_percent ?? 0.08)) : Math.round(dev.h / 6);
+  const nameSz = namePx * k;
   const valSz = vertical ? Math.max(9, Math.min(22, r.w * 0.30))
                          : Math.max(9, Math.min(34, r.h * 0.33));
   const name = document.createElement("div"); name.className = "g-name";
-  name.textContent = o.name || ""; name.style.fontSize = nameSz + "px"; wrap.appendChild(name);
+  name.textContent = barNameLine(o.name || "", family, namePx, vertical ? dev.w : dev.w - 1).text;
+  name.style.fontSize = nameSz + "px"; wrap.appendChild(name);
   const track = document.createElement("div"); track.className = "g-track";
+  if (fail) track.style.background = GAUGE_FAIL.safe;
   const mark = document.createElement("div"); mark.className = "g-mark";
-  if (vertical) mark.style.bottom = (GAUGE_FILL * 100) + "%"; else mark.style.left = (GAUGE_FILL * 100) + "%";
+  if (fail) mark.style.background = GAUGE_FAIL.pen;
+  const at = fail ? 0 : GAUGE_FILL;
+  if (vertical) mark.style.bottom = (at * 100) + "%"; else mark.style.left = (at * 100) + "%";
   track.appendChild(mark); wrap.appendChild(track);
   const val = document.createElement("div"); val.className = "g-val";
-  val.textContent = sampleGaugeValue(o); val.style.fontSize = valSz + "px"; wrap.appendChild(val);
+  val.textContent = fail ? GAUGE_FAIL.value : sampleGaugeValue(o); val.style.fontSize = valSz + "px"; wrap.appendChild(val);
   return wrap;
 }
 
@@ -580,31 +628,35 @@ function _arcCW(cx, cy, r, a0, a1) {
 // real FIX min/max + warn/alarm aux (#64).
 function buildArcGauge(inst) {
   const o = inst.options || {};
-  const fg = o.fg_color || "#ffffff";
+  // Unbound: no bands, so the whole sweep is the bad safe colour, the needle
+  // rests at the low end and the text is the bad text colour (GAUGE_FAIL).
+  const fail = o.unbound === true;
+  const fg = fail ? GAUGE_FAIL.text : (o.fg_color || "#ffffff");
   const font = o.font_family || "DejaVu Sans Condensed";
   const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
   const pv = meta.preview || {};
   const la = pv.low_alarm ?? 0.10, lw = pv.low_warn ?? 0.20, hw = pv.high_warn ?? 0.80, ha = pv.high_alarm ?? 0.90;
-  const fill = pv.fill ?? 0.72;
+  const fill = fail ? 0 : (pv.fill ?? 0.72);
   // Wide layout (viewBox ~1.9:1) so the arc fills a 2:1 box like the real
   // ArcGauge (ratio 2) instead of letterboxing square.
   const cx = 50, cy = 44, r = 40, A0 = -90, SPAN = 180, sw = 9;
   const deg = (f) => A0 + f * SPAN, vdeg = deg(fill);
   const tip = _polar(cx, cy, r - 2, vdeg), bl = _polar(cx, cy, 2.5, vdeg - 90), br = _polar(cx, cy, 2.5, vdeg + 90);
-  const valTxt = pv.value !== undefined ? pv.value : sampleGaugeValue(o);
+  const valTxt = fail ? GAUGE_FAIL.value : pv.value !== undefined ? pv.value : sampleGaugeValue(o);
+  const zone = (c) => fail ? GAUGE_FAIL.safe : c;
   const nameTxt = o.name || "DEMO";
   const nameEl = (o.name_location || "top") === "right"
     ? `<text x="97" y="12" fill="${fg}" font-size="9" font-family="${font}" text-anchor="end">${nameTxt}</text>`
     : `<text x="3" y="12" fill="${fg}" font-size="9" font-family="${font}">${nameTxt}</text>`;
   return svgFromString(`
 <svg viewBox="0 0 100 52" preserveAspectRatio="xMidYMid meet" class="gauge-svg">
-  <path d="${_arcCW(cx, cy, r, deg(0), deg(la))}" stroke="#e0231f" stroke-width="${sw}" fill="none"/>
-  <path d="${_arcCW(cx, cy, r, deg(la), deg(lw))}" stroke="#e8c21a" stroke-width="${sw}" fill="none"/>
-  <path d="${_arcCW(cx, cy, r, deg(lw), deg(hw))}" stroke="#22b03a" stroke-width="${sw}" fill="none"/>
-  <path d="${_arcCW(cx, cy, r, deg(hw), deg(ha))}" stroke="#e8c21a" stroke-width="${sw}" fill="none"/>
-  <path d="${_arcCW(cx, cy, r, deg(ha), deg(1))}" stroke="#e0231f" stroke-width="${sw}" fill="none"/>
-  <path d="M${tip.x} ${tip.y} L${bl.x} ${bl.y} L${br.x} ${br.y} Z" fill="#fff"/>
-  <circle cx="${cx}" cy="${cy}" r="2.5" fill="#fff"/>
+  <path d="${_arcCW(cx, cy, r, deg(0), deg(la))}" stroke="${zone("#e0231f")}" stroke-width="${sw}" fill="none"/>
+  <path d="${_arcCW(cx, cy, r, deg(la), deg(lw))}" stroke="${zone("#e8c21a")}" stroke-width="${sw}" fill="none"/>
+  <path d="${_arcCW(cx, cy, r, deg(lw), deg(hw))}" stroke="${zone("#22b03a")}" stroke-width="${sw}" fill="none"/>
+  <path d="${_arcCW(cx, cy, r, deg(hw), deg(ha))}" stroke="${zone("#e8c21a")}" stroke-width="${sw}" fill="none"/>
+  <path d="${_arcCW(cx, cy, r, deg(ha), deg(1))}" stroke="${zone("#e0231f")}" stroke-width="${sw}" fill="none"/>
+  <path d="M${tip.x} ${tip.y} L${bl.x} ${bl.y} L${br.x} ${br.y} Z" fill="${fail ? GAUGE_FAIL.pen : "#fff"}"/>
+  <circle cx="${cx}" cy="${cy}" r="2.5" fill="${fail ? GAUGE_FAIL.pen : "#fff"}"/>
   ${nameEl}
   <text x="98" y="50" fill="${fg}" font-size="19" font-weight="600" font-family="${font}" text-anchor="end">${valTxt}</text>
 </svg>`);
@@ -2983,10 +3035,32 @@ function renderCanvas() {
 // index, depth 1), so a nested instrument gets the exact fidelity a
 // top-level one has (AER-345 sec 4f). `ci`/`depth` are only consulted by the
 // container branch below; depth caps recursion at 1 (see there).
+// Editor chrome over a gauge's twin, never part of it: red when its tank is
+// gone from the profile (the twin itself draws the device's failed look), a
+// dashed outline while a migration is previewed, and, on the selected gauge
+// when it is bound to a tank, the note that its bands are the device's.
+function markTankBinding(el, stored) {
+  const pv = state.migrationPreview;
+  if (pv && pv.inst === stored) el.classList.add("migrating");
+  const b = tankBinding(pv && pv.inst === stored ? { ...stored, options: migratedOptions(stored.options, pv.id) } : stored);
+  if (!b || !state.aircraftRefs) return;
+  if (b.orphan) {
+    el.classList.add("orphan");
+    el.title = `${b.label ? '"' + b.label + '"' : "This gauge"}: its tank is no longer on the aircraft page. `
+      + "The device draws it failed (xxx) until it is bound again.";
+  } else if (!profileBandsOnDevice() && el.classList.contains("sel")) {
+    const note = document.createElement("div");
+    note.className = "inst-note";
+    note.textContent = "bands from the device's fix-gateway";
+    el.appendChild(note);
+  }
+}
+
 function buildInstrumentTwin(el, inst, meta, ci, depth) {
   // Draw what the device draws: colour tokens resolved through the active panel
   // theme. A container keeps the real record (its twin writes activeTab) and
   // resolves its own colours.
+  const stored = inst;
   if (!(depth === 0 && meta.containers && meta.containers.length)) inst = themedInstrument(refResolved(inst));
   if (inst.type === "group") {
       el.classList.add("group");
@@ -3035,6 +3109,7 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       el.appendChild(inst.type === "arc_gauge"
         ? buildArcGauge(inst)
         : buildBarGauge(inst, inst.type === "vertical_bar_gauge"));
+      markTankBinding(el, stored);
     } else if (LIVE_TEXT.has(inst.type)) {
       const o = inst.options;
       const def = TEXT_DEFAULTS[inst.type] || { font: "DejaVu Sans Condensed", pct: 0.5 };
@@ -3428,6 +3503,8 @@ function renderProps() {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
     for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
   }
+  const offer = migrationOffer(inst);
+  if (offer) p.appendChild(offer);
 
   // Container instruments (tab_section's "tabs", per the schema's `containers`
   // metadata -- AER-173 §4g): tab-list CRUD. Dropping/selecting/editing an
@@ -3474,6 +3551,8 @@ function renderNestedProps(p, container, ns, tab, inst) {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
     for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
   }
+  const offer = migrationOffer(inst);
+  if (offer) p.appendChild(offer);
 
   const rm = document.createElement("button");
   rm.textContent = "Remove from tab"; rm.style.marginTop = "8px";
@@ -3972,8 +4051,40 @@ function applyThemeColors(type, options, prefs) {
 function refResolved(inst) {
   const R = state.aircraftRefs;
   if (!R || !inst.options) return inst;
-  const r = R.mod.resolveOptions(inst.type, inst.options, R.items, R.retired);
+  const pv = state.migrationPreview;
+  const opts = pv && pv.inst === inst ? migratedOptions(inst.options, pv.id) : inst.options;
+  const r = R.mod.resolveOptions(inst.type, opts, R.items, R.retired);
   return r.options === inst.options ? inst : { ...inst, options: r.options };
+}
+
+// A stored instrument's tank reference as the device will receive it: null
+// when it holds none, else {id, item, orphan, label}. `orphan` = the active
+// profile has no tank with that id (only known once the refs have loaded);
+// `label` = the tank's label, else the last one it had.
+function tankBinding(inst) {
+  const id = inst && inst.options ? inst.options.tank : undefined;
+  if (id === undefined || id === null || id === "") return null;
+  const R = state.aircraftRefs;
+  const spec = R && R.mod.AIRCRAFT_REFS.tank;
+  if (!R || !spec || !spec.types.includes(inst.type)) return { id: String(id), item: null, orphan: false, label: null };
+  const item = (R.items[spec.source] || []).find((i) => i.id === String(id)) || null;
+  return { id: String(id), item, orphan: !item,
+           label: item ? item.label : (R.retired[String(id)] || inst.options.name || null) };
+}
+
+// Binding a gauge to a tank: the reference replaces the plain dbkey and
+// name, which the resolver writes from the tank (brief section 7).
+function migratedOptions(options, id) {
+  const { dbkey, name, unbound, ...rest } = options || {};
+  return { ...rest, tank: id };
+}
+
+// Whether the twin may draw a tank's bands from the profile: only once the
+// device receives aircraft.ini (Phase C, docs/canfix_configurator.md
+// section 7). Until then the device draws whatever its own fix-gateway
+// init_data says, so the twin keeps its sample bands and says so.
+function profileBandsOnDevice() {
+  return false;
 }
 
 function themedInstrument(inst) {
@@ -4072,6 +4183,8 @@ function optionField(inst, name, spec) {
     inp.placeholder = spec.default ?? "";
     if (cur !== undefined) inp.value = cur;
     inp.addEventListener("input", () => setOpt(inst, name, inp.value === "" ? undefined : parseFloat(inp.value)));
+  } else if (spec.type === "aircraft_ref") {
+    inp = aircraftRefField(inst, name, spec, cur);
   } else if (spec.type === "fixkey") {
     // Type-ahead over the FIX key catalog (datalist#fixkeys), still free-text
     // so a key the catalog doesn't list can be entered.
@@ -4087,8 +4200,137 @@ function optionField(inst, name, spec) {
     if (cur !== undefined) inp.value = cur;
     inp.addEventListener("input", () => setOpt(inst, name, inp.value === "" ? undefined : inp.value));
   }
+  // An option a reference writes (a bound tank's dbkey and name) shows what
+  // the device will receive and is not edited here: the tank picker owns it.
+  if (refWrites(inst, name) && inp.tagName === "INPUT") {
+    inp.disabled = true;
+    const v = refResolved(inst).options[name];
+    if (inp.type === "checkbox") inp.checked = !!v;
+    else { inp.value = v === undefined ? "" : String(v); inp.placeholder = "none (unbound)"; }
+    f.title = "Set by the tank binding";
+  }
   f.appendChild(inp);
   return f;
+}
+
+// The reference option of `inst` that writes option `name`, or null.
+function refWrites(inst, name) {
+  const R = state.aircraftRefs;
+  if (!R || !inst.options) return null;
+  for (const [opt, spec] of Object.entries(R.mod.AIRCRAFT_REFS)) {
+    const v = inst.options[opt];
+    if (spec.types.includes(inst.type) && v !== undefined && v !== null && v !== ""
+        && Object.prototype.hasOwnProperty.call(spec.resolves, name)) return opt;
+  }
+  return null;
+}
+
+// "L TIP - FUELQ3": the label the pilot reads, with the wiring beside it.
+function refItemText(item) {
+  return `${item.label} - ${item.slot_key}`;
+}
+
+// The aircraft_ref picker (FUEL1 F6, brief section 6): a select of the
+// source's items, each shown with its slot, so the builder sees the wiring
+// without choosing by it. A reference the profile no longer has stays
+// selected, in red, under its last label, and says what the device draws.
+function aircraftRefField(inst, name, spec, cur) {
+  const wrap = document.createElement("div");
+  const sel = document.createElement("select");
+  const R = state.aircraftRefs;
+  const items = (R && R.items[spec.source]) || [];
+  const add = (value, text) => {
+    const op = document.createElement("option"); op.value = value; op.textContent = text;
+    sel.appendChild(op); return op;
+  };
+  add("", items.length ? "Not bound (plain FIX key)" : R ? "No tanks on the aircraft page" : "No aircraft profile");
+  for (const it of items) add(it.id, refItemText(it));
+  const id = cur === undefined || cur === null ? "" : String(cur);
+  wrap.appendChild(sel);
+  if (id && !items.some((i) => i.id === id)) {
+    add(id, `${(R && R.retired[id]) || inst.options.name || "unknown tank"} - removed`);
+    sel.classList.add("ref-orphan");
+    const warn = document.createElement("p"); warn.className = "ref-warn";
+    warn.textContent = "This tank is no longer on the aircraft page. The device draws this gauge "
+      + "failed (xxx) under its last label until you bind it to another tank.";
+    wrap.appendChild(warn);
+  }
+  else if (id && !profileBandsOnDevice()) {
+    const note = document.createElement("p"); note.className = "muted ref-note";
+    note.textContent = "Bands: the twin shows sample bands. The device draws this tank's bands "
+      + "from its own fix-gateway until it receives the aircraft's aircraft.ini.";
+    wrap.appendChild(note);
+  }
+  sel.value = id;
+  sel.disabled = !items.length && !id;
+  sel.addEventListener("change", () => {
+    if (sel.value) applyTankBinding(inst, name, sel.value);
+    else unbindTank(inst, name);
+    renderCanvas();
+    renderProps();
+  });
+  return wrap;
+}
+
+// Bind: the reference replaces the plain dbkey and name (migratedOptions).
+function applyTankBinding(inst, name, id) {
+  for (const k of ["dbkey", "name", "unbound"]) delete inst.options[k];
+  inst.options[name] = id;
+}
+
+// Unbind: keep what the device was receiving as plain options, so the gauge
+// goes on reading the same key under the same name. An orphan has no key to
+// keep; it keeps its last label.
+function unbindTank(inst, name) {
+  const r = refResolved(inst).options;
+  delete inst.options[name];
+  delete inst.options.unbound;
+  if (r.dbkey !== undefined) inst.options.dbkey = r.dbkey;
+  if (r.name !== undefined) inst.options.name = r.name;
+}
+
+// The stock-bar migration (brief section 7): a gauge still bound the stock
+// way, `dbkey: FUELQn` with the name exactly "Tank n", when the aircraft has
+// a tank in slot n. Never offered for a hand-edited name.
+function migrationTarget(inst) {
+  const R = state.aircraftRefs;
+  const spec = R && R.mod.AIRCRAFT_REFS.tank;
+  const o = inst.options || {};
+  if (!spec || !spec.types.includes(inst.type) || !state.schema.instruments[inst.type]?.options?.tank) return null;
+  if (o.tank !== undefined && o.tank !== null && o.tank !== "") return null;
+  const m = /^FUELQ([1-9][0-9]*)$/.exec(typeof o.dbkey === "string" ? o.dbkey : "");
+  if (!m || o.name !== `Tank ${m[1]}`) return null;
+  return (R.items[spec.source] || []).find((i) => i.slot === Number(m[1])) || null;
+}
+
+// The one-click offer for that migration. Never silent: nothing changes
+// until the button is pressed, and hovering it previews the new label in
+// the twin first, so the pilot sees the label change before the glass does.
+function migrationOffer(inst) {
+  const it = migrationTarget(inst);
+  if (!it) return null;
+  const box = document.createElement("div"); box.className = "ref-offer";
+  const txt = document.createElement("p");
+  txt.textContent = `This gauge reads ${it.slot_key}, which the aircraft page calls ${it.label}.`;
+  const btn = document.createElement("button");
+  btn.textContent = `Bind to ${it.label}`;
+  btn.title = "Replaces the plain FIX key and name with a binding to this tank";
+  const preview = (on) => {
+    state.migrationPreview = on ? { inst, id: it.id } : null;
+    renderCanvas();
+  };
+  btn.addEventListener("mouseenter", () => preview(true));
+  btn.addEventListener("focus", () => preview(true));
+  btn.addEventListener("mouseleave", () => preview(false));
+  btn.addEventListener("blur", () => preview(false));
+  btn.addEventListener("click", () => {
+    state.migrationPreview = null;
+    applyTankBinding(inst, "tank", it.id);
+    renderCanvas();
+    renderProps();
+  });
+  box.append(txt, btn);
+  return box;
 }
 
 function setOpt(inst, name, value) {
@@ -4977,6 +5219,7 @@ async function boot() {
   if (!me.ok) { location.href = "/"; return; }
   $("ctx").textContent = deviceId ? "device #" + deviceId : "(scratch - no device)";
   state.schema = await (await fetch(ASSETS + "/schema.json")).json();
+  try { state.fuelLabel = await import("/fuel_label.js"); } catch (_) { /* bar names draw whole */ }
   try {
     const fk = await (await fetch(ASSETS + "/fix_keys.json")).json();
     state.fixKeys = fk.keys || [];
