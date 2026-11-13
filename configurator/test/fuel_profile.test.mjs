@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractConst, extractFunction } from "./support/extract.mjs";
+import { labelFitError } from "../public/fuel_label.js";
 import { fuelCheck as serverFuelCheck, TANK_CEILING, TANK_LABEL_MAX, FUEL_ROLES }
   from "../src/fuel_profile.ts";
 import { checkAircraftProfilePut } from "../src/aircraft_profile.ts";
@@ -28,7 +29,7 @@ const FNS = ["normalizeProfile", "newTankId", "migrateFuel", "adoptTankValues",
   "cylinderExpand", "buildIni"];
 // buildIni reads the page's globals: the project label, the saved version,
 // today's date and the profile. Stub all four so two compiles can be compared.
-const page = new Function("$", "PROJECT", "savedVersion", "Date", "env",
+const page = new Function("$", "PROJECT", "savedVersion", "Date", "labelFitError",
   CONSTS.map(n => pick(extractConst, n)).join("\n") + "\n"
   + FNS.map(n => pick(extractFunction, n)).join("\n") + "\n"
   + "let profile;\n"
@@ -36,7 +37,7 @@ const page = new Function("$", "PROJECT", "savedVersion", "Date", "env",
   + ", ini(p) { profile = p; return buildIni(); },"
   + CONSTS.map(n => `${n}: typeof ${n} === "undefined" ? undefined : ${n}`).join(", ") + " };")(
   () => ({ textContent: "Test Project" }), "p1", 7,
-  class { toISOString() { return "2026-11-09T00:00:00.000Z"; } });
+  class { toISOString() { return "2026-11-09T00:00:00.000Z"; } }, labelFitError);
 
 const clone = o => JSON.parse(JSON.stringify(o));
 // The save/load path: PUT body JSON -> D1 TEXT -> GET JSON.parse -> normalize.
@@ -193,6 +194,12 @@ const CASES = [
   ["empty label", fuelMeta([tk("a", "  ", 1)]), {}, /tank 1: label required/, null],
   ["duplicate label, any case", fuelMeta([tk("a", "Main", 1), tk("b", "MAIN ", 2)]), {}, /label used by another/, null],
   ["label too long", fuelMeta([tk("a", "X".repeat(TANK_LABEL_MAX + 1), 1)]), {}, /at most 12 characters/, null],
+  // The stock-bar rule (fuel_label.js, measured off the real pyEfis bar).
+  ["label wider than the stock bar", fuelMeta([tk("a", "HEADER", 1)]), {},
+    /HEADER: label too wide for the stock tank bar: the device cuts "HEADER" at both edges/, null],
+  ["two words wider than the stock bar", fuelMeta([tk("a", "R TIP AUX", 1)]), {},
+    /label too wide for the stock tank bar: the device shows only "R TIP"/, null],
+  ["the default label fits", fuelMeta([tk("a", "Tank 8", 1)]), {}, null, null],
   ["bad role", fuelMeta([tk("a", "A", 1, { role: "left" })]), {}, /role must be one of/, null],
   ["edge to a missing tank", fuelMeta([tk("a", "A", 1, { feeds: [{ to: "tank", id: "zz" }] })]), {},
     /feeds a tank that does not exist/, null],

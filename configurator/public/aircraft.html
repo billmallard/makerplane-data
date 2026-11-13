@@ -148,6 +148,10 @@ let profile = { schema_version: 1,
                         baro_unit:"inHg", engine_type:"piston", twin_speeds:false },
                 values: {} };
 let savedVersion = null;
+// The stock-bar label rule (public/fuel_label.js, shared with the Worker and
+// the editor twin). Replaced at boot; until the module loads every label
+// passes here and the server's check still refuses a bad one.
+let labelFitError = () => null;
 
 // Altimeter-setting units (#108): delivered to the device as preferences
 // units.Pressure with every config pull, so every screen starts in it.
@@ -173,8 +177,8 @@ function normalizeProfile(p) {
 // edited; loading never rewrites values, so a migrated profile compiles to the
 // same aircraft.ini.
 const FUEL_ROLES = ["main", "aux", "tip", "header", "transfer"];
-// Copies of src/fuel_profile.ts: the UI ceiling, and the provisional label
-// limit F6 replaces with the measured one.
+// Copies of src/fuel_profile.ts: the UI ceiling, and the text-box ceiling on
+// a label. The real label limit is labelFitError, loaded at boot.
 const TANK_CEILING = 8;
 const TANK_LABEL_MAX = 12;
 
@@ -302,6 +306,7 @@ function fuelCheck(meta, values) {
     if (typeof t.label !== "string" || !t.label.trim()) errors.push(`tank ${i + 1}: label required`);
     else if (t.label.length > TANK_LABEL_MAX)
       errors.push(`${n}: label at most ${TANK_LABEL_MAX} characters`);
+    else if (labelFitError(t.label)) errors.push(`${n}: ${labelFitError(t.label)}`);
     else {
       const key = t.label.trim().toUpperCase();
       if (labels.has(key)) errors.push(`${n}: label used by another tank`);
@@ -839,6 +844,7 @@ function importIni(text) {
 
 // ---- boot / io ------------------------------------------------------------------
 async function boot() {
+  try { ({ labelFitError } = await import("/fuel_label.js")); } catch (_) { /* server still checks */ }
   const s = await fetch("/assets/editor/aircraft_params_schema.json").then(r => r.json());
   schema = s;
   $("schema-ver").textContent = "v" + s.schema_version + ", " + s.generated;
