@@ -69,6 +69,14 @@ def test_decode_wdc_flags_faf_map_and_first_missed_leg():
     assert a._decode_wdc_flags("E M ", "TF") == a.FLAG_FIRST_MISSED_LEG
 
 
+def test_decode_wdc_flags_final_approach_course_fix_is_not_faf():
+    # Sec. 5.17 Fig. 5-4, col 43: I = Final Approach Course Fix, D = IAF with
+    # FACF. Neither is the FAF (AER-5555: KSBA I07 HABUT is coded "E  I").
+    assert a._decode_wdc_flags("E  I", "IF") == a.FLAG_FACF
+    assert a._decode_wdc_flags("E  D", "IF") == a.FLAG_IAF | a.FLAG_FACF
+    assert not a._decode_wdc_flags("E  F", "CF") & a.FLAG_FACF
+
+
 def test_decode_wdc_flags_hold_from_path_term():
     assert a._decode_wdc_flags("EE  ", "HM") == a.FLAG_HOLD
 
@@ -181,6 +189,12 @@ def test_iter_procedure_legs_ils_faf_and_map_flags():
     faf = legs[(None, 20)]
     assert faf.fix_id == "NAPPS"
     assert faf.flags & a.FLAG_FAF
+    facf = legs[(None, 10)]
+    assert facf.fix_id == "HABUT"
+    assert facf.flags & a.FLAG_FACF
+    # One FAF in the final, not two (AER-5555).
+    assert [l.fix_id for (t, _), l in sorted(legs.items(), key=lambda kv: kv[0][1])
+            if t is None and l.flags & a.FLAG_FAF] == ["NAPPS"]
     map_leg = legs[(None, 30)]
     assert map_leg.fix_id == "RW07"
     assert map_leg.fix_type == "runway"
