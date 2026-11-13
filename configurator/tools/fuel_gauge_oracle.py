@@ -26,8 +26,9 @@
 #              and the bounding box of the ink the name leaves on the widget.
 #   fail       what each gauge type holds after setUnbound() (pyEfis#452):
 #              value text, colours, value, bands. The twin's orphan look.
-# With --render OUT.png it instead saves the stock labels strip used as the
-# PR evidence (the device half; tools/fuel_gauge_compare.mjs is the twin).
+# With --render OUT.png it instead saves the device half of the PR evidence:
+# the five bars tools/fuel_gauge_capture.mjs puts in the editor (the twin
+# half), drawn by the real widget.
 
 import contextlib
 import json
@@ -42,7 +43,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import render_instrument as ri  # noqa: E402  (pyEfis tools/: mock FIX, fonts)
 
 from PyQt6.QtGui import QColor, QFontInfo, QFontMetricsF, QImage, QPainter  # noqa: E402
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PyQt6.QtCore import QPoint  # noqa: E402
+from PyQt6.QtGui import QRegion  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 # The stock resolutions pyEfis main/default.yaml lists, plus the 1024x600
 # and 800x480 7-inch panels. BUTTONS on and off: EMS2 lays its bars out
@@ -215,27 +218,41 @@ def _stock_setup(s):
     return setup
 
 
+# The five bars tools/fuel_gauge_capture.mjs loads into the editor, as the
+# device draws them: (name, unbound). A bound bar is served its tank's label
+# (aircraft_refs.js), an orphan its last label and unbound: true.
+RENDER = [("Tank 1", False), ("Tank 3", False), ("L TIP", False), ("R TIP", True),
+          ("R TIP AUX", False)]
+
+
 def render(path):
-    """The stock-size strip: each label on the smallest stock bar, unbound
-    look, over the device's black screen, 3x nearest-neighbour."""
-    s = _stock()[0]
-    g = _widget(s["type"])
-    _stock_setup(s)(g)
-    g.setUnbound()
-    g.resize(s["w"], s["h"])
-    g.show()
-    g.resizeEvent(None)
-    top = int(s["name_rect"][3] * 2.5)
-    gap = 6
-    strip = QImage((s["w"] + gap) * len(LABELS), top, QImage.Format.Format_RGB32)
+    """The capture's five bars on the device: 64 x 327 px (10 x 50 cells of a
+    1280x720 screen), small_font_percent 0.06 as on the stock EMS2 tank bars,
+    over the screen's black, 1:1. The device has no FIX data here, so a bound
+    bar draws its safe colour with no bands; the twin draws sample bands."""
+    w, h, gap = 64, 327, 12
+    strip = QImage((w + gap) * len(RENDER) - gap, h, QImage.Format.Format_RGB32)
     strip.fill(QColor(0, 0, 0))
     p = QPainter(strip)
-    for i, label in enumerate(LABELS):
+    for i, (label, unbound) in enumerate(RENDER):
+        g = _widget("vertical_bar_gauge")
+        g.small_font_percent = 0.06
+        g.decimal_places = 1
         g.name = label
-        g.repaint()
-        p.drawImage(i * (s["w"] + gap), 0, g.grab().toImage().copy(0, 0, s["w"], top))
+        if unbound:
+            g.setUnbound()
+        else:
+            g.setColors()
+            g.setValue(26.8)
+        g.resize(w, h)
+        g.show()
+        g.resizeEvent(None)
+        # Children only, no window background: the screen's black shows
+        # through, as on the device.
+        g.render(p, QPoint(i * (w + gap), 0), QRegion(), QWidget.RenderFlag.DrawChildren)
+        g.close()
     p.end()
-    strip.scaled(strip.width() * 3, strip.height() * 3).save(path)
+    strip.save(path)
 
 
 def _rev():

@@ -1,0 +1,34 @@
+{
+ "names": [
+  "Tank 1",
+  "Tank 3",
+  "L TIP",
+  "R TIP",
+  "R TIP"
+ ],
+ "picker": {
+  "value": "tk_rt",
+  "shown": "R TIP - removed",
+  "options": [
+   "Not bound (plain FIX key)",
+   "L MAIN - FUELQ1",
+   "R MAIN - FUELQ2",
+   "L TIP - FUELQ3",
+   "R TIP - removed"
+  ]
+ },
+ "hovered": {
+  "name": "L TIP",
+  "options": {
+   "small_font_percent": 0.06,
+   "decimal_places": 1,
+   "dbkey": "FUELQ3",
+   "name": "Tank 3"
+  }
+ },
+ "after": {
+  "small_font_percent": 0.06,
+  "decimal_places": 1,
+  "tank": "tk_lt"
+ }
+}
