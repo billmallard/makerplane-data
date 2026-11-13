@@ -359,6 +359,24 @@ export async function aircraftProfileHistory(
   return res.results.map((r) => r.json);
 }
 
+// One saved version's profile JSON, ownership-scoped; null if there is none.
+export async function aircraftProfileVersion(
+  db: D1Database,
+  userId: number,
+  projectId: number,
+  version: number,
+): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT a.json FROM aircraft_profiles a
+         JOIN projects p ON p.id = a.project_id
+        WHERE a.project_id = ?1 AND p.user_id = ?2 AND a.version = ?3`,
+    )
+    .bind(projectId, userId, version)
+    .first<{ json: string }>();
+  return row ? row.json : null;
+}
+
 export async function listAircraftProfileVersions(
   db: D1Database,
   userId: number,

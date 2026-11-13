@@ -867,9 +867,40 @@ async function boot() {
   render();
 }
 
+// Saving makes the profile active, so first ask the Worker which published
+// panels it would orphan (a gauge bound to a tank this profile no longer
+// has). Removing a tank is legitimate, so this warns and lists the panels;
+// it never refuses. The device draws each such gauge failed (xxx) under its
+// last label until the panel is fixed. A failed check does not block a save.
+async function confirmOrphans(candidate) {
+  let panels = [];
+  try {
+    const res = await fetch(`/api/projects/${PROJECT}/aircraft/orphans`, {
+      method: "POST", credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(candidate),
+    });
+    if (res.ok) panels = (await res.json()).panels || [];
+  } catch (_) { return true; }
+  if (!panels.length) return true;
+  return confirm(orphanWarning(panels));
+}
+
+function orphanWarning(panels) {
+  const lines = panels.map(p => {
+    const labels = p.gauges.map(g => g.label ? `"${g.label}"` : "a gauge").join(", ");
+    return `- ${p.device} (panel v${p.version}): ${labels}`;
+  });
+  return "This profile removes a tank that published panels still show:\n\n"
+    + lines.join("\n")
+    + "\n\nOn the next pull each of those gauges shows as failed (xxx) under its last label"
+    + " until you bind it to another tank in the editor. Save anyway?";
+}
+
 $("save").addEventListener("click", async () => {
   if (validate().hard.length) { $("msg").textContent = "fix the errors first"; return; }
   if (DEMO) { $("msg").textContent = "demo mode - not saved"; return; }
+  if (!(await confirmOrphans({ profile }))) { $("msg").textContent = "not saved"; return; }
   const res = await fetch(`/api/projects/${PROJECT}/aircraft`, {
     method: "PUT", credentials: "same-origin",
     headers: { "content-type": "application/json" },
