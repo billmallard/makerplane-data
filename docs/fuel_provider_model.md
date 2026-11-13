@@ -318,6 +318,11 @@ F1 is built (FUEL1a, AER-5271). The label limit is provisionally 12
 characters until F6 measures the native bar; raising it later breaks no
 saved profile.
 
+F3 is built (FUEL1c, AER-5499). Its served form is in
+`panel_config_format.md`, "Aircraft references". The refs endpoint returns
+`{source, items, retired}`: `items` is the `[{id, label, ...}]` list of
+section 5, and `retired` maps each removed id to its last label.
+
 | Row | Size | Repo | What | Depends on |
 |---|---|---|---|---|
 | F1 | M | makerplane-data | Profile `meta.fuel` schema 2: ids, label, slot, edge list, capacity, unusable. Browser migration from schema 1. Client and server validation (section 2). `FUELQn.Min/Max` written from the tank. Tests, including one that fails on `dev`, that removing tank 2 of 3 keeps tank 3's edges. | D1, D2 |
