@@ -82,7 +82,7 @@ Acknowledging happens on the ground only in the same sense as the software
 notice: the Data Status screen is the boot screen, and `panel-ack` is never
 run by any timer or service.
 
-## Proposed cue (for Bill's decision; the pyEfis side is AVIONICS's)
+## The cue (approved by Bill 2026-11-13, as written; the pyEfis side is AVIONICS's)
 
 - **Placement:** a banner at the top of the Data Status screen, above the
   pack list, shown while `panel_change.pending` is true. Continue stays
