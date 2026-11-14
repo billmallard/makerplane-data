@@ -205,6 +205,25 @@ SUSAEAENRT   OHIGH K20    C   L N34255287W119183895                       E0117 
 SUSAEAENRT   PIRUE K20    C   L N34294831W118595403                       E0116     NAR           PIRUE                    471382605
 SUSAEAENRT   REYES K20    C   B N34393142W119080356                       E0117     NAR           REYES                    481972605
 SUSAD        VNY   K2011310VDLW N34132445W118293003    N34132648W118293021E0150008121     NARVAN NUYS                      259072406
+SUSAP KBURK2EFERN7 3RW08  010FIM  K2D 0V       IF                                             18000                        418921612
+SUSAP KBURK2EFERN7 3RW08  020TOAKSK2EA0EY      TF                                                                          418932307
+SUSAP KBURK2EFERN7 3RW08  030KBUR K2PA0AE      VM                     0760                                                 418941612
+SUSAP KANBK7FI05-Z AAN    010AN   K7PN0N       IF                                             18000                 0 NS   208061709
+SUSAP KANBK7FI05-Z AAN    020LINTZK7EA0EY      TF                                 + 03500                           0 NS   208071709
+SUSAP KANBK7FI05-Z AAN    030LINTZK7EA0EE AL   HF IANBK7      232501860525T010PI  + 03400                           0 NS   208081709
+SUSAP KANBK7FI05-Z I      010LINTZK7EA0E  I    IF IANBK7      23250186        PI  J 034000240018000                 0 NS   208091709
+SUSAP KANBK7FI05-Z I      020COLOBK7PC0E  F    CF IANBK7      2325006905200118PI  H 0240002400            AN    K7PN0 NS   208102105
+SUSAP KANBK7FI05-Z I      030RW05 K7PG0GY M    CF IANBK7      2325001305200055PI    00634             -300          0 NS   208111709
+SUSAP KANBK7FI05-Z I      040         0  M     CA                     0525        + 01600                           0 NS   208121709
+SUSAP KANBK7FI05-Z I      050         0        VI                     1100                                          0 NS   208132209
+SUSAP KANBK7FI05-Z I      060AN   K7PN0NY  R   CFYAN  K7      0000000026000110PN  + 04000                           0 NS   208142209
+SUSAP KANBK7FI05-Z I      070AN   K7PN0NE  L   HM                     0520T010    + 04000                           0 NS   208151709
+SUSAEAENRT   LINTZ K70    C   L N33232339W086072838                       W0044     NAR           LINTZ                    431002504
+SUSAEAENRT   TOAKS K20    C     N34120992W118464303                       E0115     NAR           TOAKS                    510682605
+SUSAP KANBK7CCOLOB K70    W     N33311328W085565797                       W0045     NAR           COLOB                    207932504
+SUSAP KANBK7GRW05    0070020520 N33345445W085520019         +0152600595000040150IIANB1                                     208542513
+SUSAP KBURK2ABUR     0     068YHN34120250W118213120E012000778         1800018000C    MNAR    HOLLYWOOD BURBANK             417452609
+SUSAPNKANBK7 AN    K7002110HO W N33320362W085555257                       W0040           NARBOGGA                         581042108
 SUSAP KSSFK4CBEFOR K40    W     N29184608W098205655                       E0034     NAR           BEFOR                    233232605
 SUSAP KSSFK4CGANLE K40    W     N29090055W098231980                       E0034     NAR           GANLE                    233252605
 SUSAP KSSFK4CGEARE K40    W     N29172724W098141474                       E0034     NAR           GEARE                    233262605

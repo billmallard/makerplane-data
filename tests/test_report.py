@@ -71,7 +71,7 @@ def _fas_row(con, path, cycle, lines=PP_R07, crc=None):
          json.dumps({"fields": b.fields, "continuations": b.continuations})))
 
 
-def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=1, legs=400,
+def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=0, legs=400,
                jet=False, mora_bands=report.PROC_MORA_BAND_FLOOR, mora_unk=0,
                mora_ft=3000, mora_cells=30):
     """A procedures pack: ``airways`` airways of 5 legs, ``collide`` of
@@ -215,12 +215,24 @@ def test_procedures_record_is_well_formed(tmp_path):
 
 
 def test_unresolved_fix_legs_are_counted_with_their_expectation(tmp_path):
-    c = _by_id(_rep(_proc_pack(tmp_path / "a.pack", unresolved=2, legs=1000)))["PROC-FIX-001"]
-    assert (c["status"], c["measured"]) == ("pass", "2 of 1,000 legs (0.20%)")
-    assert "regression bound" in c["expected"] and "950 of 201,030" in c["expected"]
-    assert "does not accept" in c["expected"]
-    c = _by_id(_rep(_proc_pack(tmp_path / "b.pack", unresolved=6, legs=1000)))["PROC-FIX-001"]
-    assert c["status"] == "warn" and not c["blocking"]
+    # AER-5612: the old 0.5% bound passed 941 unresolved legs in 2611, and
+    # pyEfis refuses every procedure with one. Now one undeclared leg warns.
+    c = _by_id(_rep(_proc_pack(tmp_path / "a.pack", unresolved=1, legs=1000)))["PROC-FIX-001"]
+    assert (c["status"], c["measured"]) == (
+        "warn", "1 of 1,000 legs (0.10%); 1 outside the declared source gaps (FX0/airport x1)")
+    assert not c["blocking"] and "KNOWN_SOURCE_GAPS" in c["expected"]
+
+
+def test_a_declared_source_gap_leg_does_not_warn(tmp_path):
+    pack = _proc_pack(tmp_path / "a.pack", unresolved=0, legs=1000)
+    con = sqlite3.connect(pack)
+    con.execute("INSERT INTO legs (transition_id, seq, path_term, fix_id, fix_type, flags) "
+                "VALUES (1, 9999, 'IF', 'CMY', 'ndb', 0)")
+    con.commit()
+    con.close()
+    c = _by_id(_rep(pack))["PROC-FIX-001"]
+    assert (c["status"], c["measured"]) == (
+        "pass", "1 of 1,001 legs (0.10%); 0 outside the declared source gaps")
 
 
 def test_a_first_edition_with_no_legs_table_is_refused(tmp_path):
@@ -921,7 +933,9 @@ def test_check_reproduces_the_published_numbers(tmp_path, capsys):
     # Exit 1: device acceptance was switched off, which blocks a build record.
     assert cli.main(["report", str(pack), "--previous", str(prev_pack), "--no-device",
                      "--inputs", f"{pack}.inputs",
-                     "--note", "ROW-002=FAA withdrew airways", "-o", str(published)]) == 1
+                     "--note", "ROW-002=FAA withdrew airways",
+                     "--note", "PROC-FIX-001=three legs left unplaced on purpose",
+                     "-o", str(published)]) == 1
     printed = capsys.readouterr().out
     assert [ln.split()[2] for ln in printed.splitlines() if "BLOCKS PUBLISH" in ln] == ["ACC-001"]
     assert cli.main(["report", "--check", str(pack), "--against", str(published),
@@ -936,7 +950,7 @@ def test_notes_file_applies_the_gate_scoping(tmp_path, capsys):
     # The stage-mode gate preview (entrypoint.sh, AER-4595) reads the same
     # notes file the publish run gives make-terrain, scoped the same way.
     prev_pack = _proc_pack(tmp_path / "2610.pack", "2610", airways=50, collide=2)
-    pack = _proc_pack(tmp_path / "2611.pack", unresolved=3, legs=1000)
+    pack = _proc_pack(tmp_path / "2611.pack", legs=1000)
     args = ["report", str(pack), "--previous", str(prev_pack), "--no-device",
             "--inputs", f"{pack}.inputs", "-o", str(tmp_path / "r.json")]
 

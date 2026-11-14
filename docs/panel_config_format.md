@@ -71,6 +71,7 @@ entry into a device's `screens/` config and set `main.defaultScreen` and it runs
 | target resolution (e.g. 1280×800) | `main.screenWidth` / `main.screenHeight` |
 | which screen shows on boot | `main.defaultScreen` (always `PANEL`) |
 | physical screen size (DPI hint) | `main.screenDiagonalInches` — **editor-only**, pyEfis ignores it |
+| the builder removed the DATA flag | `main.dataFlag: false` — **editor-only**, pyEfis ignores it (see below) |
 | the canvas | `screens.PANEL` (`module: pyefis.screens.screenbuilder`) |
 | the grid | `screens.PANEL.layout.rows/columns` (always **110 × 200**) |
 | each placed widget | an entry in `screens.PANEL.instruments` |
@@ -111,6 +112,36 @@ them individually. That's intentional: the file is pure pyEfis.
 
 `preview_scene` (on `virtual_vfr`) only selects which synthetic-vision *preview
 image* the editor shows; it has no meaning on the device and is removed on save.
+
+## Every panel carries the DATA flag
+
+pyEfis never boots to its Data Status screen. The PFD DATA flag
+(`data_annunciation`) is the only way there, and it is the cue that a data pack
+has expired or that a config pull changed the panel (CERT17, see
+[panel_change_cue.md](panel_change_cue.md)). A config pull installs the panel's
+boot screen, so the editor puts the flag there by default (AER-5610):
+
+```yaml
+      - type: data_annunciation
+        row: 2
+        column: 2
+        span: { rows: 5, columns: 18 }
+        options:
+          target_screen: DataStatus
+```
+
+That is the stock spot from pyEfis `screens/pfd.yaml`, over the top left of the
+attitude indicator, on the 110 x 200 grid; on a screen with another grid it is
+scaled to that grid. It is added to a new panel, and to an existing panel when it
+is opened, so the panel's next save carries it. A panel whose boot screen already
+has one (placed anywhere, or inside an element group) is left alone. One inside a
+`tab_section` tab does not count, because the pilot sees it only while that tab
+is showing.
+
+A builder may remove it. The editor then shows a warning above the canvas, with a
+button that puts it back, and the save writes `main.dataFlag: false` so the next
+open does not add it again. Putting a flag back on the boot screen drops that key
+on the next save.
 
 ## Numeric options are written as numbers
 

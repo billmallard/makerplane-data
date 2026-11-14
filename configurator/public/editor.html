@@ -57,6 +57,9 @@
   .screen-act { font: inherit; font-size: 12px; background: none; border: 1px solid #30363d; color: #8b949e;
     padding: 4px 9px; border-radius: 6px; cursor: pointer; }
   .screen-act:hover { color: #e6edf3; border-color: #8b949e; }
+  .dataflag-warn { display: flex; align-items: center; gap: 10px; margin: 6px 10px 0; padding: 6px 10px; font-size: 12px;
+                   color: #f0b429; background: #2b2111; border: 1px solid #6e4f12; border-radius: 6px; }
+  .dataflag-warn.hidden { display: none; }
   .tabs { display: flex; gap: 4px; padding: 8px 12px 0; }
   .tab { font: inherit; background: none; border: 1px solid transparent; border-bottom: none; padding: 6px 14px; color: #8b949e; border-radius: 6px 6px 0 0; cursor: pointer; }
   .tab.active { color: #e6edf3; background: #161b22; border-color: #21262d; }
@@ -343,6 +346,7 @@
   <aside class="palette" id="palette"></aside>
   <div class="center">
     <div class="screens-bar" id="screens-bar"></div>
+    <div class="dataflag-warn hidden" id="dataflag-warn" role="alert"><span id="dataflag-msg"></span><button class="screen-act" id="dataflag-add">Put the DATA flag back</button></div>
     <div class="stage" id="stage"><div id="canvas"><div id="guides"></div><div id="align"></div></div></div>
     <div id="code-pane">
       <div class="code-bar"><span class="muted">YAML — edits apply live</span><span id="code-msg" class="muted"></span></div>
@@ -383,6 +387,7 @@ const state = {
   screens: [{ name: "PANEL", layout: { rows: 110, columns: 200 }, instruments: [] }],
   active: 0,
   defaultScreen: "PANEL",        // which screen boots on the device
+  dataFlagOff: false,            // the loaded panel says main.dataFlag: false (builder removed the DATA flag)
   layout: null,                  // -> screens[active].layout  (pyEfis normalised 110x200 grid)
   instruments: null,             // -> screens[active].instruments
   selected: -1,
@@ -3051,6 +3056,7 @@ function allocateTsbtn() {
 }
 
 function renderCanvas() {
+  if (renderDataFlagWarning()) sizeCanvas();   // the banner took or gave back stage height
   const c = $("canvas");
   c.querySelectorAll(".inst").forEach((e) => e.remove());
   state.instruments.forEach((inst, i) => {
@@ -5104,6 +5110,7 @@ function toPyefisDoc() {
     defaultScreen: state.defaultScreen,
   };
   if (state.screen.inches != null) main.screenDiagonalInches = state.screen.inches; // editor metadata; pyEfis ignores unknown main keys
+  if (!hasDataFlag(bootScreen())) main.dataFlag = false; // the builder removed it; the next open does not put it back
   const screens = {};
   for (const sc of state.screens) {
     screens[sc.name] = {
@@ -5152,6 +5159,7 @@ function fromStoredDoc(doc) {
     return {
       screens, defaultScreen: def,
       screen: { width: m.screenWidth || 1280, height: m.screenHeight || 800, inches: m.screenDiagonalInches ?? null },
+      dataFlagOff: m.dataFlag === false,
     };
   }
   if (Array.isArray(doc.instruments)) {              // legacy design form -> one screen
@@ -5168,6 +5176,7 @@ function applyState(parsed) {
   state.screens = parsed.screens;
   state.defaultScreen = parsed.defaultScreen;
   state.screen = parsed.screen;
+  state.dataFlagOff = !!parsed.dataFlagOff;
   setActive(0);
 }
 function applyCode() {
@@ -5178,6 +5187,59 @@ function applyCode() {
   if (!parsed) { codeMsg("Expected a pyEfis config with a 'screens:' block.", true); return false; }
   applyState(parsed);
   codeMsg(""); return true;
+}
+
+// --- the PFD DATA flag (CERT17, AER-5610) -----------------------------------
+// pyEfis never boots to its Data Status screen; the DATA flag
+// (`data_annunciation`) is the only way there, and it is the cue that a pack
+// is expired or that a config pull changed the panel. A config pull installs
+// the boot screen, so every panel gets one there by default: on a new panel,
+// and on an existing one when it is opened (its next save carries it). A
+// builder may remove it; the editor then warns, and the save records
+// `main.dataFlag: false` so it is not put back on the next open.
+function bootScreen() {
+  return state.screens.find((s) => s.name === state.defaultScreen) || state.screens[0];
+}
+function hasDataFlag(sc) {
+  return !!sc && expandGroups(sc.instruments).some((i) => i && i.type === "data_annunciation");
+}
+// pyEfis screens/pfd.yaml places it over the top left of the attitude
+// indicator: row 2, column 2, 5 rows x 18 columns of its 110 x 200 grid.
+function dataFlagInstrument(layout) {
+  const r = (layout?.rows || 110) / 110, c = (layout?.columns || 200) / 200;
+  return {
+    type: "data_annunciation",
+    row: round1(2 * r), column: round1(2 * c),
+    span: { rows: round1(5 * r), columns: round1(18 * c) },
+    options: { target_screen: "DataStatus" },
+  };
+}
+function ensureDataFlag() {
+  const sc = bootScreen();
+  if (!sc || hasDataFlag(sc)) return false;
+  sc.instruments.push(dataFlagInstrument(sc.layout));   // last = drawn over the attitude indicator
+  return true;
+}
+function dataFlagWarning() {
+  const sc = bootScreen();
+  if (hasDataFlag(sc)) return null;
+  return "The boot screen " + (sc ? sc.name + " " : "") + "has no DATA flag. Without it the pilot cannot see " +
+    "an expired data pack or a panel changed by a config pull, and cannot reach the Data Status screen.";
+}
+// Returns true when the banner appeared or went away (the stage changed height).
+function renderDataFlagWarning() {
+  const msg = dataFlagWarning();
+  const box = $("dataflag-warn");
+  const changed = box.classList.contains("hidden") === !!msg;
+  box.classList.toggle("hidden", !msg);
+  $("dataflag-msg").textContent = msg || "";
+  return changed;
+}
+function restoreDataFlag() {
+  const i = state.screens.indexOf(bootScreen());
+  ensureDataFlag();
+  if (i !== state.active) setActive(i);
+  rerenderAll();
 }
 
 // --- screens (multi-screen) -------------------------------------------------
@@ -5210,7 +5272,7 @@ function renameScreen(i) {
   cur.name = name; renderScreensBar(); syncCode();
 }
 function setDefaultScreen(i) {
-  state.defaultScreen = state.screens[i].name; renderScreensBar(); syncCode();
+  state.defaultScreen = state.screens[i].name; renderScreensBar(); renderCanvas();
 }
 function deleteScreen(i) {
   if (state.screens.length <= 1) return;
@@ -5303,6 +5365,8 @@ async function boot() {
     } catch (_) { /* no resolver -- references preview as stored */ }
   }
   await load();
+  if (!state.dataFlagOff) ensureDataFlag();   // a new panel, or an existing one without it (AER-5610)
+  $("dataflag-add").addEventListener("click", restoreDataFlag);
   buildScreenControls();
   buildThemeControl();
   $("gridToggle").addEventListener("change", (e) => $("canvas").classList.toggle("grid", e.target.checked));
