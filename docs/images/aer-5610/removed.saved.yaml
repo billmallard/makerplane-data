@@ -1,0 +1,31 @@
+main:
+  screenWidth: 1280
+  screenHeight: 800
+  defaultScreen: PANEL
+  dataFlag: false
+screens:
+  PANEL:
+    module: pyefis.screens.screenbuilder
+    title: PANEL
+    layout:
+      rows: 110
+      columns: 200
+    instruments:
+      - type: airspeed_tape
+        row: 6
+        column: 4
+        span:
+          rows: 98
+          columns: 24
+      - type: atitude_indicator
+        row: 0
+        column: 30
+        span:
+          rows: 110
+          columns: 140
+      - type: altimeter_tape
+        row: 6
+        column: 172
+        span:
+          rows: 98
+          columns: 24
