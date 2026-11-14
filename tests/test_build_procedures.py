@@ -37,12 +37,12 @@ def test_build_procedures_writes_all_tables(input_dir, tmp_path):
     try:
         counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                   for t in ("airways", "airway_legs", "procedures",
-                            "transitions", "legs", "msa")}
+                            "transitions", "legs", "msa", "fas_blocks")}
     finally:
         con.close()
     assert counts == {
         "airways": 3, "airway_legs": 20,
-        "procedures": 5, "transitions": 22, "legs": 76, "msa": 21,
+        "procedures": 8, "transitions": 29, "legs": 102, "msa": 21, "fas_blocks": 3,
     }
 
 
@@ -301,6 +301,6 @@ def test_build_procedures_refuses_a_file_with_no_msa_records(input_dir, tmp_path
         build_procedures(input_dir, tmp_path / "out.pack")
 
 
-def test_built_pack_declares_procedures_schema_version_3(input_dir, tmp_path):
+def test_built_pack_declares_procedures_schema_version_4(input_dir, tmp_path):
     out = build_procedures(input_dir, tmp_path / "out.pack")
-    assert detect_procedures_schema_version(out) == 3
+    assert detect_procedures_schema_version(out) == 4

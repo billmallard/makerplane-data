@@ -174,3 +174,51 @@ SUSAP KSBAK2SGVO  K2D                 0   1403600812536014004825                
 SUSAP KSBAK2SKSBA K2PA                0   18018008325                                                                  M   098872413
 SUSAP KSBAK2SRW07 K2PG                0   18018008125                                                                  M   098880804
 SUSAP KSBAK2SRZS  K2D                 0   03012005925120210081252103000882530003005225                                 M   098892502
+SUSAP KSSFK4CBEFOR K40    W     N29184608W098205655                       E0034     NAR           BEFOR                    233232605
+SUSAP KSSFK4CGANLE K40    W     N29090055W098231980                       E0034     NAR           GANLE                    233252605
+SUSAP KSSFK4CGEARE K40    W     N29172724W098141474                       E0034     NAR           GEARE                    233262605
+SUSAP KSSFK4CLANDD K40    W     N29194609W098260368                       E0035     NAR           LANDD                    233292605
+SUSAP KSSFK4GRW28    0050002800 N29200803W098275623         +0146700565000040100R                                          235712508
+SUSAP KSSFK4CXTEND K40    W     N29113508W098154478                       E0034     NAR           XTEND                    233312605
+SCANP PAMRPACALSKA PA0    W     N61142166W150081177                       E0140     NAR           ALSKA                    101092605
+SCAND        BGQ   PA011250VTHW N61340996W149580177    N61340996W149580177E0190001792     NARBIG LAKE                      002482014
+SCANP PAMRPACJIGBO PA0    W     N61125726W149524366                       E0141     NAR           JIGBO                    101132605
+SCANP PAMRPAGRW08    0040000770 N61125726W149511178         +0046700131000043100R                                          101572609
+SCANP PAMRPACTICDU PA0    W     N61142207W149574908                       E0141     NAR           TICDU                    101172605
+SCANP PAMRPACVEYUK PA0    W     N61125608W150085849                       E0140     NAR           VEYUK                    101182605
+SCANP PAMRPACWOLGI PA0    W     N61125711W149583599                       E0141     NAR           WOLGI                    101192605
+SCANP PAMRPAFR08-Y AVEYUK 010VEYUKPAPC0E       IF                                 - 04000     18000                 A JS   101212609
+SCANP PAMRPAFR08-Y AVEYUK 020VEYUKPAPC0EE AL   HF                     07670040    + 01600                           A JS   101222609
+SCANP PAMRPAFR08-Y R      010VEYUKPAPC0E  I    IF                                 + 01600     18000                 A JS   101232609
+SCANP PAMRPAFR08-Y R      020WOLGIPAPC1E  F 010TF                                 + 01600                 RW08  PAPGA JS   101242609
+SCANP PAMRPAFR08-Y R      020WOLGIPAPC2WALPV       N          ALNAV                                                   JS   101252609
+SCANP PAMRPAFR08-Y R      030RW08 PAPG0GY M 031TF                                   00174             -375          A JS   101262609
+SCANP PAMRPAFR08-Y R      040         0  M     CA                     0769        + 01000                           A JS   101272609
+SCANP PAMRPAFR08-Y R      050BGQ  PAD 0VY  L010DF                                 + 02000                           A JS   101282609
+SCANP PAMRPAFR08-Y R      060BGQ  PAD 0VE  R   HM                     09000040    + 02000                           A JS   101292609
+SCANP PAMRPAFR08-Z AALSKA 010ALSKAPAPC0E       IF                                 - 04000     18000                 A JS   101302609
+SCANP PAMRPAFR08-Z AALSKA 020ALSKAPAPC0EE AL   HF                     07690040    + 01600                           A JS   101312609
+SCANP PAMRPAFR08-Z R      010ALSKAPAPC0E  I    IF                                 + 01600     18000                 A JS   101322609
+SCANP PAMRPAFR08-Z R      020TICDUPAPC1E  F 010TF                                 + 01600                 JIGBO PAPCA JS   101332609
+SCANP PAMRPAFR08-Z R      020TICDUPAPC2WALP        N          ALNAV                                                   JS   101342609
+SCANP PAMRPAFR08-Z R      030JIGBOPAPC0EY M 031TF                                   00469             -375          A JS   101352609
+SCANP PAMRPAFR08-Z R      040         0  M     CA                     1069        + 00543                           A JS   101362609
+SCANP PAMRPAFR08-Z R      050BGQ  PAD 0VY  L010DF                                 + 02000                           A JS   101372609
+SCANP PAMRPAFR08-Z R      060BGQ  PAD 0VE  R   HM                     09000040    + 02000                           A JS   101382609
+SUSAP KSSFK4FR28   AGEARE 010GEAREK4PC0EE AL   HF                     27960040    + 03100     18000                 A JS   235402508
+SUSAP KSSFK4FR28   AXTEND 010XTENDK4PC0E  A    IF                                             18000                 A JS   235412508
+SUSAP KSSFK4FR28   AXTEND 020GEAREK4PC0EE B 010TF                                 + 03100                           A JS   235422508
+SUSAP KSSFK4FR28   R      010GEAREK4PC0E  I    IF                                 + 03100     18000                 A JS   235432508
+SUSAP KSSFK4FR28   R      020BEFORK4PC1E  F 010TF                                 + 02600                 RW28  K4PGA JS   235442508
+SUSAP KSSFK4FR28   R      020BEFORK4PC2WALPV       ALNAV/VNAV ALNAV                                                   JS   235452508
+SUSAP KSSFK4FR28   R      021LANDDK4PC0E S  031TF                                 V 0114001140        -300          A JS   235462508
+SUSAP KSSFK4FR28   R      030RW28 K4PG0GY M 031TF                                   00605             -300          A JS   235472508
+SUSAP KSSFK4FR28   R      040         0  M     CA                     2796        + 01100                           A JS   235482508
+SUSAP KSSFK4FR28   R      050GANLEK4PC0EY  R010DF                                 + 03100                           A JS   235492508
+SUSAP KSSFK4FR28   R      060GANLEK4PC0EE  R   HM                     33690040    + 03100                           A JS   235502508
+SCANP PAMRPAPR08-Y RW08 001Y0000W08B0N6112572555W14951117784+004670375N6112571970W14948075435106751528000430F40050039AFF456101622609
+SCANP PAMRPAPR08-Y RW08 002E      +00399+00399LPV       67473                                                              101632609
+SCANP PAMRPAPR08-Z RW08 001Z0000W08A0N6112351095W14951240880+004670375N6111506595W14948446280106750000000430F400000DBD6916D101642609
+SCANP PAMRPAPR08-Z RW08 002E      +00399+00399LP        51874                                                              101652609
+SUSAP KSSFK4PR28   RW28 001 0000W28A0N2920080300W09827562295+014670300N2920274035W09829357460106751224000400F400500A433594C235732508
+SUSAP KSSFK4PR28   RW28 002E      +01722+01722LPV       42747                                                              235742508

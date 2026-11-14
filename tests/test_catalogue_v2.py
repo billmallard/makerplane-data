@@ -192,7 +192,8 @@ def test_pending_checks_never_block_a_publish_before_qa_review(tmp_path):
     assert "XS-001" not in " ".join(report.publish_blockers(rec))
     # The flag lives in the catalogue, never in the record (R1).
     pending = {c.id for cs in report.all_checks().values() for c in cs if c.review}
-    assert pending == {"XS-001", "XS-002", "TER-005"}
+    assert pending == {"XS-001", "XS-002", "TER-005",
+                       "PROC-FAS-001", "PROC-FAS-002", "PROC-FAS-003"}   # AER-5623
 
 
 def test_checks_qa_accepted_gate_a_publish(tmp_path):
