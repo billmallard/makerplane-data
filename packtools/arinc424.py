@@ -932,3 +932,305 @@ def iter_msa(path: str | Path, fix_index: dict[FixKey, tuple[float, float]]
         )
     if current is not None:
         yield current
+
+
+# --- PP: Airport Path Point (FAS data block) records (Sec. 4.1.28) -------
+# Every field below is checked against the live 2611 cycle, where all 4,917
+# primaries re-compute to their published CRC (see ``fas_crc``), and against
+# the FAA Form 8260-3 "FAS DATA BLOCK INFORMATION" table for KUSE RWY 27.
+_PP = dict(
+    area=slice(1, 4),
+    airport=slice(6, 10),
+    airport_icao=slice(10, 12),
+    approach_ident=slice(13, 19),
+    runway=slice(19, 24),              # "RW28 "; Note 3: "RW00" + blank letter for a helipad
+    operation_type=slice(24, 26),      # 00 = straight-in (5.223)
+    continuation=slice(26, 27),
+    route_indicator=slice(27, 28),     # blank, or A-Z: one of several FAS to one runway (5.224)
+    sbas_provider=slice(28, 30),       # 00 = WAAS (5.255)
+    ref_path_data_selector=slice(30, 32),
+    ref_path_ident=slice(32, 36),      # "W28A" (5.257)
+    apd=slice(36, 37),                 # Approach Performance Designator (5.258)
+    ltp_lat=slice(37, 48),             # high precision, ten-thousandths of a second (5.267)
+    ltp_lon=slice(48, 60),
+    ltp_ellipsoid_height=slice(60, 66),  # tenths of a metre, signed (5.225)
+    glidepath_angle=slice(66, 70),     # hundredths of a degree (5.226)
+    fpap_lat=slice(70, 81),
+    fpap_lon=slice(81, 93),
+    course_width=slice(93, 98),        # hundredths of a metre (5.228)
+    length_offset=slice(98, 102),      # metres, 8 m resolution (5.259)
+    tch=slice(102, 108),               # tenths of a foot or hundredths of a metre (5.265)
+    tch_units=slice(108, 109),         # F or M (5.266)
+    hal=slice(109, 112),               # tenths of a metre (5.263)
+    val=slice(112, 115),               # tenths of a metre (5.264)
+    crc=slice(115, 123),               # 8 hex digits (5.229)
+    file_record_no=slice(123, 128),
+    cycle=slice(128, 132),
+)
+#: The PP continuation (continuation number 2, Application Type ``E``).
+#: Not in the CRC wrap. The FAA leaves the FPAP ellipsoid height blank.
+_PP_CONT = dict(
+    application_type=slice(27, 28),
+    fpap_ellipsoid_height=slice(28, 34),
+    fpap_orthometric_height=slice(34, 40),
+    ltp_orthometric_height=slice(40, 46),
+    approach_type_ident=slice(46, 56),   # "LPV", "LP", "GLS" (5.262)
+    gnss_channel=slice(56, 61),          # 40000-99999 SBAS, 20001-39999 GBAS (5.244)
+    helicopter_course=slice(71, 74),     # 5.269
+)
+
+#: CRC-32Q, ARINC 424 Sec. 6.10.2: x^32+x^31+x^24+x^22+x^16+x^14+x^8+x^7+x^5+x^3+x+1.
+CRC32Q_POLY = 0x814141AB
+_RUNWAY_LETTER_CODE = {" ": 0, "R": 1, "C": 2, "L": 3}
+
+
+def _parse_hp_seconds(raw: str, deg_digits: int) -> int | None:
+    """A High Precision Latitude/Longitude (5.267/5.268) as a signed count of
+    ten-thousandths of an arc-second: "N2920080300" -> +(29 deg 20' 08.0300")."""
+    raw = raw.strip()
+    if len(raw) != 1 + deg_digits + 2 + 6 or raw[0] not in "NSEW":
+        return None
+    try:
+        deg = int(raw[1:1 + deg_digits])
+        mins = int(raw[1 + deg_digits:3 + deg_digits])
+        frac = int(raw[3 + deg_digits:])
+    except ValueError:
+        return None
+    v = (deg * 3600 + mins * 60) * 10000 + frac
+    return -v if raw[0] in "SW" else v
+
+
+def _hp_degrees(v: int | None) -> float | None:
+    return None if v is None else round(v / 36_000_000.0, 10)
+
+
+def _signed_tenths(raw: str) -> float | None:
+    raw = raw.strip()
+    if len(raw) < 2 or raw[0] not in "+-":
+        return None
+    n = _to_int(raw[1:])
+    if n is None:
+        return None
+    return (-n if raw[0] == "-" else n) / 10.0
+
+
+def _fas_step(v: int) -> int:
+    """Ten-thousandths of an arc-second -> the FAS block's 0.0005 arc-second
+    step, rounded to the nearest (a count of steps is a multiple of 0.2, so
+    there is never a tie). The record's value is not always on that grid:
+    PAMR R08-Y's LTP longitude (2611, 2612) ends ...7784, and only ...7785
+    reproduces its published CRC. That is the one off-grid value in 2605,
+    2611 and 2612, and it is west (negative), so it cannot tell "nearest"
+    from "away from zero" or a signed floor. If the FAA's rule differs on a
+    later value, that block fails its CRC and is dropped and named, never
+    shipped."""
+    q, r = divmod(v, 5)
+    return q + (1 if r >= 3 else 0)
+
+
+def _fas_block_bits(fields: dict[str, str]) -> list[tuple[int, int]] | None:
+    """The 288-bit SBAS FAS data block (RTCA DO-229, Appendix D) the CRC
+    wraps, as (value, width) pairs in transmission order; ``None`` when a
+    field in the wrap does not parse. Rules, each proved by the 2611 cycle
+    (every primary's CRC re-computes; change any one and none do):
+
+    - every field goes least significant bit first;
+    - Airport ID and Reference Path ID are four characters of six bits
+      (IA-5 b1-b6) plus two zero bits, sent *rightmost character first*;
+    - latitudes/longitudes are two's complement in 0.0005 arc-seconds,
+      rounded to the nearest step (``_fas_step``); the FPAP goes as its
+      difference from the LTP, in 24 bits;
+    - LTP height is (height + 512 m) in 0.1 m; TCH is 0.1 ft or 0.05 m;
+      course width is (width - 80 m) in 0.25 m; length offset is in 8 m,
+      255 when the source leaves it blank; HAL and VAL are in 0.2 m.
+    """
+    try:
+        def chars(s: str) -> list[tuple[int, int]]:
+            return [(ord(c) & 0x3F, 8) for c in s[::-1]]
+
+        rwy = fields["runway"]
+        if not rwy.startswith("RW"):
+            return None
+        rwy_letter = _RUNWAY_LETTER_CODE[rwy[4]]
+        ri = fields["route_indicator"]
+        route = 0 if ri == " " else ord(ri) - ord("A") + 1
+        lat = _parse_hp_seconds(fields["ltp_lat"], 2)
+        lon = _parse_hp_seconds(fields["ltp_lon"], 3)
+        flat = _parse_hp_seconds(fields["fpap_lat"], 2)
+        flon = _parse_hp_seconds(fields["fpap_lon"], 3)
+        if None in (lat, lon, flat, flon):
+            return None
+        lat, lon, flat, flon = (_fas_step(v) for v in (lat, lon, flat, flon))
+        height = fields["ltp_ellipsoid_height"]
+        h = int(height[1:]) * (-1 if height[0] == "-" else 1)
+        tch = int(fields["tch"])
+        units = fields["tch_units"]
+        if units not in ("F", "M"):
+            return None
+        offset = fields["length_offset"].strip()
+        return [
+            (int(fields["operation_type"]), 4),
+            (int(fields["sbas_provider"]), 4),
+            *chars(fields["airport"]),
+            (int(rwy[2:4]), 6), (rwy_letter, 2),
+            (int(fields["apd"]), 3), (route, 5),
+            (int(fields["ref_path_data_selector"]), 8),
+            *chars(fields["ref_path_ident"]),
+            (lat & 0xFFFFFFFF, 32), (lon & 0xFFFFFFFF, 32),
+            (h + 5120, 16),
+            ((flat - lat) & 0xFFFFFF, 24), ((flon - lon) & 0xFFFFFF, 24),
+            (tch if units == "F" else tch // 5, 15), (0 if units == "F" else 1, 1),
+            (int(fields["glidepath_angle"]), 16),
+            ((int(fields["course_width"]) - 8000) // 25, 8),
+            (int(offset) // 8 if offset else 255, 8),
+            (int(fields["hal"]) // 2, 8), (int(fields["val"]) // 2, 8),
+        ]
+    except (KeyError, ValueError, IndexError):
+        return None
+
+
+def fas_crc(fields: dict[str, str]) -> str | None:
+    """The CRC-32Q of a PP record's FAS data block, as the 8 hex digits the
+    record carries in cols 116-123, or ``None`` if the block does not
+    encode. The remainder is taken MSB-first over the transmitted bit
+    stream (Sec. 6.10.3: x^31 is the first remainder bit), then written the
+    way the 40-byte block is sent: four bytes, each least significant bit
+    first -- so each byte's bits read reversed against the register."""
+    packed = _fas_block_bits(fields)
+    if packed is None:
+        return None
+    reg = 0
+    for value, width in packed:
+        for i in range(width):
+            top = (reg >> 31) & 1
+            reg = ((reg << 1) & 0xFFFFFFFF) | ((value >> i) & 1)
+            if top:
+                reg ^= CRC32Q_POLY
+    for _ in range(32):
+        top = (reg >> 31) & 1
+        reg = (reg << 1) & 0xFFFFFFFF
+        if top:
+            reg ^= CRC32Q_POLY
+    out = bytes(int(f"{b:08b}"[::-1], 2) for b in reg.to_bytes(4, "big"))
+    return out.hex().upper()
+
+
+@dataclass
+class FasBlock:
+    area: str | None
+    airport: str
+    airport_icao: str | None
+    approach_ident: str
+    runway: str
+    operation_type: int | None
+    route_indicator: str | None
+    sbas_provider: int | None
+    ref_path_data_selector: int | None
+    ref_path_ident: str | None
+    apd: int | None
+    ltp_lat: float | None
+    ltp_lon: float | None
+    ltp_ellipsoid_height_m: float | None
+    glidepath_angle_deg: float | None
+    fpap_lat: float | None
+    fpap_lon: float | None
+    course_width_m: float | None
+    length_offset_m: int | None        # None where the source leaves it blank
+    tch: float | None                  # in tch_units: feet or metres
+    tch_units: str | None
+    hal_m: float | None
+    val_m: float | None
+    crc: str                           # as published, cols 116-123
+    crc_computed: str | None           # None when the block would not encode
+    fpap_ellipsoid_height_m: float | None
+    fpap_orthometric_height_m: float | None
+    ltp_orthometric_height_m: float | None
+    approach_type_ident: str | None
+    gnss_channel: int | None
+    helicopter_course: int | None
+    fields: dict[str, str]             # every primary field as read, unstripped
+    continuations: list[str]           # continuation records, verbatim
+    key: str                           # cols 7-26, shared by the primary and its continuations
+
+    @property
+    def crc_ok(self) -> bool:
+        return self.crc_computed is not None and self.crc_computed == self.crc.upper()
+
+    @property
+    def label(self) -> str:
+        """How the build report names a block: airport, approach, runway."""
+        return f"{self.airport} {self.approach_ident.strip()} {self.runway.strip()}"
+
+
+def _fas_block(line: str) -> FasBlock:
+    f = {k: line[v] for k, v in _PP.items()}
+    tch = _to_int(f["tch"])
+    units = _strip(f["tch_units"])
+    if tch is not None and units == "F":
+        tch_v = tch / 10.0
+    elif tch is not None and units == "M":
+        tch_v = tch / 100.0
+    else:
+        tch_v = None
+    cw, hal, val = _to_int(f["course_width"]), _to_int(f["hal"]), _to_int(f["val"])
+    gpa = _to_int(f["glidepath_angle"])
+    return FasBlock(
+        area=_strip(f["area"]), airport=f["airport"].strip(),
+        airport_icao=_strip(f["airport_icao"]),
+        approach_ident=f["approach_ident"].strip(), runway=f["runway"].strip(),
+        operation_type=_to_int(f["operation_type"]),
+        route_indicator=_strip(f["route_indicator"]),
+        sbas_provider=_to_int(f["sbas_provider"]),
+        ref_path_data_selector=_to_int(f["ref_path_data_selector"]),
+        ref_path_ident=_strip(f["ref_path_ident"]), apd=_to_int(f["apd"]),
+        ltp_lat=_hp_degrees(_parse_hp_seconds(f["ltp_lat"], 2)),
+        ltp_lon=_hp_degrees(_parse_hp_seconds(f["ltp_lon"], 3)),
+        ltp_ellipsoid_height_m=_signed_tenths(f["ltp_ellipsoid_height"]),
+        glidepath_angle_deg=gpa / 100.0 if gpa is not None else None,
+        fpap_lat=_hp_degrees(_parse_hp_seconds(f["fpap_lat"], 2)),
+        fpap_lon=_hp_degrees(_parse_hp_seconds(f["fpap_lon"], 3)),
+        course_width_m=cw / 100.0 if cw is not None else None,
+        length_offset_m=_to_int(f["length_offset"]) if f["length_offset"].strip() else None,
+        tch=tch_v, tch_units=units,
+        hal_m=hal / 10.0 if hal is not None else None,
+        val_m=val / 10.0 if val is not None else None,
+        crc=f["crc"].strip().upper(), crc_computed=fas_crc(f),
+        fpap_ellipsoid_height_m=None, fpap_orthometric_height_m=None,
+        ltp_orthometric_height_m=None, approach_type_ident=None, gnss_channel=None,
+        helicopter_course=None, fields=f, continuations=[], key=line[6:26],
+    )
+
+
+def _apply_pp_continuation(block: FasBlock, line: str) -> None:
+    block.continuations.append(line)
+    c = {k: line[v] for k, v in _PP_CONT.items()}
+    if line[26:27] != "2" or c["application_type"] != "E":
+        return
+    block.fpap_ellipsoid_height_m = _signed_tenths(c["fpap_ellipsoid_height"])
+    block.fpap_orthometric_height_m = _signed_tenths(c["fpap_orthometric_height"])
+    block.ltp_orthometric_height_m = _signed_tenths(c["ltp_orthometric_height"])
+    block.approach_type_ident = _strip(c["approach_type_ident"])
+    block.gnss_channel = _to_int(c["gnss_channel"]) if c["gnss_channel"].strip() else None
+    block.helicopter_course = (_to_int(c["helicopter_course"])
+                               if c["helicopter_course"].strip() else None)
+
+
+def iter_path_points(path: str | Path) -> Iterator[FasBlock]:
+    """Every Path Point (``PP``) record, in source order, from every
+    Customer/Area Code, with its continuations attached. Each block carries
+    the CRC the record publishes and the one re-computed from its fields;
+    whether a mismatch is kept is the builder's call, not this reader's.
+    A continuation with no primary before it (none in 2611) is skipped."""
+    current: FasBlock | None = None
+    for line in read_records(path):
+        if not (line[4:5] == "P" and line[12:13] == "P"):
+            continue
+        if line[_PP["continuation"]] not in ("0", "1"):
+            if current is not None and line[6:26] == current.key:
+                _apply_pp_continuation(current, line)
+            continue
+        if current is not None:
+            yield current
+        current = _fas_block(line)
+    if current is not None:
+        yield current
