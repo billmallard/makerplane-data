@@ -282,8 +282,13 @@ a build.
   `screens/virtualvfr_db.yaml` include. The `virtual_vfr` type itself stays:
   it hosts SVS.
 - **No `include:` emitted.** The editor places concrete instruments, so it never
-  emits pyEfis `include,…` instruments. Stock screens that use includes still
-  work on the device; the editor simply doesn't generate them.
+  generates pyEfis `include,…` instruments or a screen-level `include:`. Stock
+  screens that use includes still work on the device.
+- **Screen keys the editor doesn't model pass through.** A screen-level key other
+  than `module`/`title`/`layout`/`instruments` -- e.g. `include: [HMI_ENCODER_BUTTONS]`
+  (the knob's `encoder`/`encoder_button` keys) or a raw `encoder_timeout` -- is
+  kept as loaded and written back on save, so it can be added in the Code pane
+  and survives later edits. `module` and `title` are always regenerated.
 - **Aircraft limits / V-speeds / gauge bands** are not in the panel config — they
   come from the FIX database / aircraft config (a separate concern, fix-gateway
   side). The panel only describes *which* instruments go *where*.

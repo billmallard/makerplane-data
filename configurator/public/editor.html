@@ -4828,6 +4828,7 @@ function toPyefisDoc() {
       title: sc.name,
       layout: { rows: sc.layout.rows, columns: sc.layout.columns },
       instruments: expandGroups(sc.instruments).map(toScreenInstrument),
+      ...(sc.extra || {}),   // screen keys the editor doesn't model, kept as loaded
     };
   }
   return { main, screens };
@@ -4846,12 +4847,21 @@ function fromStoredDoc(doc) {
   if (doc.screens && typeof doc.screens === "object") {
     const names = Object.keys(doc.screens);
     if (!names.length) return null;
+    // Screen-level keys the editor has no UI for (`include:`, `encoder:`,
+    // `encoder_button:`, ...) ride along in `extra` and are written back
+    // unchanged on save, the same way unknown instrument options pass through.
+    // Without this a Code-pane `include:` vanished on the next save, so a
+    // managed panel could never carry the knob wiring (AER-5556).
+    const owned = ["module", "title", "layout", "instruments"];
     const screens = names.map((name) => {
       const sc = doc.screens[name] || {};
+      const extra = {};
+      for (const [k, v] of Object.entries(sc)) if (!owned.includes(k)) extra[k] = v;
       return {
         name,
         layout: sc.layout || { rows: 110, columns: 200 },
         instruments: Array.isArray(sc.instruments) ? sc.instruments : [],
+        ...(Object.keys(extra).length ? { extra } : {}),
       };
     });
     const m = doc.main || {};
