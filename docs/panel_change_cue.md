@@ -40,8 +40,8 @@ actually installed. Install snapshots go one level deep, and so does this.
 
 `config-pull` rewrites only the `panel_change` key of
 `~/.makerplane/pyefis/status.json` (keeping every other key) after it records
-a change, and again after a rollback, so the screen shows the change on the
-next pyEfis start with no catalog fetch. `pyefis-data status --json --out`
+a change, and again after a rollback, so the screen has the change the next
+time it opens, with no catalog fetch. `pyefis-data status --json --out`
 carries the same block. With no pull ever recorded:
 
 ```json
@@ -78,9 +78,13 @@ can never acknowledge a change it did not show. At a terminal, `panel-ack`
 with no flags shows the change and asks for the word `acknowledge`. Exit 0
 also when nothing is waiting. The command rewrites status.json itself.
 
-Acknowledging happens on the ground only in the same sense as the software
-notice: the Data Status screen is the boot screen, and `panel-ack` is never
-run by any timer or service.
+`panel-ack` is never run by a timer or a service; a person runs it, from the
+Data Status screen or a terminal. Note that the Data Status screen is not the
+boot screen: since BACKLOG L3 pyEfis boots the flight screen (`defaultScreen:
+PFD`), and Data Status opens from the PFD DATA flag. Bill decided on
+AER-5481 (2026-11-14) that the flag lights amber while a panel change is
+pending, not only for pack currency (pyEfis#468), and that the configurator
+puts the DATA flag on every panel it builds (makerplane-data#206).
 
 ## The cue (approved by Bill 2026-11-13, as written; the pyEfis side is AVIONICS's)
 
@@ -93,5 +97,6 @@ run by any timer or service.
   - body: `Config v8 installed 2026-11-12 14:03Z, hash 9f2c4b7a01de. Check every instrument shows the right source before flight.`
   - button: `Acknowledge`
 - **Colour:** amber, the screen's existing attention colour.
-- Not proposed here: a cue on the PFD. The Data Status screen is what the
-  backlog item asks for.
+- Reaching the screen: the pilot opens Data Status from the PFD DATA flag,
+  which lights amber while `panel_change.pending` is true (pyEfis#468) and
+  is on every configurator-built panel by default (makerplane-data#206).
