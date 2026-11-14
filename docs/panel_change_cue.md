@@ -40,8 +40,8 @@ actually installed. Install snapshots go one level deep, and so does this.
 
 `config-pull` rewrites only the `panel_change` key of
 `~/.makerplane/pyefis/status.json` (keeping every other key) after it records
-a change, and again after a rollback, so the screen shows the change on the
-next pyEfis start with no catalog fetch. `pyefis-data status --json --out`
+a change, and again after a rollback, so the screen has the change the next
+time it opens, with no catalog fetch. `pyefis-data status --json --out`
 carries the same block. With no pull ever recorded:
 
 ```json
@@ -78,9 +78,12 @@ can never acknowledge a change it did not show. At a terminal, `panel-ack`
 with no flags shows the change and asks for the word `acknowledge`. Exit 0
 also when nothing is waiting. The command rewrites status.json itself.
 
-Acknowledging happens on the ground only in the same sense as the software
-notice: the Data Status screen is the boot screen, and `panel-ack` is never
-run by any timer or service.
+`panel-ack` is never run by a timer or a service; a person runs it, from the
+Data Status screen or a terminal. Note that the Data Status screen is not the
+boot screen: since BACKLOG L3 pyEfis boots the flight screen (`defaultScreen:
+PFD`), and Data Status opens from the PFD DATA flag. That flag lights from
+pack currency only, so a pending panel change is not yet visible from the
+PFD; whether the flag also lights for it is Bill's question on AER-5481.
 
 ## The cue (approved by Bill 2026-11-13, as written; the pyEfis side is AVIONICS's)
 
@@ -93,5 +96,6 @@ run by any timer or service.
   - body: `Config v8 installed 2026-11-12 14:03Z, hash 9f2c4b7a01de. Check every instrument shows the right source before flight.`
   - button: `Acknowledge`
 - **Colour:** amber, the screen's existing attention colour.
-- Not proposed here: a cue on the PFD. The Data Status screen is what the
-  backlog item asks for.
+- Reaching the screen: the banner is seen only once Data Status is open,
+  which today means the pilot tapped a lit DATA flag. See "Acknowledging"
+  above; the PFD side is open on AER-5481.
