@@ -18,8 +18,12 @@ own last-revised stamp (cols 129-132); the header still says 2609, and
 Six more (AER-5460) were added on 2026-11-12 from the same cycle **2611**
 file: three `V1` airway legs and their three waypoint records.
 
+Thirty-one more (AER-5611) were added on 2026-11-14 from the same cycle
+**2611** file: KSMO `FERN7` and the twelve fixes it references.
+
 Twenty more (AER-5612) were added on 2026-11-14 from the same cycle **2611**
 file: the two procedures PA14 could not load on the bench, and their fixes.
+Nineteen of them are in the file: FIM's `D` record is shared with AER-5611's.
 
 Forty-eight more (AER-5623) were added on 2026-11-14 from the same cycle
 **2611** file: three LP/LPV approaches with their FAS data blocks.
@@ -44,9 +48,11 @@ every downstream PA item can test against, so nobody re-derives them.
 | MSA centre-fix records (2611) | 4 | KSBA's `PA` airport record, KABR's `PN` terminal NDB "AB", the D records for MSP (DME position only) and BET |
 | `V1` airway, seq 240-260 (2611) | 3 | AER-5460: KIMMY, INLET, PLANN. INLET's and PLANN's legs carry a second Minimum Altitude (cols 89-93): 2,100 ft flown in record order, 5,000 ft flown against it. KIMMY's leg leaves it blank |
 | `V1` waypoint records (2611) | 3 | the `EA` records for KIMMY, INLET and PLANN, so the three legs resolve |
+| KSMO `FERN7` STAR (2611) | 19 | AER-5611: a common route coded Route Type `2` under transition ident `ALL` (FIM, VNY, DARTS) beside four en-route transitions. Classified by ident, `ALL` was filed as an en-route transition and every transition choice dropped the common route |
+| `FERN7` fix records (2611) | 12 | the `D` records for AVE, FIM, FLW and VNY and the `EA` records for BAILL, BURNZ, CANYN, DARTS, DERBB, OHIGH, PIRUE and REYES, so every `FERN7` leg resolves |
 | KBUR `FERN7` STAR, `RW08` transition (2611) | 3 | AER-5612: ends `VM` 076 "to" KBUR, coded as the `PA` airport record -- the shape of 413 STARs the 2611 pack shipped with no fix position |
 | KANB `I05-Z` ILS approach (2611) | 10 | AER-5612: names the terminal NDB `AN` (a `PN` record) on its IAF, missed-approach `CF` and `HM` hold |
-| AER-5612 fix records (2611) | 7 | FIM (`D`), TOAKS and LINTZ (`EA`), KBUR's `PA` record, KANB's `PN` AN, `PC` COLOB and `PG` RW05 |
+| AER-5612 fix records (2611) | 6 | (FIM's `D` record is the AER-5611 one), TOAKS and LINTZ (`EA`), KBUR's `PA` record, KANB's `PN` AN, `PC` COLOB and `PG` RW05 |
 | `PP` FAS data blocks (2611) | 6 | AER-5623: KSSF `R28` (LPV, HAL 40.0 m, VAL 50.0 m, CRC `A433594C`), PAMR `R08-Z` (LP only, VAL 0) and PAMR `R08-Y` (LPV, whose LTP longitude `...7784` is off the 0.0005" grid and must round to `...7785` to match its CRC). Primary + continuation each |
 | `PF` legs for those three approaches (2611) | 29 | AER-5623: so each block attaches to its approach |
 | Their fix records (2611) | 13 | AER-5623: KSSF's five `PC` waypoints and `RW28`; PAMR's five `PC` waypoints, `RW08` and the BGQ VOR, so all 26 new legs resolve |

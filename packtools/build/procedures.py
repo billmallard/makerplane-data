@@ -358,7 +358,12 @@ def _build_procedures(con: sqlite3.Connection, path: Path,
         trans_key = (proc_id, leg.route_type, leg.transition or "")
         trans_id = trans_ids.get(trans_key)
         if trans_id is None:
-            role = arinc424.transition_role(leg.kind, leg.route_type, leg.transition)
+            try:
+                role = arinc424.transition_role(leg.kind, leg.route_type, leg.transition)
+            except ValueError as e:
+                raise ProceduresBuildError(
+                    f"{leg.airport} {leg.proc_ident}: {e} -- refusing to guess "
+                    f"which part of the procedure it is.") from e
             cur = con.execute(
                 "INSERT INTO transitions (proc_id, role, ident) VALUES (?, ?, ?)",
                 (proc_id, role, leg.transition))

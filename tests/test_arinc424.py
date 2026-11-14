@@ -96,6 +96,44 @@ def test_transition_role():
     assert a.transition_role("approach", "I", None) == "common"
 
 
+@pytest.mark.parametrize("kind, route_types, role", [
+    # ARINC 424 Table 5-7: SID (PD)
+    ("sid", "14FT", "runway"),
+    ("sid", "25M", "common"),
+    ("sid", "36SV", "enroute"),
+    # STAR (PE): the runway/en-route numbering runs the other way round
+    ("star", "147F", "enroute"),
+    ("star", "258M", "common"),
+    ("star", "369S", "runway"),
+])
+def test_transition_role_decodes_sid_star_route_type(kind, route_types, role):
+    """AER-5611: the role comes from the Route Type, not the ident -- a
+    common route coded ``ALL`` or ``RW11`` is still the common route."""
+    for rt in route_types:
+        for ident in ("ALL", "RW11", None, "OHIGH"):
+            assert a.transition_role(kind, rt, ident) == role, (kind, rt, ident)
+
+
+def test_transition_role_approach_route_type_a_is_the_transition():
+    """An approach transition named after a VOR whose ident starts RW (RWF
+    Redwood Falls, RWO Kodiak) is still an en-route transition."""
+    assert a.transition_role("approach", "A", "RWF  ") == "enroute"
+    assert a.transition_role("approach", "A", "HIMKI") == "enroute"
+    assert a.transition_role("approach", "R", None) == "common"
+    assert a.transition_role("approach", "I", None) == "common"
+
+
+def test_transition_role_unknown_route_type_refuses():
+    """Engine-out SID (0) included: it is a separate path, not a part of
+    the normal SID, so no role would fly it right."""
+    with pytest.raises(ValueError):
+        a.transition_role("sid", "0", "RW07")
+    with pytest.raises(ValueError):
+        a.transition_role("star", "Q", "ALL")
+    with pytest.raises(ValueError):
+        a.transition_role("sid", "", "ALL")
+
+
 # --- fix index: the airport-scoping bug (regression) -----------------------
 
 def test_fix_index_disambiguates_airport_scoped_idents_by_airport():
@@ -257,7 +295,7 @@ def test_iter_procedure_legs_vor_has_procedure_turn_and_arc():
 def test_iter_procedure_legs_all_fixes_resolve():
     idx = a.build_fix_index(FIXTURE)
     legs = list(a.iter_procedure_legs(FIXTURE, idx))
-    assert len(legs) == 115
+    assert len(legs) == 134
     unresolved = [l for l in legs if l.fix_id and l.fix_lat is None]
     assert unresolved == []
 

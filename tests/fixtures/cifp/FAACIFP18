@@ -174,6 +174,37 @@ SUSAP KSBAK2SGVO  K2D                 0   1403600812536014004825                
 SUSAP KSBAK2SKSBA K2PA                0   18018008325                                                                  M   098872413
 SUSAP KSBAK2SRW07 K2PG                0   18018008125                                                                  M   098880804
 SUSAP KSBAK2SRZS  K2D                 0   03012005925120210081252103000882530003005225                                 M   098892502
+SUSAP KSMOK2EFERN7 1AVE   010AVE  K2D 0V       IF                                             18000                        202741612
+SUSAP KSMOK2EFERN7 1AVE   020DERBBK2EA0E       TF                                                                          202752102
+SUSAP KSMOK2EFERN7 1AVE   030REYESK2EA0E       TF                                                                          202762102
+SUSAP KSMOK2EFERN7 1AVE   040PIRUEK2EA0E       TF                                                                          202772102
+SUSAP KSMOK2EFERN7 1AVE   050FIM  K2D 0VE      TF                                                                          202782102
+SUSAP KSMOK2EFERN7 1DERBB 010DERBBK2EA0E       IF                                             18000                        202791612
+SUSAP KSMOK2EFERN7 1DERBB 020REYESK2EA0E       TF                                                                          202802102
+SUSAP KSMOK2EFERN7 1DERBB 030PIRUEK2EA0E       TF                                                                          202812102
+SUSAP KSMOK2EFERN7 1DERBB 040FIM  K2D 0VE      TF                                                                          202822102
+SUSAP KSMOK2EFERN7 1FLW   010FLW  K2D 0V       IF                                             18000                        202831612
+SUSAP KSMOK2EFERN7 1FLW   020BURNZK2EA0E       TF                                                                          202842102
+SUSAP KSMOK2EFERN7 1FLW   030BAILLK2EA0E       TF                                                                          202852102
+SUSAP KSMOK2EFERN7 1FLW   040FIM  K2D 0VE      TF                                                                          202862102
+SUSAP KSMOK2EFERN7 1OHIGH 010OHIGHK2EA0E       IF                                             18000                        202871612
+SUSAP KSMOK2EFERN7 1OHIGH 020CANYNK2EA0E       TF                                                                          202882102
+SUSAP KSMOK2EFERN7 1OHIGH 030FIM  K2D 0VE      TF                                                                          202892102
+SUSAP KSMOK2EFERN7 2ALL   010FIM  K2D 0V       IF                                             18000                        202901612
+SUSAP KSMOK2EFERN7 2ALL   020VNY  K2D 0V       TF                                                                          202912102
+SUSAP KSMOK2EFERN7 2ALL   030DARTSK2EA0EE      TF                                                                          202922102
+SUSAD        AVE   K2011710VDHW N35384911W119584298    N35384911W119584298E0160007102     NARAVENAL                        249411703
+SUSAEAENRT   BAILL K20    C     N34280951W119014803                       E0116     NAR           BAILL                    284222605
+SUSAEAENRT   BURNZ K20    C     N34345428W119104486                       E0117     NAR           BURNZ                    298032504
+SUSAEAENRT   CANYN K20    R     N34232812W119044193                       E0116     NAR           CANYN                    301432605
+SUSAEAENRT   DARTS K20    C   L N34092177W118161054                       E0114     NAR           DARTS                    326162605
+SUSAEAENRT   DERBB K20    C   B N35152124W119382921                       E0119     NAR           DERBB                    328592605
+SUSAD        FIM   K2011250VTLW N34212410W118525265    N34212410W118525265E0150022001     NARFILLMORE                      252232609
+SUSAD        FLW   K2011750VDLW N35053510W119515608    N35053510W119515608E0160038701     NARFELLOWS                       252322609
+SUSAEAENRT   OHIGH K20    C   L N34255287W119183895                       E0117     NAR           OHIGH                    459232504
+SUSAEAENRT   PIRUE K20    C   L N34294831W118595403                       E0116     NAR           PIRUE                    471382605
+SUSAEAENRT   REYES K20    C   B N34393142W119080356                       E0117     NAR           REYES                    481972605
+SUSAD        VNY   K2011310VDLW N34132445W118293003    N34132648W118293021E0150008121     NARVAN NUYS                      259072406
 SUSAP KBURK2EFERN7 3RW08  010FIM  K2D 0V       IF                                             18000                        418921612
 SUSAP KBURK2EFERN7 3RW08  020TOAKSK2EA0EY      TF                                                                          418932307
 SUSAP KBURK2EFERN7 3RW08  030KBUR K2PA0AE      VM                     0760                                                 418941612
@@ -187,7 +218,6 @@ SUSAP KANBK7FI05-Z I      040         0  M     CA                     0525      
 SUSAP KANBK7FI05-Z I      050         0        VI                     1100                                          0 NS   208132209
 SUSAP KANBK7FI05-Z I      060AN   K7PN0NY  R   CFYAN  K7      0000000026000110PN  + 04000                           0 NS   208142209
 SUSAP KANBK7FI05-Z I      070AN   K7PN0NE  L   HM                     0520T010    + 04000                           0 NS   208151709
-SUSAD        FIM   K2011250VTLW N34212410W118525265    N34212410W118525265E0150022001     NARFILLMORE                      252232609
 SUSAEAENRT   LINTZ K70    C   L N33232339W086072838                       W0044     NAR           LINTZ                    431002504
 SUSAEAENRT   TOAKS K20    C     N34120992W118464303                       E0115     NAR           TOAKS                    510682605
 SUSAP KANBK7CCOLOB K70    W     N33311328W085565797                       W0045     NAR           COLOB                    207932504
