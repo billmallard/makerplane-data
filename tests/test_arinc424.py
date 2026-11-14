@@ -295,7 +295,7 @@ def test_iter_procedure_legs_vor_has_procedure_turn_and_arc():
 def test_iter_procedure_legs_all_fixes_resolve():
     idx = a.build_fix_index(FIXTURE)
     legs = list(a.iter_procedure_legs(FIXTURE, idx))
-    assert len(legs) == 95
+    assert len(legs) == 121
     unresolved = [l for l in legs if l.fix_id and l.fix_lat is None]
     assert unresolved == []
 

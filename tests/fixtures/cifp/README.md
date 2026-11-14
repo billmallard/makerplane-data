@@ -21,6 +21,9 @@ file: three `V1` airway legs and their three waypoint records.
 Thirty-one more (AER-5611) were added on 2026-11-14 from the same cycle
 **2611** file: KSMO `FERN7` and the twelve fixes it references.
 
+Forty-eight more (AER-5623) were added on 2026-11-14 from the same cycle
+**2611** file: three LP/LPV approaches with their FAS data blocks.
+
 This is the brief's "golden-procedure fixture set" (`procedures_and_airways_plan.md`
 Sec. 7): a handful of real procedures with a known-correct parsed form that
 every downstream PA item can test against, so nobody re-derives them.
@@ -43,6 +46,9 @@ every downstream PA item can test against, so nobody re-derives them.
 | `V1` waypoint records (2611) | 3 | the `EA` records for KIMMY, INLET and PLANN, so the three legs resolve |
 | KSMO `FERN7` STAR (2611) | 19 | AER-5611: a common route coded Route Type `2` under transition ident `ALL` (FIM, VNY, DARTS) beside four en-route transitions. Classified by ident, `ALL` was filed as an en-route transition and every transition choice dropped the common route |
 | `FERN7` fix records (2611) | 12 | the `D` records for AVE, FIM, FLW and VNY and the `EA` records for BAILL, BURNZ, CANYN, DARTS, DERBB, OHIGH, PIRUE and REYES, so every `FERN7` leg resolves |
+| `PP` FAS data blocks (2611) | 6 | AER-5623: KSSF `R28` (LPV, HAL 40.0 m, VAL 50.0 m, CRC `A433594C`), PAMR `R08-Z` (LP only, VAL 0) and PAMR `R08-Y` (LPV, whose LTP longitude `...7784` is off the 0.0005" grid and must round to `...7785` to match its CRC). Primary + continuation each |
+| `PF` legs for those three approaches (2611) | 29 | AER-5623: so each block attaches to its approach |
+| Their fix records (2611) | 13 | AER-5623: KSSF's five `PC` waypoints and `RW28`; PAMR's five `PC` waypoints, `RW08` and the BGQ VOR, so all 26 new legs resolve |
 | `CFDXF`/`CFDXG`/`CFDXH` centre-fix waypoints | 3 | AER-1700: the RF legs' *Center Fix* (cols 107-116) references these idents but never defines them -- without these records every RF arc's centre silently resolves to `(None, None)`; added so the golden RF-arc radius test has a real centre to resolve against |
 
 KSBA (Santa Barbara) was chosen because it is also PA14's planned bench-validation
