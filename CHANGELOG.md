@@ -6,6 +6,15 @@ and the `configurator`. Semver on the Python package; process in
 
 ## Unreleased
 
+### Packs (packtools)
+- **The procedures pack carries the FAS data blocks (VNAV1, AER-5623).** A new
+  `fas_blocks` table holds every CIFP Path Point (`PP`) record: the LP/LPV
+  Final Approach Segment block, every field, attached to its approach. The
+  build re-computes each block's CRC-32Q and drops, and names, any block
+  whose CRC does not match. All 4,917 in 2611 and 2612 match. Additive:
+  `schema_version` 3 -> 4, existing tables unchanged.
+  See [docs/fas_blocks.md](docs/fas_blocks.md).
+
 ### Device updater (pyefis_data)
 - **`config-pull` no longer adds `screens/virtualvfr_db.yaml` for SVS-off
   panels either (AER-5421).** pyEfis #457 deleted the legacy CIFP Virtual
