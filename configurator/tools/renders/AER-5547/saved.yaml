@@ -1,0 +1,64 @@
+main:
+  screenWidth: 1280
+  screenHeight: 720
+  defaultScreen: EMS
+screens:
+  EMS:
+    module: pyefis.screens.screenbuilder
+    title: EMS
+    layout:
+      rows: 110
+      columns: 200
+    instruments:
+      - type: vertical_bar_gauge
+        row: 0
+        column: 0
+        span:
+          rows: 50
+          columns: 10
+        options:
+          small_font_percent: 0.06
+          decimal_places: 1
+          dbkey: FUELQ1
+          name: Tank 1
+      - type: vertical_bar_gauge
+        row: 0
+        column: 12
+        span:
+          rows: 50
+          columns: 10
+        options:
+          small_font_percent: 0.06
+          decimal_places: 1
+          tank: tk_lt
+      - type: vertical_bar_gauge
+        row: 0
+        column: 24
+        span:
+          rows: 50
+          columns: 10
+        options:
+          small_font_percent: 0.06
+          decimal_places: 1
+          tank: tk_lt
+      - type: vertical_bar_gauge
+        row: 0
+        column: 36
+        span:
+          rows: 50
+          columns: 10
+        options:
+          small_font_percent: 0.06
+          decimal_places: 1
+          tank: tk_rt
+      - type: vertical_bar_gauge
+        row: 0
+        column: 48
+        span:
+          rows: 50
+          columns: 10
+        options:
+          small_font_percent: 0.06
+          decimal_places: 1
+          dbkey: FUELQ4
+          name: R TIP AUX
