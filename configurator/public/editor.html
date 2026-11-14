@@ -1040,18 +1040,19 @@ function buildHSI(inst) {
   const centerSym = o.center_symbol || "aircraft";
   const heading = 87, course = 110, headbug = 50, track = 78;  // sample values
   const cdi = 0.3, gsi = -0.2, tofrom = 1;
-  // Bearing pointers (P5b.2). Source-coloured RMI needles: magenta GPS, green
-  // VOR (vloc_color), generic bearing_color when the source is unknown -- a twin
-  // of the widget's _bearing_color. Sample sources: pointer 1 = GPS, 2 = VOR1.
-  const vlocC = o.vloc_color || "#00ff00";
+  // Bearing pointers (HSIBRG1, pyEfis#464): every needle, label and the BRG
+  // tab is bearing_color (cyan) whatever its source -- source colour is the
+  // CDI's alone (HSI-COLOR-001). bearingN_enabled only makes a pointer
+  // available; at run time each starts Off until the pilot steps it on, so
+  // the preview shows the panel as it boots: no needles, the BRG tab (or the
+  // corner labels) reading OFF. brgOn twins HSI._brgOn at boot.
   const bearingC = o.bearing_color || "#00ffff";
-  const brg1 = 30, brg2 = 250, brg1src = 2, brg2src = 0;   // sample values
-  const bearingColorTwin = (srcVal) => {
-    const s = Math.round(srcVal);
-    if (s === 2) return courseC;            // GPS
-    if (s === 0 || s === 1) return vlocC;   // VOR1 / VOR2
-    return bearingC;
-  };
+  const brg1 = 30, brg2 = 250;                             // sample values
+  const brgAvail = [1, 2].filter((n) => o[`bearing${n}_enabled`]);
+  const brgOn = { 1: false, 2: false };
+  // The widget's fontSize in this viewBox: its top panel is 12.5 fontSize
+  // wide (_draw_readouts), and the twin's panel is 44.
+  const FS = 44 / 12.5;
 
   // Every label the widget's nav-source tab can show (GPS, VOR/LOC/VLOC x
   // NAV1/NAV2) -- twin of hsi._SOURCE_TAB_LABELS (pyEfis#148/AER-473). Width
@@ -1085,6 +1086,51 @@ function buildHSI(inst) {
     // stays at full brightness (HSI-COLOR-001); only the label darkens.
     return `<path d="${d}" fill="${color}"/>`
       + `<text x="${x0 + tw / 2}" y="${(y0 + y1) / 2 + 2.45}" fill="${darkenToContrast(color)}" font-size="7" text-anchor="middle">${label}</text>`;
+  };
+
+  // BRG tab (HSIBRG1, pyEfis#464): the bearing-pointer selector on the RIGHT
+  // edge of the HDG|MAG|CRS panel, `top_panel` only -- twin of
+  // HSI._draw_bearing_tab, the mirror of navTab: same top and height, square
+  // left edge flush with the panel (px is the panel's right edge), rounded
+  // right corners on the panel's radius, one row per available pointer.
+  // Width is constant, the widest of BEARING_TAB_LABELS. The font is
+  // min(0.8 fontSize, 0.75 row height), floored at 9 px (0.6 of the stock
+  // 15 px fontSize). The widget also shrinks it to the room left beside the
+  // panel; here the panel and that room scale together, and the widest label
+  // (about 17 units) never fills the room (about 25), so that step never
+  // binds and is not drawn. An Off row is the panel's dark fill with a cyan
+  // bold label; the cyan outline leaves the shared edge to the panel's
+  // border, painted after. Drawn only when a pointer is available.
+  const BEARING_TAB_LABELS = ["BRG OFF", "BRG1 OFF", "BRG1 VOR1", "BRG1 VOR2", "BRG2 VOR1", "BRG2 VOR2"];
+  const bearingTab = (px, py, ph, rr, stroke) => {
+    if (!brgAvail.length) return "";
+    const th = ph - 2 * rr, top = py + rr, r = Math.min(rr, th / 2), rh = th / brgAvail.length;
+    const pad = FS * 0.35, size = Math.max(FS * 0.6, Math.min(FS * 0.8, rh * 0.75));
+    // Per-glyph width at navTab's unit (4.6 at font size 7).
+    const textW = Math.max(...BEARING_TAB_LABELS.map((l) => l.length * size * 4.6 / 7));
+    const x0 = px, x1 = px + textW + 2 * pad, ov = FS * 0.03, single = brgAvail.length === 1;
+    let g = "";
+    brgAvail.forEach((n, i) => {
+      const y0 = top + rh * i, y1 = y0 + rh, rt = i === 0 ? r : 0, rb = i === brgAvail.length - 1 ? r : 0;
+      const on = brgOn[n];
+      g += `<path d="M${x0 - ov} ${y0} L${x1 - rt} ${y0} A${rt} ${rt} 0 0 1 ${x1} ${y0 + rt} L${x1} ${y1 - rb} A${rb} ${rb} 0 0 1 ${x1 - rb} ${y1} L${x0 - ov} ${y1} Z" fill="${on ? bearingC : "rgba(0,0,0,0.55)"}"/>`
+        + `<text x="${(x0 + x1) / 2}" y="${(y0 + y1) / 2 + size * 0.35}" fill="${on ? darkenToContrast(bearingC) : bearingC}" font-size="${size}" font-weight="700" text-anchor="middle">${!on && single ? "BRG OFF" : `BRG${n} OFF`}</text>`;
+    });
+    g += `<path d="M${x0} ${top} L${x1 - r} ${top} A${r} ${r} 0 0 1 ${x1} ${top + r} L${x1} ${top + th - r} A${r} ${r} 0 0 1 ${x1 - r} ${top + th} L${x0} ${top + th}" fill="none" stroke="${bearingC}" stroke-width="${stroke}"/>`;
+    if (!single) g += `<line x1="${x0}" y1="${top + rh}" x2="${x1}" y2="${top + rh}" stroke="${bearingC}" stroke-width="${stroke}"/>`;
+    return g;
+  };
+  // Bottom-corner bearing labels -- twin of HSI._bearing_corner_label. Off,
+  // they read "1 OFF" / "2 OFF" as the pointer's control, but only where no
+  // BRG tab carries Off: under `top_panel` the corners stay clear. Font
+  // 0.85 fontSize at 3% / 97% of the width; in `split` the baseline rises
+  // to clear the CRS/HDG boxes (_bearing_label_baseline).
+  const bearingCorners = () => {
+    if (layout === "top_panel") return "";
+    const fs = FS * 0.85, y = layout === "split" ? 86 : 100 - FS * 0.5;
+    return brgAvail.filter((n) => !brgOn[n]).map((n) => n === 1
+      ? `<text x="3" y="${y}" fill="${bearingC}" font-size="${fs}">1 OFF</text>`
+      : `<text x="97" y="${y}" text-anchor="end" fill="${bearingC}" font-size="${fs}">2 OFF</text>`).join("");
   };
 
   // Static-element drop shadow (AER-393, lockstep with AER-392's shipped
@@ -1195,8 +1241,8 @@ function buildHSI(inst) {
       return g;
     };
     let abp = "";
-    if (o.bearing1_enabled) abp += abn(brg1, false, bearingColorTwin(brg1src));
-    if (o.bearing2_enabled) abp += abn(brg2, true, bearingColorTwin(brg2src));
+    if (brgOn[1]) abp += abn(brg1, false, bearingC);
+    if (brgOn[2]) abp += abn(brg2, true, bearingC);
     // Course pointer + lateral CDI from ownship (in-sector).
     let acourse = "";
     if (o.cdi_enabled !== false && inSec(course)) {
@@ -1240,7 +1286,7 @@ function buildHSI(inst) {
     if (layout === "top_panel") {
       const segs = [["HDG", HDG, hbC], ["MAG", MAG, fg], ["CRS", CRS, navColor]];
       const pw = 44, ph = 12, px = 50 - pw / 2, py = 2;
-      aPanel = { px, py, ph };
+      aPanel = { px, py, pw, ph };
       aro = readoutShadow(px, py, pw, ph, PANEL_RR)
         + `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="${PANEL_RR}" fill="rgba(0,0,0,0.62)" stroke="rgba(255,255,255,0.85)" stroke-width="0.5"/>`;
       segs.forEach((sg, i) => {
@@ -1260,9 +1306,8 @@ function buildHSI(inst) {
     const asrc = o.source_label_enabled === false ? ""
       : aPanel ? navTab(aPanel.px, aPanel.py, aPanel.ph, PANEL_RR, navColor, "GPS")
       : `<text x="4" y="${TOPY - 3}" fill="${navColor}" font-size="7" font-weight="600">GPS</text>`;
-    let ablab = "";
-    if (o.bearing1_enabled) ablab += `<text x="3" y="98" fill="${bearingColorTwin(brg1src)}" font-size="6" font-weight="600">1 GPS</text>`;
-    if (o.bearing2_enabled) ablab += `<text x="97" y="98" text-anchor="end" fill="${bearingColorTwin(brg2src)}" font-size="6" font-weight="600">2 VOR1</text>`;
+    const abtab = aPanel ? bearingTab(aPanel.px + aPanel.pw, aPanel.py, aPanel.ph, PANEL_RR, 0.5) : "";
+    const ablab = bearingCorners();
     return svgFromString(`
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}">
   ${aticks}
@@ -1275,6 +1320,7 @@ function buildHSI(inst) {
   ${atd}
   ${asym}
   ${asrc}
+  ${abtab}
   ${ablab}
   ${aro}
 </svg>`);
@@ -1396,15 +1442,9 @@ function buildHSI(inst) {
     return g;
   };
   let bpointers = "";
-  if (o.bearing1_enabled) bpointers += _bearingNeedle(brg1, false, bearingColorTwin(brg1src));
-  if (o.bearing2_enabled) bpointers += _bearingNeedle(brg2, true, bearingColorTwin(brg2src));
-  // Per-pointer bearing-source labels (bottom-left / bottom-right), source-
-  // coloured, mirroring the widget's tappable annunciation.
-  let blabels = "";
-  if (o.bearing1_enabled)
-    blabels += `<text x="3" y="98" fill="${bearingColorTwin(brg1src)}" font-size="6" font-weight="600">1 GPS</text>`;
-  if (o.bearing2_enabled)
-    blabels += `<text x="97" y="98" text-anchor="end" fill="${bearingColorTwin(brg2src)}" font-size="6" font-weight="600">2 VOR1</text>`;
+  if (brgOn[1]) bpointers += _bearingNeedle(brg1, false, bearingC);
+  if (brgOn[2]) bpointers += _bearingNeedle(brg2, true, bearingC);
+  const blabels = bearingCorners();
   // Integral readouts: one sectioned panel (top_panel) or boxes (corners/split).
   const roBox = (x, y, w, h, label, value, color) =>
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.2" fill="rgba(0,0,0,0.6)" stroke="${color}" stroke-width="0.5"/>`
@@ -1430,7 +1470,7 @@ function buildHSI(inst) {
   let readouts = "", rPanel = null;
   if (layout === "top_panel") {
     const ph = gutter * 0.76, pw = 44, px = CX - pw / 2, py = (gutter - ph) / 2;
-    rPanel = { px, py, ph };
+    rPanel = { px, py, pw, ph };
     readouts = readoutShadow(px, py, pw, ph, PANEL_RR)
       + segPanel(px, py, pw, ph, "h", [["HDG", HDG, hbC], ["MAG", MAG, fg], ["CRS", CRS, navColor]]);
   } else if (layout === "corners") {
@@ -1458,6 +1498,7 @@ function buildHSI(inst) {
   ${hbug}
   ${tdia}
   ${srcLabel}
+  ${rPanel ? bearingTab(rPanel.px + rPanel.pw, rPanel.py, rPanel.ph, PANEL_RR, 0.5) : ""}
   ${blabels}
   ${readouts}
 </svg>`);
