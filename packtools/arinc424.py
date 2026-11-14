@@ -192,6 +192,10 @@ FLAG_FAF = 1 << 2
 FLAG_MAP = 1 << 3
 FLAG_HOLD = 1 << 4
 FLAG_FIRST_MISSED_LEG = 1 << 5
+#: Final Approach Course Fix (col 43 ``I``, or ``D`` = IAF with FACF): a fix
+#: on the coded final approach path before the FAF (Sec. 2.2), e.g. the
+#: vectors-to-final fix. It is not the FAF and never carries FLAG_FAF (AER-5555).
+FLAG_FACF = 1 << 6
 
 _HOLD_PATH_TERMS = frozenset({"HA", "HF", "HM"})
 
@@ -313,8 +317,10 @@ def _decode_wdc_flags(wdc: str, path_term: str) -> int:
         flags |= FLAG_FLYOVER
     if wdc[3] in ("A", "C", "D"):
         flags |= FLAG_IAF
-    if wdc[3] in ("F", "I"):
+    if wdc[3] == "F":
         flags |= FLAG_FAF
+    if wdc[3] in ("D", "I"):
+        flags |= FLAG_FACF
     if wdc[3] == "M":
         flags |= FLAG_MAP
     if wdc[2] == "M":
