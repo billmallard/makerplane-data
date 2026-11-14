@@ -112,6 +112,48 @@ def test_build_procedures_transition_roles(input_dir, tmp_path):
     assert roles == {"runway", "enroute"}
 
 
+def _star_fixes(con, airport, ident, transition):
+    """The fixes a STAR flies via *transition*, assembled the way pyEfis's
+    ``proc_load.assemble`` does: the en-route transition, then the common
+    route, with a leading ``IF`` at the fix the previous part ended on
+    merged into it."""
+    def legs(role, t_ident=None):
+        q = ("SELECT l.path_term, l.fix_id FROM legs l "
+             "JOIN transitions t ON l.transition_id = t.id "
+             "JOIN procedures p ON t.proc_id = p.id "
+             "WHERE p.airport = ? AND p.ident = ? AND t.role = ?")
+        args = [airport, ident, role]
+        if t_ident is not None:
+            q += " AND t.ident = ?"
+            args.append(t_ident)
+        return con.execute(q + " ORDER BY t.id, l.seq", args).fetchall()
+    fixes = []
+    for path_term, fix_id in legs("enroute", transition) + legs("common"):
+        if path_term == "IF" and fixes and fixes[-1] == fix_id:
+            continue
+        fixes.append(fix_id)
+    return fixes
+
+
+def test_build_procedures_star_common_route_coded_all_is_common(input_dir, tmp_path):
+    """AER-5611: KSMO FERN7 codes FIM-VNY-DARTS as Route Type 2 (STAR
+    common route) under transition ident ``ALL``. Classified by ident it
+    was filed as an en-route transition named ALL, so a pilot picking OHIGH
+    got OHIGH CANYN FIM and the STAR silently stopped at FIM."""
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    try:
+        roles = dict(con.execute(
+            "SELECT t.ident, t.role FROM transitions t JOIN procedures p ON t.proc_id = p.id "
+            "WHERE p.airport = 'KSMO' AND p.ident = 'FERN7'"))
+        fixes = _star_fixes(con, "KSMO", "FERN7", "OHIGH")
+    finally:
+        con.close()
+    assert roles == {"AVE": "enroute", "DERBB": "enroute", "FLW": "enroute",
+                     "OHIGH": "enroute", "ALL": "common"}
+    assert fixes == ["OHIGH", "CANYN", "FIM", "VNY", "DARTS"]
+
+
 def test_build_procedures_rf_arc_has_resolved_centre_and_radius(input_dir, tmp_path):
     """AER-1700: RF (radius-to-fix) legs carry a resolved centre fix and a
     derived radius -- a specific number, not merely non-NULL, so a fixture
@@ -304,3 +346,15 @@ def test_build_procedures_refuses_a_file_with_no_msa_records(input_dir, tmp_path
 def test_built_pack_declares_procedures_schema_version_3(input_dir, tmp_path):
     out = build_procedures(input_dir, tmp_path / "out.pack")
     assert detect_procedures_schema_version(out) == 3
+
+
+def test_build_procedures_refuses_an_undecoded_route_type(input_dir, tmp_path):
+    """AER-5611: a Route Type with no decoded role (here an engine-out SID,
+    ``0``) fails the build rather than guessing which part it is."""
+    src = input_dir / "FAACIFP18"
+    lines = src.read_text(encoding="latin-1").splitlines(keepends=True)
+    flout = next(i for i, l in enumerate(lines) if l.startswith("SUSAP KSBAK2DFLOUT51RW07"))
+    lines[flout] = lines[flout][:19] + "0" + lines[flout][20:]
+    src.write_text("".join(lines), encoding="latin-1")
+    with pytest.raises(ProceduresBuildError, match="KSBA FLOUT5.*'0'"):
+        build_procedures(input_dir, tmp_path / "out.pack")

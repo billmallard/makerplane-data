@@ -824,18 +824,44 @@ def iter_airspace_records(path: str | Path) -> Iterator[AirspaceRecord]:
         yield pending
 
 
+# ARINC 424 Route Type (5.7, Table 5-7) for SIDs and STARs. The two run
+# opposite ways round: a SID's 1 is its runway transition, a STAR's 1 its
+# en-route transition. The transition ident does not carry the role -- a
+# common route is often coded ``ALL`` or with a runway ident (AER-5611).
+# Engine-out SID (``0``) is left out on purpose: it is a separate path,
+# not a part of the normal SID, and no role here would fly it right.
+_ROUTE_TYPE_ROLE = {
+    "sid": {
+        "1": "runway", "4": "runway", "F": "runway", "T": "runway",
+        "2": "common", "5": "common", "M": "common",
+        "3": "enroute", "6": "enroute", "S": "enroute", "V": "enroute",
+    },
+    "star": {
+        "1": "enroute", "4": "enroute", "7": "enroute", "F": "enroute",
+        "2": "common", "5": "common", "8": "common", "M": "common",
+        "3": "runway", "6": "runway", "9": "runway", "S": "runway",
+    },
+}
+
+
 def transition_role(kind: str, route_type: str, transition: str | None) -> str:
-    """Best-effort transition role classifier (brief Sec. 3.3's
-    ``transitions.role``): ARINC's Route Type codes are approach-type
-    dependent and only partially standardized across SID/STAR/Approach, so
-    this leans on the one unambiguous structural signal -- whether the
-    transition is runway-specific -- rather than decoding Route Type
-    itself."""
-    if transition and transition.upper().startswith("RW"):
-        return "runway"
-    if not transition:
-        return "common"
-    return "enroute"
+    """The transition's role (brief Sec. 3.3's ``transitions.role``),
+    decoded from its Route Type.
+
+    SID/STAR: per :data:`_ROUTE_TYPE_ROLE`. A Route Type not in the table
+    raises ``ValueError``: a guessed role silently drops or misorders a
+    procedure's legs. Approach: ``A`` is an approach transition
+    (``enroute``); every other code is the final approach and missed
+    approach (``common``). An approach transition named after a navaid
+    whose ident starts ``RW`` (RWF, RWO) is still a transition."""
+    if kind == "approach":
+        return "enroute" if route_type == "A" else "common"
+    try:
+        return _ROUTE_TYPE_ROLE[kind][route_type]
+    except KeyError:
+        raise ValueError(
+            f"no transition role for {kind} Route Type {route_type!r} "
+            f"(transition {transition!r})") from None
 
 
 @dataclass
