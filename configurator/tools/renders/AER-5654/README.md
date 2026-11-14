@@ -9,10 +9,13 @@ The editor's `data_annunciation` twin (`dataFlagGeom` / `dataFlagSvg` in
   92 x 27. Left to right: the device render, the twin, and an overlay (red is
   device only, cyan is twin only). The image is 4x nearest neighbour.
 - `pyefis_WxH.png` / `twin_WxH.png`: the 1:1 halves, both over black.
-- `editor_before_after_zoom3x.png`: the top left of the AER-5610 test panel's
-  canvas, 3x nearest neighbour. Left is before (the palette thumbnail, a black
-  box, from `docs/images/aer-5610/existing-panel_flag_zoom3x.png`). Right is
-  this branch, with the amber twin and no fill.
+- `editor_before_after_zoom3x.png`: a flag on the canvas, top left of a test
+  panel, 3x nearest neighbour. Left is without the twin: the palette thumbnail,
+  a black box (`docs/images/aer-5610/existing-panel_flag_zoom3x.png` at
+  aa5a827). Right is with the twin: amber, no fill. Both were taken with
+  AER-5610's capture tool, which placed the flag automatically. makerplane-data#211
+  reverted that, so a builder now places the flag from the palette, and the
+  canvas draws it the same way either way.
 - `editor_existing-panel.png`: the whole editor for that case.
 
 Measured with `ImageChops.difference` on luminance: 0 of 4140 pixels differ by
@@ -37,7 +40,8 @@ done
 python3 tools/data_flag_compare.py $O/compare_x4.png 4 \
   $O/pyefis_173x49.png $O/twin_173x49.png $O/pyefis_115x36.png $O/twin_115x36.png \
   $O/pyefis_92x27.png $O/twin_92x27.png
-node tools/data_flag_capture.mjs OUT   # then crop OUT/existing-panel.png (331,150,571,230), 3x
+# editor capture: tools/data_flag_capture.mjs at aa5a827 (removed by #211), then
+# crop OUT/existing-panel.png (331,150,571,230), 3x
 ```
 
 Fixture for the test (`test/data_flag_twin.test.mjs`):

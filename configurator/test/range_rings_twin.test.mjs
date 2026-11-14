@@ -85,7 +85,7 @@ test("format_range_nm ties round half-even like Python", () => {
 
 // --- save round-trip: what the property panel writes is what pyEfis reads ---
 
-const SAVE = ["round1", "expandGroups", "coerceNumericOptions", "toScreenInstrument", "bootScreen", "hasDataFlag", "toPyefisDoc", "fromStoredDoc"];
+const SAVE = ["round1", "expandGroups", "coerceNumericOptions", "toScreenInstrument", "toPyefisDoc", "fromStoredDoc"];
 const RING_SPECS = {
   // Copied from the live dev schema.json (pyEfis #363 Props).
   layer_range_rings: { type: "boolean", default: true },
