@@ -18,6 +18,9 @@ own last-revised stamp (cols 129-132); the header still says 2609, and
 Six more (AER-5460) were added on 2026-11-12 from the same cycle **2611**
 file: three `V1` airway legs and their three waypoint records.
 
+Thirty-one more (AER-5611) were added on 2026-11-14 from the same cycle
+**2611** file: KSMO `FERN7` and the twelve fixes it references.
+
 This is the brief's "golden-procedure fixture set" (`procedures_and_airways_plan.md`
 Sec. 7): a handful of real procedures with a known-correct parsed form that
 every downstream PA item can test against, so nobody re-derives them.
@@ -38,6 +41,8 @@ every downstream PA item can test against, so nobody re-derives them.
 | MSA centre-fix records (2611) | 4 | KSBA's `PA` airport record, KABR's `PN` terminal NDB "AB", the D records for MSP (DME position only) and BET |
 | `V1` airway, seq 240-260 (2611) | 3 | AER-5460: KIMMY, INLET, PLANN. INLET's and PLANN's legs carry a second Minimum Altitude (cols 89-93): 2,100 ft flown in record order, 5,000 ft flown against it. KIMMY's leg leaves it blank |
 | `V1` waypoint records (2611) | 3 | the `EA` records for KIMMY, INLET and PLANN, so the three legs resolve |
+| KSMO `FERN7` STAR (2611) | 19 | AER-5611: a common route coded Route Type `2` under transition ident `ALL` (FIM, VNY, DARTS) beside four en-route transitions. Classified by ident, `ALL` was filed as an en-route transition and every transition choice dropped the common route |
+| `FERN7` fix records (2611) | 12 | the `D` records for AVE, FIM, FLW and VNY and the `EA` records for BAILL, BURNZ, CANYN, DARTS, DERBB, OHIGH, PIRUE and REYES, so every `FERN7` leg resolves |
 | `CFDXF`/`CFDXG`/`CFDXH` centre-fix waypoints | 3 | AER-1700: the RF legs' *Center Fix* (cols 107-116) references these idents but never defines them -- without these records every RF arc's centre silently resolves to `(None, None)`; added so the golden RF-arc radius test has a real centre to resolve against |
 
 KSBA (Santa Barbara) was chosen because it is also PA14's planned bench-validation
