@@ -81,9 +81,10 @@ also when nothing is waiting. The command rewrites status.json itself.
 `panel-ack` is never run by a timer or a service; a person runs it, from the
 Data Status screen or a terminal. Note that the Data Status screen is not the
 boot screen: since BACKLOG L3 pyEfis boots the flight screen (`defaultScreen:
-PFD`), and Data Status opens from the PFD DATA flag. That flag lights from
-pack currency only, so a pending panel change is not yet visible from the
-PFD; whether the flag also lights for it is Bill's question on AER-5481.
+PFD`), and Data Status opens from the PFD DATA flag. Bill decided on
+AER-5481 (2026-11-14) that the flag lights amber while a panel change is
+pending, not only for pack currency (pyEfis#468), and that the configurator
+puts the DATA flag on every panel it builds (makerplane-data#206).
 
 ## The cue (approved by Bill 2026-11-13, as written; the pyEfis side is AVIONICS's)
 
@@ -96,6 +97,6 @@ PFD; whether the flag also lights for it is Bill's question on AER-5481.
   - body: `Config v8 installed 2026-11-12 14:03Z, hash 9f2c4b7a01de. Check every instrument shows the right source before flight.`
   - button: `Acknowledge`
 - **Colour:** amber, the screen's existing attention colour.
-- Reaching the screen: the banner is seen only once Data Status is open,
-  which today means the pilot tapped a lit DATA flag. See "Acknowledging"
-  above; the PFD side is open on AER-5481.
+- Reaching the screen: the pilot opens Data Status from the PFD DATA flag,
+  which lights amber while `panel_change.pending` is true (pyEfis#468) and
+  is on every configurator-built panel by default (makerplane-data#206).
