@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""FAS data blocks (CIFP ``PP`` records): the parser and CRC (AER-5623).
+"""FAS data blocks (CIFP ``PP`` records) in the procedures pack (AER-5623).
 
 The golden blocks are real 2611 records in the shared fixture
 (tests/fixtures/cifp/FAACIFP18): KSSF R28 (LPV), PAMR R08-Z (LP only) and
@@ -10,11 +10,16 @@ the CRC wrap the way the FAA's own source did.
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from packtools import arinc424 as a
+from packtools import packmeta, report
+from packtools.build.procedures import ProceduresBuildError, build_procedures
+from packtools.packmeta import PackMeta
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cifp" / "FAACIFP18"
 
@@ -25,6 +30,16 @@ KSSF_R28 = ("SUSAP KSSFK4PR28   RW28 001 0000W28A0N2920080300W09827562295+014670
 def _blocks(path=FIXTURE):
     return {(b.airport, b.approach_ident): b for b in a.iter_path_points(path)}
 
+
+def _input(tmp_path, edit=None):
+    """The golden fixture in an input dir, each line passed through ``edit``."""
+    d = tmp_path / "input"
+    d.mkdir()
+    lines = FIXTURE.read_text(encoding="latin-1").splitlines()
+    if edit:
+        lines = [edit(ln) for ln in lines]
+    (d / "FAACIFP18").write_text("\n".join(lines) + "\n", encoding="latin-1")
+    return d
 
 
 # --- DoD 1: golden blocks, every field decoded and the CRC verified ----------
@@ -112,3 +127,104 @@ def test_the_pp_layout_matches_the_record():
         "R28   ", "RW28 ", "W28A", "N2920080300", "W09827562295", "N2920274035",
         "W09829357460", "A433594C", "2508")
     assert a.fas_crc(f) == "A433594C"
+
+
+# --- the pack -----------------------------------------------------------------
+
+def test_builder_stores_every_verified_block_attached_to_its_approach(tmp_path):
+    out = build_procedures(_input(tmp_path), tmp_path / "p.pack")
+    con = sqlite3.connect(out)
+    try:
+        rows = con.execute(
+            "SELECT f.airport, f.approach_ident, f.runway, f.approach_type, f.hal_m, f.val_m, "
+            "f.crc, p.kind, p.ident, p.runway FROM fas_blocks f "
+            "JOIN procedures p ON p.id = f.proc_id ORDER BY 1, 2").fetchall()
+        record = json.loads(con.execute(
+            "SELECT record FROM fas_blocks WHERE airport = 'KSSF'").fetchone()[0])
+    finally:
+        con.close()
+    assert rows == [
+        ("KSSF", "R28", "RW28", "LPV", 40.0, 50.0, "A433594C", "approach", "R28", "28"),
+        ("PAMR", "R08-Y", "RW08", "LPV", 40.0, 50.0, "39AFF456", "approach", "R08-Y", "08"),
+        ("PAMR", "R08-Z", "RW08", "LP", 40.0, 0.0, "DBD6916D", "approach", "R08-Z", "08"),
+    ]
+    assert record["fields"]["crc"] == "A433594C" and len(record["continuations"]) == 1
+    assert packmeta.detect_procedures_schema_version(out) == 4
+
+
+# --- DoD 2: a corrupted block fails its CRC, is dropped, and is named ---------
+
+def _corrupt_kssf_hal(line):
+    # HAL 400 -> 410 in KSSF R28's primary: still a well-formed record.
+    if line.startswith("SUSAP KSSFK4PR28   RW28 001"):
+        return line[:109] + "410" + line[112:]
+    return line
+
+
+def test_a_corrupted_block_is_dropped_and_named(tmp_path, capsys):
+    out = build_procedures(_input(tmp_path, _corrupt_kssf_hal), tmp_path / "p.pack")
+    err = capsys.readouterr().err
+    con = sqlite3.connect(out)
+    try:
+        kept = [r[0] for r in con.execute(
+            "SELECT airport || ' ' || approach_ident FROM fas_blocks ORDER BY 1")]
+    finally:
+        con.close()
+    assert kept == ["PAMR R08-Y", "PAMR R08-Z"]
+    assert "WARN fas_blocks: dropped KSSF R28 RW28: CRC A433594C, computed " in err
+
+
+def test_the_pack_report_lists_the_drop(tmp_path):
+    inputs = _input(tmp_path, _corrupt_kssf_hal)
+    out = build_procedures(inputs, tmp_path / "p.pack")
+    packmeta.embed_sqlite(out, PackMeta(id="procedures-conus", kind="procedures",
+                                        cycle="2611", attribution="FAA",
+                                        license="LicenseRef-public-domain"))
+    rec = report.build_report(out, origin="federal", commit="0" * 40, inputs=inputs, probe=False,
+                              first_edition=True)
+    checks = {c["id"]: c for c in rec["checks"]}
+    c = checks["PROC-FAS-001"]
+    assert c["status"] == "warn"
+    assert c["measured"] == ("2 of 3 PP records stored; 1 dropped for a CRC that does not "
+                             "re-compute (KSSF R28 RW28)")
+    assert rec["metrics"]["PROC-FAS-001"] == {"source_primaries": 3, "stored": 2,
+                                              "crc_dropped": ["KSSF R28 RW28"]}
+    assert checks["PROC-FAS-002"]["status"] == "pass"
+    assert c["pending_review"]          # QA has not reviewed it: it cannot block yet
+
+
+# --- DoD 3: the pack-wide count is the source's PP count, minus drops ----------
+
+def test_the_census_matches_the_source(tmp_path):
+    inputs = _input(tmp_path)
+    out = build_procedures(inputs, tmp_path / "p.pack")
+    packmeta.embed_sqlite(out, PackMeta(id="procedures-conus", kind="procedures",
+                                        cycle="2611", attribution="FAA",
+                                        license="LicenseRef-public-domain"))
+    rec = report.build_report(out, origin="federal", commit="0" * 40, inputs=inputs, probe=False,
+                              first_edition=True)
+    checks = {c["id"]: c for c in rec["checks"]}
+    assert (checks["PROC-FAS-001"]["status"], checks["PROC-FAS-001"]["measured"]) == (
+        "pass", "3 of 3 PP records stored; 0 dropped for a CRC that does not re-compute")
+    assert checks["PROC-FAS-003"]["measured"] == "0 of 3 blocks"
+
+
+def test_a_stored_block_whose_crc_does_not_match_its_record_fails(tmp_path):
+    out = build_procedures(_input(tmp_path), tmp_path / "p.pack")
+    con = sqlite3.connect(out)
+    con.execute("UPDATE fas_blocks SET crc = '00000000' WHERE airport = 'KSSF'")
+    con.commit()
+    con.close()
+    packmeta.embed_sqlite(out, PackMeta(id="procedures-conus", kind="procedures",
+                                        cycle="2611", attribution="FAA",
+                                        license="LicenseRef-public-domain"))
+    rec = report.build_report(out, origin="federal", commit="0" * 40, probe=False, first_edition=True)
+    c = {c["id"]: c for c in rec["checks"]}["PROC-FAS-002"]
+    assert (c["status"], c["measured"]) == ("fail", "1 of 3 blocks (KSSF R28 RW28)")
+
+
+def test_builder_refuses_a_pack_with_no_fas_blocks(tmp_path):
+    def strip_pp(line):
+        return "" if len(line) == 132 and line[4] == "P" and line[12] == "P" else line
+    with pytest.raises(ProceduresBuildError, match="no FAS data blocks"):
+        build_procedures(_input(tmp_path, strip_pp), tmp_path / "p.pack")
