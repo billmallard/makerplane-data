@@ -1,0 +1,281 @@
+{
+ "configs": {
+  "arc_corners_brg12": {
+   "corner": {
+    "1": {
+     "rect": [
+      0.01411764705882353,
+      0.9411764705882353,
+      0.10588235294117647,
+      0.06588235294117648
+     ],
+     "text": "1 OFF"
+    },
+    "2": {
+     "rect": [
+      0.88,
+      0.9411764705882353,
+      0.10588235294117647,
+      0.06588235294117648
+     ],
+     "text": "2 OFF"
+    }
+   },
+   "font_size": 15,
+   "options": {
+    "bearing1_enabled": true,
+    "bearing2_enabled": true,
+    "orientation": "arc",
+    "readout_layout": "corners"
+   },
+   "panel": null,
+   "tab_rows": {},
+   "tab_text": []
+  },
+  "arc_top_panel_brg12": {
+   "corner": {
+    "1": {
+     "rect": null,
+     "text": ""
+    },
+    "2": {
+     "rect": null,
+     "text": ""
+    }
+   },
+   "font_size": 15,
+   "options": {
+    "bearing1_enabled": true,
+    "bearing2_enabled": true,
+    "orientation": "arc",
+    "readout_layout": "top_panel"
+   },
+   "panel": [
+    0.27941176470588236,
+    0.019200000000000002,
+    0.4411764705882353,
+    0.1216
+   ],
+   "tab_rows": {
+    "1": [
+     0.7205882352941176,
+     0.036832000000000004,
+     0.18941176470588236,
+     0.043168
+    ],
+    "2": [
+     0.7205882352941176,
+     0.08,
+     0.18941176470588236,
+     0.043168
+    ]
+   },
+   "tab_text": [
+    {
+     "bold": true,
+     "label": "BRG1 OFF",
+     "px": 12
+    },
+    {
+     "bold": true,
+     "label": "BRG2 OFF",
+     "px": 12
+    }
+   ]
+  },
+  "corners_brg12": {
+   "corner": {
+    "1": {
+     "rect": [
+      0.01411764705882353,
+      0.9411764705882353,
+      0.10588235294117647,
+      0.06588235294117648
+     ],
+     "text": "1 OFF"
+    },
+    "2": {
+     "rect": [
+      0.88,
+      0.9411764705882353,
+      0.10588235294117647,
+      0.06588235294117648
+     ],
+     "text": "2 OFF"
+    }
+   },
+   "font_size": 15,
+   "options": {
+    "bearing1_enabled": true,
+    "bearing2_enabled": true,
+    "readout_layout": "corners"
+   },
+   "panel": null,
+   "tab_rows": {},
+   "tab_text": []
+  },
+  "none_brg2": {
+   "corner": {
+    "1": {
+     "rect": null,
+     "text": ""
+    },
+    "2": {
+     "rect": [
+      0.88,
+      0.9411764705882353,
+      0.10588235294117647,
+      0.06588235294117648
+     ],
+     "text": "2 OFF"
+    }
+   },
+   "font_size": 15,
+   "options": {
+    "bearing2_enabled": true,
+    "readout_layout": "none"
+   },
+   "panel": null,
+   "tab_rows": {},
+   "tab_text": []
+  },
+  "split_brg1": {
+   "corner": {
+    "1": {
+     "rect": [
+      0.01411764705882353,
+      0.8258823529411765,
+      0.10588235294117647,
+      0.06588235294117648
+     ],
+     "text": "1 OFF"
+    },
+    "2": {
+     "rect": null,
+     "text": ""
+    }
+   },
+   "font_size": 15,
+   "options": {
+    "bearing1_enabled": true,
+    "readout_layout": "split"
+   },
+   "panel": null,
+   "tab_rows": {},
+   "tab_text": []
+  },
+  "top_panel_brg1": {
+   "corner": {
+    "1": {
+     "rect": null,
+     "text": ""
+    },
+    "2": {
+     "rect": null,
+     "text": ""
+    }
+   },
+   "font_size": 15,
+   "options": {
+    "bearing1_enabled": true,
+    "readout_layout": "top_panel"
+   },
+   "panel": [
+    0.27941176470588236,
+    0.019200000000000002,
+    0.4411764705882353,
+    0.1216
+   ],
+   "tab_rows": {
+    "1": [
+     0.7205882352941176,
+     0.036832000000000004,
+     0.18941176470588236,
+     0.086336
+    ]
+   },
+   "tab_text": [
+    {
+     "bold": true,
+     "label": "BRG OFF",
+     "px": 12
+    }
+   ]
+  },
+  "top_panel_brg12": {
+   "corner": {
+    "1": {
+     "rect": null,
+     "text": ""
+    },
+    "2": {
+     "rect": null,
+     "text": ""
+    }
+   },
+   "font_size": 15,
+   "options": {
+    "bearing1_enabled": true,
+    "bearing2_enabled": true,
+    "readout_layout": "top_panel"
+   },
+   "panel": [
+    0.27941176470588236,
+    0.019200000000000002,
+    0.4411764705882353,
+    0.1216
+   ],
+   "tab_rows": {
+    "1": [
+     0.7205882352941176,
+     0.036832000000000004,
+     0.18941176470588236,
+     0.043168
+    ],
+    "2": [
+     0.7205882352941176,
+     0.08,
+     0.18941176470588236,
+     0.043168
+    ]
+   },
+   "tab_text": [
+    {
+     "bold": true,
+     "label": "BRG1 OFF",
+     "px": 12
+    },
+    {
+     "bold": true,
+     "label": "BRG2 OFF",
+     "px": 12
+    }
+   ]
+  },
+  "top_panel_none": {
+   "corner": {
+    "1": {
+     "rect": null,
+     "text": ""
+    },
+    "2": {
+     "rect": null,
+     "text": ""
+    }
+   },
+   "font_size": 15,
+   "options": {
+    "readout_layout": "top_panel"
+   },
+   "panel": [
+    0.27941176470588236,
+    0.019200000000000002,
+    0.4411764705882353,
+    0.1216
+   ],
+   "tab_rows": {},
+   "tab_text": []
+  }
+ },
+ "size": 425
+}
