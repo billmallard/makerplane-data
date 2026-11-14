@@ -111,7 +111,7 @@ def test_builder_writes_grid_mora(tmp_path):
         assert raw.startswith("S   AS       S14W180") and len(raw) == 132
     finally:
         con.close()
-    assert packmeta.detect_procedures_schema_version(out) == 3
+    assert packmeta.detect_procedures_schema_version(out) == 4
 
 
 def test_builder_refuses_two_bands_claiming_one_cell(tmp_path):
@@ -125,21 +125,28 @@ def test_builder_refuses_two_bands_claiming_one_cell(tmp_path):
 
 def test_procedures_schema_version_follows_the_table_set(tmp_path):
     from packtools.build.procedures import _SCHEMA
+    v4 = tmp_path / "v4.pack"
+    con = sqlite3.connect(v4)
+    con.executescript(_SCHEMA)
+    con.close()
+    assert packmeta.detect_content_schema_version("procedures", v4) == 4
     v3 = tmp_path / "v3.pack"
     con = sqlite3.connect(v3)
     con.executescript(_SCHEMA)
+    con.executescript("DROP TABLE fas_blocks;")
     con.close()
     assert packmeta.detect_content_schema_version("procedures", v3) == 3
     v2 = tmp_path / "v2.pack"
     con = sqlite3.connect(v2)
     con.executescript(_SCHEMA)
-    con.executescript("DROP TABLE grid_mora; DROP TABLE grid_mora_bands;")
+    con.executescript("DROP TABLE fas_blocks; DROP TABLE grid_mora; DROP TABLE grid_mora_bands;")
     con.close()
     assert packmeta.detect_content_schema_version("procedures", v2) == 2
     v1 = tmp_path / "v1.pack"
     con = sqlite3.connect(v1)
     con.executescript(_SCHEMA)
-    con.executescript("DROP TABLE grid_mora; DROP TABLE grid_mora_bands; DROP TABLE msa;")
+    con.executescript("DROP TABLE fas_blocks; DROP TABLE grid_mora; DROP TABLE grid_mora_bands; "
+                      "DROP TABLE msa;")
     con.close()
     packmeta.embed_sqlite(v1, PackMeta(id="procedures-conus", kind="procedures",
                                        cycle="2611"))

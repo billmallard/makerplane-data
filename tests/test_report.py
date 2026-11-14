@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from packtools import cli, packmeta, report
+from packtools import arinc424, cli, packmeta, report
 from packtools.build.procedures import _SCHEMA as PROC_SCHEMA
 from packtools.manifest import NOTICE
 from packtools.packmeta import PackMeta
@@ -28,9 +28,15 @@ LICENSE = dict(attribution="FAA CIFP (public domain)", license="LicenseRef-us-pu
 #: KSBA's RW07 MSA, the real 2611 PS record: one sector, 8100 ft, 25 nm.
 PS_RW07 = ("SUSAP KSBAK2SRW07 K2PG                0   18018008125" + " " * 66
            + "M   096892211")
+#: KSBA R07's FAS data block (PP primary + continuation), verbatim from 2611.
+PP_R07 = (
+    "SUSAP KSBAK2PR07   RW07 001 0000W07A0N3425389960W11951167095-003240300N3425412385"
+    "W11949290320106750904000523F4005006C2F60C1098842502",
+    "SUSAP KSBAK2PR07   RW07 002E      +00035+00035LPV       78306" + " " * 62
+    + "098852208")
 
 
-def _proc_inputs(path, records=(PS_RW07,)):
+def _proc_inputs(path, records=(PS_RW07, *PP_R07)):
     """The extracted-CIFP directory PROC-MSA-001 counts PS records in:
     ``<pack>.inputs/FAACIFP18`` holding ``records``."""
     d = Path(f"{path}.inputs")
@@ -49,6 +55,20 @@ def _msa_row(con, cycle, *, airport="KSBA", centre="RW07", seq=1, start=180, end
         (airport, centre, lat, None if lat is None else -119.8546, seq, start, end, alt,
          radius, cycle, record or json.dumps({"continuations": [], "fields": {
              "airport": airport, "centre_ident": centre, "multiple_code": " "}})))
+
+
+def _fas_row(con, path, cycle, lines=PP_R07, crc=None):
+    """One fas_blocks row decoded from ``lines``; ``crc`` overrides the
+    stored CRC (the record itself is kept as read)."""
+    src = Path(f"{path}.pp")
+    src.write_text("".join(ln + "\n" for ln in lines), encoding="latin-1")
+    b = next(arinc424.iter_path_points(src))
+    con.execute(
+        "INSERT INTO fas_blocks (airport, approach_ident, runway, approach_type, ltp_lat, "
+        "ltp_lon, hal_m, val_m, crc, cycle, record) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (b.airport, b.approach_ident, b.runway, b.approach_type_ident, b.ltp_lat, b.ltp_lon,
+         b.hal_m, b.val_m, crc or b.crc, cycle,
+         json.dumps({"fields": b.fields, "continuations": b.continuations})))
 
 
 def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=0, legs=400,
@@ -95,6 +115,7 @@ def _proc_pack(path, cycle="2611", *, airways=40, collide=0, unresolved=0, legs=
                         (b, lat_sw, lon_sw + i, None if unk else mora_ft,
                          "UNK" if unk else f"{mora_ft // 100:03d}"))
     _msa_row(con, cycle)
+    _fas_row(con, path, cycle)
     con.commit()
     con.close()
     packmeta.embed_sqlite(path, PackMeta(id="procedures-conus", kind="procedures",
@@ -234,7 +255,7 @@ def test_a_first_edition_with_no_legs_table_is_refused(tmp_path):
 def test_every_table_the_procedures_builder_creates_is_required(tmp_path):
     c = _by_id(_rep(_proc_pack(tmp_path / "p.pack"), first_edition=True))["PROC-TBL-001"]
     assert c["status"] == "pass"
-    assert c["measured"] == ("8 of 8 present: airway_legs, airways, grid_mora, "
+    assert c["measured"] == ("9 of 9 present: airway_legs, airways, fas_blocks, grid_mora, "
                              "grid_mora_bands, legs, msa, procedures, transitions")
 
 
@@ -362,7 +383,7 @@ def test_a_table_that_disappears_fails_unless_the_schema_version_moved(tmp_path)
     assert kept["ROW-003"]["status"] == "fail"
     same = _by_id(_rep(_proc_pack(tmp_path / "y.pack"),
                        previous=report.previous_from(_proc_pack(tmp_path / "z.pack", "2610"))))
-    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 8 tables gone")
+    assert (same["ROW-003"]["status"], same["ROW-003"]["measured"]) == ("pass", "0 of 9 tables gone")
 
 
 def test_unmeasured_thresholds_are_labelled_provisional_in_the_record(tmp_path):

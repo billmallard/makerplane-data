@@ -42,7 +42,7 @@ catalog
 | `schema_version` | The version of the pack's format |
 
 A reader ignores keys it does not know. `schema_version` is 1 for most kinds.
-For `highways` (1 or 2) and `procedures` (1 to 3) the build reads it from the
+For `highways` (1 or 2) and `procedures` (1 to 4) the build reads it from the
 tables the pack actually contains. A reader should still check for the tables
 and columns it needs, because editions packed before a kind's rule existed say
 1 whatever they hold.

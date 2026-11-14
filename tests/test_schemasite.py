@@ -245,7 +245,7 @@ def test_the_version_rules_come_from_packmeta(monkeypatch):
     monkeypatch.setitem(packmeta.PROCEDURES_TABLE_SCHEMAS,
                         frozenset({"airways", "airway_legs", "procedures", "transitions",
                                    "legs", "msa", "grid_mora_bands", "grid_mora",
-                                   "airspace"}), 99)
+                                   "fas_blocks", "airspace"}), 99)
     last = [r for r in schemasite.version_rules() if r["kind"] == "procedures"][-1]
     assert (last["schema_version"], last["content"]) == (99, "adds airspace")
 

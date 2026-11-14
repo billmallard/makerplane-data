@@ -79,6 +79,9 @@ MSA_RADIUS_MAX_NM = 50
 #: PROC-MSA-004: MSA records whose centre fix the build could not place.
 #: 2611 measured 1 of 6,058 (KHRJ's HQT, an NDB the file does not define).
 MSA_UNRESOLVED_MAX_FRACTION = 0.001
+#: PROC-FAS-*: added by AER-5623, not yet reviewed by QA (plan section 4.4).
+FAS_REVIEW = ("AER-5623: QA has not reviewed this check's definition, so it cannot "
+              "stop a publish yet")
 #: PROC-MORA-001: Grid MORA band floor, 50% of the 241 bands in 2611
 #: (rounded down), by the SG-004 convention.
 PROC_MORA_BAND_FLOOR = 120
@@ -983,6 +986,62 @@ def _c_msa_values(ctx):
     return ("fail" if alt_bad or rad_bad or ref_bad else "pass", measured, "")
 
 
+def _c_fas_census(ctx):
+    if "fas_blocks" not in ctx.tables:
+        return ("fail", "no fas_blocks table", "")
+    if ctx.inputs is None:
+        return _not_run("Needs the source FAACIFP18 (--inputs) to count its PP records and "
+                        "re-derive the CRC drops. The nightly gate passes the extracted CIFP.")
+    from . import arinc424
+    from .build.procedures import ProceduresBuildError, _find_cifp_file
+    try:
+        cifp = _find_cifp_file(Path(ctx.inputs))
+    except ProceduresBuildError as e:
+        return ("fail", str(e).replace(str(ctx.inputs), "<inputs>"), "")
+    source = list(arinc424.iter_path_points(cifp))
+    dropped = sorted(b.label for b in source if not b.crc_ok)
+    want = sorted(b.label for b in source if b.crc_ok)
+    have = sorted(f"{a} {i} {r}" for a, i, r in ctx.con.execute(
+        "SELECT airport, approach_ident, runway FROM fas_blocks"))
+    ctx.metrics["PROC-FAS-001"] = {"source_primaries": len(source), "stored": len(have),
+                                   "crc_dropped": dropped}
+    measured = (f"{len(have):,} of {len(source):,} PP records stored; {len(dropped)} dropped "
+                "for a CRC that does not re-compute"
+                + (f" ({', '.join(dropped[:20])})" if dropped else ""))
+    if have != want:
+        missing = sorted(set(want) - set(have))
+        extra = sorted(set(have) - set(want))
+        return ("fail", measured + f"; missing {missing[:10]}, unexpected {extra[:10]}", "")
+    return ("warn" if dropped else "pass", measured, "")
+
+
+def _c_fas_crc(ctx):
+    if "fas_blocks" not in ctx.tables:
+        return ("fail", "no fas_blocks table", "")
+    from . import arinc424
+    bad = []
+    n = 0
+    for airport, ident, runway, crc, record in ctx.con.execute(
+            "SELECT airport, approach_ident, runway, crc, record FROM fas_blocks"):
+        n += 1
+        fields = json.loads(record)["fields"]
+        if arinc424.fas_crc(fields) != crc or fields.get("crc", "").strip().upper() != crc:
+            bad.append(f"{airport} {ident} {runway}")
+    measured = f"{len(bad)} of {n:,} blocks" + (f" ({', '.join(bad[:10])})" if bad else "")
+    return ("fail" if bad else "pass", measured, "")
+
+
+def _c_fas_unattached(ctx):
+    if "fas_blocks" not in ctx.tables:
+        return ("fail", "no fas_blocks table", "")
+    rows = [f"{a} {i}" for a, i in ctx.con.execute(
+        "SELECT airport, approach_ident FROM fas_blocks WHERE proc_id IS NULL ORDER BY 1, 2")]
+    total = ctx.tables["fas_blocks"]
+    ctx.metrics["PROC-FAS-003"] = {"unattached": len(rows), "blocks": total}
+    measured = f"{len(rows)} of {total:,} blocks" + (f" ({', '.join(rows[:10])})" if rows else "")
+    return ("warn" if rows else "pass", measured, "")
+
+
 def _c_msa_unresolved(ctx):
     if "msa" not in ctx.tables:
         return ("fail", "no msa table", "")
@@ -1729,6 +1788,23 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "(KHRJ HQT, an NDB the file does not define). It does not accept those "
               "records as correct; they are stored with no position, never a guessed one",
               "A centre placed at the wrong coordinates.", _c_msa_unresolved, "AER-4446"),
+        Check("PROC-FAS-001", "Every PP record in the source is in fas_blocks, or named "
+              "as a CRC drop", True,
+              "the pack holds exactly the source FAACIFP18's PP records whose FAS block CRC "
+              "re-computes; any that do not are listed and warn (2611 and 2612: 4,917 of "
+              "4,917 re-compute)",
+              "A block decoded wrong in a field outside the CRC wrap (orthometric heights, "
+              "approach type, channel); a source block that is wrong but internally "
+              "consistent.", _c_fas_census, "AER-5623", review=FAS_REVIEW),
+        Check("PROC-FAS-002", "Every stored FAS block's CRC re-computes from its record", True,
+              "0 blocks: each row's record fields encode to the CRC the row carries",
+              "A decoded column (ltp_lat, hal_m, ...) that disagrees with the record it was "
+              "decoded from; the check reads the record, not the columns.",
+              _c_fas_crc, "AER-5623", review=FAS_REVIEW),
+        Check("PROC-FAS-003", "FAS blocks with no approach in the pack", False,
+              "0 blocks: every block's (airport, ident) names an approach in procedures",
+              "A block attached to the right ident but the wrong runway.",
+              _c_fas_unattached, "AER-5623", review=FAS_REVIEW),
         Check("PROC-MORA-001", "Grid MORA has 30 cells per band", True,
               f"cells = 30 x bands, and at least {PROC_MORA_BAND_FLOOR} bands (half the "
               "241 in 2611)",
