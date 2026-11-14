@@ -62,9 +62,12 @@ ROW_DELTA_WARN = 0.10
 #: or this fraction (whichever is larger) before the check warns.
 GEO_OUTSIDE_GROWTH_ROWS = 25
 GEO_OUTSIDE_GROWTH_FRACTION = 0.10
-#: PROC-FIX-001: legs naming a fix the build could not place. 2610 measured
-#: 950 of 201,030 and 2611 measured 941 of 200,853 (both 0.47%).
-PROC_UNRESOLVED_MAX_FRACTION = 0.005
+#: PROC-FIX-001: legs naming a fix the build could not place. Until
+#: AER-5612 this was a 0.5% regression bound, carried from 2610 (950 of
+#: 201,030) and 2611 (941 of 200,853); it let 556 procedures that pyEfis
+#: refuses ship. Now any such leg outside the builder's declared source gaps
+#: warns. The builder refuses those legs itself, so this catches a pack built
+#: some other way, or before that gate.
 #: PROC-MSA-003: plausible MSA sector values. An MSA is 1,000 ft above the
 #: highest obstacle in the sector, so nothing lower is possible; 2611 runs
 #: 1,300 to 16,000 ft. Radii are 25 nm unless extended to take in the
@@ -662,15 +665,34 @@ def _c_unresolved(ctx):
         return ("fail", "no legs table", "")
     total = ctx.tables["legs"]
     rows = ctx.con.execute(
-        "SELECT COALESCE(fix_type, ''), COUNT(*) FROM legs WHERE fix_id IS NOT NULL "
+        "SELECT fix_id, COALESCE(fix_type, ''), COUNT(*) FROM legs WHERE fix_id IS NOT NULL "
         "AND TRIM(fix_id) <> '' AND (fix_lat IS NULL OR fix_lon IS NULL) "
-        "GROUP BY 1 ORDER BY 1").fetchall()
-    n = sum(c for _, c in rows)
-    ctx.metrics["PROC-FIX-001"] = {"unresolved": n, "legs": total,
-                                   "by_fix_type": {k or "(none)": c for k, c in rows}}
+        "GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
+    by_type: dict[str, int] = {}
+    for _, t, c in rows:
+        by_type[t or "(none)"] = by_type.get(t or "(none)", 0) + c
+    n = sum(c for _, _, c in rows)
+    gaps = _declared_gaps()
+    undeclared = [(f, t, c) for f, t, c in rows if (f, t) not in gaps]
+    n_bad = sum(c for _, _, c in undeclared)
+    ctx.metrics["PROC-FIX-001"] = {"unresolved": n, "undeclared": n_bad, "legs": total,
+                                   "by_fix_type": by_type}
     frac = n / total if total else 0.0
-    measured = f"{n:,} of {total:,} legs ({frac * 100:.2f}%)"
-    return ("warn" if frac > PROC_UNRESOLVED_MAX_FRACTION else "pass", measured, "")
+    measured = (f"{n:,} of {total:,} legs ({frac * 100:.2f}%); "
+                f"{n_bad:,} outside the declared source gaps")
+    if undeclared:
+        shown = sorted(undeclared, key=lambda r: (-r[2], r[0]))[:10]
+        measured += " (" + ", ".join(f"{f}/{t or '?'} x{c}" for f, t, c in shown) + ")"
+    return ("warn" if n_bad else "pass", measured, "")
+
+
+def _declared_gaps() -> set[tuple[str, str]]:
+    """``(fix_id, fix_type)`` of the builder's KNOWN_SOURCE_GAPS. The pack
+    keeps no ICAO region or section, so this is as close as a reader of the
+    pack alone can match them."""
+    from .build.procedures import KNOWN_SOURCE_GAPS
+    return {(ident, arinc424._fix_type(sec[:1], sec[1:]) or "")
+            for ident, _, sec in KNOWN_SOURCE_GAPS}
 
 
 def _c_awy_unique(ctx):
@@ -1731,10 +1753,9 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "extra table the builder does not create.", _c_proc_tables, "AER-4598"),
         Check("PROC-FIX-001", "Procedure legs that name a fix the build could not place",
               False,
-              f"at most {PROC_UNRESOLVED_MAX_FRACTION:.1%} of legs: a regression bound that "
-              "carries forward the 0.47% observed in 2610 (950 of 201,030) and 2611 (941 of "
-              "200,853). It does not accept those legs as correct; it stops the share "
-              "growing",
+              "none outside the source gaps the builder declares (KNOWN_SOURCE_GAPS, "
+              "each a fix the source names but never defines). pyEfis refuses a "
+              "procedure with any such leg (AER-5612)",
               "A fix placed at the wrong coordinates. Legs with no fix by design (for "
               "example heading legs) are not counted.", _c_unresolved),
         Check("PROC-AWY-001", "Airway idents are unique", True, "0 duplicate idents",

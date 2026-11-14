@@ -195,6 +195,47 @@ class ProceduresBuildError(BuildError):
     fails the run rather than logging it as a benign WARN."""
 
 
+#: Fix references the source file names but never defines, each checked by
+#: hand against the whole file. Keyed ``(ident, icao, section+subsection)``
+#: as the leg codes it. A leg naming one keeps a NULL position; a leg whose
+#: fix does not resolve for any other reason stops the build (AER-5612).
+#: An entry that starts resolving also stops the build, so the list cannot
+#: go stale silently.
+KNOWN_SOURCE_GAPS: dict[tuple[str, str, str], str] = {
+    ("CMY", "K5", "DB"): "NDB named by the KDAF R36 IF leg; CIFP 2611 and 2612 "
+                         "carry no D-section record for it",
+}
+
+#: How many unresolved references a refusal names before summarising.
+_UNRESOLVED_SHOWN = 20
+
+
+def _check_unresolved(unresolved: dict[tuple[str, str, str], list[str]],
+                      fix_index, cifp_path: Path) -> None:
+    """Refuse the build if any leg names a fix it could not place, other
+    than a declared source gap. Before AER-5612 such legs shipped with NULL
+    coordinates; pyEfis refuses a procedure with one, so 556 procedures in
+    the 2611 pack could not be loaded."""
+    stale = sorted(
+        "/".join(k) for k in KNOWN_SOURCE_GAPS
+        if (k[0], k[1], k[2][:1], k[2][1:]) in fix_index)
+    if stale:
+        raise ProceduresBuildError(
+            f"{cifp_path} now defines {', '.join(stale)}, listed in "
+            f"KNOWN_SOURCE_GAPS as missing -- remove the entry.")
+    bad = {k: v for k, v in unresolved.items() if k not in KNOWN_SOURCE_GAPS}
+    if not bad:
+        return
+    lines = [f"  {'/'.join(k)}: {len(v)} leg(s), e.g. {v[0]}"
+             for k, v in sorted(bad.items(), key=lambda kv: (-len(kv[1]), kv[0]))]
+    more = len(lines) - _UNRESOLVED_SHOWN
+    raise ProceduresBuildError(
+        f"{len(bad)} fix reference(s) in {cifp_path} did not resolve to a "
+        f"position (ident/icao-or-airport/section):\n"
+        + "\n".join(lines[:_UNRESOLVED_SHOWN])
+        + (f"\n  ... and {more} more" if more > 0 else ""))
+
+
 def _find_cifp_file(input_dir: Path) -> Path:
     # The FAA has shipped this file under this exact name for decades
     # (verified live, cycle 2609); a glob would also happily match one of
@@ -252,7 +293,7 @@ _AREA = "USA"
 
 
 def _build_airways(con: sqlite3.Connection, path: Path,
-                    fix_index, cycle: str) -> int:
+                    fix_index, cycle: str, unresolved: dict) -> int:
     airway_ids: dict[str, int] = {}
     n = 0
     for leg in arinc424.iter_airway_legs(path, fix_index):
@@ -265,6 +306,10 @@ def _build_airways(con: sqlite3.Connection, path: Path,
                 (leg.route_ident, cycle))
             airway_id = cur.lastrowid
             airway_ids[leg.route_ident] = airway_id
+        if leg.fix_lat is None:
+            unresolved.setdefault(
+                (leg.fix_id, leg.fix_icao or "", leg.fix_section or ""), []).append(
+                f"airway {leg.route_ident} seq {leg.seq}")
         con.execute(
             "INSERT INTO airway_legs (airway_id, seq, fix_id, fix_lat, fix_lon, "
             "fix_type, min_alt_ft, max_alt_ft, direction, min_alt2_ft) "
@@ -278,7 +323,7 @@ def _build_airways(con: sqlite3.Connection, path: Path,
 
 
 def _build_procedures(con: sqlite3.Connection, path: Path,
-                       fix_index, cycle: str) -> int:
+                       fix_index, cycle: str, unresolved: dict) -> int:
     # Keyed by (airport, kind, ident) so legs from every transition of the
     # same named procedure land under one procedures row; transitions are
     # keyed one level further by (route_type, transition ident) since a
@@ -319,6 +364,15 @@ def _build_procedures(con: sqlite3.Connection, path: Path,
                 (proc_id, role, leg.transition))
             trans_id = cur.lastrowid
             trans_ids[trans_key] = trans_id
+
+        where = (f"{leg.airport} {leg.kind} {leg.proc_ident} "
+                 f"{leg.transition or '(common)'} seq {leg.seq} {leg.path_term}")
+        if leg.fix_id and leg.fix_lat is None:
+            unresolved.setdefault(
+                (leg.fix_id, leg.fix_icao or "", leg.fix_section or ""), []).append(where)
+        if leg.path_term == "RF" and leg.centre_lat is None:
+            unresolved.setdefault(
+                (leg.centre_fix or "(none)", "", "RF centre"), []).append(where)
 
         # Only an RF leg's centre is an arc centre; on any other leg the
         # same columns name the procedure's MSA centre (AER-4446), and a
@@ -459,8 +513,9 @@ def build_procedures(input_dir: str | Path, out_path: str | Path) -> Path:
     con = sqlite3.connect(str(out_path))
     try:
         con.executescript(_SCHEMA)
-        n_airway_legs = _build_airways(con, cifp_path, fix_index, cycle)
-        n_proc_legs = _build_procedures(con, cifp_path, fix_index, cycle)
+        unresolved: dict[tuple[str, str, str], list[str]] = {}
+        n_airway_legs = _build_airways(con, cifp_path, fix_index, cycle, unresolved)
+        n_proc_legs = _build_procedures(con, cifp_path, fix_index, cycle, unresolved)
         _build_grid_mora(con, cifp_path)
         n_msa = _build_msa(con, cifp_path, fix_index, cycle)
         n_fas, fas_dropped = _build_fas_blocks(con, cifp_path, cycle)
@@ -485,4 +540,5 @@ def build_procedures(input_dir: str | Path, out_path: str | Path) -> Path:
         raise ProceduresBuildError(
             f"no FAS data blocks stored from {cifp_path} ({len(fas_dropped)} dropped) -- "
             f"every cycle carries thousands; refusing to ship an empty fas_blocks table.")
+    _check_unresolved(unresolved, fix_index, cifp_path)
     return out_path

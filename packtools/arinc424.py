@@ -349,6 +349,12 @@ def _fix_type(section: str | None, subsection: str | None) -> str | None:
     return None
 
 
+def _section_code(section: str | None, subsection: str | None) -> str | None:
+    if not section:
+        return None
+    return section + (subsection or "").strip()
+
+
 FixKey = tuple[str, str, str, str]  # (ident, scope, section, subsection)
 
 #: (section, subsection) pairs whose ident is unique only per-airport, not
@@ -434,6 +440,11 @@ class AirwayLegRecord:
     #: record (sequence) order where it differs from ``min_alt_ft``; blank,
     #: so ``None``, on most legs (AER-5460).
     min_alt2_ft: int | None = None
+    #: The fix reference as the leg codes it -- ICAO region and two-letter
+    #: section+subsection (``"EA"``, ``"DB"``) -- so a fix that does not
+    #: resolve can be named (AER-5612).
+    fix_icao: str | None = None
+    fix_section: str | None = None
 
 
 def iter_airway_legs(path: str | Path,
@@ -472,6 +483,8 @@ def iter_airway_legs(path: str | Path,
             max_alt_ft=_decode_altitude(line[f["max_alt"]]),
             direction=_strip(line[f["direction"]]),
             min_alt2_ft=_decode_altitude(line[f["min_alt2"]]),
+            fix_icao=fix_icao,
+            fix_section=_section_code(fix_section, fix_subsection),
         )
 
 
@@ -504,6 +517,9 @@ class ProcedureLegRecord:
     centre_fix: str | None
     centre_lat: float | None
     centre_lon: float | None
+    #: As on ``AirwayLegRecord`` (AER-5612).
+    fix_icao: str | None = None
+    fix_section: str | None = None
 
 
 def iter_procedure_legs(path: str | Path,
@@ -568,6 +584,8 @@ def iter_procedure_legs(path: str | Path,
             centre_fix=centre_fix,
             centre_lat=centre_lat,
             centre_lon=centre_lon,
+            fix_icao=fix_icao,
+            fix_section=_section_code(fix_section, fix_subsection),
         )
 
 
