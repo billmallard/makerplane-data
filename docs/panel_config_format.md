@@ -259,6 +259,20 @@ options:                options:                    options:
   (or `/api/devices/:id/aircraft/refs?...`) returns
   `{source, items: [{id, label, slot, role, slot_key}], retired: {id: last label}}`.
   An unknown source is a 400.
+- **In the editor (FUEL1 F6):** the Tank field is a select of those items,
+  each with its slot ("L TIP - FUELQ3"). Choosing one stores `tank: <id>` and
+  drops the plain `dbkey`/`name`; choosing "Not bound" writes back the key and
+  name the device was receiving. An orphaned gauge is outlined red, its picker
+  reads "<last label> - removed", and its twin draws the device's failed look.
+  A bar bound the stock way, `dbkey: FUELQn` with the name exactly `Tank n`,
+  is offered "Bind to <label>" when the aircraft has a tank in slot n; nothing
+  changes until the click, and a hand-named bar is never offered.
+- **Saving an aircraft profile that orphans a binding** asks first:
+  `POST /api/projects/:id/aircraft/orphans` with `{profile}` (or `{version}`)
+  returns `{panels: [{device_id, device, version, gauges: [{at, option, id, label}]}]}`,
+  every device's latest saved panel with a gauge that resolves under the
+  active profile and would come out unbound. The aircraft page lists them and
+  saves only on confirmation. It never refuses: removing a tank is legitimate.
 
 Each pull stamps `last_pull_at`. The on-Pi updater then atomic-swaps the screen +
 `main` into the device's config (see [device_deployment.md](device_deployment.md),

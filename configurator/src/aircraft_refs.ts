@@ -41,3 +41,23 @@ export function resolveAircraftRefs(
     bindings: r.bindings as Binding[],
   };
 }
+
+export type Orphan = { at: string; option: string; id: string; label: string | null };
+
+// The references in one panel that resolve under the `before` profile and
+// come out unbound under `after`: the gauges a profile change would orphan
+// (brief section 5). A reference already unbound before is not counted, and
+// nothing is ever refused here -- removing a tank is legitimate; the caller
+// only warns.
+export function orphanedBy(panelYaml: string, before: unknown, after: unknown): Orphan[] {
+  const was = resolveAircraftRefs(panelYaml, before).bindings;
+  const now = new Map(resolveAircraftRefs(panelYaml, after).bindings.map((b) => [`${b.at}|${b.option}`, b]));
+  const out: Orphan[] = [];
+  for (const b of was) {
+    if (b.unbound) continue;
+    const n = now.get(`${b.at}|${b.option}`);
+    if (n && n.unbound)
+      out.push({ at: b.at, option: b.option, id: b.id, label: typeof b.name === "string" ? b.name : null });
+  }
+  return out;
+}

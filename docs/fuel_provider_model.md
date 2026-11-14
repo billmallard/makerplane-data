@@ -314,9 +314,21 @@ CERT2b (AER-5179) leaves every stock fuel bar as `name: "Tank N"`,
 Each row is one repo and one PR unless it says otherwise. They are listed in
 dependency order. None of them is promoted until Bill has read this brief.
 
-F1 is built (FUEL1a, AER-5271). The label limit is provisionally 12
-characters until F6 measures the native bar; raising it later breaks no
-saved profile.
+F1 is built (FUEL1a, AER-5271). Its label limit was provisionally 12
+characters until F6 measured the native bar.
+
+F6 is built (FUEL1f, AER-5547). The measured limit is a width, not a
+character count: a label must fit every stock EMS2 tank bar
+(`configurator/public/fuel_label.js`). The oracle,
+`configurator/tools/fuel_gauge_oracle.py`, builds the stock screen at five
+stock resolutions and reads six bar geometries off the real widget, from
+44 px wide with a 13 px name font to 98 px with a 29 px font. Over those
+bars, "L MAIN", "R MAIN", "L TIP", "AUX" and the default "Tank n" fit.
+"HEADER" does not: a single word wider than the bar is centred and cut at
+both edges. A two-word label that is too wide shows only its first wrapped
+line ("R TIP AUX" shows "R TIP"). The 12-character ceiling stays on the text
+box only. An unbound gauge's look, also from the oracle, is the bad colour
+set, no bands, the value held at 0 and `xxx`.
 
 F3 is built (FUEL1c, AER-5499). Its served form is in
 `panel_config_format.md`, "Aircraft references". The refs endpoint returns

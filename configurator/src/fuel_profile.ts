@@ -7,13 +7,17 @@
 // test/fuel_profile.test.mjs holds the two equal, message for message, over
 // one table of profiles. Change both or neither.
 //
-// Pure, no imports, so node:test can load this file directly.
+// Pure; its one import is the label rule the page and the editor twin share
+// (public/fuel_label.js), so node:test can load this file directly.
+
+import { labelFitError } from "../public/fuel_label.js";
 
 export const FUEL_ROLES = ["main", "aux", "tip", "header", "transfer"];
 // The UI's tank ceiling: a product choice, not a FIX limit (brief section 3).
 export const TANK_CEILING = 8;
-// Provisional. F6 measures what the native bar can draw and sets the real
-// limit (brief section 6); raising it later breaks no saved profile.
+// A ceiling on the text box only. The limit that matters is that the label
+// fits every stock pyEfis tank bar, as measured off the real widget
+// (labelFitError, brief section 6); no 13-character label passes that.
 export const TANK_LABEL_MAX = 12;
 
 type Msgs = { errors: string[]; warnings: string[] };
@@ -47,6 +51,7 @@ export function fuelCheck(meta: any, values: any): Msgs {
     if (typeof t.label !== "string" || !t.label.trim()) errors.push(`tank ${i + 1}: label required`);
     else if (t.label.length > TANK_LABEL_MAX)
       errors.push(`${n}: label at most ${TANK_LABEL_MAX} characters`);
+    else if (labelFitError(t.label)) errors.push(`${n}: ${labelFitError(t.label)}`);
     else {
       const key = t.label.trim().toUpperCase();
       if (labels.has(key)) errors.push(`${n}: label used by another tank`);

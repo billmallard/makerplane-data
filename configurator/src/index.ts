@@ -7,6 +7,7 @@ import { Hono, type Context } from "hono";
 import {
   activateAircraftProfileVersion,
   aircraftProfileHistory,
+  aircraftProfileVersion,
   claimDevice,
   createDevice,
   createProject,
@@ -28,6 +29,7 @@ import {
   touchLastPull,
 } from "./db";
 import { checkAircraftProfilePut } from "./aircraft_profile";
+import { orphanedBy } from "./aircraft_refs";
 import { AIRCRAFT_REFS, refItems, retiredLabels } from "../public/aircraft_refs.js";
 import { claimCode, randomToken, sha256B64url } from "./crypto";
 import { deviceFixgw, devicePreferences, serveDeviceConfig } from "./device_prefs";
@@ -131,6 +133,37 @@ app.post("/api/projects/:id/aircraft/activate/:v", async (c) => {
     c.env.DB, c.get("userId"), Number(c.req.param("id")),
     Number(c.req.param("v")));
   return ok ? c.json({ ok: true }) : c.json({ error: "not found" }, 404);
+});
+
+// Which published panels a profile would orphan if it became active: every
+// device's latest saved panel, resolved against the active profile and
+// against the candidate ({profile} about to be saved, or {version} about to
+// be activated). The page warns and lists them; it never refuses, because
+// removing a tank is legitimate (brief section 5).
+app.post("/api/projects/:id/aircraft/orphans", async (c) => {
+  const userId = c.get("userId"), projectId = Number(c.req.param("id"));
+  if (!(await getProject(c.env.DB, userId, projectId))) return c.json({ error: "not found" }, 404);
+  const body = await c.req.json<{ profile?: unknown; version?: number }>().catch(() => ({}) as { profile?: unknown; version?: number });
+  let candidate: unknown = body.profile;
+  if (candidate === undefined && body.version !== undefined) {
+    const v = await aircraftProfileVersion(c.env.DB, userId, projectId, Number(body.version));
+    if (v === null) return c.json({ error: "version not found" }, 404);
+    candidate = v;
+  }
+  if (candidate === undefined) return c.json({ error: "profile or version required" }, 400);
+  const active = await getAircraftProfile(c.env.DB, userId, projectId);
+  const before = active ? active["json"] : null;
+  const panels = [];
+  for (const d of (await listDevices(c.env.DB, userId, projectId)) as Record<string, unknown>[]) {
+    const latest = await latestConfig(c.env.DB, userId, Number(d["id"]));
+    if (!latest) continue;
+    const obj = await c.env.CONFIGS.get(String(latest["yaml_r2_key"]));
+    if (!obj) continue;
+    const gauges = orphanedBy(await obj.text(), before, candidate);
+    if (gauges.length)
+      panels.push({ device_id: d["id"], device: d["name"], version: latest["version"], gauges });
+  }
+  return c.json({ panels });
 });
 
 // --- aircraft references (docs/fuel_provider_model.md section 5, F3) -------
