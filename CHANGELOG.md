@@ -6,6 +6,18 @@ and the `configurator`. Semver on the Python package; process in
 
 ## Unreleased
 
+### Device updater (pyefis_data)
+- **`config-pull` adds `screens/virtualvfr_db.yaml` when the device's pyEfis
+  still needs it (AER-5675).** 0.5.0 dropped the include for SVS-on panels and
+  0.6.0 for all, each gated on a pyEfis change (#349, #457) that pyEfis
+  `master` did not carry. On such a pyEfis the legacy CIFP overlay's first
+  resize aborts the process, and `config-pull` rolls the new panel back.
+  `config-pull` now probes the installed pyEfis through the `pyefis` unit's
+  own interpreter and adds the include exactly where that pyEfis would build
+  the overlay. If it can't tell, it adds the include, which every pyEfis
+  accepts. The install summary reports the result as `legacy_overlay`.
+  See [docs/device_deployment.md](docs/device_deployment.md).
+
 ## 0.6.0 — 2026-11-14
 
 Promotes the `dev` work since 0.5.0 (18 PRs). It exists so that one
