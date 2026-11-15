@@ -25,6 +25,8 @@
 highways.highway_lines.flags: "Bit 0: tunnel. Bit 1: bridge. Absent in editions built before 2026q3r1; a reader treats a missing column as 0."
 highways.highway_lines.ref: "Route shield text, e.g. \"I 70\". Absent in editions built before 2026q3r1; a reader treats a missing column as NULL."
 
+procedures.legs.flags: "Waypoint description bits (ARINC 424 Sec. 5.17): 1 fly-over, 2 initial approach fix, 4 final approach fix, 8 missed approach point, 16 holding leg (HA/HF/HM), 32 first leg of the missed approach, 64 final approach course fix (the fix on the final course before the FAF; never the FAF). Editions built before AER-5555 have no 64 and set 4 on the final approach course fix too, so a final there can carry two 4s: the FAF is the later one in seq order."
+
 terrain.layout.N##/N##W###.hgt: "Native 1-degree elevation tile, named by its south-west corner: 3601 x 3601 big-endian signed 16-bit heights in metres (Copernicus GLO-30)."
 terrain.layout..mip/#/N##/N##W###.hgt: "Reduced copy of the native tile at level L = 1-6 (side 3600 / 2^L + 1), same big-endian int16 HGT format; a wide view reads these instead of the native tiles."
 terrain.layout..mip/#/N##/N##W###.wmask: "Water mask beside the .hgt of the same name: 1 bit per pixel, row-packed, no header, registered pixel-for-pixel with the elevation grid."

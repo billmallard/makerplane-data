@@ -3,7 +3,8 @@
 //
 // AER-5272 (G11b twin): the moving map's ND mode, EXPANDED MAP (G11a) and CTR
 // MAP (G11b), twinned from pyEfis instruments/map/nd.py (billmallard/pyEfis
-// #134). The expected values are not hand-written: they are what the REAL
+// #134); AER-5396 adds the G11c EXPANDED polish (pyEfis #443): the portrait
+// arc, the backing panels and filled TRK box, and the ring-label keep-out. The expected values are not hand-written: they are what the REAL
 // module and widget compute and paint, dumped by tools/nd_mode_oracle.py into
 // test/fixtures/nd_mode_pyefis.json (regenerate with the command in that
 // script's header). This test runs the REAL editor functions against them
@@ -17,7 +18,7 @@ import { editorSource, extractFunction, ndModeSource } from "./support/extract.m
 const src = editorSource();
 const FNS = ["pyFloat", "formatRangeNm", "parseRingFractions", "rangeRingGeom"];
 const ND = ["ndMode", "ndOwnYFrac", "ndFontPx", "ndStatusChipHeight", "ndVdevGeometry",
-  "ndArcReach", "ndGeometry", "ndTickBearings", "ndVdevPointerY", "ndTopLeft",
+  "ndArcReach", "ndCornerBlockBottom", "ndBlockWidths", "ndKeepOut", "ndRectsIntersect", "ndGeometry", "ndTickBearings", "ndVdevPointerY", "ndTopLeft",
   "ndTopRight", "ndEnabledLayers", "ndVdev", "ndAdvance", "ndPaintOps", "ndOpsSvg",
   "ndPreviewRead"];
 const T = new Function(`
@@ -83,16 +84,22 @@ function compareOps(twin, dev, what) {
       const { arc, ticks } = splitPath(d.segments);
       const { cx, cy, r, half } = t.arc;
       // Qt places the arc's ends on its own Bezier approximation of the
-      // ellipse, up to 0.02% of r off the true circle (0.06 px at r 358), so
-      // the arc is held to that, the ticks to the fixture's 1e-5.
-      const tol = r * 2e-4;
-      const near = (a, b, what) => assert.ok(Math.abs(a - b) <= tol, `${what}: twin ${b} vs pyEfis ${a}`);
+      // ellipse: four cubics per circle, whose radial error peaks at 0.0273%
+      // of r mid-quadrant. G11a's 60 and 40 deg ends sat within 0.02%; G11c's
+      // portrait sectors (about 23 and 20 deg) end nearer the peak (0.18 px at
+      // r 692). So every arc point is held to the curve's maximum radially.
+      // The ends also slide along the curve: measured over this fixture, at
+      // most 0.043% of r (0.21 px at the 20 deg floor, 0.25 px at r 692),
+      // against 0.02% on G11a's sectors, so the ends are held to 0.045%. The
+      // ticks are exact to 1e-5.
+      const tol = r * 2.75e-4, endTol = r * 4.5e-4;
+      const near = (a, b, what, t = tol) => assert.ok(Math.abs(a - b) <= t, `${what}: twin ${b} vs pyEfis ${a}`);
       for (const [x, y] of arc) near(Math.hypot(x - cx, y - cy), r, `${w}: arc point on the circle`);
       // Qt: arcMoveTo(90 + half), arcTo(-2 * half), counter-clockwise from 3 o'clock.
       const at = (deg) => [cx + r * Math.cos(deg * Math.PI / 180), cy - r * Math.sin(deg * Math.PI / 180)];
       [[arc[0], at(90 + half)], [arc[arc.length - 1], at(90 - half)]].forEach(([p, q], k) => {
-        near(p[0], q[0], `${w}: arc end ${k} x`);
-        near(p[1], q[1], `${w}: arc end ${k} y`);
+        near(p[0], q[0], `${w}: arc end ${k} x`, endTol);
+        near(p[1], q[1], `${w}: arc end ${k} y`, endTol);
       });
       ticks.forEach((tk, j) => closePts(t.ticks[j], tk, `${w}: tick ${j}`));
       assert.equal(t.ticks.length, ticks.length, `${w}: tick count`);
@@ -112,6 +119,13 @@ function compareOps(twin, dev, what) {
     } else if (d.op === "rect") {
       closeTextRect(t.rect, d.rect, w);
       assert.equal(t.brush, d.brush, `${w}: brush`);
+    } else if (d.op === "backing") {
+      // nd._backing's rects: placed and sized by text widths in x, exact in y.
+      assert.equal(t.brush, d.brush, `${w}: panel colour`);
+      assert.equal(t.alpha, d.alpha, `${w}: panel alpha`);
+      close(t.radius, d.radius, `${w}: corner radius`);
+      assert.equal(t.rects.length, d.rects.length, `${w}: rect count`);
+      t.rects.forEach((r, j) => closeTextRect(r, d.rects[j], `${w} rect ${j}`));
     } else if (d.op === "polygon") {
       closePts(t.pts, d.pts, w);
       assert.equal(t.brush, d.brush, `${w}: brush`);
@@ -138,13 +152,23 @@ for (const c of FIXTURE.paint) {
       close(r.r, c.rings[i].r, `ring ${i} radius`);
       assert.equal(r.text, c.rings[i].text, `ring ${i} label`);
       closeRect(r.label, c.rings[i].label, `ring ${i} label rect`);
+      assert.equal(r.keptOut, c.rings[i].kept_out, `ring ${i} label kept out`);
     });
+    const ko = c.nd_active ? T.ndKeepOut(c.mode, c.w, c.h, g.cx, g.cy, c.track) : [];
+    assert.equal(ko.length, c.keep_out.length, "keep-out rect count");
+    ko.forEach((k, i) => closeTextRect(k, c.keep_out[i], `keep-out ${i}`));
+    assert.equal(`${T.formatRangeNm(g.range)} NM  TRK UP`, c.nd_active ? c.status_chip
+      : `${T.formatRangeNm(g.range)} NM  TRK UP`, "status chip text");
     if (!c.nd_active) {
       assert.equal(c.geometry, null);
       return;
     }
     const geo = T.ndGeometry(c.mode, c.w, c.h);
     for (const k of ["fs", "own_y", "r", "apex", "box_h", "half"]) close(geo[k], c.geometry[k], k);
+    close(T.ndCornerBlockBottom(c.w, c.h), c.corner_block_bottom, "corner block bottom");
+    // The worst-case widths set r on a portrait panel, so they must be Qt's
+    // to the px, not within TEXT_TOL: the geometry check above holds r to EPS.
+    assert.deepEqual(T.ndBlockWidths(geo.fs), c.block_widths, "corner block worst-case widths");
     close(T.ndArcReach(c.w, c.h), c.arc_reach, "arc reach");
     const vg = T.ndVdevGeometry(c.w, c.h);
     for (const k of ["x", "y0", "half", "fs"]) close(vg[k], c.vdev[k], `vdev ${k}`);
@@ -154,10 +178,19 @@ for (const c of FIXTURE.paint) {
     const enabled = T.ndEnabledLayers(c.options);
     assert.deepEqual([...enabled].sort(), c.enabled_layers.filter((id) => ND_IDS.has(id)).sort(), "option-list layers");
     const ops = T.ndPaintOps({ mode: c.mode, w: c.w, h: c.h, cx: g.cx, cy: g.cy, up: 0,
-      track: c.track, trackOld: c.track_old, read: () => null, now: FIXTURE.now, enabled });
+      track: c.track, trackOld: c.track_old, read: () => null, now: FIXTURE.now, enabled,
+      chip: c.status_chip });
     compareOps(ops, c.ops, "paint");
   });
 }
+
+test("matches QRectF.intersects: overlap, touching edges, empty rects", () => {
+  const r = ([x, y, w, h]) => ({ x, y, w, h });
+  for (const [a, b, want] of FIXTURE.rect_intersects) {
+    assert.equal(T.ndRectsIntersect(r(a), r(b)), want, `${a} / ${b}`);
+    assert.equal(T.ndRectsIntersect(r(b), r(a)), want, `${b} / ${a}`);
+  }
+});
 
 for (const c of FIXTURE.read) {
   test(`matches pyEfis ND blocks: ${c.name}`, () => {
@@ -175,7 +208,7 @@ for (const c of FIXTURE.paint_data) {
     const g = T.rangeRingGeom({ nd_mode: c.mode }, c.w, c.h);
     const ops = T.ndPaintOps({ mode: c.mode, w: c.w, h: c.h, cx: g.cx, cy: g.cy, up: 0,
       track: 0, trackOld: false, read: readOf(c.table), now: FIXTURE.now,
-      enabled: T.ndEnabledLayers({}) });
+      enabled: T.ndEnabledLayers({}), chip: "10 NM  TRK UP" });
     compareOps(ops, c.ops, "paint");
   });
 }
@@ -185,13 +218,36 @@ for (const c of FIXTURE.paint_data) {
 test("pinned: EXPANDED / CTR geometry at 800x480 and 650x1000", () => {
   const e8 = T.ndGeometry("expanded", 800, 480);
   closeArr([e8.r, e8.apex, e8.half, e8.own_y], [357.6, 36, 60, 393.6], "EXPANDED 800x480 r/apex/half/own_y");
+  // G11c: the portrait arc uses the height, clear of the top corner blocks
+  // measured in DejaVu Sans Condensed (G11a had r 420.05, apex 399.95, 40 deg).
   const e6 = T.ndGeometry("expanded", 650, 1000);
-  close(e6.r, 420.045433, "EXPANDED 650x1000 r");
-  close(e6.apex, 399.954567, "EXPANDED 650x1000 apex");
-  close(e6.half, 40, "EXPANDED 650x1000 half (ARC_MIN_HALF_DEG)");
+  close(e6.r, 692.116522, "EXPANDED 650x1000 r");
+  close(e6.apex, 127.883478, "EXPANDED 650x1000 apex");
+  close(e6.half, 22.961202, "EXPANDED 650x1000 half");
   assert.equal(e6.own_y, 820);
+  // A tall, narrow panel bottoms out at ARC_MIN_HALF_DEG 20.
+  close(T.ndGeometry("expanded", 400, 1200).half, 20, "EXPANDED 400x1200 half (ARC_MIN_HALF_DEG)");
   assert.deepEqual([T.ndGeometry("ctr", 800, 480).r, T.ndGeometry("ctr", 800, 480).half], [204, 180]);
   assert.equal(T.ndGeometry("ctr", 650, 1000).r, 270);
+});
+
+test("pinned: G11c polish is EXPANDED only, and keeps the full-range label out", () => {
+  const ops = (mode, w, h) => {
+    const g = T.rangeRingGeom({ nd_mode: mode }, w, h);
+    return T.ndPaintOps({ mode, w, h, cx: g.cx, cy: g.cy, up: 0, track: 0, trackOld: false,
+      read: () => null, now: FIXTURE.now, enabled: T.ndEnabledLayers({}), chip: "10 NM  TRK UP" });
+  };
+  for (const [w, h] of [[800, 480], [650, 1000]]) {
+    const e = ops("expanded", w, h), c = ops("ctr", w, h);
+    assert.equal(e.find((o) => o.op === "rect").brush, "#000000", `EXPANDED TRK box filled @ ${w}x${h}`);
+    assert.equal(e.filter((o) => o.op === "backing").length, 2, `EXPANDED: chip/top-left and option-list panels @ ${w}x${h}`);
+    assert.equal(c.find((o) => o.op === "rect").brush, null, `CTR TRK box unfilled @ ${w}x${h}`);
+    assert.equal(c.filter((o) => o.op === "backing").length, 0, `CTR: no panels @ ${w}x${h}`);
+    assert.deepEqual(T.rangeRingGeom({ nd_mode: "expanded" }, w, h).rings.map((r) => r.keptOut), [false, true]);
+    assert.deepEqual(T.rangeRingGeom({ nd_mode: "ctr" }, w, h).rings.map((r) => r.keptOut), [false, false]);
+  }
+  const svg = T.ndOpsSvg(ops("expanded", 800, 480));
+  assert.ok(svg.includes(`fill-opacity="${(200 / 255).toFixed(4)}"`), "panel alpha 200");
 });
 
 test("pinned: vdev pointer y (up for positive GSI, as the HSI)", () => {

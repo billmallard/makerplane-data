@@ -23,6 +23,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractConst, extractFunction } from "./support/extract.mjs";
+import { labelFitError } from "../public/fuel_label.js";
 
 const SRC = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)),
   "..", "public", "aircraft.html"), "utf8");
@@ -114,14 +115,14 @@ const BODY = pick(CONSTS, extractConst) + "\n" + pick(FUNCS, extractFunction);
 function page(meta = {}, values = {}, schema = SCHEMA) {
   const document = makeDom();
   const $ = (id) => document.getElementById(id);
-  const api = new Function("document", "$", "schema", "PROJECT",
+  const api = new Function("document", "$", "schema", "PROJECT", "labelFitError",
     `let profile = { schema_version: 1, meta: { engines:1, cylinders:4, tanks:2, speed_unit:"kt",
        baro_unit:"inHg", twin_speeds:false }, values: {} };
      let savedVersion = null;
      ${BODY}
      return { render, validate, buildIni, importIni, normalizeProfile,
               get profile() { return profile; }, set profile(p) { profile = p; } };`,
-  )(document, $, schema, "1");
+  )(document, $, schema, "1", labelFitError);
   Object.assign(api.profile.meta, meta);
   Object.assign(api.profile.values, values);
   api.render();

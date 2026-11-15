@@ -168,7 +168,12 @@ def append_record(rec: dict, path: Path | None = None) -> Path:
     errs = validate_record(rec)
     if errs:
         raise ValueError("refusing to write an invalid record: " + "; ".join(errs))
-    p = Path(path) if path else default_log_path()
+    return append_line(rec, Path(path) if path else default_log_path())
+
+
+def append_line(rec: dict, p: Path) -> Path:
+    """The append-only, fsynced JSON-lines writer behind ``append_record``,
+    shared with the panel-change log (``panel_change``). Raises on failure."""
     p.parent.mkdir(parents=True, exist_ok=True)
     created = not p.exists()
     line = (json.dumps(rec, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
@@ -192,17 +197,21 @@ def append_record(rec: dict, path: Path | None = None) -> Path:
 
 def read_records(path: Path | None = None) -> list[dict]:
     """Every valid record, oldest first. Never raises; skips corrupt lines."""
-    p = Path(path) if path else default_log_path()
+    return [rec for rec in read_lines(Path(path) if path else default_log_path())
+            if not validate_record(rec)]
+
+
+def read_lines(p: Path) -> list:
+    """Every line of a JSON-lines log that parses, oldest first. Never raises;
+    skips corrupt lines. The caller validates the records."""
     out = []
     try:
         with open(p, "rb") as f:
             for raw in f:
                 try:
-                    rec = json.loads(raw.decode("utf-8"))
+                    out.append(json.loads(raw.decode("utf-8")))
                 except Exception:
                     continue
-                if not validate_record(rec):
-                    out.append(rec)
     except Exception:
         pass
     return out

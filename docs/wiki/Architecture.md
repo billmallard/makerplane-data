@@ -1,137 +1,194 @@
-# Architecture — how it works
+# Architecture
 
-makerplane-data delivers three kinds of artifact to an aircraft — **navigation
-packs**, **panel layouts**, and **aircraft parameters** — and they all follow
-one safety principle:
+makerplane-data delivers three things to an aircraft: **navigation packs**, the
+**panel config**, and the **aircraft parameters**. They share one rule:
 
-> **Verify first, place atomically, and never disturb what is already running.**
+> **Verify first, install in one step, and never disturb what is running.**
 
-A download that is corrupt, tampered with, or interrupted is thrown away. The
-data the avionics are currently using is only ever replaced by a complete,
-verified file, in a single atomic step. This page explains that mechanism and
-how the three artifact types share it.
+A download that is corrupt, tampered with or interrupted is thrown away. The
+data the avionics are using is only replaced by a complete, verified file. This
+page describes how each channel is trusted and what the device does with what it
+receives.
 
 ## The three delivery channels
 
-| Channel | Carries | Public or private | How it's trusted |
-|---|---|---|---|
-| **Navigation data** | terrain, airports, navaids, obstacles, water, roads | **Public** — one global catalog everyone pulls | **Signed** manifest + per-pack SHA-256 |
-| **Panel config** | your EFIS screen layout | **Private** — one per paired device | Device **token** over TLS + SHA-256 for integrity |
-| **Aircraft parameters** | V-speeds, gauge bands, engine/fuel limits | **Private** — one per aircraft | Same private device channel |
+| Channel | Carries | Who gets it | How it is trusted | Reaches the device by |
+|---|---|---|---|---|
+| **Navigation packs** | airports, navaids, procedures, obstacles, terrain, water, roads | Everyone: one public catalog | A **signed** manifest, then a SHA-256 per pack | `pyefis-data update` (daily timer), or `pyefis-data import` from a USB stick |
+| **Panel config** | the screens and instruments designed in the configurator, plus a `preferences:` block from the aircraft profile | One paired device | A per-device **token** over HTTPS | `pyefis-data config-pull`, once at boot |
+| **Aircraft parameters** | V-speeds, gauge bands, engine and fuel limits | One aircraft | The builder downloads the file from their own account | `aircraft.ini`, copied by hand into FIX-Gateway's `init_data` |
 
-The navigation channel is signed because it is public and shared — anyone can
-fetch it, so authenticity has to be provable. The private channels are
-authorised by a per-device token over TLS instead; there is no public identity
-to forge, so they carry a SHA-256 for corruption/change detection but are not
-separately signed. All three reuse the same **download → verify → atomic-swap**
-code on the aircraft.
+The navigation channel is signed because it is public: anyone can fetch it, so
+the device needs proof of who produced it. The panel config is private to one
+device and is authorised by that device's token. It is not signed.
+
+The aircraft-parameter channel is manual. The configurator's Aircraft page
+builds `aircraft.ini` for download, and its footer says the device push arrives
+later
+([`configurator/public/aircraft.html`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/public/aircraft.html)).
+One part of the profile already travels with the panel config: the altimeter
+setting unit (`inHg` or `hPa`), which `config-pull` merges into the device's
+`preferences.yaml.custom`. See [[Aircraft Parameters]].
 
 ## The navigation trust chain
 
-The public navigation data is protected by a short signing chain. One offline
-**secret key** signs a catalog; a committed **public key** on every device
-verifies it; the catalog then vouches for each pack.
+One offline secret key signs the catalog. The matching public key is built into
+the updater. The catalog vouches for each pack.
 
 ```
-  keys/minisign.pub  (public, shipped in the updater)
-        │  verifies
-        ▼
-  manifest.json.minisig   (ed25519 signature, minisign format)
-        │  signs the exact bytes of
-        ▼
-  manifest.json   (the catalog: every pack's cycle, size, URL, SHA-256)
-        │  carries a SHA-256 for
-        ▼
-  each .pack file   (verified byte-for-byte before install)
+  keys/minisign.pub           public key, also embedded in pyefis-data
+        |  verifies
+        v
+  manifest.json.minisig       ed25519 signature, minisign format
+        |  over the exact bytes of
+        v
+  manifest.json               the catalog: every pack's id, kind, cycle,
+        |                     dates, size, URL and SHA-256
+        |  holds the SHA-256 of
+        v
+  each .pack file             checked byte for byte before install
 ```
 
-Two properties fall out of this:
+What follows from that:
 
-- **Compromising the website is not enough to push a bad pack.** Serving a
-  malicious file would still need the offline secret key to forge the signature.
-  Without it, the device refuses the pack and keeps its current data.
-- **The device trusts exactly one key and nothing else.** The public key is
-  embedded in the updater, so verification needs no network and no key file. (If
-  the key were ever rotated, a new release would update that constant.)
+- **Taking over the website is not enough to ship a bad pack.** A forged pack
+  needs a forged signature, which needs the offline secret key. Without it the
+  device refuses the catalog and keeps the data it has.
+- **The device trusts one key.** The public key is a constant in
+  [`pyefis_data/cli.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/cli.py),
+  copied from
+  [`keys/minisign.pub`](https://github.com/billmallard/makerplane-data/blob/dev/keys/minisign.pub),
+  so verifying needs no key file and no network.
+- **The device checks the bytes it downloaded.** It never re-serializes the
+  manifest before checking, so signing and verifying cannot drift apart. Both
+  sides run the same code,
+  [`packtools/signing.py`](https://github.com/billmallard/makerplane-data/blob/dev/packtools/signing.py).
+- **You do not need our tools to check a signature.** The signature and public
+  key are standard minisign files:
 
-The signature covers the manifest's **exact serialized bytes** — the device
-verifies the bytes it downloaded, it never re-serializes first — so signing can
-never drift from verification. The same signing code runs on the build side and
-the device side, from one implementation.
+  ```bash
+  minisign -Vm manifest.json -p keys/minisign.pub
+  ```
 
-> The secret signing key and all hosting credentials are **never** in the
-> repository or this wiki. Only the public key is published (that's the point).
+### An older catalog is refused
+
+A signature proves who signed a catalog, not when. A validly signed catalog
+whose `generated` time is older than the one the device already trusts (an old
+USB stick, a stale cache, a replay) is refused: it is not cached and nothing is
+installed from it. `pyefis-data status` reports a `CATALOG REFUSED` row. The
+override is `pyefis-data update --allow-rollback` (or `import DIR
+--allow-rollback`), and every use is appended to `rollback.log` in the data
+root
+([`pyefis_data/core.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/core.py)).
+
+### Offline, and when the catalog is unreadable
+
+With no network, the device uses the last catalog it cached, and re-verifies it
+first, so unsigned bytes are never trusted. A catalog that downloads and
+verifies but fails to parse is reported as an error, not as "offline", because
+trying again will not fix it. A pack `kind` the device does not recognise is
+dropped from the catalog, and the rest of the catalog stays usable
+([`packtools/manifest.py`](https://github.com/billmallard/makerplane-data/blob/dev/packtools/manifest.py)).
+
+### The safety advisory feed uses the same chain
+
+The device can also check a signed safety advisory feed. It is opt-in
+(`advisories: true` in `data.yaml`, off by default). It is signed with the same
+key as the manifest. A feed with a lower `sequence` than the cached one is
+refused, so a replay cannot hide a newer advisory. The device fetches the feed
+and its signature from fixed URLs on the same site as the manifest, with no
+query string and nothing that identifies it. It matches the feed against what
+is installed on the device itself
+([`pyefis_data/advisories.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/advisories.py)).
 
 ## The manifest is the contract
 
-The whole navigation system is held together by one JSON document —
-`manifest.json` — at a stable URL. It lists every available pack with its
-currency window, size, SHA-256, and download URL. Because that schema is frozen,
-three independent "legs" can each be built, tested, and replaced on their own:
+`manifest.json`, at a stable URL, holds the whole navigation system together.
+Because its schema is fixed, three parts can each be rebuilt or replaced on
+their own:
 
 ```
-  LEG 1  BUILD          GitHub Actions fetch upstream data (FAA, Copernicus,
-  (packtools/)          OpenStreetMap), build packs, sign the manifest
-        │  packs + manifest.json + manifest.json.minisig
-        ▼
-  LEG 2  DISTRIBUTE     Cloudflare R2 object storage, served at
-                        navdata.aerocommons.org (edge-cached, zero egress)
-        │  HTTPS  /  USB stick
-        ▼
-  LEG 3  UPDATE         the on-Pi updater verifies, stages, and atomically
-  (pyefis_data/)        swaps the new data in; raises a currency flag
+  BUILD        packtools/      fetch FAA, Copernicus and OpenStreetMap data,
+                               build packs, test each one, sign the manifest
+       |  packs + manifest.json + manifest.json.minisig + test reports
+       v
+  DISTRIBUTE                   object storage behind navdata.aerocommons.org
+       |  HTTPS, or a USB stick
+       v
+  UPDATE       pyefis_data/    verify, stage, install, report currency
 ```
 
-Freeze the contract and each leg evolves independently — you can rebuild the
-pipeline, move the hosting, or reflash the aircraft without touching the other
-two. Details in **[[Navigation Data Currency]]**.
+Every pack is tested before it is added to the manifest. Its test record is
+published beside it, and the live catalog at
+[navdata.aerocommons.org](https://navdata.aerocommons.org) links each pack to
+its report. See [[Navigation Data Currency]].
 
-## Verify-then-atomic-swap (the safety contract)
+## How the device installs a pack
 
-This is the part that matters most on a flying aircraft. Every install — a
-navigation pack, a panel, or an aircraft-parameter file — works the same way:
+The updater
+([`pyefis_data/core.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/core.py))
+works in this order:
 
-1. **Download to a staging area**, never on top of the live file.
-2. **Verify** — check the signature (navdata) and/or the SHA-256 against the
-   trusted catalog. Any mismatch: discard, keep the current data.
-3. **Move into place atomically** — a filesystem rename / symlink flip that
-   either fully succeeds or does nothing. A process already reading the old file
-   keeps reading it; the new data applies on the next restart or cache miss.
-4. **On config installs, verify the aircraft still boots**, and **roll back** to
-   the previous known-good version if it doesn't.
+1. **Verify the catalog** against the embedded key, before caching or using it.
+2. **Download each pack to `staging/`** under the data root, never on top of
+   the live file.
+3. **Check its SHA-256** against the signed catalog. On a mismatch the
+   download is deleted and the live data is left alone.
+4. **Put it in place.**
+   - Database packs (airports, navaids, obstacles, water, roads and the like)
+     are renamed into a per-cycle folder. The kind's `current` symlink is then
+     flipped in one atomic rename.
+   - Terrain packs are a set of elevation tiles. The verified pack is unzipped
+     into the shared `terrain/tiles/` tree, which every terrain region adds to.
+     There is no `current` symlink for terrain.
 
-The result: an interrupted transfer, a bad signature, a corrupt byte, or a
-config that would crash the display can **never** leave the aircraft worse off
-than before the update. Offline, the device falls back to the last good,
-still-verified data it already has.
+A program that already has the old file open keeps reading it. The new data is
+used the next time it opens the file. The data root defaults to
+`~/makerplane-data` and is set by `root:` in `~/.makerplane/pyefis/data.yaml`.
 
-## Two contracts, kept separate
+The updater also downloads the next cycle before it takes effect, so a cycle
+change needs no network on the day. It writes a summary to
+`~/.makerplane/pyefis/status.json`, which pyEfis reads for its Data Status
+screen and the DATA annunciation
+([Data Status, Updates and Notices](https://github.com/billmallard/pyEfis/wiki/Data-Status-Updates-and-Notices)
+in the pyEfis wiki).
 
-A recurring theme across the whole MakerPlane stack is a clean split between two
-data contracts:
+## How the device installs a panel
 
-- **The runtime flight-data contract** — live values (airspeed, attitude,
-  engine data) flowing over FIX-Gateway / CAN-FIX **in flight**. Not this repo.
-- **The reference & configuration contract** — the packs, panels, and
-  parameters that change on a *cycle*, delivered by makerplane-data.
+`pyefis-data config-pull`
+([`pyefis_data/config_pull.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/config_pull.py))
+fetches the device's panel from the configurator with its token, then:
 
-Keeping them separate is deliberate: the thing that updates at the hangar is
-never in the path of the thing that runs in the air.
+1. **Asks only for what changed.** It sends the last `ETag` it stored. An
+   unchanged panel and profile get a `304` and nothing is touched.
+2. **Takes a snapshot** of the current panel into `.panel_backup/` in the pyEfis
+   config folder.
+3. **Writes the panel as managed files** beside the shipped config, each with
+   an atomic write. The shipped config files are never modified.
+4. **Restarts pyEfis and checks it came up.** It counts as up only if the
+   process ID stays the same and its log shows no traceback. A process ID alone
+   is not enough: a screen that fails to build can leave the process running
+   with no display.
+5. **Rolls back** to the snapshot if pyEfis did not come up.
 
-## Guarding against silent breakage
+The pull runs once at boot, after pyEfis has started
+(`pyefis-config-pull.service`). There is no timer, so the display is never
+restarted in flight by an automatic pull. The device is paired once with
+`pyefis-data pair <code>`. See [[The Configurator]].
 
-The upstream data (e.g. the FAA's monthly files) occasionally changes format.
-Because the build tools read data by column name, a change can silently produce
-*wrong or near-empty* data on an otherwise-green build. A **schema guard** in
-the pipeline checks each nightly download against a committed snapshot of the
-expected format and **fails the build loudly** if anything drifted — so bad data
-is caught before it is ever signed or shipped. See
-[Navigation Data Currency → Schema guard](Navigation-Data-Currency#the-schema-guard-catching-upstream-drift).
+## Two contracts, kept apart
+
+- **The flight-data contract:** live values (airspeed, attitude, engine data)
+  moving over FIX-Gateway and CAN-FIX in flight. Not this repository.
+- **The reference and configuration contract:** the packs, panels and
+  parameters that change on a cycle or at the hangar. This repository.
+
+Keeping them apart is deliberate. What updates at the hangar is never in the
+path of what runs in the air.
 
 ## Where to go next
 
-- **[[Navigation Data Currency]]** — packs, the build pipeline, the on-Pi
-  updater, and the currency flag.
-- **[[The Configurator]]** — the web app and how a panel reaches a paired
-  aircraft.
-- **[[Aircraft Parameters]]** — the CAN-FIX V-speed / gauge-band profile.
+- **[[Navigation Data Currency]]**: pack kinds, cycles, the build and the
+  updater commands.
+- **[[The Configurator]]**: the editor, pairing and panel delivery.
+- **[[Aircraft Parameters]]**: the V-speed and gauge-band profile.

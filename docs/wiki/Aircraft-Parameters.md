@@ -1,151 +1,188 @@
 # Aircraft Parameters (CAN-FIX)
 
-Every aircraft carries a set of numbers that make its instruments correct for
-*that airframe and engine* — the airspeed arcs, the redline, the green/yellow
-bands on the engine gauges, the fuel capacities, the electrical limits. This
-feature gives each aircraft a managed **Aircraft Parameter Profile**: those
-numbers, edited as validated forms, versioned, and delivered to the aircraft's
-FIX-Gateway.
+Every aircraft has numbers that make its instruments right for that airframe
+and engine: the airspeed arcs, the redline, the green and yellow bands on the
+engine gauges, the fuel capacities, the electrical limits. The configurator
+keeps them as the project's **Aircraft Parameter Profile**: edited as checked
+forms, versioned, and turned into an `aircraft.ini` for FIX-Gateway.
 
-It lives in the same web app as the panel editor
-([pyefis.aerocommons.org](https://pyefis.aerocommons.org)), under an **Aircraft**
-tab on each project.
+Open it from the dashboard with **Aircraft parameters** on a project. The page
+is
+[`configurator/public/aircraft.html`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/public/aircraft.html);
+the server rules are in
+[`configurator/src/aircraft_profile.ts`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/src/aircraft_profile.ts).
 
-> **Status: Phase A is built.** You can create a profile, edit it with live
-> validation, start from a template, import an existing file, and **download a
-> ready-to-install `aircraft.ini`** — usable on the bench today. Automatic
-> delivery to the aircraft over the device link is the next phase (Phase C).
+![The top of the Aircraft parameters page: the template, import, download and save buttons, the Configuration card, and the Ownship identity card](images/configurator/aircraft_top.png)
 
-## Why this is separate from the panel editor
+## Why it is separate from the panel
 
-The panel editor deliberately leaves these numbers out. A V-speed or a gauge
-warning band is **not** a layout choice — it's a value in the aircraft's FIX
-database (the flight-data layer), which the instruments read at runtime. The
-same airspeed tape shows different arcs on a Cub and an RV because the *data*
-differs, not the layout. (This is pyEfis issue #64.)
+A V-speed or a gauge band is not a layout choice. It is a value in the
+aircraft's FIX database, which the instruments read while running. The same
+airspeed tape shows different arcs on a Cub and an RV because the data differs,
+not the layout. So:
 
-So the boundary is clean:
+- the **panel** says where instruments sit and how they look: [[The Configurator]];
+- the **profile** holds the airframe and engine numbers they display.
 
-- **Panel editor** → where instruments sit and how they look. → **[[The Configurator]]**
-- **Aircraft Parameters** → the airframe/engine numbers those instruments display.
-
-It's called the "CAN-FIX configurator" because these values belong to the
-CAN-FIX / FIX-database layer of the stack, not to any one display.
+The profile belongs to the project, so every device on the aircraft shares it.
 
 ## How the numbers are modelled
 
-In FIX-Gateway, each quantity is a **key** (e.g. `IAS` for indicated airspeed,
-`OILP1` for oil pressure) with a set of named **aux slots** hanging off it.
-V-speeds are aux slots on the airspeed key; warning/alarm bands are aux slots on
-each gauge key:
+In FIX-Gateway each quantity is a **key** (`IAS` for indicated airspeed,
+`OILP1` for oil pressure on engine 1) with named **aux** values. V-speeds are aux
+values on `IAS`; bands are aux values on each gauge key:
 
-- `IAS` carries `Vs`, `Vs0`, `Vfe`, `Vno`, `Vne`, `Va`, `Vx`, `Vy`, …
-- a gauge like `OILP1` carries `lowWarn`, `highWarn`, `lowAlarm`, `highAlarm`,
-  `Min`, `Max`.
+- `IAS` carries `Vs0`, `Vs`, `Vfe`, `Vno`, `Vne`, `Va`, `Vx`, `Vy`, `Min`,
+  `Max`, and for twins and turbines `Vmc`, `V1`, `V2`.
+- A gauge key such as `OILP1` carries `Min`, `Max`, `lowWarn`, `highWarn`,
+  `lowAlarm`, `highAlarm`.
 
-The instruments derive their look from those: the airspeed tape draws
-white = Vs0…Vfe, green = Vs…Vno, yellow = Vno…Vne, red ≥ Vne; a gauge colours its
-bands from its warn/alarm slots. An unset slot simply means "no band" — leaving a
-value blank is always allowed.
+The instruments derive their look from these. The airspeed tape draws white
+from Vs0 to Vfe, green from Vs to Vno, yellow from Vno to Vne, and red from
+Vne. A gauge colours its bands from its warn and alarm values. A blank value
+means no band, and leaving a value blank is always allowed.
 
-**The profile is just the set of those values for one aircraft**, saved as a
-versioned record (append-only versions, one active at a time), belonging to the
-aircraft so all its devices share it.
+Which keys and aux values exist, their units and their sane ranges come from
+FIX-Gateway. It generates the parameter schema the form is built from
+(`aircraft_params_schema.json`, see [[Configurator Internals]]), so a key added
+to FIX-Gateway appears on the form without a change here.
 
-## What a profile covers
+## The page
 
-| Group | Examples | Notes |
-|---|---|---|
-| **Airspeeds** | Vs, Vs0, Vfe, Vno, Vne, Va, Vx, Vy | Live white/green/yellow/red **arc preview** as you type; enter in **kt / mph / kph** (a C170B POH is in mph, European types in kph) and it's stored in the database's native units. |
-| **Engine** (per engine) | tach, manifold pressure, oil pressure/temp | An **engine-type provider** decides which parameters exist (see below). |
-| **Cylinders** (per engine) | CHT, EGT bands | Free-form cylinder count (4 and 6 common; radials run to 28, odd counts legal); one shared band set, expanded to every cylinder at compile. |
-| **Fuel** | tank capacities + low warnings, fuel flow/pressure | 1–4 tanks; each tank has a **role and feed** (see the fuel model below). |
-| **Electrical** | volts, amps | 12 V / 24 V presets. |
-| **Air / AOA** | OAT, CAT, angle-of-attack references | AOA is a placeholder in Phase A, firmed up when the AOA sensor integration lands. |
+### Configuration
 
-FIX-Gateway is the **authority** for what keys, aux slots, units, and sane ranges
-exist: it generates the parameter schema, and the web forms render from it. Add a
-key in FIX-Gateway, regenerate, and it appears in the UI — the form code hard-codes
-nothing.
+| Setting | Choices |
+|---|---|
+| Engines | 1 to 4 |
+| Cylinders per engine | 1 to 28 |
+| Airspeed entry unit | knots (default), mph, km/h |
+| Altimeter setting units | inHg (default), hPa / mb |
+| Twin / turbine speeds | Hide or show Vmc, V1 and V2 |
 
-### The provider model (engines and fuel)
+Values are stored in the FIX database's own units. The airspeed entry unit only
+converts what you type (1 kt = 1.15078 mph = 1.852 km/h), so a POH in mph can be
+entered as printed. The altimeter unit is also sent to the aircraft's displays
+(below).
 
-Two parts of an aircraft are too varied for a fixed form, so they're modelled as
-**providers** — the same pattern used elsewhere in the stack:
+### The groups
 
-- **Engine type** — `piston` today (tach, MAP, oil, plus the cylinder group);
-  `turbine` and `electric`/`hybrid` are reserved seams for later. Engine count is
-  unbounded; each engine picks its type.
-- **Fuel system** — real fuel systems are a *topology*, not a count. Each tank
-  carries a role (`main`, `aux`, `tip`, `header`, `transfer`) and a **feed edge**
-  (→ an engine, or → another tank for a transfer). That directed graph *is* the
-  fuel system, recorded in the profile so later features (a fuel totalizer, an
-  in-EFIS fuel page, an aircraft system diagram) can use it.
+The groups come from the schema: **Airspeeds** (`IAS`), **Engine** per engine
+(tach, manifold pressure, oil pressure and temperature, fuel flow and
+pressure), **Cylinders** per engine (CHT and EGT bands, set once and applied
+to every cylinder), **Fuel tanks**, **Electrical** (volts, amps), **Air /
+environment** (OAT, CAT) and **AOA**, which is a placeholder until the AOA
+integration settles its values. The only engine type today is piston.
 
-### Validation
+![The Airspeeds group filled from the Cessna 170B template, with the arc preview: Vs0 45, Vs 50, Vfe 87, Vno 122, Vne 139](images/configurator/aircraft_speeds.png)
 
-The forms mark V-speed and gauge-band ordering problems inline as you type, and
-blank still means "leave unset."
+The Airspeeds group draws the arcs as you type. It also has the **on-ground IAS
+limit**: oil pressure, oil temperature and volts alarms stay quiet with the
+engine stopped only while IAS is below it (default 40 kt, range 10 to 100). The
+page warns when it is not below Vs0.
 
-Saving checks the whole profile on the server, against these rules:
+### Fuel tanks
 
-- V-speeds: `Vs0 ≤ Vs < Vno < Vne ≤ Max`, and `Vs0 ≤ Vfe ≤ Vno`.
-- Every other gauge: `Min ≤ lowAlarm ≤ lowWarn ≤ highWarn ≤ highAlarm ≤ Max`.
-- Every value is a number; the speed unit is `kt`, `mph` or `kph`, and the
-  altimeter unit `inHg` or `hPa`.
+A fuel system is a set of tanks and where each one feeds. Each tank has a
+label (up to 12 characters), a role (`main`, `aux`, `tip`, `header`,
+`transfer`), the fuel sender slot it reads (`FUELQ1` to `FUELQ8`), its
+capacity and unusable fuel in gallons, and what it feeds: an engine, or another
+tank. Up to 8 tanks
+([`configurator/src/fuel_profile.ts`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/src/fuel_profile.ts)).
 
-Ordering is checked across blanks, so a gap cannot hide an inversion. A profile
-that breaks a rule is refused with HTTP 422, and the page shows `not saved:`
-followed by each broken rule. A malformed ownship identity (below) blocks both
-Save and Download until it is fixed.
+These block saving: a missing or duplicate label, a duplicate slot, a capacity
+of zero, unusable fuel not less than capacity, a slot's `Max` that is not
+capacity minus unusable, and a feed to an engine or tank that does not exist, or
+to the tank itself. These are warnings that still save: a header tank that
+feeds no engine, a tip or transfer tank that feeds no tank, an engine no tank
+feeds, a feed loop, and fuel values on a slot no tank uses.
 
 ### Ownship identity
 
-The **Ownship identity** card takes the aircraft's **Registration** (up to 10
-letters, digits and hyphens; one starting with `N` must be a valid US
-N-number) and an optional **ICAO address override** (six hex digits, not
-`000000`). It names the 24-bit address whose ADS-B reports are
-hidden from the traffic display as your own aircraft: the override if set,
-otherwise the address derived from a US N-number, otherwise none (only the
-receiver's own ownship report is filtered). Registrations from other states do
-not derive an address; enter the hex from the registration certificate or
-transponder. The identity is saved with the profile but is not yet sent to the
-aircraft: set the address the card shows as `ownship_address` in FIX-Gateway's
+**Registration** (up to 10 letters, digits and hyphens) and an optional **ICAO
+address override** (six hex digits, not `000000`) name the 24-bit address
+whose ADS-B reports the traffic display hides as your own aircraft. The address
+is the override if set, otherwise the one derived from a US N-number, otherwise
+none, in which case only the receiver's own ownship report is filtered. A
+registration starting with `N` must be a valid N-number. Other countries'
+registrations do not derive an address; enter the hex from the registration or
+the transponder
+([`configurator/src/ownship.ts`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/src/ownship.ts)).
+
+The identity is saved with the profile but not yet sent to the aircraft. Until
+it is, set the address the card shows as `ownship_address` in FIX-Gateway's
 stratux connection.
+
+## Checks
+
+The form marks problems as you type. Errors show as `Fix before saving: …` and
+disable **Save** and **Download**; warnings show as `Check: …` and turn **Save**
+amber.
+
+![A speed order error: Vno set to 40 below Vs0, Vs and Vfe; the fields are marked and Save is disabled](images/configurator/aircraft_error.png)
+
+Saving checks the whole profile again on the server:
+
+- **Airspeeds:** `Vs0 ≤ Vs < Vno < Vne ≤ Max`, and `Vs0 ≤ Vfe ≤ Vno`.
+- **Every other gauge:** `Min ≤ lowAlarm ≤ lowWarn ≤ highWarn ≤ highAlarm ≤ Max`.
+- **Units:** the speed unit is `kt`, `mph` or `kph`; the altimeter unit `inHg` or
+  `hPa`.
+- **Values:** every value is a number.
+- **Ownship:** the rules above.
+
+Every pair of filled-in values in a chain is compared, not just neighbours, so a
+blank cannot hide an inversion. A pair is strict when any step between them is
+strict: Vs0 against Vno is `<` even though Vs0 against Vs is `≤`. A broken rule
+reads like `IAS: Vs (60) must be < Vno (55)`. The server refuses a profile that
+breaks one with HTTP 422, and the page shows `not saved:` followed by each rule.
 
 ## Templates and import
 
-You don't start from a blank form. Phase A ships starter templates — **Lycoming
-O-320 / O-360** and **Continental O-470** engine groups, and a full **Cessna
-170B** example — and you can **import an existing `init_data` file** (paste it in;
-it's parsed in FIX-Gateway's exact dialect).
+**Load template…** fills the form from a starting point: **Lycoming O-320**,
+**Lycoming O-360** and **Continental O-470** engine groups, or a full **Cessna
+170B** example. A template is merged over what is already there, after a
+confirmation.
 
-## Delivery to the aircraft
+**Import .ini** reads an existing FIX-Gateway `init_data` file, lines of the
+form `KEY.aux = number`, and reports how many values it took.
 
-When published, the profile compiles to an **`aircraft.ini`** in FIX-Gateway's
-own `init_data` format, with a generated header (aircraft name, profile version,
-timestamp, and a hash of the source). FIX-Gateway loads layered init files at
-startup, later files overriding earlier ones, so the managed `aircraft.ini` is
-appended **last** — it overrides the shipped defaults without touching them.
+## Versions
 
-- **Today (Phase A):** *Download `aircraft.ini`* and drop it into
-  `~/makerplane/fixgw/config/init_data/` yourself (install instructions are in the
-  file header). Immediately useful on the bench.
-- **Next (Phase C):** the file rides the **same device-pull pipeline** as panel
-  layouts (pair → token → verified pull → atomic swap), and applying it is a quick
-  FIX-Gateway restart on the ground. This closes the last un-versioned piece of an
-  aircraft's setup — the FIX-Gateway numbers — making it versioned and
-  reproducible.
+Each **Save** adds a new version of the profile and makes it active; the
+header shows `vN active`. Earlier versions are kept. The page has no list of
+versions; the API can list them and make an earlier one active
+([[Configurator Internals]]).
 
-## Looking ahead (recorded, not yet built)
+## Getting it to the aircraft
 
-- **On real CAN-FIX nodes**, some limits live in a node's own memory. The profile
-  already records the CAN-FIX parameter ID next to each FIX key, so the same
-  profile can drive node configuration later without rework — a hardware-gated
-  exploration (Phase D).
-- **An aircraft system diagram** — an IT-network-style view of tanks, feeds,
-  engines, bus nodes, and devices — generated from the profile and device data
-  the app already holds.
+**Download aircraft.ini** writes the profile in FIX-Gateway's own `init_data`
+format, with a header naming the project, the profile version and the date:
 
-Design spec and decisions:
-[`docs/canfix_configurator.md`](https://github.com/billmallard/makerplane-data/blob/main/docs/canfix_configurator.md).
+```ini
+; aircraft.ini -- generated by the pyEfis configurator (Aircraft parameters)
+; project: Example RV-7  profile v3  2026-11-12
+; Values are FIX-database native units. VERIFY AGAINST YOUR POH.
+; Install: ~/makerplane/fixgw/config/init_data/aircraft.ini, listed LAST
+;          under 'initialization files' in default.yaml.
+
+IAS.Vne = 139
+...
+```
+
+Copy it to `~/makerplane/fixgw/config/init_data/aircraft.ini` on the aircraft
+and list it last under `initialization files` in FIX-Gateway's `default.yaml`.
+FIX-Gateway loads init files in order, later ones overriding earlier ones, so
+the profile overrides the shipped defaults without changing them. Cylinder
+bands are written out for every cylinder (`CHT11`, `CHT12`, ...).
+
+One setting reaches the aircraft without the file: the **altimeter setting
+unit**. It goes to every paired display of the aircraft with its next
+`pyefis-data config-pull`, and every screen starts in it; see
+[[Pairing and Config Delivery]]. Sending the rest of the profile the same way
+is planned and not built.
+
+## Further reading
+
+- [`docs/canfix_configurator.md`](https://github.com/billmallard/makerplane-data/blob/dev/docs/canfix_configurator.md):
+  the design and its decisions.
+- [`docs/fuel_provider_model.md`](https://github.com/billmallard/makerplane-data/blob/dev/docs/fuel_provider_model.md):
+  the fuel model.

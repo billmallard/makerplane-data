@@ -69,6 +69,14 @@ def test_decode_wdc_flags_faf_map_and_first_missed_leg():
     assert a._decode_wdc_flags("E M ", "TF") == a.FLAG_FIRST_MISSED_LEG
 
 
+def test_decode_wdc_flags_final_approach_course_fix_is_not_faf():
+    # Sec. 5.17 Fig. 5-4, col 43: I = Final Approach Course Fix, D = IAF with
+    # FACF. Neither is the FAF (AER-5555: KSBA I07 HABUT is coded "E  I").
+    assert a._decode_wdc_flags("E  I", "IF") == a.FLAG_FACF
+    assert a._decode_wdc_flags("E  D", "IF") == a.FLAG_IAF | a.FLAG_FACF
+    assert not a._decode_wdc_flags("E  F", "CF") & a.FLAG_FACF
+
+
 def test_decode_wdc_flags_hold_from_path_term():
     assert a._decode_wdc_flags("EE  ", "HM") == a.FLAG_HOLD
 
@@ -86,6 +94,44 @@ def test_transition_role():
     assert a.transition_role("sid", "1", "RW07 ") == "runway"
     assert a.transition_role("sid", "3", "GVO  ") == "enroute"
     assert a.transition_role("approach", "I", None) == "common"
+
+
+@pytest.mark.parametrize("kind, route_types, role", [
+    # ARINC 424 Table 5-7: SID (PD)
+    ("sid", "14FT", "runway"),
+    ("sid", "25M", "common"),
+    ("sid", "36SV", "enroute"),
+    # STAR (PE): the runway/en-route numbering runs the other way round
+    ("star", "147F", "enroute"),
+    ("star", "258M", "common"),
+    ("star", "369S", "runway"),
+])
+def test_transition_role_decodes_sid_star_route_type(kind, route_types, role):
+    """AER-5611: the role comes from the Route Type, not the ident -- a
+    common route coded ``ALL`` or ``RW11`` is still the common route."""
+    for rt in route_types:
+        for ident in ("ALL", "RW11", None, "OHIGH"):
+            assert a.transition_role(kind, rt, ident) == role, (kind, rt, ident)
+
+
+def test_transition_role_approach_route_type_a_is_the_transition():
+    """An approach transition named after a VOR whose ident starts RW (RWF
+    Redwood Falls, RWO Kodiak) is still an en-route transition."""
+    assert a.transition_role("approach", "A", "RWF  ") == "enroute"
+    assert a.transition_role("approach", "A", "HIMKI") == "enroute"
+    assert a.transition_role("approach", "R", None) == "common"
+    assert a.transition_role("approach", "I", None) == "common"
+
+
+def test_transition_role_unknown_route_type_refuses():
+    """Engine-out SID (0) included: it is a separate path, not a part of
+    the normal SID, so no role would fly it right."""
+    with pytest.raises(ValueError):
+        a.transition_role("sid", "0", "RW07")
+    with pytest.raises(ValueError):
+        a.transition_role("star", "Q", "ALL")
+    with pytest.raises(ValueError):
+        a.transition_role("sid", "", "ALL")
 
 
 # --- fix index: the airport-scoping bug (regression) -----------------------
@@ -128,8 +174,28 @@ def test_iter_airway_legs_a315():
 def test_iter_airway_legs_all_fixes_resolve():
     idx = a.build_fix_index(FIXTURE)
     legs = list(a.iter_airway_legs(FIXTURE, idx))
-    assert len(legs) == 17
+    assert len(legs) == 20
     assert all(l.fix_lat is not None and l.fix_lon is not None for l in legs)
+
+
+def test_iter_airway_legs_v1_carries_the_reverse_direction_mea():
+    # AER-5460: real 2611 V1 records. INLET->PLANN (and PLANN->CRE) is
+    # 2,100 ft flown in record order and 5,000 ft flown against it -- the
+    # second Minimum Altitude, cols 89-93. KIMMY's leg leaves it blank:
+    # one MEA both ways.
+    idx = a.build_fix_index(FIXTURE)
+    legs = {l.fix_id: l for l in a.iter_airway_legs(FIXTURE, idx) if l.route_ident == "V1"}
+    assert sorted(legs) == ["INLET", "KIMMY", "PLANN"]
+    assert (legs["INLET"].min_alt_ft, legs["INLET"].min_alt2_ft) == (2100, 5000)
+    assert (legs["PLANN"].min_alt_ft, legs["PLANN"].min_alt2_ft) == (2100, 5000)
+    assert (legs["KIMMY"].min_alt_ft, legs["KIMMY"].min_alt2_ft) == (5000, None)
+    assert all(l.max_alt_ft == 17500 for l in legs.values())
+
+
+def test_iter_airway_legs_blank_second_min_alt_is_none():
+    idx = a.build_fix_index(FIXTURE)
+    legs = [l for l in a.iter_airway_legs(FIXTURE, idx) if l.route_ident in ("A315", "A509")]
+    assert legs and all(l.min_alt2_ft is None for l in legs)
 
 
 def test_iter_airway_legs_carries_area_code():
@@ -161,6 +227,12 @@ def test_iter_procedure_legs_ils_faf_and_map_flags():
     faf = legs[(None, 20)]
     assert faf.fix_id == "NAPPS"
     assert faf.flags & a.FLAG_FAF
+    facf = legs[(None, 10)]
+    assert facf.fix_id == "HABUT"
+    assert facf.flags & a.FLAG_FACF
+    # One FAF in the final, not two (AER-5555).
+    assert [l.fix_id for (t, _), l in sorted(legs.items(), key=lambda kv: kv[0][1])
+            if t is None and l.flags & a.FLAG_FAF] == ["NAPPS"]
     map_leg = legs[(None, 30)]
     assert map_leg.fix_id == "RW07"
     assert map_leg.fix_type == "runway"
@@ -223,7 +295,7 @@ def test_iter_procedure_legs_vor_has_procedure_turn_and_arc():
 def test_iter_procedure_legs_all_fixes_resolve():
     idx = a.build_fix_index(FIXTURE)
     legs = list(a.iter_procedure_legs(FIXTURE, idx))
-    assert len(legs) == 76
+    assert len(legs) == 134
     unresolved = [l for l in legs if l.fix_id and l.fix_lat is None]
     assert unresolved == []
 

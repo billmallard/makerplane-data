@@ -1,162 +1,137 @@
 # Navigation Data Currency
 
-A Garmin-style subscription for your homebuilt EFIS: pull signed navigation
-packs at the hangar (or from a USB stick), and the display tells you when
-something is stale. This is the original purpose of makerplane-data and it is
-**live** at [navdata.aerocommons.org](https://navdata.aerocommons.org).
+The navdata service keeps the reference data on an EFIS current: airports,
+navaids, procedures, obstacles, terrain, water and roads. Packs are built from
+public sources, tested, signed, and served at
+[navdata.aerocommons.org](https://navdata.aerocommons.org). On the aircraft,
+`pyefis-data` installs them and tells the pilot when one is out of date.
 
-For the trust model and the atomic-install safety contract, read
-**[[Architecture]]** first — this page assumes it.
+The pilot's side of this (the Data Status screen and the DATA annunciation) is
+in the pyEfis manual:
+[Data Status, Updates and Notices](https://github.com/billmallard/pyEfis/wiki/Data-Status-Updates-and-Notices).
+For the trust model, read [[Architecture]] first.
 
-## What a "pack" is
+## The pages in this section
 
-A **pack** is one self-describing data file for one dataset and one cycle — for
-example, all US airports for the current 28-day cycle. Every pack is
-self-identifying: it carries its own metadata (its kind, cycle, effective and
-expiry dates, and data attribution) *inside* the file, so a lone pack on a USB
-stick still knows what it is.
+| Page | Covers |
+|---|---|
+| [[The navdata Website]] | The catalog, the pack inspector, the test reports and the format pages, with pictures. |
+| [[Pack Format and the Manifest]] | What is inside a pack, every `manifest.json` field, and the signature. |
+| [[Building and Publishing Packs]] | The daily build, the hand-started builds, the checks every pack must pass, signing, and taking a pack down. |
+| [[Pack Reports and Testing]] | The test record each pack carries, what each check can and cannot catch, and how to report a data problem. |
+| [[The On-Device Updater]] | `pyefis-data`: commands, `data.yaml`, the timer, USB import, `status.json`, the software notice and the advisory feed. |
 
-### Pack kinds shipping today
+## What a pack is
 
-| Kind | Contents | Source | Terms |
-|---|---|---|---|
-| `navdata` | Airports & runways | FAA NASR | Public domain |
-| `navaids` | VORs/NDBs, fixes, airways | FAA NASR | Public domain |
-| `obstacles` | Towers & antennas | FAA DOF | Public domain |
-| `terrain` | Elevation tiles, by region | Copernicus GLO-30 | Redistributable |
-| `water` | Coastlines, lakes, reservoirs | OpenStreetMap | ODbL (attribution) |
-| `highways` | Motorways & trunk roads | OpenStreetMap | ODbL (attribution) |
+A pack is one file holding one dataset for one cycle or edition, for example the
+US airports for AIRAC 2612. Each pack carries its own header (`pack_meta`) with
+its id, kind, cycle, dates and attribution, so a pack on a USB stick still says
+what it is. See [[Pack Format and the Manifest]].
 
-Instrument approach procedures (`CIFP`) are recognised but deferred — its
-indexer is GPL-licensed and this side of the repo is permissively licensed, so
-they are built with separate tooling rather than folded in here.
+A pack id names the dataset and its coverage (`airports-conus`,
+`terrain-us-west`). A cycle names the edition: an AIRAC id such as `2612`, an
+FAA obstacle date such as `261001`, or an edition tag such as `2024edr4`.
 
-On the aircraft, installed data lands under `/data/makerplane-data/<kind>/current/…`,
-where the EFIS (and its synthetic-vision terrain renderer) reads it.
+## Pack kinds
 
-## The three legs
+These kinds are in the live catalog
+([`packtools/sources.py`](https://github.com/billmallard/makerplane-data/blob/dev/packtools/sources.py),
+[`packtools/packmeta.py`](https://github.com/billmallard/makerplane-data/blob/dev/packtools/packmeta.py)):
 
-The system is built as three independent legs joined by the signed
-`manifest.json` catalog (see [[Architecture]] → *The manifest is the contract*).
+| Kind | Pack ids | Contents | Source | Cadence | Terms | On the device |
+|---|---|---|---|---|---|---|
+| `navdata` | `airports-conus` | Airports and runways | FAA NASR | AIRAC, 28 days | Public domain | Tracked by default |
+| `navaids` | `navaids-conus` | VORs, NDBs, fixes and airways | FAA NASR | AIRAC | Public domain | Tracked by default |
+| `procedures` | `procedures-conus` | Instrument procedures, airways, MSAs and grid MORAs | FAA CIFP | AIRAC | Public domain | Tracked by default |
+| `obstacles` | `obstacles-conus` | Towers, antennas and other obstacles | FAA Digital Obstacle File | 56 days | Public domain | Tracked by default |
+| `airports` | `airports-canada` | Airports outside the US | OurAirports | Edition | Public domain | Add it by id |
+| `terrain` | `terrain-<region>`, `terrain-mosaic` | Elevation tiles for synthetic vision | Copernicus GLO-30 | Edition | Redistribution permitted | Opt in by region |
+| `water` | `water-na` | Coastlines and inland water | OpenStreetMap, Natural Earth | Edition | ODbL, attribution | Opt in by region |
+| `highways` | `highways-conus` | Motorways and trunk roads | OpenStreetMap | Edition | ODbL, attribution | Opt in by region |
 
-### Leg 1 — the build pipeline (`packtools/`)
+- **Procedures** is published, but no source independent of the FAA has yet
+  been compared against it. Its test report says so (check `PROC-DIFF-001`,
+  not run).
+- **The terrain mosaic** is a small, coarse whole-continent pack. The updater
+  adds it automatically when any terrain region is selected
+  ([`pyefis_data/core.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/core.py)).
+- **Sizes** run from a few MB for the FAA packs to several GB for each terrain
+  region and for water. The catalog on the website lists each one.
 
-A GitHub Actions job runs daily. For each dataset it computes the current (and
-next) cycle, and — only if that pack isn't already published — fetches the
-upstream data, builds it into a pack, records its SHA-256, uploads it, and
-refreshes and re-signs the catalog. It is idempotent: a normal day where nothing
-new has been published does nothing. When the FAA publishes the next cycle ahead
-of time, the pipeline picks it up automatically so the aircraft can pre-stage it.
+These kinds are defined but not published, and the updater cannot install
+them yet:
 
-The pieces: FAA/AIRAC date arithmetic, the minisign signer, the pack-metadata
-embedder, the catalog schema, the upstream-URL registry, the fetcher, and the
-orchestrator that ties them together. Deep reference:
-[`docs/ci_build_pipeline.md`](https://github.com/billmallard/makerplane-data/blob/main/docs/ci_build_pipeline.md)
-and [`docs/cloudflare_setup.md`](https://github.com/billmallard/makerplane-data/blob/main/docs/cloudflare_setup.md).
+| Kind | State |
+|---|---|
+| `cifp` | Deferred. The raw CIFP indexer is GPL-licensed and these tools are permissively licensed. The `procedures` pack is built from the same FAA file instead. |
+| `airspace` | A builder exists, but publishing is switched off until its checks are accepted (`implemented=False` in `packtools/sources.py`). |
+| `plates` | `packtool make-plates` builds FAA d-TPP plate packs by hand. No workflow publishes them. |
+| `rivers` | Reserved. There is no builder. |
 
-### Leg 2 — distribution
+## Regions
 
-Packs and the signed catalog are served from Cloudflare R2 object storage at
-`navdata.aerocommons.org` — a custom domain, edge-cached, with zero egress cost.
-The live catalog is always at
-[navdata.aerocommons.org/manifest.json](https://navdata.aerocommons.org/manifest.json).
-The same files can be copied to a USB stick for hangars without WiFi; the device
-verifies them identically.
+Large datasets are split by region
+([`packtools/regions.yaml`](https://github.com/billmallard/makerplane-data/blob/dev/packtools/regions.yaml)).
+Each region is a box, `[lat_min, lon_min, lat_max, lon_max]`:
 
-### Leg 3 — the on-Pi updater (`pyefis_data/`)
+| Region | Name | Box |
+|---|---|---|
+| `conus` | Continental US | 24, -125, 50, -66 |
+| `us-west` | US West | 31, -125, 49, -102 |
+| `us-central` | US Central | 25, -104, 49, -90 |
+| `us-east` | US East | 24, -90, 49, -66 |
+| `us-south` | US South | 24, -107, 37, -75 |
+| `alaska` | Alaska | 51, -177, 72, -129 |
+| `canada-west` | Canada West | 48, -140, 72, -100 |
+| `canada-east` | Canada East | 42, -100, 72, -52 |
+| `mexico-central-america` | Mexico & Central America | 7, -118, 33, -77 |
 
-A small program on the aircraft's Raspberry Pi keeps it current. It runs on a
-daily timer, and on demand from the EFIS. It shares its signing/verifying and
-catalog code with the build side, so verification can never drift from signing.
+The regions overlap. A pack lists the regions it covers, and the manifest
+carries the region table, so the device can match a selection to packs.
 
-It follows the safety contract exactly: fetch and **verify the catalog signature
-before trusting it**, download each stale pack to a staging area, **verify its
-SHA-256 against the signed catalog, then move it into place and flip the
-`current` pointer atomically**. A bad download never disturbs the live data, and
-offline it falls back to the last good cached catalog. It also pre-stages the
-next cycle so a rollover is seamless.
+## Cycles
 
-A signature proves who signed a catalog, not when. So the updater also refuses
-a validly signed catalog that is **older** than the one it already trusts (an
-old USB stick, a stale cache, or a replay), installs nothing from it, and shows
-a `Catalog: CATALOG REFUSED` row on the Data Status screen. A deliberate
-rollback is `pyefis-data update --allow-rollback` (or `import DIR
---allow-rollback`); it cannot be combined with `--dry-run`. Each use is
-appended to `rollback.log` in the data root.
+The cycle dates come from
+[`packtools/cycles.py`](https://github.com/billmallard/makerplane-data/blob/dev/packtools/cycles.py):
 
-## Choosing what to install
+- **AIRAC** cycles are 28 days on a fixed grid, anchored at 2024-04-18 (AIRAC
+  2404). The id is `YYNN`: the year, then the cycle's number within that year.
+  A cycle is valid from its effective date up to, but not including, the next
+  one.
+- **Obstacle (DOF)** packs use a 56-day grid from the same anchor. The id is
+  the effective date as `YYMMDD`.
+- **Edition** packs (terrain, water, roads, OurAirports) have no expiry. The
+  tag names the build, for example `2026q4r1`.
 
-A fresh aircraft automatically tracks the small, everyone-wants-them datasets
-(airports, navaids, obstacles). The large, regional datasets (terrain, and
-future charts) are **opt-in by region** — nothing ever forces a bulk download.
+The FAA posts the next AIRAC cycle before it takes effect. The daily build
+publishes it as soon as it appears, and the updater downloads it ahead of time,
+so the change of cycle needs no network on the day.
 
-On the EFIS this is a touch **pack picker** (the Update screen): pick packs from
-the catalog, choose which drive to store them on, watch byte-level progress, and
-Cancel a long transfer to return to the picker — a cancel unwinds cleanly and
-leaves the live data untouched. Deselecting an installed pack removes it on the
-next update.
+## What the device installs, and where
+
+By default a device tracks `navdata`, `navaids`, `obstacles` and `procedures`
+for the continental US. Everything else is opt-in: by region for terrain,
+water and roads, and by pack id for any pack. The updater stores packs under
+its data root, `~/makerplane-data` unless `data.yaml` sets `root:`:
+
+| Kind | Path under the data root |
+|---|---|
+| `navdata` | `navdata/current/airports.sqlite` |
+| `navaids` | `navaids/current/navaids.sqlite` |
+| `obstacles` | `obstacles/current/obstacles.sqlite` |
+| `procedures` | `procedures/current/procedures.sqlite` |
+| `water` | `water/current/water.sqlite` |
+| `highways` | `highways/current/highways.sqlite` |
+| `airports` | `airports/<pack id>/current/airports.sqlite` |
+| `terrain` | `terrain/tiles/`, one tree shared by every region |
+
+`current` is a symlink to the folder for the installed cycle. Selection,
+commands and status are on [[The On-Device Updater]].
 
 ## The currency flag
 
-The aircraft *informs*, it never restricts. A boot **Data Status** screen and a
-subtle PFD annunciator report currency in green/amber, so a pilot knows at a
-glance whether the terrain or airport data is current — but the EFIS never
-refuses to run on stale data. That's the pilot's call.
-
-## The command line (`pyefis-data`)
-
-The updater is also a CLI (the touch picker drives these same commands). The main
-ones:
-
-```bash
-pyefis-data status      # installed vs available, currency per pack
-pyefis-data catalog     # every available pack (the picker's view)
-pyefis-data update      # pull stale packs, verify, atomic-swap them in
-pyefis-data import DIR   # same verified install, from a USB stick (offline)
-pyefis-data verify       # check the live catalog's signature
-```
-
-(The same program also pairs the device with the configurator and pulls panel
-configs — see **[[The Configurator]]**.)
-
-## The schema guard (catching upstream drift)
-
-Upstream providers change their file formats from time to time (the FAA
-announces these as Data Product Notices). Because the build tools read data *by
-column name*, a rename or a dropped column would not crash the build — it would
-silently produce **wrong or near-empty** data on a green run, and that signed
-pack could reach aircraft.
-
-To prevent that, a **schema guard** runs inside the nightly pipeline, against the
-live download, before anything is signed or uploaded. It runs four checks per
-dataset:
-
-1. **Structure diff** — the download's declared column layout vs a committed
-   snapshot of the expected format. Any added, removed, renamed, retyped, or
-   widened column fails the run with a readable diff.
-2. **Required headers** — every column the builder actually reads must be
-   present (the direct guard against a silently empty pack).
-3. **Value vocabulary** — a policed field (e.g. an airway type code) that
-   contains an unrecognised value fails, so a genuinely new category can't slip
-   through untriaged.
-4. **Output floors** — the built pack must have a sane number of rows; an empty
-   or suspiciously small table fails.
-
-When the guard fires, the build goes **red** and stops — the failing dataset
-ships nothing (its previously published pack keeps serving), while healthy
-datasets still update. A human then reviews the change (usually against the
-provider's notice), refreshes the committed snapshot, and adjusts the builder if
-needed. That refresh *is* the acknowledgement step: it turns "the format changed
-under us" from a silent event into a reviewed one.
-
-*Background:* this was built ahead of a real FAA format change (NASR 26-01,
-effective September 2026). Working notes:
-[`docs/nasr_2601_dpn_prep.md`](https://github.com/billmallard/makerplane-data/blob/main/docs/nasr_2601_dpn_prep.md).
-
-## Deeper reference
-
-- Terrain packs: [`docs/terrain.md`](https://github.com/billmallard/makerplane-data/blob/main/docs/terrain.md)
-- Water & roads: [`docs/water.md`](https://github.com/billmallard/makerplane-data/blob/main/docs/water.md),
-  [`docs/roads.md`](https://github.com/billmallard/makerplane-data/blob/main/docs/roads.md)
-- The on-device pack picker: [`docs/on_device_pack_picker.md`](https://github.com/billmallard/makerplane-data/blob/main/docs/on_device_pack_picker.md)
-- The full phase plan: [`docs/data_manager_implementation.md`](https://github.com/billmallard/makerplane-data/blob/main/docs/data_manager_implementation.md)
+The EFIS informs the pilot; it never restricts. Each pack's status (current,
+update available, expiring within 7 days, expired, missing) goes into
+`status.json`. pyEfis shows it on its Data Status screen and raises the DATA
+annunciation when something needs attention. It never refuses to run on old
+data. That is the pilot's call.
