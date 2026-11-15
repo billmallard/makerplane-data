@@ -701,7 +701,7 @@ def cmd_config_pull(args) -> int:
     old_version = cfg.config_version          # to revert to if the new config crashes
     old_etag = cfg.config_etag
     try:
-        summary = config_pull.install_config(text)
+        summary = config_pull.install_config(text, scope=cfg.pyefis_unit_scope)
     except ValueError as e:
         print(f"config install skipped: {e}", file=sys.stderr)
         return 2
