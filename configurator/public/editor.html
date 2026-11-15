@@ -3143,6 +3143,8 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       el.appendChild(buildAirspeedTrend(inst));
     } else if (inst.type === "airspeed_box") {
       el.appendChild(buildAirspeedBox(inst));
+    } else if (inst.type === "data_annunciation") {
+      el.appendChild(buildDataAnnunciation(inst));
     } else if (inst.type === "button") {
       el.classList.remove("placeholder");   // has a real twin, not a placeholder
       el.appendChild(buildButton(inst));
@@ -5178,6 +5180,48 @@ function applyCode() {
   if (!parsed) { codeMsg("Expected a pyEfis config with a 'screens:' block.", true); return false; }
   applyState(parsed);
   codeMsg(""); return true;
+}
+
+// --- the DATA flag twin (AER-5654) ------------------------------------------
+// pyEfis data_status.DataAnnunciation (`data_annunciation`, placed by the
+// builder from the palette) in its amber state, the one it shows when a pack is
+// expired or a config pull changed the panel. On the device it draws nothing
+// while every pack is current; the canvas shows the amber state so the builder
+// sees where the cue lands. The tests pin this against what the real widget
+// paints (tools/data_flag_oracle.py).
+const DATA_FLAG_AMBER = "rgb(255,176,0)";   // SEVERITY_COLORS["amber"]
+// DejaVu's hhea ascent and descent over its 2048-unit em. Qt rounds each to
+// whole px at the font's pixel size, and AlignCenter centres that line box.
+const DEJAVU_ASCENT = 1901 / 2048, DEJAVU_DESCENT = 483 / 2048;
+function dataFlagGeom(o, w, h) {
+  // resizeEvent: max(8, qRound(height * 0.7 * font_scale)). qRound rounds a
+  // tie up, not to even.
+  const px = Math.max(8, Math.floor(h * 0.7 * fontScale(o && o.font_percent) + 0.5));
+  const asc = Math.round(px * DEJAVU_ASCENT), desc = Math.round(px * DEJAVU_DESCENT);
+  // paintEvent: the rounded rect and the text share QRectF(1, 1, w-2, h-2).
+  const rect = { x: 1, y: 1, w: w - 2, h: h - 2 };
+  return {
+    rect, radius: 3, strokeW: 1, color: DATA_FLAG_AMBER, text: "DATA", px,
+    family: (o && o.font_family) || "DejaVu Sans Condensed",
+    cx: rect.x + rect.w / 2,
+    baseline: rect.y + (rect.h - (asc + desc)) / 2 + asc,
+  };
+}
+function dataFlagSvg(g, w, h) {
+  const fam = String(g.family).replace(/["'<>&]/g, "");
+  // No fill: whatever is under the flag shows through. drawText clips to the rect.
+  return `
+<svg viewBox="0 0 ${w} ${h}" class="gauge-svg">
+  <rect x="${g.rect.x}" y="${g.rect.y}" width="${g.rect.w}" height="${g.rect.h}" rx="${g.radius}" ry="${g.radius}"
+    fill="none" stroke="${g.color}" stroke-width="${g.strokeW}"/>
+  <svg x="${g.rect.x}" y="${g.rect.y}" width="${g.rect.w}" height="${g.rect.h}" overflow="hidden">
+    <text x="${g.cx - g.rect.x}" y="${g.baseline - g.rect.y}" text-anchor="middle"
+      font-family="${fam}" font-size="${g.px}" fill="${g.color}">${g.text}</text></svg>
+</svg>`;
+}
+function buildDataAnnunciation(inst) {
+  const { w, h } = mapDevicePx(inst);
+  return svgFromString(dataFlagSvg(dataFlagGeom(inst.options || {}, w, h), w, h));
 }
 
 // --- screens (multi-screen) -------------------------------------------------
