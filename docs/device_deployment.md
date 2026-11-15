@@ -143,18 +143,28 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
   list + the SVS GL widget **segfaults the eglfs `QOpenGLCompositor`** — #71. The
   full set is fine.) Stock files untouched; a `.prepanel` backup is kept for
   rollback. A `virtual_vfr` gets an `svs` block (terrain). Validated on the Pi 5.
-  - **No `screens/virtualvfr_db.yaml` include (AER-4354, AER-5421).** It
-    carried the screen-level `dbpath`/`indexpath` for the legacy CIFP Virtual
-    VFR overlay, which pyEfis #457 (VVFR1) deleted. Synthetic Vision draws
-    airports, runways and a PAPI from the NASR airports pack; with SVS off a
-    `virtual_vfr` is the plain sky/ground attitude view and reads no `dbpath`.
-    `config-pull` stopped adding the include for SVS-on panels in AER-4354
-    and for SVS-off panels in AER-5421. An include a screen already lists is
-    left alone: pyEfis keeps the file as an empty `{}` stub so it still loads.
-    **Release gate:** a device on a pyEfis older than #457 still builds the
-    legacy overlay for an SVS-off panel and crashes on the first resize
-    without the include, so this `config-pull` must not reach a device before
-    its pyEfis carries #457. (SVS-on panels are unaffected from #349 on.)
+  - **The `screens/virtualvfr_db.yaml` include follows the device's pyEfis
+    (AER-4354, AER-5421, AER-5675).** It carries the screen-level
+    `dbpath`/`indexpath` for the legacy CIFP Virtual VFR overlay. Synthetic
+    Vision draws airports, runways and a PAPI from the NASR airports pack, and
+    pyEfis #457 (VVFR1) deleted the overlay. But a pyEfis before #349 builds
+    the overlay for every `virtual_vfr`, and one from #349 to #457 builds it
+    for an SVS-off panel. On those its first resize raises on a `None`
+    `dbpath` and PyQt6 aborts pyEfis. So `config-pull` reads the pyEfis the
+    `pyefis` unit actually runs: it asks the unit's own `ExecStart` interpreter
+    where `pyefis` lives, from its `WorkingDirectory`, and checks
+    `instruments/ai/VirtualVfr.py`. File absent = #457 on, no include. File
+    with `_svs_owns_view` = #349 on, include only for an SVS-off panel (flat
+    `svs_enabled` over the nested `svs:` block, as pyEfis resolves it).
+    Otherwise, include for every `virtual_vfr`. If pyEfis can't be located,
+    `config-pull` adds the include anyway: pyEfis #457 keeps the file as an
+    empty `{}` stub exactly so that a screen listing it still loads. It never
+    lists the include when the device's config dir has no such file, since a
+    missing include is a hard error. The result is in the install summary as
+    `legacy_overlay` (`always`, `svs-skip` or `none`). An include a screen
+    already lists is left alone. This replaces the old release gates (#349
+    for 0.5.0, #457 for 0.6.0): no makerplane-data release now depends on
+    which pyEfis the device runs.
 - **P4 — Polish (mostly DONE):**
   - **Proper release (DONE):** `makerplane-data` **v0.2.2** wheel built + installed
     on the Pi, replacing the hot-patch (`pyefis-data pair` + `config-pull` ship in it).
