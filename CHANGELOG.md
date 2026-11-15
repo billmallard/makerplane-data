@@ -6,6 +6,80 @@ and the `configurator`. Semver on the Python package; process in
 
 ## Unreleased
 
+## 0.6.0 — 2026-11-14
+
+Promotes the `dev` work since 0.5.0 (18 PRs). It exists so that one
+`procedures-conus` 2612 rebuild carries three builder fixes before 2612
+takes effect on 2026-11-26: fixes that do not resolve are refused (#208),
+SID/STAR transitions get their role from the Route Type (#207), and the FAS
+data blocks are carried (VNAV1, #209). It also carries the CERT17 panel-change
+cue on the device and the fuel-tank and preview work in the configurator.
+
+### Packs (packtools)
+- **The procedures pack carries the FAS data blocks (VNAV1, AER-5623).** A new
+  `fas_blocks` table holds every CIFP Path Point (`PP`) record: the LP/LPV
+  Final Approach Segment block, every field, attached to its approach. The
+  build re-computes each block's CRC-32Q and drops, and names, any block
+  whose CRC does not match. All 4,917 in 2611 and 2612 match. Additive:
+  `schema_version` 3 -> 4, existing tables unchanged.
+  See [docs/fas_blocks.md](docs/fas_blocks.md).
+- **A leg whose fix does not resolve fails the build (AER-5612).** The 2611
+  pack shipped 556 procedures with such a leg, and pyEfis refuses those
+  procedures outright. Terminal NDBs (`PN`) and airport (`PA`) fixes now
+  resolve. The one fix the FAA file names but never defines is declared in
+  `KNOWN_SOURCE_GAPS`, and the build refuses that entry once the file
+  defines it. `PROC-FIX-001` warns on any unresolved leg outside the gaps.
+- **`transitions.role` comes from the ARINC 424 Route Type (AER-5611)**, not
+  the transition ident, so a common route coded `ALL` is filed as common. A
+  Route Type with no decoded role fails the build.
+- **The final approach course fix is no longer flagged as the FAF
+  (AER-5555)**; it gets its own bit, 64.
+- **Airways carry the reverse-direction MEA (AER-5460)**:
+  `airway_legs.min_alt2_ft`. Additive; `schema_version` stayed 3.
+
+### Device updater (pyefis_data)
+- **A config pull that changes the panel is shown until acknowledged
+  (CERT17, AER-5476).** The change is written to `status.json` as a
+  `panel_change` block and stays on the Data Status screen until
+  `pyefis-data panel-ack` acknowledges that exact config.
+  See [docs/panel_change_cue.md](docs/panel_change_cue.md).
+- **`config-pull` delivers the ownship address to fix-gateway (P3f,
+  AER-5458)** as one line in fix-gateway's `preferences.yaml.custom`.
+- **`config-pull` no longer adds `screens/virtualvfr_db.yaml` to any panel
+  (AER-5421).** pyEfis #457 deleted the legacy CIFP Virtual VFR overlay that
+  read it. Release gate: a device must run a pyEfis that carries #457 before
+  it gets this `config-pull`.
+
+### Configurator and device config
+- **Fuel tanks.** The Worker resolves a gauge's `tank: <id>` against the
+  active aircraft profile when it serves a config (FUEL1c, AER-5499). The
+  editor gets a tank picker, an orphan mark and pre-save warning, and a
+  one-click migration from stock `Tank n` bars (FUEL1f, AER-5547).
+- **Screen-level keys the editor has no UI for** (`include:`, `encoder*`)
+  are kept on save instead of dropped (AER-5556).
+- **Preview twins:** the ND follows the G11c EXPANDED polish (AER-5396); HSI
+  bearing pointers are cyan, Off at boot, with the BRG tab (AER-5553).
+- #206 (a DATA flag on every panel by default) merged and was reverted by
+  #211 on Bill's ruling; neither is in this release's net change.
+
+### Docs
+- The wiki's Home, Architecture, navdata service and configurator pages are
+  rewritten against the code on `dev` (#195, #197, #198).
+- `docs/panel_change_cue.md`: the Data Status screen is not the boot screen
+  (#204).
+
+### Operational notes for this release
+- **Automatic updates pause on devices until someone accepts the notice for
+  0.6.0**, as for 0.5.0: a new `pyefis-data` version needs a new accept (L2).
+  Bench units with `bench_auto_accept: true` continue.
+- **Procedures `schema_version` 4.** Readers checked: pyEfis
+  `flightplan/procedures.py` and `airways.py` read tables and columns by
+  name and never read `schema_version`. A schema-4 2612 build is loaded on a
+  bench box before 2612 is retracted (AER-5648, AER-5612).
+- **After the merge to `main`:** retract `procedures-conus` 2612 so the
+  nightly rebuilds it from `main` (AER-5612).
+- No D1 migration in this range.
+
 ## 0.5.0 — 2026-11-11
 
 Promotes the `dev` work since 0.4.0 (52 PRs). Its core is the device-side

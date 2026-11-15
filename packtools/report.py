@@ -62,9 +62,12 @@ ROW_DELTA_WARN = 0.10
 #: or this fraction (whichever is larger) before the check warns.
 GEO_OUTSIDE_GROWTH_ROWS = 25
 GEO_OUTSIDE_GROWTH_FRACTION = 0.10
-#: PROC-FIX-001: legs naming a fix the build could not place. 2610 measured
-#: 950 of 201,030 and 2611 measured 941 of 200,853 (both 0.47%).
-PROC_UNRESOLVED_MAX_FRACTION = 0.005
+#: PROC-FIX-001: legs naming a fix the build could not place. Until
+#: AER-5612 this was a 0.5% regression bound, carried from 2610 (950 of
+#: 201,030) and 2611 (941 of 200,853); it let 556 procedures that pyEfis
+#: refuses ship. Now any such leg outside the builder's declared source gaps
+#: warns. The builder refuses those legs itself, so this catches a pack built
+#: some other way, or before that gate.
 #: PROC-MSA-003: plausible MSA sector values. An MSA is 1,000 ft above the
 #: highest obstacle in the sector, so nothing lower is possible; 2611 runs
 #: 1,300 to 16,000 ft. Radii are 25 nm unless extended to take in the
@@ -76,6 +79,9 @@ MSA_RADIUS_MAX_NM = 50
 #: PROC-MSA-004: MSA records whose centre fix the build could not place.
 #: 2611 measured 1 of 6,058 (KHRJ's HQT, an NDB the file does not define).
 MSA_UNRESOLVED_MAX_FRACTION = 0.001
+#: PROC-FAS-*: added by AER-5623, not yet reviewed by QA (plan section 4.4).
+FAS_REVIEW = ("AER-5623: QA has not reviewed this check's definition, so it cannot "
+              "stop a publish yet")
 #: PROC-MORA-001: Grid MORA band floor, 50% of the 241 bands in 2611
 #: (rounded down), by the SG-004 convention.
 PROC_MORA_BAND_FLOOR = 120
@@ -659,15 +665,34 @@ def _c_unresolved(ctx):
         return ("fail", "no legs table", "")
     total = ctx.tables["legs"]
     rows = ctx.con.execute(
-        "SELECT COALESCE(fix_type, ''), COUNT(*) FROM legs WHERE fix_id IS NOT NULL "
+        "SELECT fix_id, COALESCE(fix_type, ''), COUNT(*) FROM legs WHERE fix_id IS NOT NULL "
         "AND TRIM(fix_id) <> '' AND (fix_lat IS NULL OR fix_lon IS NULL) "
-        "GROUP BY 1 ORDER BY 1").fetchall()
-    n = sum(c for _, c in rows)
-    ctx.metrics["PROC-FIX-001"] = {"unresolved": n, "legs": total,
-                                   "by_fix_type": {k or "(none)": c for k, c in rows}}
+        "GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
+    by_type: dict[str, int] = {}
+    for _, t, c in rows:
+        by_type[t or "(none)"] = by_type.get(t or "(none)", 0) + c
+    n = sum(c for _, _, c in rows)
+    gaps = _declared_gaps()
+    undeclared = [(f, t, c) for f, t, c in rows if (f, t) not in gaps]
+    n_bad = sum(c for _, _, c in undeclared)
+    ctx.metrics["PROC-FIX-001"] = {"unresolved": n, "undeclared": n_bad, "legs": total,
+                                   "by_fix_type": by_type}
     frac = n / total if total else 0.0
-    measured = f"{n:,} of {total:,} legs ({frac * 100:.2f}%)"
-    return ("warn" if frac > PROC_UNRESOLVED_MAX_FRACTION else "pass", measured, "")
+    measured = (f"{n:,} of {total:,} legs ({frac * 100:.2f}%); "
+                f"{n_bad:,} outside the declared source gaps")
+    if undeclared:
+        shown = sorted(undeclared, key=lambda r: (-r[2], r[0]))[:10]
+        measured += " (" + ", ".join(f"{f}/{t or '?'} x{c}" for f, t, c in shown) + ")"
+    return ("warn" if n_bad else "pass", measured, "")
+
+
+def _declared_gaps() -> set[tuple[str, str]]:
+    """``(fix_id, fix_type)`` of the builder's KNOWN_SOURCE_GAPS. The pack
+    keeps no ICAO region or section, so this is as close as a reader of the
+    pack alone can match them."""
+    from .build.procedures import KNOWN_SOURCE_GAPS
+    return {(ident, arinc424._fix_type(sec[:1], sec[1:]) or "")
+            for ident, _, sec in KNOWN_SOURCE_GAPS}
 
 
 def _c_awy_unique(ctx):
@@ -959,6 +984,62 @@ def _c_msa_values(ctx):
     measured = (f"{alt_bad} altitudes, {rad_bad} radii, {ref_bad} bearing references out of "
                 f"bounds (altitudes {lo}-{hi} ft, radii {rlo}-{rhi} nm)")
     return ("fail" if alt_bad or rad_bad or ref_bad else "pass", measured, "")
+
+
+def _c_fas_census(ctx):
+    if "fas_blocks" not in ctx.tables:
+        return ("fail", "no fas_blocks table", "")
+    if ctx.inputs is None:
+        return _not_run("Needs the source FAACIFP18 (--inputs) to count its PP records and "
+                        "re-derive the CRC drops. The nightly gate passes the extracted CIFP.")
+    from . import arinc424
+    from .build.procedures import ProceduresBuildError, _find_cifp_file
+    try:
+        cifp = _find_cifp_file(Path(ctx.inputs))
+    except ProceduresBuildError as e:
+        return ("fail", str(e).replace(str(ctx.inputs), "<inputs>"), "")
+    source = list(arinc424.iter_path_points(cifp))
+    dropped = sorted(b.label for b in source if not b.crc_ok)
+    want = sorted(b.label for b in source if b.crc_ok)
+    have = sorted(f"{a} {i} {r}" for a, i, r in ctx.con.execute(
+        "SELECT airport, approach_ident, runway FROM fas_blocks"))
+    ctx.metrics["PROC-FAS-001"] = {"source_primaries": len(source), "stored": len(have),
+                                   "crc_dropped": dropped}
+    measured = (f"{len(have):,} of {len(source):,} PP records stored; {len(dropped)} dropped "
+                "for a CRC that does not re-compute"
+                + (f" ({', '.join(dropped[:20])})" if dropped else ""))
+    if have != want:
+        missing = sorted(set(want) - set(have))
+        extra = sorted(set(have) - set(want))
+        return ("fail", measured + f"; missing {missing[:10]}, unexpected {extra[:10]}", "")
+    return ("warn" if dropped else "pass", measured, "")
+
+
+def _c_fas_crc(ctx):
+    if "fas_blocks" not in ctx.tables:
+        return ("fail", "no fas_blocks table", "")
+    from . import arinc424
+    bad = []
+    n = 0
+    for airport, ident, runway, crc, record in ctx.con.execute(
+            "SELECT airport, approach_ident, runway, crc, record FROM fas_blocks"):
+        n += 1
+        fields = json.loads(record)["fields"]
+        if arinc424.fas_crc(fields) != crc or fields.get("crc", "").strip().upper() != crc:
+            bad.append(f"{airport} {ident} {runway}")
+    measured = f"{len(bad)} of {n:,} blocks" + (f" ({', '.join(bad[:10])})" if bad else "")
+    return ("fail" if bad else "pass", measured, "")
+
+
+def _c_fas_unattached(ctx):
+    if "fas_blocks" not in ctx.tables:
+        return ("fail", "no fas_blocks table", "")
+    rows = [f"{a} {i}" for a, i in ctx.con.execute(
+        "SELECT airport, approach_ident FROM fas_blocks WHERE proc_id IS NULL ORDER BY 1, 2")]
+    total = ctx.tables["fas_blocks"]
+    ctx.metrics["PROC-FAS-003"] = {"unattached": len(rows), "blocks": total}
+    measured = f"{len(rows)} of {total:,} blocks" + (f" ({', '.join(rows[:10])})" if rows else "")
+    return ("warn" if rows else "pass", measured, "")
 
 
 def _c_msa_unresolved(ctx):
@@ -1672,10 +1753,9 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "extra table the builder does not create.", _c_proc_tables, "AER-4598"),
         Check("PROC-FIX-001", "Procedure legs that name a fix the build could not place",
               False,
-              f"at most {PROC_UNRESOLVED_MAX_FRACTION:.1%} of legs: a regression bound that "
-              "carries forward the 0.47% observed in 2610 (950 of 201,030) and 2611 (941 of "
-              "200,853). It does not accept those legs as correct; it stops the share "
-              "growing",
+              "none outside the source gaps the builder declares (KNOWN_SOURCE_GAPS, "
+              "each a fix the source names but never defines). pyEfis refuses a "
+              "procedure with any such leg (AER-5612)",
               "A fix placed at the wrong coordinates. Legs with no fix by design (for "
               "example heading legs) are not counted.", _c_unresolved),
         Check("PROC-AWY-001", "Airway idents are unique", True, "0 duplicate idents",
@@ -1708,6 +1788,23 @@ _KIND_CHECKS: dict[str, list[Check]] = {
               "(KHRJ HQT, an NDB the file does not define). It does not accept those "
               "records as correct; they are stored with no position, never a guessed one",
               "A centre placed at the wrong coordinates.", _c_msa_unresolved, "AER-4446"),
+        Check("PROC-FAS-001", "Every PP record in the source is in fas_blocks, or named "
+              "as a CRC drop", True,
+              "the pack holds exactly the source FAACIFP18's PP records whose FAS block CRC "
+              "re-computes; any that do not are listed and warn (2611 and 2612: 4,917 of "
+              "4,917 re-compute)",
+              "A block decoded wrong in a field outside the CRC wrap (orthometric heights, "
+              "approach type, channel); a source block that is wrong but internally "
+              "consistent.", _c_fas_census, "AER-5623", review=FAS_REVIEW),
+        Check("PROC-FAS-002", "Every stored FAS block's CRC re-computes from its record", True,
+              "0 blocks: each row's record fields encode to the CRC the row carries",
+              "A decoded column (ltp_lat, hal_m, ...) that disagrees with the record it was "
+              "decoded from; the check reads the record, not the columns.",
+              _c_fas_crc, "AER-5623", review=FAS_REVIEW),
+        Check("PROC-FAS-003", "FAS blocks with no approach in the pack", False,
+              "0 blocks: every block's (airport, ident) names an approach in procedures",
+              "A block attached to the right ident but the wrong runway.",
+              _c_fas_unattached, "AER-5623", review=FAS_REVIEW),
         Check("PROC-MORA-001", "Grid MORA has 30 cells per band", True,
               f"cells = 30 x bands, and at least {PROC_MORA_BAND_FLOOR} bands (half the "
               "241 in 2611)",

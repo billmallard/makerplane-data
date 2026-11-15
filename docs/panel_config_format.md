@@ -137,6 +137,7 @@ by the paired device:
 ```
 GET /device/config            Authorization: Bearer <device token>
   -> 200  application/x-yaml   + ETag: "v<n>" | "v<n>-p<hash>"  + X-Config-Version: <n>
+          (aircraft references resolved -- see "Aircraft references" below)
   -> 304  (when If-None-Match matches the current ETag — a cheap poll)
   -> 404  no config yet
   -> 401  missing / unknown token
@@ -182,6 +183,97 @@ preferences:
   `GET /api/devices/:id/preferences` and shows a `pressure: true`
   `numeric_display` in that unit.
 
+### fix-gateway block: the ownship address (P3f)
+
+The ADS-B traffic writer in fix-gateway drops reports carrying the aircraft's
+own 24-bit address (`ownship_address`). The profile holds it as
+`meta.registration` (a US N-number derives the address) or `meta.icao_address`
+(hex, wins when both are set). When either yields an address, the served YAML
+gets a second top-level block:
+
+```yaml
+fixgw:
+  ownship_address: "AB4549"   # N825V; always quoted, six upper-case hex digits
+```
+
+- Absent when the profile sets neither, so the body and ETag are what they
+  were. The ETag hash covers this block too; a profile with only a baro unit
+  keeps exactly the hash it had before, so adding this block re-pulls no
+  device that has no address. A stored panel with its own top-level `fixgw:`
+  key gets no second one.
+- On the device, `pyefis-data config-pull` writes that one key as a top-level
+  `ownship_address:` line (under a marker comment) in fix-gateway's
+  `~/makerplane/fixgw/config/preferences.yaml.custom` (`FIXGW_CONFIG_DIR`
+  overrides the directory). The file is edited as text, so every other line
+  and comment is kept byte-for-byte; the edit is re-parsed and must change only
+  that key, or nothing is written. fix-gateway reads the key as the stratux
+  connection's `ownship_address` when the connection's own value is blank
+  (the fix-gateway change is AER-5468; a fix-gateway without it ignores the
+  key, so traffic is filtered by the receiver's own report only).
+- The value written is recorded in `.panel_prefs.yaml`. A blank address removes
+  the line only if it still holds the recorded value; a hand-edited one stays.
+  A malformed block, a missing fix-gateway config dir, or an unreadable
+  override changes nothing and is reported.
+- fix-gateway (`fixgw` or `fixgateway` unit, user or system scope) is restarted
+  only when its file changed. Its override is in the panel snapshot, so a
+  crashed install puts it back (or removes a file the install created) and
+  restarts fix-gateway again.
+- The preview endpoint returns the block as `fixgw` beside `preferences`.
+
+### Aircraft references: a gauge bound to a tank (FUEL1 F3)
+
+A bar or arc gauge can hold a reference to a fuel tank on the aircraft
+profile instead of a FIX key: `tank: tk_19c2`, the tank's stable id
+([fuel_provider_model.md](fuel_provider_model.md) section 5). The stored panel
+keeps only the id. When the config is served, the Worker resolves it against
+the project's **active** profile (`resolveAircraftRefs`, `src/aircraft_refs.ts`
+over `public/aircraft_refs.js`) and the device receives plain pyEfis options:
+
+```yaml
+options:                options:                    options:
+  tank: tk_19c2   ->      dbkey: FUELQ3       or      name: L TIP     # its last label
+                          name: L TIP                 unbound: true   # no dbkey at all
+```
+
+- **Resolved:** `dbkey: FUELQ<slot>` and `name: <label>`; the `tank` key is
+  removed. A rename or a rewire on the aircraft page reaches the device on its
+  next pull with no panel edit.
+- **Orphaned** (the tank was removed, the profile has no fuel group, or there
+  is no active profile): no `dbkey`, `unbound: true`, and the label the tank
+  last had in any saved profile version (else the panel's own `name`). pyEfis
+  draws its failed-sensor state and never looks up a key (pyEfis#452), so a
+  removed tank can neither stop pyEfis at boot nor read another tank's value.
+- **ETag:** the hash covers the resolved bindings (each gauge's position, id,
+  key and label), so a rename, a rewire or a removal is a new config. Editing
+  another tank, or any value no binding uses, is not.
+- **A panel with no reference** is served exactly as before: the same text,
+  unparsed, and the same ETag. A panel with one is parsed and re-dumped the way
+  the editor saves it (js-yaml, `lineWidth: 100`), which is how every
+  editor-saved panel was written in the first place.
+- The same resolver serves three callers, so they cannot disagree:
+  `GET /device/config`; **Download YAML** in the editor
+  (`GET /api/devices/:id/config/served`, the last saved version exactly as the
+  next pull receives it, same ETag); and the editor preview, which imports
+  `/aircraft_refs.js` and resolves each gauge before drawing it.
+- The picker's data: `GET /api/projects/:id/aircraft/refs?source=aircraft.fuel.tanks`
+  (or `/api/devices/:id/aircraft/refs?...`) returns
+  `{source, items: [{id, label, slot, role, slot_key}], retired: {id: last label}}`.
+  An unknown source is a 400.
+- **In the editor (FUEL1 F6):** the Tank field is a select of those items,
+  each with its slot ("L TIP - FUELQ3"). Choosing one stores `tank: <id>` and
+  drops the plain `dbkey`/`name`; choosing "Not bound" writes back the key and
+  name the device was receiving. An orphaned gauge is outlined red, its picker
+  reads "<last label> - removed", and its twin draws the device's failed look.
+  A bar bound the stock way, `dbkey: FUELQn` with the name exactly `Tank n`,
+  is offered "Bind to <label>" when the aircraft has a tank in slot n; nothing
+  changes until the click, and a hand-named bar is never offered.
+- **Saving an aircraft profile that orphans a binding** asks first:
+  `POST /api/projects/:id/aircraft/orphans` with `{profile}` (or `{version}`)
+  returns `{panels: [{device_id, device, version, gauges: [{at, option, id, label}]}]}`,
+  every device's latest saved panel with a gauge that resolves under the
+  active profile and would come out unbound. The aircraft page lists them and
+  saves only on confirmation. It never refuses: removing a tank is legitimate.
+
 Each pull stamps `last_pull_at`. The on-Pi updater then atomic-swaps the screen +
 `main` into the device's config (see [device_deployment.md](device_deployment.md),
 P3). Because the artifact is already pyEfis config, "install" is a file drop, not
@@ -196,18 +288,21 @@ a build.
   under `/data/makerplane-data/...`) at install time, keeping any explicit `svs`
   the panel already carries. Flat `svs_*` editor options override that block
   key by key, as pyEfis resolves them.
-- **Legacy Virtual VFR (CIFP) is deprecated.** A `virtual_vfr` with SVS off
-  (`svs_enabled: false`) falls back to the legacy CIFP overlay -- 2D runway
-  outlines, airport labels and an assumed-3-degree PAPI from the raw FAA CIFP
-  file. That overlay is **deprecated** and will be removed; Synthetic Vision
-  replaces it, drawing airports, runways and a PAPI at the published angle from
-  the NASR airports pack. With SVS on (pyEfis #349, CIFP1) the legacy overlay is
-  not loaded and **no CIFP download is needed**. Only an SVS-off panel needs the
-  `screens/virtualvfr_db.yaml` include (`dbpath`/`indexpath`), and `config-pull`
-  adds it only there. The `virtual_vfr` type itself stays: it hosts SVS.
+- **Legacy Virtual VFR (CIFP) is removed.** pyEfis #457 (VVFR1) deleted the
+  legacy CIFP overlay. A `virtual_vfr` is the attitude display with Synthetic
+  Vision, which draws airports, runways and a PAPI from the NASR airports pack;
+  with SVS off (`svs_enabled: false`) it shows the plain sky/ground attitude
+  view. No CIFP download is needed, and `config-pull` adds no
+  `screens/virtualvfr_db.yaml` include. The `virtual_vfr` type itself stays:
+  it hosts SVS.
 - **No `include:` emitted.** The editor places concrete instruments, so it never
-  emits pyEfis `include,…` instruments. Stock screens that use includes still
-  work on the device; the editor simply doesn't generate them.
+  generates pyEfis `include,…` instruments or a screen-level `include:`. Stock
+  screens that use includes still work on the device.
+- **Screen keys the editor doesn't model pass through.** A screen-level key other
+  than `module`/`title`/`layout`/`instruments` -- e.g. `include: [HMI_ENCODER_BUTTONS]`
+  (the knob's `encoder`/`encoder_button` keys) or a raw `encoder_timeout` -- is
+  kept as loaded and written back on save, so it can be added in the Code pane
+  and survives later edits. `module` and `title` are always regenerated.
 - **Aircraft limits / V-speeds / gauge bands** are not in the panel config — they
   come from the FIX database / aircraft config (a separate concern, fix-gateway
   side). The panel only describes *which* instruments go *where*.

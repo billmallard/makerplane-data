@@ -1,0 +1,50 @@
+main: {screenWidth: 1280, screenHeight: 800, screenDiagonalInches: 10.1, defaultScreen: PFD}
+screens:
+  PFD:
+    module: pyefis.screens.screenbuilder
+    title: PFD
+    layout: {rows: 110, columns: 200}
+    instruments:
+      - type: atitude_indicator
+        row: 0
+        column: 0
+        span: {rows: 110, columns: 140}
+      - type: airspeed_tape
+        row: 8
+        column: 4
+        span: {rows: 60, columns: 18}
+      - type: altimeter_tape
+        row: 8
+        column: 116
+        span: {rows: 60, columns: 20}
+      - type: horizontal_situation_indicator
+        row: 66
+        column: 45
+        span: {rows: 44, columns: 50}
+      - type: tab_section
+        row: 0
+        column: 140
+        span: {rows: 110, columns: 60}
+        options: {tab_position: right}
+        tabs:
+          - label: Map
+            layout: {rows: 110, columns: 200}
+            instruments:
+              - type: moving_map
+                row: 0
+                column: 0
+                span: {rows: 110, columns: 200}
+                options: {range_nm: 20}
+          - label: Engine
+            layout: {rows: 110, columns: 200}
+            instruments:
+              - type: arc_gauge
+                row: 2
+                column: 10
+                span: {rows: 40, columns: 90}
+                options: {dbkey: TACH1, name: RPM}
+              - type: arc_gauge
+                row: 2
+                column: 105
+                span: {rows: 40, columns: 90}
+                options: {dbkey: MAP1, name: MAP}

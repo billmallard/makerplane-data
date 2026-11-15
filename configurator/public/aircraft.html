@@ -148,6 +148,10 @@ let profile = { schema_version: 1,
                         baro_unit:"inHg", engine_type:"piston", twin_speeds:false },
                 values: {} };
 let savedVersion = null;
+// The stock-bar label rule (public/fuel_label.js, shared with the Worker and
+// the editor twin). Replaced at boot; until the module loads every label
+// passes here and the server's check still refuses a bad one.
+let labelFitError = () => null;
 
 // Altimeter-setting units (#108): delivered to the device as preferences
 // units.Pressure with every config pull, so every screen starts in it.
@@ -173,8 +177,8 @@ function normalizeProfile(p) {
 // edited; loading never rewrites values, so a migrated profile compiles to the
 // same aircraft.ini.
 const FUEL_ROLES = ["main", "aux", "tip", "header", "transfer"];
-// Copies of src/fuel_profile.ts: the UI ceiling, and the provisional label
-// limit F6 replaces with the measured one.
+// Copies of src/fuel_profile.ts: the UI ceiling, and the text-box ceiling on
+// a label. The real label limit is labelFitError, loaded at boot.
 const TANK_CEILING = 8;
 const TANK_LABEL_MAX = 12;
 
@@ -302,6 +306,7 @@ function fuelCheck(meta, values) {
     if (typeof t.label !== "string" || !t.label.trim()) errors.push(`tank ${i + 1}: label required`);
     else if (t.label.length > TANK_LABEL_MAX)
       errors.push(`${n}: label at most ${TANK_LABEL_MAX} characters`);
+    else if (labelFitError(t.label)) errors.push(`${n}: ${labelFitError(t.label)}`);
     else {
       const key = t.label.trim().toUpperCase();
       if (labels.has(key)) errors.push(`${n}: label used by another tank`);
@@ -839,6 +844,7 @@ function importIni(text) {
 
 // ---- boot / io ------------------------------------------------------------------
 async function boot() {
+  try { ({ labelFitError } = await import("/fuel_label.js")); } catch (_) { /* server still checks */ }
   const s = await fetch("/assets/editor/aircraft_params_schema.json").then(r => r.json());
   schema = s;
   $("schema-ver").textContent = "v" + s.schema_version + ", " + s.generated;
@@ -861,9 +867,40 @@ async function boot() {
   render();
 }
 
+// Saving makes the profile active, so first ask the Worker which published
+// panels it would orphan (a gauge bound to a tank this profile no longer
+// has). Removing a tank is legitimate, so this warns and lists the panels;
+// it never refuses. The device draws each such gauge failed (xxx) under its
+// last label until the panel is fixed. A failed check does not block a save.
+async function confirmOrphans(candidate) {
+  let panels = [];
+  try {
+    const res = await fetch(`/api/projects/${PROJECT}/aircraft/orphans`, {
+      method: "POST", credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(candidate),
+    });
+    if (res.ok) panels = (await res.json()).panels || [];
+  } catch (_) { return true; }
+  if (!panels.length) return true;
+  return confirm(orphanWarning(panels));
+}
+
+function orphanWarning(panels) {
+  const lines = panels.map(p => {
+    const labels = p.gauges.map(g => g.label ? `"${g.label}"` : "a gauge").join(", ");
+    return `- ${p.device} (panel v${p.version}): ${labels}`;
+  });
+  return "This profile removes a tank that published panels still show:\n\n"
+    + lines.join("\n")
+    + "\n\nOn the next pull each of those gauges shows as failed (xxx) under its last label"
+    + " until you bind it to another tank in the editor. Save anyway?";
+}
+
 $("save").addEventListener("click", async () => {
   if (validate().hard.length) { $("msg").textContent = "fix the errors first"; return; }
   if (DEMO) { $("msg").textContent = "demo mode - not saved"; return; }
+  if (!(await confirmOrphans({ profile }))) { $("msg").textContent = "not saved"; return; }
   const res = await fetch(`/api/projects/${PROJECT}/aircraft`, {
     method: "PUT", credentials: "same-origin",
     headers: { "content-type": "application/json" },

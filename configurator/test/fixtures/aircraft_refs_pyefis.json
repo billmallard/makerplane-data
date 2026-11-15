@@ -1,0 +1,36 @@
+{
+ "schema_json_sha256": "5d95ad396c172b5438bc6aaad6fa2b1a86413c5fbb15543eb936b8457b2844f5",
+ "schema_version": 3,
+ "fields": [
+  {
+   "type": "arc_gauge",
+   "option": "tank",
+   "source": "aircraft.fuel.tanks",
+   "multi": false,
+   "resolves": {
+    "dbkey": "slot_key",
+    "name": "label"
+   }
+  },
+  {
+   "type": "horizontal_bar_gauge",
+   "option": "tank",
+   "source": "aircraft.fuel.tanks",
+   "multi": false,
+   "resolves": {
+    "dbkey": "slot_key",
+    "name": "label"
+   }
+  },
+  {
+   "type": "vertical_bar_gauge",
+   "option": "tank",
+   "source": "aircraft.fuel.tanks",
+   "multi": false,
+   "resolves": {
+    "dbkey": "slot_key",
+    "name": "label"
+   }
+  }
+ ]
+}

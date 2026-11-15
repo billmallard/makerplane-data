@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 from packtools.build import BUILDERS
-from packtools.build.procedures import ProceduresBuildError, build_procedures
+from packtools.build.procedures import (
+    KNOWN_SOURCE_GAPS, ProceduresBuildError, build_procedures)
 from packtools.packmeta import KINDS, detect_procedures_schema_version
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "cifp" / "FAACIFP18"
@@ -37,12 +38,12 @@ def test_build_procedures_writes_all_tables(input_dir, tmp_path):
     try:
         counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                   for t in ("airways", "airway_legs", "procedures",
-                            "transitions", "legs", "msa")}
+                            "transitions", "legs", "msa", "fas_blocks")}
     finally:
         con.close()
     assert counts == {
-        "airways": 2, "airway_legs": 17,
-        "procedures": 5, "transitions": 22, "legs": 76, "msa": 21,
+        "airways": 3, "airway_legs": 20,
+        "procedures": 11, "transitions": 37, "legs": 134, "msa": 21, "fas_blocks": 3,
     }
 
 
@@ -52,6 +53,24 @@ def test_build_procedures_airway_rows(input_dir, tmp_path):
     row = con.execute("SELECT ident, cycle FROM airways WHERE ident='A315'").fetchone()
     con.close()
     assert row == ("A315", "2609")
+
+
+def test_build_procedures_airway_legs_carry_min_alt2_ft(input_dir, tmp_path):
+    # AER-5460: the pack carries the reverse-direction MEA (real 2611 V1
+    # INLET/PLANN rows) so pyEfis can publish 5,000 ft, not 2,100, flying
+    # PLANN->INLET. NULL where the record leaves it blank.
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    rows = con.execute(
+        "SELECT al.fix_id, al.min_alt_ft, al.min_alt2_ft, al.max_alt_ft FROM airway_legs al "
+        "JOIN airways a ON a.id = al.airway_id WHERE a.ident='V1' ORDER BY al.seq").fetchall()
+    blank = con.execute(
+        "SELECT COUNT(*) FROM airway_legs al JOIN airways a ON a.id = al.airway_id "
+        "WHERE a.ident IN ('A315', 'A509') AND al.min_alt2_ft IS NOT NULL").fetchone()[0]
+    con.close()
+    assert rows == [("KIMMY", 5000, None, 17500), ("INLET", 2100, 5000, 17500),
+                    ("PLANN", 2100, 5000, 17500)]
+    assert blank == 0
 
 
 def test_build_procedures_derives_runway_and_approach_type(input_dir, tmp_path):
@@ -92,6 +111,48 @@ def test_build_procedures_transition_roles(input_dir, tmp_path):
         "WHERE p.ident = 'FLOUT5'")}
     con.close()
     assert roles == {"runway", "enroute"}
+
+
+def _star_fixes(con, airport, ident, transition):
+    """The fixes a STAR flies via *transition*, assembled the way pyEfis's
+    ``proc_load.assemble`` does: the en-route transition, then the common
+    route, with a leading ``IF`` at the fix the previous part ended on
+    merged into it."""
+    def legs(role, t_ident=None):
+        q = ("SELECT l.path_term, l.fix_id FROM legs l "
+             "JOIN transitions t ON l.transition_id = t.id "
+             "JOIN procedures p ON t.proc_id = p.id "
+             "WHERE p.airport = ? AND p.ident = ? AND t.role = ?")
+        args = [airport, ident, role]
+        if t_ident is not None:
+            q += " AND t.ident = ?"
+            args.append(t_ident)
+        return con.execute(q + " ORDER BY t.id, l.seq", args).fetchall()
+    fixes = []
+    for path_term, fix_id in legs("enroute", transition) + legs("common"):
+        if path_term == "IF" and fixes and fixes[-1] == fix_id:
+            continue
+        fixes.append(fix_id)
+    return fixes
+
+
+def test_build_procedures_star_common_route_coded_all_is_common(input_dir, tmp_path):
+    """AER-5611: KSMO FERN7 codes FIM-VNY-DARTS as Route Type 2 (STAR
+    common route) under transition ident ``ALL``. Classified by ident it
+    was filed as an en-route transition named ALL, so a pilot picking OHIGH
+    got OHIGH CANYN FIM and the STAR silently stopped at FIM."""
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    try:
+        roles = dict(con.execute(
+            "SELECT t.ident, t.role FROM transitions t JOIN procedures p ON t.proc_id = p.id "
+            "WHERE p.airport = 'KSMO' AND p.ident = 'FERN7'"))
+        fixes = _star_fixes(con, "KSMO", "FERN7", "OHIGH")
+    finally:
+        con.close()
+    assert roles == {"AVE": "enroute", "DERBB": "enroute", "FLW": "enroute",
+                     "OHIGH": "enroute", "ALL": "common"}
+    assert fixes == ["OHIGH", "CANYN", "FIM", "VNY", "DARTS"]
 
 
 def test_build_procedures_rf_arc_has_resolved_centre_and_radius(input_dir, tmp_path):
@@ -179,7 +240,13 @@ def test_build_airways_does_not_merge_across_areas(input_dir, tmp_path):
     airway_id -- a naive ident-only key merges them, which is exactly this
     bug."""
     cifp = input_dir / "FAACIFP18"
+    # The USA legs' fixes need records too, or the build refuses them as
+    # unresolved (AER-5612): reuse the fixture's ZBV VOR under each ident.
+    zbv = next(l.rstrip("\n") for l in cifp.open(encoding="latin-1")
+               if l.startswith("SUSAD        ZBV   MY"))
     with cifp.open("a", encoding="latin-1") as f:
+        for ident in ("AAAAA", "BBBBB"):
+            f.write(zbv[:13] + ident + zbv[18:] + "\n")
         f.write(_er_line("USA", "Z999", "0100", "AAAAA") + "\n")
         f.write(_er_line("USA", "Z999", "0200", "BBBBB") + "\n")
         f.write(_er_line("CAN", "Z999", "0100", "CCCCC") + "\n")
@@ -283,6 +350,106 @@ def test_build_procedures_refuses_a_file_with_no_msa_records(input_dir, tmp_path
         build_procedures(input_dir, tmp_path / "out.pack")
 
 
-def test_built_pack_declares_procedures_schema_version_3(input_dir, tmp_path):
+def test_built_pack_declares_procedures_schema_version_4(input_dir, tmp_path):
     out = build_procedures(input_dir, tmp_path / "out.pack")
-    assert detect_procedures_schema_version(out) == 3
+    assert detect_procedures_schema_version(out) == 4
+
+
+def test_build_procedures_refuses_an_undecoded_route_type(input_dir, tmp_path):
+    """AER-5611: a Route Type with no decoded role (here an engine-out SID,
+    ``0``) fails the build rather than guessing which part it is."""
+    src = input_dir / "FAACIFP18"
+    lines = src.read_text(encoding="latin-1").splitlines(keepends=True)
+    flout = next(i for i, l in enumerate(lines) if l.startswith("SUSAP KSBAK2DFLOUT51RW07"))
+    lines[flout] = lines[flout][:19] + "0" + lines[flout][20:]
+    src.write_text("".join(lines), encoding="latin-1")
+    with pytest.raises(ProceduresBuildError, match="KSBA FLOUT5.*'0'"):
+        build_procedures(input_dir, tmp_path / "out.pack")
+
+
+# --- unresolved fixes (AER-5612) -----------------------------------------------
+# The 2611 pack shipped 556 procedures with a leg naming a fix that had no
+# position, and pyEfis refuses such a procedure outright. These pin the two
+# PA14 found on the bench, then the gate that keeps it from shipping again.
+
+def _leg_positions(out, airport, ident, fix_id):
+    con = sqlite3.connect(str(out))
+    rows = con.execute(
+        "SELECT t.ident, l.seq, l.path_term, l.fix_type, l.fix_lat, l.fix_lon "
+        "FROM legs l JOIN transitions t ON t.id = l.transition_id "
+        "JOIN procedures p ON p.id = t.proc_id "
+        "WHERE p.airport = ? AND p.ident = ? AND l.fix_id = ? ORDER BY t.id, l.seq",
+        (airport, ident, fix_id)).fetchall()
+    con.close()
+    return rows
+
+
+def test_kbur_fern7_rw08_vm_leg_carries_the_airport_position(input_dir, tmp_path):
+    """FERN7's only runway transition ends VM 076 "to" KBUR, coded as the
+    PA airport record. Position is KBUR's ARP, N34120250 W118213120."""
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    [(trans, seq, pt, ftype, lat, lon)] = _leg_positions(out, "KBUR", "FERN7", "KBUR")
+    assert (trans, seq, pt, ftype) == ("RW08", 30, "VM", "airport")
+    assert lat == pytest.approx(34 + 12 / 60 + 2.50 / 3600, abs=1e-6)
+    assert lon == pytest.approx(-(118 + 21 / 60 + 31.20 / 3600), abs=1e-6)
+
+
+def test_kanb_i05z_terminal_ndb_an_carries_its_position(input_dir, tmp_path):
+    """I05-Z names the terminal NDB AN (a PN record) on its IAF, its missed
+    approach CF and its hold. Position is N33320362 W085555257."""
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    rows = _leg_positions(out, "KANB", "I05-Z", "AN")
+    assert [(t, s, pt, ft) for t, s, pt, ft, _, _ in rows] == [
+        ("AN", 10, "IF", "ndb"), (None, 60, "CF", "ndb"), (None, 70, "HM", "ndb")]
+    for *_, lat, lon in rows:
+        assert lat == pytest.approx(33 + 32 / 60 + 3.62 / 3600, abs=1e-6)
+        assert lon == pytest.approx(-(85 + 55 / 60 + 52.57 / 3600), abs=1e-6)
+
+
+def _with_fix(line, ident, icao, section, subsection):
+    out = list(line)
+    out[29:34] = ident.ljust(5)
+    out[34:36] = icao
+    out[36] = section
+    out[37] = subsection
+    return "".join(out)
+
+
+def _fern7_vm_leg(cifp):
+    return next(l.rstrip("\n") for l in cifp.open(encoding="latin-1")
+                if l.startswith("SUSAP KBURK2EFERN7 3RW08  030"))
+
+
+def test_build_refuses_a_leg_whose_fix_does_not_resolve_and_names_it(input_dir, tmp_path):
+    cifp = input_dir / "FAACIFP18"
+    leg = _with_fix(_fern7_vm_leg(cifp), "NOFIX", "K2", "E", "A")
+    leg = leg[:26] + "040" + leg[29:]
+    with cifp.open("a", encoding="latin-1") as f:
+        f.write(leg + "\n")
+    with pytest.raises(ProceduresBuildError,
+                       match=r"NOFIX/K2/EA: 1 leg\(s\), e.g. KBUR star FERN7 RW08 seq 40 VM"):
+        build_procedures(input_dir, tmp_path / "out.pack")
+
+
+def test_build_keeps_a_declared_source_gap_without_a_position(input_dir, tmp_path):
+    """CMY/K5/DB is named by KDAF R36 and defined nowhere in the file; it
+    is the one declared gap, so the build stores it NULL and goes on."""
+    assert ("CMY", "K5", "DB") in KNOWN_SOURCE_GAPS
+    cifp = input_dir / "FAACIFP18"
+    leg = _with_fix(_fern7_vm_leg(cifp), "CMY", "K5", "D", "B")
+    leg = leg[:26] + "040" + leg[29:]
+    with cifp.open("a", encoding="latin-1") as f:
+        f.write(leg + "\n")
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    assert _leg_positions(out, "KBUR", "FERN7", "CMY") == [
+        ("RW08", 40, "VM", "ndb", None, None)]
+
+
+def test_build_refuses_a_declared_gap_the_file_now_defines(input_dir, tmp_path):
+    cifp = input_dir / "FAACIFP18"
+    zbv = next(l.rstrip("\n") for l in cifp.open(encoding="latin-1")
+               if l.startswith("SUSAD        ZBV   MY"))
+    with cifp.open("a", encoding="latin-1") as f:
+        f.write("SUSADB       CMY   K5" + zbv[21:] + "\n")
+    with pytest.raises(ProceduresBuildError, match="now defines CMY/K5/DB"):
+        build_procedures(input_dir, tmp_path / "out.pack")

@@ -2,7 +2,8 @@
 # Copyright (c) 2026 Bill Mallard
 #
 # AER-5272 (G11b twin): dump what the REAL pyEfis moving-map ND mode (G11a
-# EXPANDED, G11b CTR MAP, billmallard/pyEfis#134, map/nd.py) computes and
+# EXPANDED, G11b CTR MAP, G11c EXPANDED polish, billmallard/pyEfis#134,
+# map/nd.py) computes and
 # paints, as the fixture the editor's twin (ndGeometry / ndPaintOps /
 # rangeRingGeom in public/editor.html) is tested against. Nothing here
 # re-types a pyEfis formula:
@@ -14,11 +15,16 @@
 # - the strokes and the text come from running nd.paint() against a recording
 #   painter (the zoom rail oracle's pattern);
 # - the corner-block models come from nd.top_left / top_right / bottom_left /
-#   vdev over a table of read(key) answers.
+#   vdev over a table of read(key) answers;
+# - the G11c backing panels are recorded at nd._backing, which is wrapped so
+#   the op carries the rects it was handed (the painted path is their union,
+#   which an SVG path with one fill reproduces) and then runs as written;
+# - each ring label's keep-out verdict is RangeRingsLayer.label_kept_out over
+#   the transform's own label_keep_out.
 #
 # The pyEfis source is imported from a checkout, never copied:
 #
-#   PYEFIS=/path/to/pyEfis   # billmallard/pyEfis @ the G11b branch, PyQt6 installed
+#   PYEFIS=/path/to/pyEfis   # billmallard/pyEfis @ dev (G11c, #443), PyQt6 installed
 #   QT_QPA_PLATFORM=offscreen PYTHONPATH=$PYEFIS/src:$PYEFIS/tools \
 #       python3 tools/nd_mode_oracle.py > test/fixtures/nd_mode_pyefis.json
 #
@@ -64,7 +70,24 @@ PAINT_CASES = (
         ({"nd_mode": "expanded", "range_ring_fractions": "0.25,0.5,0.75,1",
           "range_ring_label_angle": 45}, 800, 480),
         ({"nd_mode": "ctr", "range_ring_fractions": "0.5,1,1.5"}, 650, 1000),
+        # G11c: the only kind of panel where the arc ends short of the
+        # corner blocks and r = dx / sin(60) binds.
+        ({"nd_mode": "expanded"}, 340, 150),
     ])
+
+# QRectF.intersects over edge cases, for the ring-label keep-out test:
+# (x, y, w, h) pairs that overlap, touch, or are empty.
+RECT_PAIRS = [
+    ((0, 0, 10, 10), (5, 5, 10, 10)),
+    ((0, 0, 10, 10), (10, 0, 10, 10)),
+    ((0, 0, 10, 10), (0, 10, 10, 10)),
+    ((0, 0, 10, 10), (9.999, 9.999, 1, 1)),
+    ((0, 0, 10, 10), (2, 2, 0, 5)),
+    ((0, 0, 10, 10), (2, 2, 5, 0)),
+    ((0, 0, 10, 10), (-5, -5, 5, 5)),
+    ((0, 0, 10, 10), (3, 3, 2, 2)),
+    ((0, 0, 10, 10), (20, 20, 5, 5)),
+]
 
 # read(key) tables for the model functions: (value, old, bad, fail). A key
 # not listed reads as None (the gateway does not define it).
@@ -218,6 +241,8 @@ class _Recorder:
             elif e.type == T.CurveToElement:
                 end = path.elementAt(i + 2)
                 segs.append(["C", end.x, end.y])
+        self.brush_alpha = (self.brush.color().alpha()
+                            if self._brush() is not None else None)
         self.ops.append({"op": "path", "pen": self._pen(), "brush": self._brush(),
                          "segments": segs})
 
@@ -233,6 +258,21 @@ class _Recorder:
                              "pt": self._pt(a), "text": b, "font": self._fontinfo(),
                              "advance": self.fontMetrics().horizontalAdvance(b)})
 
+    def backing(self, rects, fs):
+        """Called by the wrapped nd._backing before it paints: the rects it
+        unites and the panel colour its drawPath then fills them with."""
+        n = len(self.ops)
+        _BACKING(self, rects, fs)
+        drawn = self.ops[n:]
+        assert len(drawn) == 1 and drawn[0]["op"] == "path", drawn
+        del self.ops[n:]
+        self.ops.append({"op": "backing", "pen": drawn[0]["pen"],
+                         "brush": drawn[0]["brush"],
+                         "alpha": self.brush_alpha,
+                         "radius": fs * 0.25,
+                         "rects": [{"x": r.x(), "y": r.y(), "w": r.width(),
+                                    "h": r.height()} for r in rects]})
+
     def drawRect(self, r):
         self.ops.append({"op": "rect", "pen": self._pen(), "brush": self._brush(),
                          "rect": {"x": r.x(), "y": r.y(), "w": r.width(), "h": r.height()}})
@@ -244,6 +284,23 @@ class _Recorder:
     def drawLine(self, a, b):
         self.ops.append({"op": "line", "pen": self._pen(),
                          "pts": [self._pt(a), self._pt(b)]})
+
+
+_BACKING = None
+
+
+def _wrap_backing():
+    """Route nd._backing through the recorder when one is painting."""
+    global _BACKING
+    from pyefis.instruments.map import nd
+    _BACKING = nd._backing
+
+    def backing(p, rects, fs):
+        if isinstance(p, _Recorder):
+            p.backing(rects, fs)
+        else:
+            _BACKING(p, rects, fs)
+    nd._backing = backing
 
 
 def _map(opts, w, h):
@@ -275,7 +332,8 @@ def run_paint(opts, w, h):
         rings.append({"frac": frac, "r": r,
                       "text": map_layers.format_range_nm(x.range_nm * frac),
                       "label": {"x": lr.x(), "y": lr.y(),
-                                "w": lr.width(), "h": lr.height()}})
+                                "w": lr.width(), "h": lr.height()},
+                      "kept_out": layer.label_kept_out(x, lr)})
     osp = x.to_screen(m._lat, m._lon)
     out = {"options": opts, "w": w, "h": h,
            "nd_active": m.nd_active(),
@@ -284,16 +342,22 @@ def run_paint(opts, w, h):
            "anchor_frac": m._anchor_frac(), "range_px": x.range_px,
            "cx": x.cx, "cy": x.cy, "ownship": [osp.x(), osp.y()],
            "rings": rings, "track": m._track,
+           "keep_out": [{"x": k.x(), "y": k.y(), "w": k.width(), "h": k.height()}
+                        for k in x.label_keep_out],
+           "status_chip": m._status_chip_text(False),
            "track_old": m._old.get("TRACKM", True),
            "enabled_layers": None,
            "geometry": None, "ops": []}
     if m.nd_active():
-        g = nd.geometry(m.nd_mode, float(w), float(h))
+        g = nd.geometry(m.nd_mode, float(w), float(h), x.font_family)
         vg = nd.vdev_geometry(float(w), float(h))
         out["geometry"] = g
         out["arc_reach"] = nd.arc_reach(float(w), float(h))
         out["vdev"] = vg
         out["status_chip_height"] = nd.status_chip_height(float(w))
+        out["polished"] = nd.polished(m)
+        out["corner_block_bottom"] = nd.corner_block_bottom(float(w), float(h))
+        out["block_widths"] = list(nd.block_widths(x.font_family, g["fs"]))
         out["vdev_pointer_y"] = {str(p): nd.vdev_pointer_y(vg, p)
                                  for p in (-1.0, -0.4, 0.0, 0.4, 1.0)}
         out["ticks"] = list(nd.tick_bearings(0.0, g["half"]))
@@ -344,6 +408,11 @@ def render(path, w, h, mode):
     m.grab().save(path)
 
 
+def _intersects(a, b):
+    from PyQt6.QtCore import QRectF
+    return QRectF(*a).intersects(QRectF(*b))
+
+
 def _round(v):
     if isinstance(v, float):
         r = round(v, 6)
@@ -368,6 +437,7 @@ def main(argv):
     app = QApplication.instance() or QApplication(argv[:1])  # noqa: F841 (kept alive)
     ri._load_fonts()
     ri._setup_fix()
+    _wrap_backing()
     if len(argv) > 1 and argv[1] == "--render":
         render(argv[2], int(argv[3]), int(argv[4]), argv[5])
     else:
@@ -375,6 +445,8 @@ def main(argv):
                "pyefis_rev": os.environ.get("PYEFIS_REV") or _rev(),
                "now": NOW,
                "paint": [run_paint(*c) for c in PAINT_CASES],
+               "rect_intersects": [[list(a), list(b), _intersects(a, b)]
+                                   for a, b in RECT_PAIRS],
                "read": [run_read(n, t) for n, t in READ_CASES],
                "paint_data": [run_paint_data(n, t, w, h, mode)
                               for n, t in READ_CASES

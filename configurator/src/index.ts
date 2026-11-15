@@ -2,10 +2,12 @@
 // makerplane-configurator: accounts/auth + design-storage API for the pyEfis
 // configuration manager. See ../../docs/system_designer.md.
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 
 import {
   activateAircraftProfileVersion,
+  aircraftProfileHistory,
+  aircraftProfileVersion,
   claimDevice,
   createDevice,
   createProject,
@@ -27,8 +29,10 @@ import {
   touchLastPull,
 } from "./db";
 import { checkAircraftProfilePut } from "./aircraft_profile";
+import { orphanedBy } from "./aircraft_refs";
+import { AIRCRAFT_REFS, refItems, retiredLabels } from "../public/aircraft_refs.js";
 import { claimCode, randomToken, sha256B64url } from "./crypto";
-import { devicePreferences, serveDeviceConfig } from "./device_prefs";
+import { deviceFixgw, devicePreferences, serveDeviceConfig } from "./device_prefs";
 import { emailRequest, emailVerify } from "./email";
 import { googleCallback, googleStart } from "./google";
 import { endSession, requireUser } from "./session";
@@ -131,6 +135,84 @@ app.post("/api/projects/:id/aircraft/activate/:v", async (c) => {
   return ok ? c.json({ ok: true }) : c.json({ error: "not found" }, 404);
 });
 
+// Which published panels a profile would orphan if it became active: every
+// device's latest saved panel, resolved against the active profile and
+// against the candidate ({profile} about to be saved, or {version} about to
+// be activated). The page warns and lists them; it never refuses, because
+// removing a tank is legitimate (brief section 5).
+app.post("/api/projects/:id/aircraft/orphans", async (c) => {
+  const userId = c.get("userId"), projectId = Number(c.req.param("id"));
+  if (!(await getProject(c.env.DB, userId, projectId))) return c.json({ error: "not found" }, 404);
+  const body = await c.req.json<{ profile?: unknown; version?: number }>().catch(() => ({}) as { profile?: unknown; version?: number });
+  let candidate: unknown = body.profile;
+  if (candidate === undefined && body.version !== undefined) {
+    const v = await aircraftProfileVersion(c.env.DB, userId, projectId, Number(body.version));
+    if (v === null) return c.json({ error: "version not found" }, 404);
+    candidate = v;
+  }
+  if (candidate === undefined) return c.json({ error: "profile or version required" }, 400);
+  const active = await getAircraftProfile(c.env.DB, userId, projectId);
+  const before = active ? active["json"] : null;
+  const panels = [];
+  for (const d of (await listDevices(c.env.DB, userId, projectId)) as Record<string, unknown>[]) {
+    const latest = await latestConfig(c.env.DB, userId, Number(d["id"]));
+    if (!latest) continue;
+    const obj = await c.env.CONFIGS.get(String(latest["yaml_r2_key"]));
+    if (!obj) continue;
+    const gauges = orphanedBy(await obj.text(), before, candidate);
+    if (gauges.length)
+      panels.push({ device_id: d["id"], device: d["name"], version: latest["version"], gauges });
+  }
+  return c.json({ panels });
+});
+
+// --- aircraft references (docs/fuel_provider_model.md section 5, F3) -------
+
+const REF_SOURCES = new Set(Object.values(AIRCRAFT_REFS).map((r) => r.source));
+
+// The last label of every id the active profile no longer has, across every
+// reference source: what an orphaned gauge keeps as its name.
+async function retiredForProject(
+  db: D1Database, projectId: number, profile: unknown,
+): Promise<Record<string, string>> {
+  const history = await aircraftProfileHistory(db, projectId);
+  const out: Record<string, string> = {};
+  for (const source of REF_SOURCES) Object.assign(out, retiredLabels(history, source, profile));
+  return out;
+}
+
+// What the editor's picker and preview read: the items a source offers on
+// the active profile ([{id, label, slot, slot_key, ...}]) and the last label
+// of each id it no longer offers. Same functions the served config uses.
+async function refsResponse(c: Context<Env>, projectId: number, profile: unknown) {
+  const source = c.req.query("source") || "";
+  if (!REF_SOURCES.has(source))
+    return c.json({ error: "unknown source", sources: [...REF_SOURCES] }, 400);
+  const history = await aircraftProfileHistory(c.env.DB, projectId);
+  return c.json({
+    source,
+    items: refItems(profile, source),
+    retired: retiredLabels(history, source, profile),
+  });
+}
+
+app.get("/api/projects/:id/aircraft/refs", async (c) => {
+  const userId = c.get("userId"), projectId = Number(c.req.param("id"));
+  if (!(await getProject(c.env.DB, userId, projectId))) return c.json({ error: "not found" }, 404);
+  const row = await getAircraftProfile(c.env.DB, userId, projectId);
+  return refsResponse(c, projectId, row ? row["json"] : null);
+});
+
+// The same, by device: the editor knows its device, not its project.
+app.get("/api/devices/:id/aircraft/refs", async (c) => {
+  const userId = c.get("userId");
+  const device = await getDevice(c.env.DB, userId, Number(c.req.param("id")));
+  if (!device) return c.json({ error: "device not found" }, 404);
+  const projectId = Number(device["project_id"]);
+  const row = await getAircraftProfile(c.env.DB, userId, projectId);
+  return refsResponse(c, projectId, row ? row["json"] : null);
+});
+
 app.delete("/api/projects/:id", async (c) => {
   await deleteProject(c.env.DB, c.get("userId"), Number(c.req.param("id")));
   return c.json({ ok: true });
@@ -182,16 +264,42 @@ app.get("/api/devices/:id/config", async (c) => {
   return c.body(await obj.text(), 200, { "content-type": "application/x-yaml" });
 });
 
+// Download the saved config exactly as the device's next pull would receive
+// it: references resolved, preferences and fixgw blocks appended, the same
+// ETag. A hand-installed config and a pulled one cannot differ.
+app.get("/api/devices/:id/config/served", async (c) => {
+  const userId = c.get("userId");
+  const device = await getDevice(c.env.DB, userId, Number(c.req.param("id")));
+  if (!device) return c.json({ error: "device not found" }, 404);
+  const latest = await latestConfig(c.env.DB, userId, Number(device["id"]));
+  if (!latest) return c.json({ error: "no config" }, 404);
+  const obj = await c.env.CONFIGS.get(String(latest["yaml_r2_key"]));
+  if (!obj) return c.json({ error: "blob missing" }, 404);
+  const projectId = Number(device["project_id"]);
+  const row = await getAircraftProfile(c.env.DB, userId, projectId);
+  const profile = row ? row["json"] : null;
+  const served = await serveDeviceConfig(await obj.text(), String(latest["version"]), profile,
+    () => retiredForProject(c.env.DB, projectId, profile));
+  const file = `${String(device["name"]).replace(/[^A-Za-z0-9_.-]+/g, "_")}-v${latest["version"]}.yaml`;
+  return c.body(served.body, 200, {
+    "content-type": "application/x-yaml",
+    "content-disposition": `attachment; filename="${file}"`,
+    etag: served.etag,
+    "x-config-version": String(latest["version"]),
+  });
+});
+
 // The device preferences the device would receive with its next pull (#108),
 // derived from the owning project's active aircraft profile by the same
 // function /device/config uses -- so the editor preview shows what the device
-// will. {} when the profile sets nothing.
+// will. {} when the profile sets nothing; `fixgw` likewise (P3f).
 app.get("/api/devices/:id/preferences", async (c) => {
   const userId = c.get("userId");
   const device = await getDevice(c.env.DB, userId, Number(c.req.param("id")));
   if (!device) return c.json({ error: "device not found" }, 404);
   const row = await getAircraftProfile(c.env.DB, userId, Number(device["project_id"]));
-  return c.json({ preferences: devicePreferences(row ? row["json"] : null) });
+  const profile = row ? row["json"] : null;
+  return c.json({ preferences: devicePreferences(profile), fixgw: deviceFixgw(profile) });
 });
 
 // Pairing: the owner mints a short claim code (KV holds it with a TTL); the
@@ -227,10 +335,12 @@ app.post("/device/pair", async (c) => {
   return c.json({ device_token: token, device_id: device["id"], name: device["name"] });
 });
 
-// The device pulls its latest panel config (native pyEfis YAML), plus a
-// `preferences:` block from the project's aircraft profile (#108). Authed by the
-// device token (Bearer). ETag = config version (+ a hash of the preferences
-// block when there is one -- see device_prefs.ts), so the on-Pi updater can
+// The device pulls its latest panel config (native pyEfis YAML), plus the
+// `preferences:` (#108) and `fixgw:` (P3f) blocks from the project's aircraft
+// profile, with its aircraft references resolved against that profile
+// (aircraft_refs.ts). Authed by the device token (Bearer). ETag = config
+// version (+ a hash of the blocks and the resolved references when there are
+// any -- see device_prefs.ts), so the on-Pi updater can
 // send If-None-Match and get a cheap 304 when nothing changed. #65 P2.
 app.get("/device/config", async (c) => {
   const auth = c.req.header("authorization") || "";
@@ -249,7 +359,9 @@ app.get("/device/config", async (c) => {
   // R2 read on a 304 is not worth a second code path that could disagree.
   const obj = await c.env.CONFIGS.get(String(row["yaml_r2_key"]));
   if (!obj) return c.json({ error: "config blob missing" }, 404);
-  const served = await serveDeviceConfig(await obj.text(), String(row["version"]), row["profile_json"]);
+  const projectId = Number(row["project_id"]);
+  const served = await serveDeviceConfig(await obj.text(), String(row["version"]), row["profile_json"],
+    () => retiredForProject(c.env.DB, projectId, row["profile_json"]));
   if (c.req.header("if-none-match") === served.etag) {
     return c.body(null, 304, { etag: served.etag });
   }
