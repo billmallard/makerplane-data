@@ -107,7 +107,8 @@ def test_non_stock_boot_screen_is_woven_into_the_loaded_list(tmp_path):
 
 def test_single_screen_injects_svs_without_cifp_include(tmp_path):
     """An SVS-enabled virtual_vfr is pulled WITHOUT screens/virtualvfr_db.yaml
-    (AER-4354; since AER-5421 no virtual_vfr gets it, SVS on or off)."""
+    when the device's config dir has no such file (a missing include is a hard
+    error in pyEfis), whatever pyEfis it runs (AER-4354, AER-5675)."""
     cd = _config_dir(tmp_path)
     config_pull.install_config(yaml.safe_dump(_doc("PANEL", vfr_on="PANEL")), cd=cd)
     screen = _read(cd, "screens/managed.yaml")["PFD_AI_ONLY"]
@@ -121,10 +122,11 @@ def _vfr_screen_with(options):
 
 
 def test_svs_off_gets_no_cifp_include():
-    """A panel that turns SVS off is pulled WITHOUT screens/virtualvfr_db.yaml:
-    pyEfis #457 (VVFR1) deleted the legacy CIFP overlay, so nothing reads the
-    include's dbpath (AER-5421). Covers both the flat editor key and an
-    explicit nested svs block, and the flat key overriding the nested one."""
+    """On a pyEfis with #457 (VVFR1, the default) a panel that turns SVS off is
+    pulled WITHOUT screens/virtualvfr_db.yaml: the legacy CIFP overlay is gone,
+    so nothing reads the include's dbpath (AER-5421). Covers both the flat
+    editor key and an explicit nested svs block, and the flat key overriding
+    the nested one."""
     for opts in ({"svs_enabled": False}, {"svs": {"enabled": False}},
                  {"svs": {"enabled": True}, "svs_enabled": False}):
         out = config_pull._prep_screen(_vfr_screen_with(opts))
@@ -161,6 +163,170 @@ def test_existing_include_is_left_alone_and_not_duplicated():
     screen["include"] = ["screens/virtualvfr_db.yaml", "screens/other.yaml"]
     out = config_pull._prep_screen(screen)
     assert out["include"] == ["screens/virtualvfr_db.yaml", "screens/other.yaml"]
+
+
+# --- the legacy CIFP include follows the device's pyEfis (AER-5675) ----------
+#
+# makerplane-data 0.5.0 dropped the include for SVS-on panels and 0.6.0 for
+# all, each gated on a pyEfis change (#349, #457) that pyEfis qa/master did not
+# carry. On a pyEfis before #349 the overlay's first resize raised on a None
+# dbpath and PyQt6 aborted the process. config-pull now reads the installed
+# pyEfis instead of assuming it. The pyEfis trees below are minimal stand-ins
+# carrying only the markers the probe reads -- no pyEfis source is copied.
+
+_DB = "screens/virtualvfr_db.yaml"
+
+
+def _fake_pyefis(root, vvfr=None):
+    """A ``pyefis`` package dir under ``root``: ``vvfr`` None means no
+    VirtualVfr.py (#457 on); otherwise its text."""
+    ai = root / "pyefis" / "instruments" / "ai"
+    ai.mkdir(parents=True)
+    for d in (root / "pyefis", root / "pyefis" / "instruments", ai):
+        (d / "__init__.py").write_text("", encoding="utf-8")
+    if vvfr is not None:
+        (ai / "VirtualVfr.py").write_text(vvfr, encoding="utf-8")
+    return root / "pyefis"
+
+
+_PRE_349 = "class VirtualVfr(AI):\n    def resizeEvent(self, event):\n        pass\n"
+_WITH_349 = _PRE_349 + "    def _svs_owns_view(self):\n        return True\n"
+
+
+def test_overlay_mode_classifies_each_pyefis(tmp_path):
+    assert config_pull._overlay_mode(_fake_pyefis(tmp_path / "a", _PRE_349)) \
+        == config_pull.LEGACY_ALWAYS
+    assert config_pull._overlay_mode(_fake_pyefis(tmp_path / "b", _WITH_349)) \
+        == config_pull.LEGACY_SVS_SKIP
+    assert config_pull._overlay_mode(_fake_pyefis(tmp_path / "c")) \
+        == config_pull.LEGACY_NONE
+    (tmp_path / "d").mkdir()
+    assert config_pull._overlay_mode(tmp_path / "d") is None      # not a pyEfis
+    assert config_pull._overlay_mode(None) is None
+
+
+def test_prep_screen_include_matrix():
+    """The include goes exactly where that pyEfis would build the overlay."""
+    expect = {
+        (config_pull.LEGACY_ALWAYS, True): True,
+        (config_pull.LEGACY_ALWAYS, False): True,
+        (config_pull.LEGACY_SVS_SKIP, True): False,
+        (config_pull.LEGACY_SVS_SKIP, False): True,
+        (config_pull.LEGACY_NONE, True): False,
+        (config_pull.LEGACY_NONE, False): False,
+    }
+    for (legacy, svs_on), want in expect.items():
+        out = config_pull._prep_screen(
+            _vfr_screen_with({"svs_enabled": svs_on}), legacy)
+        assert (_DB in (out.get("include") or [])) is want, (legacy, svs_on)
+
+
+def test_prep_screen_without_virtual_vfr_gets_no_include():
+    screen = {"instruments": [{"type": "altimeter_tape"}]}
+    out = config_pull._prep_screen(screen, config_pull.LEGACY_ALWAYS)
+    assert "include" not in out
+
+
+def _pin_pyefis(monkeypatch, pkg):
+    # raising=False so the same test runs (and fails) on a config_pull that has
+    # no probe at all -- the pre-fix baseline.
+    monkeypatch.setattr(config_pull, "_pyefis_package_dir",
+                        lambda scope=None: pkg, raising=False)
+
+
+def test_pre_349_pyefis_svs_on_panel_gets_the_include(tmp_path, monkeypatch):
+    """The AER-5675 crash case: an SVS-on panel on a pyEfis before #349 must be
+    pulled WITH the include, or the overlay aborts pyEfis on its first resize."""
+    cd = _config_dir(tmp_path)
+    (cd / _DB).write_text("dbpath: ~/makerplane/pyefis/CIFP/FAACIFP18\n", encoding="utf-8")
+    _pin_pyefis(monkeypatch, _fake_pyefis(tmp_path / "py", _PRE_349))
+    summary = config_pull.install_config(
+        yaml.safe_dump(_doc("PANEL", vfr_on="PANEL")), cd=cd)
+    screen = _read(cd, "screens/managed.yaml")["PFD_AI_ONLY"]
+    assert _DB in (screen.get("include") or [])
+    assert summary["legacy_overlay"] == config_pull.LEGACY_ALWAYS
+
+
+def test_349_pyefis_includes_only_the_svs_off_screen(tmp_path, monkeypatch):
+    """Multi-screen on a pyEfis with #349 but not #457: only the SVS-off
+    virtual_vfr screen gets the include; the SVS-on one and a screen with no
+    virtual_vfr do not."""
+    cd = _config_dir(tmp_path)
+    (cd / _DB).write_text("dbpath: x\n", encoding="utf-8")
+    _pin_pyefis(monkeypatch, _fake_pyefis(tmp_path / "py", _WITH_349))
+    doc = _doc("ON", "OFF", "EMS", vfr_on="ON")
+    off = _doc("OFF", vfr_on="OFF")["screens"]["OFF"]
+    off["instruments"][0]["options"] = {"svs_enabled": False}
+    doc["screens"]["OFF"] = off
+    summary = config_pull.install_config(yaml.safe_dump(doc, sort_keys=False), cd=cd)
+    names = dict(zip(["ON", "OFF", "EMS"], summary["screen_names"]))
+
+    def inc(name):
+        f = f"screens/managed_{names[name]}.yaml"
+        return _read(cd, f)[names[name]].get("include") or []
+    assert _DB not in inc("ON")
+    assert _DB in inc("OFF")
+    assert _DB not in inc("EMS")
+
+
+def test_vvfr1_pyefis_gets_no_include(tmp_path, monkeypatch):
+    """pyEfis #457 on (dev today): no include, SVS on or off, even though the
+    config dir still carries the empty stub file."""
+    cd = _config_dir(tmp_path)
+    (cd / _DB).write_text("{}\n", encoding="utf-8")
+    _pin_pyefis(monkeypatch, _fake_pyefis(tmp_path / "py"))
+    doc = _doc("PANEL", vfr_on="PANEL")
+    doc["screens"]["PANEL"]["instruments"][0]["options"] = {"svs_enabled": False}
+    config_pull.install_config(yaml.safe_dump(doc), cd=cd)
+    screen = _read(cd, "screens/managed.yaml")["PFD_AI_ONLY"]
+    assert _DB not in (screen.get("include") or [])
+
+
+def test_unlocatable_pyefis_falls_back_to_the_include(tmp_path, monkeypatch):
+    """If the probe can't find pyEfis, add the include: every pyEfis accepts
+    it (#457 keeps the file as an empty stub for this), and a pre-#349 one
+    needs it."""
+    cd = _config_dir(tmp_path)
+    (cd / _DB).write_text("{}\n", encoding="utf-8")
+    _pin_pyefis(monkeypatch, None)
+    assert config_pull.legacy_overlay(cd) == config_pull.LEGACY_ALWAYS
+
+
+def test_missing_include_file_is_never_written(tmp_path, monkeypatch):
+    """No screens/virtualvfr_db.yaml in the config dir: never list it, even for
+    a pre-#349 pyEfis -- a missing include is a hard error in pyEfis."""
+    cd = _config_dir(tmp_path)
+    _pin_pyefis(monkeypatch, _fake_pyefis(tmp_path / "py", _PRE_349))
+    assert config_pull.legacy_overlay(cd) == config_pull.LEGACY_NONE
+
+
+def test_package_dir_asks_the_units_own_interpreter(tmp_path, monkeypatch):
+    """_pyefis_package_dir runs ExecStart's interpreter from WorkingDirectory
+    and reports where it finds ``pyefis`` (the Pi 5's real ExecStart shape)."""
+    import sys
+    work = tmp_path / "pyEfis"
+    work.mkdir()
+    pkg = _fake_pyefis(work, _WITH_349)
+    props = {
+        "ExecStart": (f"{{ path={sys.executable} ; argv[]={sys.executable} pyEfis.py ;"
+                      " ignore_errors=no ; pid=1 ; code=(null) ; status=0/0 }"),
+        "WorkingDirectory": str(work),
+    }
+    monkeypatch.setattr(config_pull, "_systemctl_show", lambda p, s: props.get(p, ""))
+    assert config_pull._pyefis_package_dir("user").resolve() == pkg.resolve()
+
+
+def test_package_dir_falls_back_to_a_source_checkout(tmp_path, monkeypatch):
+    work = tmp_path / "pyEfis"
+    pkg = _fake_pyefis(work / "src", _PRE_349)
+    props = {"ExecStart": "", "WorkingDirectory": str(work)}
+    monkeypatch.setattr(config_pull, "_systemctl_show", lambda p, s: props.get(p, ""))
+    assert config_pull._pyefis_package_dir("user") == pkg
+
+
+def test_package_dir_none_when_nothing_answers(tmp_path, monkeypatch):
+    monkeypatch.setattr(config_pull, "_systemctl_show", lambda p, s: "")
+    assert config_pull._pyefis_package_dir("user") is None
 
 
 def test_stock_screen_tokens_fallback_matches_shipped_default(tmp_path):
