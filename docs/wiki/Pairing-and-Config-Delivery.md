@@ -57,19 +57,43 @@ newest version:
 Every request, including a `304`, updates the device's **pulled** time on the
 dashboard.
 
-The body is the panel YAML as saved. When the project's aircraft profile sets
-an altimeter unit, a `preferences:` block is added after it:
+The body is the panel YAML as saved, with three additions from the project's
+active aircraft profile
+([`configurator/src/device_prefs.ts`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/src/device_prefs.ts)):
 
-```yaml
-preferences:
-  units:
-    Pressure: inHg      # or hPa
-```
+- **Tank references resolved.** A bar or arc gauge bound to a fuel tank holds
+  `tank: <tank id>` in the saved panel. The device receives `dbkey: FUELQ<slot>`
+  and `name: <label>` instead. When the profile no longer has that tank, the
+  device receives no `dbkey`, `unbound: true`, and the tank's last label, and
+  pyEfis draws the gauge failed
+  ([`configurator/public/aircraft_refs.js`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/public/aircraft_refs.js)).
+  A panel with no tank reference keeps its saved text exactly; any blocks
+  below are appended after it.
+- **A `preferences:` block**, when the profile sets an altimeter unit:
 
-The ETag is `"v<version>"`, or `"v<version>-p<hash>"` when a preferences block
-is added, so changing only the aircraft profile's unit still counts as a change
-([`configurator/src/device_prefs.ts`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/src/device_prefs.ts)).
-Nothing else from the aircraft profile is sent yet; see [[Aircraft Parameters]].
+  ```yaml
+  preferences:
+    units:
+      Pressure: inHg      # or hPa
+  ```
+- **A `fixgw:` block**, when the profile's ownship identity yields an address:
+
+  ```yaml
+  fixgw:
+    ownship_address: "AB4549"   # always quoted, six upper-case hex digits
+  ```
+
+A panel that already has its own top-level `preferences:` or `fixgw:` key does
+not get a second one. The ETag is `"v<version>"` when none of the three
+applies, otherwise `"v<version>-p<hash>"`, the hash covering the blocks and the
+resolved tank bindings. So changing only the unit, the address, or a bound
+tank's label or slot is a new config, while editing a profile value the device
+does not receive is not. Everything else in the profile reaches the aircraft
+only through `aircraft.ini`; see [[Aircraft Parameters]].
+
+**Download YAML** in the Panel Editor (`GET /api/devices/:id/config/served`)
+returns the last saved version exactly as the device's next pull would
+receive it, with the same ETag.
 
 The channel is authorised by the token over HTTPS. Unlike the navigation
 catalog, the panel is not signed.
@@ -105,10 +129,30 @@ shipped files are never modified, and every write is atomic.
   touch-only panel can reach them all.
 - **Synthetic vision:** each synthetic-vision instrument gets the paths to the
   installed terrain, water and road data.
+- **Older pyEfis:** before writing, `config-pull` checks the pyEfis the
+  `pyefis` service runs. If that pyEfis still builds the legacy Virtual VFR
+  overlay for a `virtual_vfr` instrument (always, on the oldest versions, or
+  only with its synthetic vision turned off), the screen gets the stock
+  `screens/virtualvfr_db.yaml` include, which that overlay needs to start. When
+  it cannot tell, it adds the include; a current pyEfis keeps that file as an
+  empty stub, so the include is harmless there. It never adds an include the
+  config folder has no file for.
 - **Units:** the `preferences:` block's units are merged into
   `preferences.yaml.custom`. A unit you set by hand is never removed; only a
   unit `config-pull` itself wrote is removed when the profile stops setting it
   (recorded in `.panel_prefs.yaml`).
+- **Ownship address:** the `fixgw:` block's address is written as one
+  top-level `ownship_address:` line in fix-gateway's
+  `~/makerplane/fixgw/config/preferences.yaml.custom` (or `$FIXGW_CONFIG_DIR`).
+  The file is edited as text, so its other lines and comments are kept, and
+  nothing is written unless the result parses to the old contents with only
+  that key changed. fix-gateway's stratux connection uses the address when
+  its own `ownship_address` setting is blank. A line you changed by hand is
+  never removed. fix-gateway (unit `fixgw` or `fixgateway`) is restarted only
+  when the file changed, and a rollback restores the file too.
+- **The change record:** a pull that changed the panel is recorded for the
+  Data Status screen until someone acknowledges it; see
+  [[The On-Device Updater]].
 
 ### Backup, restart, rollback
 
@@ -142,8 +186,14 @@ own. `pyefis_unit_scope: user` or `system` in `data.yaml` sets it.
 | `config pull failed: ...` (a network error) | 2 |
 | `could not reach configurator after <n>s (...); ...` (with `--wait-online`) | 0 |
 | `config install skipped: ...` (the served file is not a pyEfis config) | 2 |
+| `config install failed: ...` (any other error while installing) | 2 |
 | `installed panel config v<n>, but could not restart pyEfis ...` | 1 |
 | `new config crashed pyEfis on load; rolled back to ...` | 1 |
+
+Before the restart it may also print `aircraft units: ...`,
+`fix-gateway ownship address: <address>` (or `removed`), and the result of
+restarting fix-gateway. A fix-gateway problem is reported and never fails the
+pull.
 
 On success it stores the new `config_version` and `config_etag` in `data.yaml`,
 so the next pull sends `If-None-Match` and gets a `304` when nothing changed.

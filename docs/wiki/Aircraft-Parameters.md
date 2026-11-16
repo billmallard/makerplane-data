@@ -89,12 +89,27 @@ capacity and unusable fuel in gallons, and what it feeds: an engine, or another
 tank. Up to 8 tanks
 ([`configurator/src/fuel_profile.ts`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/src/fuel_profile.ts)).
 
-These block saving: a missing or duplicate label, a duplicate slot, a capacity
+A label must also fit the fuel bar on pyEfis's stock engine screen at every
+stock resolution, measured against the real widget: `L MAIN`, `L TIP`, `AUX`
+and `Tank 1` fit, `HEADER` does not. A label that does not fit is refused with
+what the device would show instead; `R TIP AUX` gets `label too wide for the
+stock tank bar: the device shows only "R TIP"`
+([`configurator/public/fuel_label.js`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/public/fuel_label.js)).
+
+These block saving: a missing, duplicate or too-wide label, a duplicate slot, a capacity
 of zero, unusable fuel not less than capacity, a slot's `Max` that is not
 capacity minus unusable, and a feed to an engine or tank that does not exist, or
 to the tank itself. These are warnings that still save: a header tank that
 feeds no engine, a tip or transfer tank that feeds no tank, an engine no tank
 feeds, a feed loop, and fuel values on a slot no tank uses.
+
+Each tank keeps a stable id, so a fuel gauge in the Panel Editor can be bound
+to the tank rather than to a slot (see [[The Configurator]]). A renamed or
+rewired tank then reaches every bound gauge on the device's next pull. Saving
+a profile that removes a tank a saved panel still shows asks first: the page
+lists each device and gauge affected, and saves only if you confirm. On the
+device such a gauge draws as failed (`xxx`) under its last label until it is
+bound to another tank.
 
 ### Ownship identity
 
@@ -108,9 +123,10 @@ registrations do not derive an address; enter the hex from the registration or
 the transponder
 ([`configurator/src/ownship.ts`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/src/ownship.ts)).
 
-The identity is saved with the profile but not yet sent to the aircraft. Until
-it is, set the address the card shows as `ownship_address` in FIX-Gateway's
-stratux connection.
+The address goes to every paired display of the aircraft with its next
+`pyefis-data config-pull`, which writes it into FIX-Gateway's
+`preferences.yaml.custom`. FIX-Gateway's stratux connection uses it when its
+own `ownship_address` setting is blank; see [[Pairing and Config Delivery]].
 
 ## Checks
 
@@ -174,9 +190,10 @@ FIX-Gateway loads init files in order, later ones overriding earlier ones, so
 the profile overrides the shipped defaults without changing them. Cylinder
 bands are written out for every cylinder (`CHT11`, `CHT12`, ...).
 
-One setting reaches the aircraft without the file: the **altimeter setting
-unit**. It goes to every paired display of the aircraft with its next
-`pyefis-data config-pull`, and every screen starts in it; see
+Three things reach the aircraft without the file, with every paired
+display's next `pyefis-data config-pull`: the **altimeter setting unit**,
+which every screen starts in; the **ownship address**; and the **label and
+slot of each tank** a panel gauge is bound to. See
 [[Pairing and Config Delivery]]. Sending the rest of the profile the same way
 is planned and not built.
 
