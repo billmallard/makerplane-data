@@ -7,10 +7,10 @@
 #
 # Each case builds the widget through pyEfis's builder (apply_preferences
 # resolves the font, build_autopilot_panel constructs it) and applies the
-# options through apply_options, the device's own path. The one exception is
-# `layout`: its Prop declares apply="setter:setPanelLayout", which
-# apply_options does not dispatch today (reported on AER-5807), so the oracle
-# calls the declared setter itself. The schema `preview` block is turned into
+# options through apply_options, the device's own path (it dispatches
+# `layout` through the Prop's setter:setPanelLayout since #497's cb7917b;
+# before that `layout: compact` was inert, AER-5807). The schema `preview`
+# block is turned into
 # the FIX state the widget reads (preview_state below), so the widget reaches
 # each look by its own logic. Paint calls are recorded by swapping the
 # module's QPainter for a subclass that records each call and then paints it;
@@ -220,17 +220,12 @@ def _build(opts, pv, w, h):
     font_percent, font_family = sp.apply_preferences(cfg, prefs)
     panel = sf.build_autopilot_panel(screen, cfg, font_percent=font_percent,
                                      font_family=font_family)
-    spec = sf.REGISTRY["autopilot_panel"]
-    setters = {p.name: p.apply.split(":", 1)[1] for p in spec.properties
-               if p.apply.startswith("setter:")}
     screen.instruments = {0: panel}
-    so.apply_options(screen, 0, {
-        "type": "autopilot_panel",
-        "options": {k: v for k, v in cfg["options"].items()
-                    if k not in setters}})
-    for name, method in setters.items():
-        if name in cfg["options"]:
-            getattr(panel, method)(cfg["options"][name])
+    so.apply_options(screen, 0, cfg)
+    if "layout" in cfg["options"] and panel.panel_layout != \
+            str(cfg["options"]["layout"]).lower():
+        raise SystemExit("apply_options left layout at %r: this pyEfis lacks "
+                         "#497's setter dispatch (cb7917b)" % panel.panel_layout)
     panel.resize(int(w), int(h))
     return screen, panel
 
