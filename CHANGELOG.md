@@ -23,6 +23,14 @@ and the `configurator`. Semver on the Python package; process in
   are verified like every other pack and report their cycle on Data Status.
   No plates pack is published yet. See [docs/plates.md](docs/plates.md).
 
+### Configurator and device config
+- **The editor previews the new `autopilot_panel` (AER-5812).** The twin draws
+  pyEfis's AFC3 mode controller (#497) in both layouts, with the `buttons`
+  list, the edit icons, Font size and all ten colours, from the schema's
+  preview state. It is tested against what the real widget paints. The
+  palette offers the instrument once pyEfis's schema assets are regenerated
+  and uploaded after #497 merges.
+
 ## 0.6.0 — 2026-11-14
 
 Promotes the `dev` work since 0.5.0 (18 PRs). It exists so that one
