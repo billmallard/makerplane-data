@@ -12,7 +12,8 @@ left to PA11 (§6): the build, the georeferencing derivation proven
 end-to-end (not just designed), and what is genuinely not there yet.
 
 **Status: built, tested, not yet published.** `plates` is registered in
-`packtools/packmeta.py`'s `KINDS` and nothing else -- it is not in
+`packtools/packmeta.py`'s `KINDS`, and the device updater can install it
+(see "On the device" below), but it is not in
 `packtools/sources.py`'s `SOURCES`, so `packtool-run-cyclical` (the daily
 cron) cannot reach it, and no `plates.yml` GitHub Actions workflow exists
 yet. Per the repo rule (`CLAUDE.md` "Deploy / publish notes"), a new kind
@@ -154,6 +155,41 @@ packtool make-plates --cycle 2609 --effective 2026-09-03 --expires 2026-10-01 \
 Every fetch step (the metafile, each PDF) is skip-if-present, like the rest
 of this pipeline -- a resumed partial run never re-fetches what is already
 on disk.
+
+## On the device
+
+`pyefis_data` installs a plates pack like every other signed sqlite pack:
+the manifest signature is verified, then the pack's sha256 against it, and
+only then is the file moved into place and the `current` symlink flipped.
+Plates are a bulk kind, so nothing installs until the pilot opts into a
+region (`regions:` in `data.yaml`, or the on-device picker). A region pack
+is hundreds of MB (PA10 §1.3). Several regions can be installed at once, so
+each pack gets its own directory, the way `airports` providers do:
+
+```
+<data root>/plates/plates-us-west/current/plates.sqlite
+<data root>/plates/plates-us-east/current/plates.sqlite
+```
+
+`current` is a symlink to the installed cycle's directory. The pre-published
+next cycle is staged beside it before it takes effect:
+
+```
+<data root>/plates/plates-us-west/2606/plates.sqlite    <- current points here
+<data root>/plates/plates-us-west/2607/plates.sqlite    <- staged, not yet effective
+```
+
+Each region shows on the Data Status screen and in `status.json` as an
+"Approach Plates" row with its cycle and effective window, like the other
+cyclical kinds.
+
+For pyEfis's Charts page, set `plates_path` to the `plates/` directory
+(`/data/makerplane-data/plates` on the standard image) to load every
+installed region, or to a single `.../current/plates.sqlite` for one.
+Whoever reads the directory must open only `*/current/plates.sqlite`. A
+recursive search for any `.sqlite` also finds the cycle directory that
+`current` points at, which opens the same pack twice. It also finds the
+staged next cycle, whose plates are not yet effective.
 
 ## What is explicitly still open (not this pass)
 
