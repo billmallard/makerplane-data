@@ -34,6 +34,7 @@ Global options, before the command: `--config PATH` (default
 | `advisories [--enable \| --disable] [--check] [--json]` | The opt-in safety advisory feed |
 | `pair CODE [--configurator-url URL]` | Redeem a claim code from the configurator |
 | `config-pull [--no-restart] [--wait-online SECONDS]` | Pull and install this device's panel, restart pyEfis, roll back if it does not come up |
+| `panel-ack [--yes] [--hash HASH] [--json]` | Acknowledge a panel change that `config-pull` installed (below) |
 
 `update` options:
 
@@ -153,7 +154,9 @@ with values shortened:
      "next_cycle": null, "next_effective": null, "next_staged": false,
      "notice": "...", "detail": "..."}
   ],
-  "advisories": {"enabled": false}
+  "advisories": {"enabled": false},
+  "panel_change": {"pending": false, "config_hash": null, "config_version": null,
+                   "changed": null, "trigger": null, "acknowledged": null}
 }
 ```
 
@@ -161,7 +164,41 @@ with values shortened:
 `any_attention` is true when any pack is `EXPIRED`, `EXPIRES`, `UPDATE
 AVAILABLE`, `MISSING`, or the catalog was refused. When the catalog cannot be
 read at all, `status --json` prints `{"ok": false, "error": "...", "packs":
-[]}`.
+[]}`. `panel_change` is described below.
+
+## Panel changes and `panel-ack`
+
+The boot pull installs a changed panel with nobody watching. Rollback catches a
+panel that crashes pyEfis, not one that starts cleanly with an instrument
+reading the wrong key. So every pull that changes the installed panel is
+recorded and shown on the Data Status screen until a person acknowledges it
+([`pyefis_data/panel_change.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/panel_change.py),
+[`docs/panel_change_cue.md`](https://github.com/billmallard/makerplane-data/blob/dev/docs/panel_change_cue.md)).
+
+- **What counts as a change:** the SHA-256 of the served YAML exactly as pulled
+  (panel and any `preferences:` and `fixgw:` blocks) differs from the one
+  installed before. A pull that brings the same bytes records nothing.
+- **The record:** one line per event in
+  `~/.local/state/makerplane/panel_changes.jsonl`, beside the software-notice
+  log (`$XDG_STATE_HOME` is honoured, and `MAKERPLANE_PANEL_LOG` overrides the
+  path). Events are `changed` (with `config_version` and `trigger`: `boot` when
+  `config-pull` ran with `--wait-online`, else `manual`), `rolled_back` (the
+  new panel crashed pyEfis and was withdrawn) and `acknowledged`.
+- **`status.json`:** `config-pull` rewrites the `panel_change` key, keeping the
+  others, after it records a change or a rollback. `pending` is true until the
+  installed panel's hash is acknowledged. `status` prints a pending change as a
+  `!` line.
+
+```
+pyefis-data panel-ack --yes --hash <config_hash>   # what the Data Status screen runs
+pyefis-data panel-ack                              # at a terminal: shows the change, asks for the word "acknowledge"
+```
+
+`--hash` is the hash the caller displayed; if the installed panel is no longer
+that one, nothing is recorded. Exit codes: `0` acknowledged, or nothing was
+waiting; `2` the hash no longer matches, or the record could not be written;
+`3` not acknowledged at the terminal, or no terminal and no `--yes`. It
+rewrites `status.json` itself.
 
 ## The daily timer and the boot pull
 
