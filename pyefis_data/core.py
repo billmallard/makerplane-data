@@ -60,11 +60,16 @@ SQLITE_KINDS: dict[str, tuple[str, str]] = {
     # (airports/<pack_id>/current/airports.sqlite) and the SVS merges them.
     "airports": ("airports", "airports.sqlite"),
     "procedures": ("procedures", "procedures.sqlite"),
+    # FAA d-TPP approach plates, one pack per region (plates-us-west, ...). A
+    # pilot may opt into several regions, so this is per-provider too:
+    # plates/<pack_id>/current/plates.sqlite, and pyEfis's plates_path points
+    # at the plates/ directory (docs/plates.md "On the device").
+    "plates": ("plates", "plates.sqlite"),
 }
 
 # Kinds where multiple packs coexist, so the install path is keyed by pack id
 # (vs one current symlink per kind).
-PER_PROVIDER_KINDS = frozenset({"airports"})
+PER_PROVIDER_KINDS = frozenset({"airports", "plates"})
 
 
 def _sqlite_subdir(kind: str, pack_id: str) -> tuple[str, str]:
@@ -78,7 +83,7 @@ def _sqlite_subdir(kind: str, pack_id: str) -> tuple[str, str]:
 # Selection policy (what a Pi tracks):
 #   core navdata kinds  -> tracked by default (small, CONUS-wide)
 #   bulk kinds          -> opt-in by region (large, region-grouped)
-BULK_KINDS = ("water", "terrain", "charts", "highways", "rivers")
+BULK_KINDS = ("water", "terrain", "charts", "highways", "rivers", "plates")
 
 # Zip "tile" packs that are unzipped and merged into a shared tile tree
 # (vs. sqlite packs that are swapped via the current symlink).
@@ -102,6 +107,7 @@ KIND_LABELS = {
     "charts": "Charts",
     "highways": "Roads & Highways",
     "rivers": "Rivers & Waterways",
+    "plates": "Approach Plates",
 }
 
 # status -> display severity. Subtle by design: expired/out-of-window is amber,

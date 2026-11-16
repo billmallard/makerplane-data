@@ -17,6 +17,11 @@ and the `configurator`. Semver on the Python package; process in
   the overlay. If it can't tell, it adds the include, which every pyEfis
   accepts. The install summary reports the result as `legacy_overlay`.
   See [docs/device_deployment.md](docs/device_deployment.md).
+- **The updater installs `plates` packs (AER-5795).** FAA d-TPP plate packs
+  are a bulk kind, opt-in by region, and install per region under
+  `plates/<pack id>/current/plates.sqlite`, so several regions coexist. They
+  are verified like every other pack and report their cycle on Data Status.
+  No plates pack is published yet. See [docs/plates.md](docs/plates.md).
 
 ## 0.6.0 — 2026-11-14
 

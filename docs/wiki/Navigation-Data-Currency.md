@@ -58,14 +58,13 @@ These kinds are in the live catalog
 - **Sizes** run from a few MB for the FAA packs to several GB for each terrain
   region and for water. The catalog on the website lists each one.
 
-These kinds are defined but not published, and the updater cannot install
-them yet:
+These kinds are defined but not published:
 
 | Kind | State |
 |---|---|
 | `cifp` | Deferred. The raw CIFP indexer is GPL-licensed and these tools are permissively licensed. The `procedures` pack is built from the same FAA file instead. |
 | `airspace` | A builder exists, but publishing is switched off until its checks are accepted (`implemented=False` in `packtools/sources.py`). |
-| `plates` | `packtool make-plates` builds FAA d-TPP plate packs by hand. No workflow publishes them. |
+| `plates` | `packtool make-plates` builds FAA d-TPP plate packs by hand. No workflow publishes them. The updater installs them, opt-in by region, once one is published. |
 | `rivers` | Reserved. There is no builder. |
 
 ## Regions
@@ -111,7 +110,7 @@ so the change of cycle needs no network on the day.
 
 By default a device tracks `navdata`, `navaids`, `obstacles` and `procedures`
 for the continental US. Everything else is opt-in: by region for terrain,
-water and roads, and by pack id for any pack. The updater stores packs under
+water, roads and plates, and by pack id for any pack. The updater stores packs under
 its data root, `~/makerplane-data` unless `data.yaml` sets `root:`:
 
 | Kind | Path under the data root |
@@ -123,6 +122,7 @@ its data root, `~/makerplane-data` unless `data.yaml` sets `root:`:
 | `water` | `water/current/water.sqlite` |
 | `highways` | `highways/current/highways.sqlite` |
 | `airports` | `airports/<pack id>/current/airports.sqlite` |
+| `plates` | `plates/<pack id>/current/plates.sqlite`, one per region |
 | `terrain` | `terrain/tiles/`, one tree shared by every region |
 
 `current` is a symlink to the folder for the installed cycle. Selection,
