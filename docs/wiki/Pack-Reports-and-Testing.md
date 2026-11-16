@@ -55,7 +55,9 @@ edition never had.
 The list depends on the kind
 ([`packtools/report.py`](https://github.com/billmallard/makerplane-data/blob/dev/packtools/report.py)).
 `packtool report --list-checks` prints it. Blocking checks stop a publish when
-they fail.
+they fail. A check still awaiting review of its definition is marked
+`pending_review` in the record: it runs and is shown, but never stops a
+publish. The `PROC-FAS-*` checks are in that state.
 
 | Group | Applies to | Checks |
 |---|---|---|
@@ -65,7 +67,7 @@ they fail.
 | Coordinates | `navdata`, `airports`, `navaids`, `obstacles`, `procedures` | `GEO-001` coordinates valid and not at 0,0; `UNQ-001` identifiers that must be unique are unique; `GEO-002` points outside the US envelope, against the previous edition (FAA kinds) |
 | Obstacles | `obstacles` | `OBS-001` at least 328,500 rows |
 | Navaids | `navaids` | `UNQ-002` identifiers the FAA reuses, against the previous edition |
-| Procedures | `procedures` | `PROC-TBL-001` tables present; airway, MSA and grid MORA consistency (`PROC-AWY-*`, `PROC-MSA-*`, `PROC-MORA-*`); `PROC-FIX-001` legs with a fix that could not be placed; `PROC-DIFF-001` comparison against an independent database, not yet run |
+| Procedures | `procedures` | `PROC-TBL-001` tables present; airway, MSA and grid MORA consistency (`PROC-AWY-*`, `PROC-MSA-*`, `PROC-MORA-*`); `PROC-FIX-001` legs with a fix that could not be placed, outside the few the builder declares as gaps in the FAA file (the procedures build itself refuses any other); `PROC-FAS-001` to `PROC-FAS-003` final approach segment data blocks: every source block stored or named as a CRC drop, every stored block's CRC re-computes, and blocks with no approach in the pack; `PROC-DIFF-001` comparison against an independent database, not yet run |
 | Terrain | `terrain` | `TER-001` to `TER-008`: tile files valid, inside the region, nothing lost from the previous edition, water masks present, elevation and voids sampled, every source tile present |
 | OpenStreetMap | `water`, `highways` | `OSM-001`, `OSM-002`, `OSM-006` counts and length or area per region and per state; `OSM-004` bounding boxes; `IDX-001` spatial indexes cover every row; `OSM-003` highway columns match the schema version |
 | Cross-source | several | `GLD-001` golden facts; `XS-001` airport elevations and `XS-002` obstacle bases against terrain (shown for review, never blocking) |

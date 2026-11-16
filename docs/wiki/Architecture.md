@@ -15,7 +15,7 @@ receives.
 | Channel | Carries | Who gets it | How it is trusted | Reaches the device by |
 |---|---|---|---|---|
 | **Navigation packs** | airports, navaids, procedures, obstacles, terrain, water, roads | Everyone: one public catalog | A **signed** manifest, then a SHA-256 per pack | `pyefis-data update` (daily timer), or `pyefis-data import` from a USB stick |
-| **Panel config** | the screens and instruments designed in the configurator, plus a `preferences:` block from the aircraft profile | One paired device | A per-device **token** over HTTPS | `pyefis-data config-pull`, once at boot |
+| **Panel config** | the screens and instruments designed in the configurator, plus `preferences:` and `fixgw:` blocks and tank bindings from the aircraft profile | One paired device | A per-device **token** over HTTPS | `pyefis-data config-pull`, once at boot |
 | **Aircraft parameters** | V-speeds, gauge bands, engine and fuel limits | One aircraft | The builder downloads the file from their own account | `aircraft.ini`, copied by hand into FIX-Gateway's `init_data` |
 
 The navigation channel is signed because it is public: anyone can fetch it, so
@@ -26,9 +26,12 @@ The aircraft-parameter channel is manual. The configurator's Aircraft page
 builds `aircraft.ini` for download, and its footer says the device push arrives
 later
 ([`configurator/public/aircraft.html`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/public/aircraft.html)).
-One part of the profile already travels with the panel config: the altimeter
-setting unit (`inHg` or `hPa`), which `config-pull` merges into the device's
-`preferences.yaml.custom`. See [[Aircraft Parameters]].
+Three parts of the profile already travel with the panel config: the altimeter
+setting unit (`inHg` or `hPa`), which `config-pull` merges into pyEfis's
+`preferences.yaml.custom`; the ownship address, which it writes into
+FIX-Gateway's; and the label and slot of each tank a panel gauge is bound to,
+which the configurator resolves into the served panel. See
+[[Aircraft Parameters]] and [[Pairing and Config Delivery]].
 
 ## The navigation trust chain
 
