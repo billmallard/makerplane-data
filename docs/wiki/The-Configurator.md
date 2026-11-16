@@ -64,6 +64,7 @@ pyEfis screen YAML. What you place is what the device loads.
 | **Theme** | What colour tokens preview as (below). One theme today: `pyEfis built-in` |
 | **Code** | Shows the YAML pane |
 | **Save** | Saves a new version of the device's panel |
+| **Download YAML** | Downloads the last saved version exactly as the device's next pull receives it, aircraft-profile additions included ([[Pairing and Config Delivery]]) |
 | **Done** | Back to the dashboard |
 
 While you drag, an instrument aligns to the edges and centres of the canvas,
@@ -97,6 +98,22 @@ Select an instrument to edit it in the inspector on the right:
 - **Options** lists every option the instrument has, with the help text from
   pyEfis behind each ⓘ icon. Option names, types and defaults come from pyEfis
   itself (see [[Configurator Internals]]).
+
+### Fuel gauges bound to a tank
+
+A bar or arc gauge that pyEfis allows to read a fuel tank has a **Tank** field:
+a list of the tanks on the [[Aircraft Parameters]] page, each shown with its
+slot (`L TIP - FUELQ3`). Choosing one saves the tank's id in the panel
+(`tank: <id>`) in place of a FIX key and name; the device receives the tank's
+current slot and label with each pull, so renaming or rewiring a tank needs no
+panel edit. **Not bound (plain FIX key)** turns it back into a plain gauge,
+keeping the key and name it was receiving.
+
+A gauge whose tank has been removed from the profile is outlined red, its Tank
+field reads `<last label> - removed`, and its preview shows the failed look the
+device draws. A stock fuel bar still reading `FUELQn` with the name `Tank n` is
+offered **Bind to <label>** when the aircraft has a tank in that slot; nothing
+changes until you press it, and hovering it previews the new label.
 
 A group shows as one item with an **Ungroup** button. pyEfis has no groups, so
 on save a group is written out as its separate instruments.
@@ -160,6 +177,11 @@ the YAML follows every change on the canvas, and typing in the pane updates the
 canvas after a short pause, once the YAML is valid. An error shows as
 `Parse error: …`, or `Expected a pyEfis config with a 'screens:' block.`
 
+A screen-level key the editor has no control for, such as `include:` or the
+knob's `encoder:` settings, is kept as loaded and written back on every save,
+so it can be added here and survives later edits. `module` and `title` are
+always regenerated.
+
 ### Saving
 
 **Save** stores the panel as a new version for the device and reports
@@ -181,8 +203,8 @@ instrument looks, its preview is changed to match.
 These have live previews: the attitude indicator, moving map, synthetic
 vision, airspeed, altimeter and heading tapes, the trend tapes, the HSI, the
 airspeed, altimeter and VSI dials, the turn coordinator, the PFD VSI, the wind
-display, the airspeed box, the button, the arc and bar gauges, and the text
-instruments. A tab section draws its active tab. Anything else shows its
+display, the airspeed box, the button, the arc and bar gauges, the DATA flag,
+and the text instruments. A tab section draws its active tab. Anything else shows its
 palette picture. An instrument outlined in amber is one pyEfis cannot draw
 off-screen when it generates the editor's pictures, for example synthetic
 vision, which renders with the GPU; treat its preview as an approximation.
