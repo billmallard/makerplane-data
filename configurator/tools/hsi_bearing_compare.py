@@ -5,8 +5,9 @@
 config in the oracle JSON: pyEfis widget (tools/hsi_bearing_oracle.py) |
 editor preview after | editor preview before (tools/hsi_bearing_capture.mjs
 with PREFIX twin / base). Editor crops are resized to the widget's size so
-the columns line up. Also writes a nearest-neighbour zoom of the top-right
-corner (the BRG tab) for the top_panel configs.
+the columns line up. Also writes a nearest-neighbour zoom of the top band
+for the top_panel configs: the source tab, the panel and the BRG tab, so the
+two tabs can be compared with each other (AER-5848) as well as the widget.
 
     python3 tools/hsi_bearing_compare.py ORACLE_DIR TWIN_DIR OUTDIR [ZOOM]
 """
@@ -45,9 +46,9 @@ def main(oracle_dir, twin_dir, outdir, zoom=3):
             sheet.paste(tile(d, pat, name), (x, y + lab))
     sheet.save(os.path.join(outdir, "hsi_bearing_sheet.png"))
 
-    # The BRG tab: top-right quarter of the top band, zoomed.
+    # The top band, both tabs and the panel between them, zoomed.
     tp = [n for n in names if oracle["configs"][n]["options"].get("readout_layout") == "top_panel"]
-    box = (int(s * 0.55), 0, s, int(s * 0.17))
+    box = (int(s * 0.1), 0, int(s * 0.9), int(s * 0.15))
     cw, ch = (box[2] - box[0]) * zoom, (box[3] - box[1]) * zoom
     zsheet = Image.new("RGB", (pad + 2 * (cw + pad), pad + len(tp) * (lab + ch + pad)), (40, 40, 40))
     dz = ImageDraw.Draw(zsheet)
