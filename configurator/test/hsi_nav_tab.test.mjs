@@ -30,10 +30,10 @@ import { editorSource, extractConst, extractFunction } from "./support/extract.m
 // darkenToContrast + its helpers (AER-474, lockstep with AER-473/pyEfis#147):
 // buildHSI's tab draw calls into these for the label colour, so they must be
 // pulled into the sandbox alongside buildHSI itself.
-const CONSTS = ["SOURCE_LABEL_MIN_CONTRAST"];
+const CONSTS = ["SOURCE_LABEL_MIN_CONTRAST", "ND_ADV", "ND_KERN"];
 const FUNCS = ["svgFromString", "headingLabel", "_polar", "rgbaFromColor", "bgOpacity",
   "normHex", "_hexToRgb", "_rgbToHex", "_srgbToLinear", "_relativeLuminance", "contrastRatio",
-  "_rgbToHsv", "_hsvToRgb", "darkenToContrast", "buildHSI"];
+  "_rgbToHsv", "_hsvToRgb", "darkenToContrast", "ndAdvance", "buildHSI"];
 const body = CONSTS.map((c) => extractConst(editorSource(), c)).join("\n")
   + "\n\n" + FUNCS.map((f) => extractFunction(editorSource(), f)).join("\n\n");
 
@@ -80,7 +80,7 @@ function panelRect(svg) {
 // immediately followed by the centred "GPS" text (colour now derived, not
 // fixed).
 function tabMarkup(svg) {
-  const m = svg.match(/<path d="([^"]*A[^"]*)" fill="(#[0-9a-f]+)"\/><text x="([\d.]+)" y="([\d.]+)" fill="(#[0-9a-f]+)" font-size="7" text-anchor="middle">GPS<\/text>/);
+  const m = svg.match(/<path d="([^"]*A[^"]*)" fill="(#[0-9a-f]+)"\/><text x="([\d.]+)" y="([\d.]+)" fill="(#[0-9a-f]+)" font-size="([\d.]+)" text-anchor="middle">GPS<\/text>/);
   if (!m) return null;
   // x0 (the tab's left/far edge) is the target of the path's first rounded-
   // corner arc: "...A${r} ${r} 0 0 1 ${x0} ${y1 - r}..." -- pull it out so
@@ -88,7 +88,7 @@ function tabMarkup(svg) {
   // re-parsing the whole path themselves.
   const x0Match = m[1].match(/A[\d.]+ [\d.]+ 0 0 1 (-?[\d.]+) /);
   return {
-    d: m[1], fill: m[2], textX: +m[3], textY: +m[4], textFill: m[5],
+    d: m[1], fill: m[2], textX: +m[3], textY: +m[4], textFill: m[5], size: +m[6],
     x0: x0Match ? +x0Match[1] : null,
   };
 }
@@ -155,15 +155,22 @@ for (const orientation of [undefined, "arc"]) {
   test(`${tag} HSI: top_panel tab width is pinned to the widest SOURCE_TAB_LABELS candidate`, () => {
     // The call sites always draw the "GPS" sample label, but the width must
     // not track it (pyEfis#148/AER-473) -- it's the widest of
-    // SOURCE_TAB_LABELS at navTab's own glyph-width approximation, so the
-    // tab wouldn't breathe if a future preview ever cycled the label.
+    // SOURCE_TAB_LABELS, so the tab wouldn't breathe if a future preview
+    // ever cycled the label. AER-5848 (twin of HSI._side_tab_metrics,
+    // pyEfis#504): that label's DejaVu Sans Condensed advance at fontSize
+    // plus 0.35 fontSize a side, in a non-bold font of fontSize. The
+    // twin's fontSize is 44/12.5: the panel is 12.5 fontSize wide.
     const svg = render("top_panel", orientation);
     const panel = panelRect(svg);
     const tab = tabMarkup(svg);
     assert.ok(tab && tab.x0 != null, "expected to recover the tab's left edge (x0) from its path");
-    const rr = 1.4;
-    const hpad = rr;
-    const expectedWidth = Math.max(...SOURCE_TAB_LABELS.map((l) => l.length * 4.6)) + 2 * hpad;
+    const FS = panel.w / 12.5;
+    assert.ok(Math.abs(tab.size - FS) < 1e-9, `font ${tab.size} vs fontSize ${FS}`);
+    assert.doesNotMatch(svg, /font-weight="700"[^>]*>GPS</, "the tab label is not bold");
+    // VLOC1 is the widest; its advance (V L O C 1 less the L-O kern) is
+    // 6122 font units of 2048.
+    assert.equal(SOURCE_TAB_LABELS.reduce((a, l) => (l.length > a.length ? l : a)), "VLOC1");
+    const expectedWidth = 6122 / 2048 * FS + 2 * 0.35 * FS;
     const actualWidth = panel.x - tab.x0;
     assert.ok(Math.abs(actualWidth - expectedWidth) < 1e-6,
       `expected width ${expectedWidth} (widest of ${SOURCE_TAB_LABELS}), got ${actualWidth}`);
