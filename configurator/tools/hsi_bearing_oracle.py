@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 Bill Mallard
-"""AER-5553 (HSIBRG1 twin): render the REAL pyEfis HSI at boot for each
-bearing-pointer config the editor preview twins, and dump what it drew.
+"""AER-5553 (HSIBRG1 twin), amended by AER-5848 (HSIBRG4, pyEfis#504):
+render the REAL pyEfis HSI at boot for each bearing-pointer config the editor
+preview twins, and dump what it drew.
 
 A static preview shows the panel as it boots: bearingN_enabled only makes a
-pointer available, and each starts Off (pyEfis#464). So no taps here -- the
-widget is built, painted once, and read back:
+pointer available, and each starts Off (pyEfis#464), so the one BRG tab reads
+NONE (pyEfis#504). No taps here -- the widget is built, painted once, and
+read back:
 
 - `<name>.png`, the widget grab (square, so it lines up with the twin's
   0..100 viewBox);
-- `hsi_bearing_oracle.json`: per config, the BRG tab rows (rects in widget px
-  and as a fraction of the widget), their labels, the tab font size, the
-  readout panel's rect, and each corner label's text and rect.
+- `hsi_bearing_oracle.json`: per config, the BRG tab's rect and the
+  nav-source tab's rect (fractions of the widget), the BRG tab's label and
+  font, the readout panel's rect, and each corner label's text and rect.
 
     QT_QPA_PLATFORM=offscreen PYEFIS=/path/to/pyEfis \\
       python3 tools/hsi_bearing_oracle.py OUTDIR [SIZE]
@@ -101,8 +103,9 @@ def render(app, size, opts):
     _settle(app)
     assert not any(h._brgOn.values()), "a pointer was on at boot"
     img = host.grab().toImage()
-    tab_rows = {str(n): _frac(r, size, size)
-                for n, r in sorted(h._brg_tab_rects.items())}
+    tab = _frac(h._brg_tab_rect, size, size)
+    source_tab = _frac(h._source_label_rect, size, size) \
+        if h.readout_layout == "top_panel" else None
 
     # Read the tab's labels and the font size it settled on: call the real
     # _draw_bearing_tab once more on a recording painter, at the panel
@@ -128,7 +131,8 @@ def render(app, size, opts):
     out = {
         "font_size": h.fontSize,
         "panel": panel,
-        "tab_rows": tab_rows,
+        "tab": tab,
+        "source_tab": source_tab,
         "tab_text": seen,
         "corner": {},
     }

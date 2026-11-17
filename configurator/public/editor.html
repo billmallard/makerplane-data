@@ -1046,11 +1046,18 @@ function buildHSI(inst) {
   // tab is bearing_color (cyan) whatever its source -- source colour is the
   // CDI's alone (HSI-COLOR-001). bearingN_enabled only makes a pointer
   // available; at run time each starts Off until the pilot steps it on, so
-  // the preview shows the panel as it boots: no needles, the BRG tab (or the
-  // corner labels) reading OFF. brgOn twins HSI._brgOn at boot.
+  // the preview shows the panel as it boots: no needles, the BRG tab reading
+  // NONE (or the corner labels reading OFF). brgOn twins HSI._brgOn at boot.
+  // Each pointer has one fixed source (HSIBRG4, pyEfis#504): 1 is VOR1, 2 is
+  // VOR2, as BRGnSRC values (HSI._BEARING_SOURCE). A pointer whose source is
+  // the CDI's is not offered (_bearing_offered). The preview's CDI is GPS
+  // (cdiSrc, NAVSRC 2), so today both are always offered.
   const bearingC = o.bearing_color || "#00ffff";
   const brg1 = 30, brg2 = 250;                             // sample values
+  const cdiSrc = 2;
+  const BEARING_SOURCE = { 1: 0, 2: 1 };
   const brgAvail = [1, 2].filter((n) => o[`bearing${n}_enabled`]);
+  const brgOffered = brgAvail.filter((n) => BEARING_SOURCE[n] !== cdiSrc);
   const brgOn = { 1: false, 2: false };
   // The widget's fontSize in this viewBox: its top panel is 12.5 fontSize
   // wide (_draw_readouts), and the twin's panel is 44.
@@ -1062,75 +1069,71 @@ function buildHSI(inst) {
   // so the tab doesn't breathe as NAVSRC cycles and centring falls out free.
   const SOURCE_TAB_LABELS = ["GPS", "VOR1", "VOR2", "LOC1", "LOC2", "VLOC1", "VLOC2"];
 
+  // The two tabs hanging off the top panel, the nav-source tab on the left
+  // and the BRG tab on the right, share one geometry -- twin of
+  // HSI._side_tab_metrics (HSIBRG4, pyEfis#504): top at the bottom of the
+  // panel's corner arc, height the straight run of the panel's edge, the
+  // panel's corner radius, and the font at fontSize, not bold. Width is the
+  // widest of SOURCE_TAB_LABELS plus 0.35 fontSize a side, so neither tab
+  // breathes as its label changes. Glyph widths are DejaVu Sans Condensed's
+  // own advances and kerning (ndAdvance), taken at 2048 px a side so no
+  // per-glyph rounding enters; the widget's are hinted to whole px, so the
+  // width sits 0.07 units (0.3 px) under the widget's at 425 px.
+  const sideTab = (py, ph, rr) => {
+    const th = ph - 2 * rr, pad = FS * 0.35;
+    const w = Math.max(...SOURCE_TAB_LABELS.map((l) => ndAdvance(l, 2048, false))) / 2048 * FS + 2 * pad;
+    return { top: py + rr, th, r: Math.min(rr, th / 2), w, size: FS };
+  };
+
   // Nav-source tab (AER-388/pyEfis#140): a coloured tab hanging off the
   // HDG|MAG|CRS panel's left edge, in `top_panel` layout only -- twin of
-  // hsi._draw_readouts's tab (px/py/ph/rr in, tab rect out). Height is the
-  // panel height less both corner radii (rr, the same radius the panel's own
-  // rx uses) so the tab reads as a few px shorter than the panel. Width is a
-  // CONSTANT -- the widest of SOURCE_TAB_LABELS at this approximation's own
-  // per-glyph unit, plus padding -- rather than tracking the current label
-  // (pyEfis#148/AER-473); centring falls out of that for free. No stroke of
-  // its own -- the panel is painted after (see call sites) so its own left
-  // border draws over the seam instead of doubling it.
+  // HSI._draw_source_tab, sized by sideTab. rr is the radius the panel's own
+  // rx uses. No stroke of its own -- the panel is painted after (see call
+  // sites) so its own left border draws over the seam instead of doubling it.
   const navTab = (px, py, ph, rr, color, label) => {
-    const th = ph - 2 * rr, ty = py + rr, r = Math.min(rr, th / 2);
-    // pad == rr, same identity as the widget's own
-    // `pad = self.fontSize * 0.35 == rr` (both keyed off READOUT_RADIUS_RATIO) --
-    // reconciled against AER-389's shipped constants (pyEfis#143), not a
-    // separate estimate.
-    const hpad = rr;
-    const tw = Math.max(...SOURCE_TAB_LABELS.map((l) => l.length * 4.6)) + hpad * 2;
-    const x0 = px - tw, x1 = px, y0 = ty, y1 = ty + th;
+    const { top, th, r, w: tw, size } = sideTab(py, ph, rr);
+    const x0 = px - tw, x1 = px, y0 = top, y1 = top + th;
     const d = `M${x0 + r} ${y0} L${x1} ${y0} L${x1} ${y1} L${x0 + r} ${y1} `
       + `A${r} ${r} 0 0 1 ${x0} ${y1 - r} L${x0} ${y0 + r} A${r} ${r} 0 0 1 ${x0 + r} ${y0} Z`;
     // Label is a darkened tint of the tab's own fill (pyEfis#147/AER-473),
     // not hardcoded white -- the fill (`color`) is config-selectable and
     // stays at full brightness (HSI-COLOR-001); only the label darkens.
     return `<path d="${d}" fill="${color}"/>`
-      + `<text x="${x0 + tw / 2}" y="${(y0 + y1) / 2 + 2.45}" fill="${darkenToContrast(color)}" font-size="7" text-anchor="middle">${label}</text>`;
+      + `<text x="${x0 + tw / 2}" y="${(y0 + y1) / 2 + size * 0.35}" fill="${darkenToContrast(color)}" font-size="${size}" text-anchor="middle">${label}</text>`;
   };
 
-  // BRG tab (HSIBRG1, pyEfis#464): the bearing-pointer selector on the RIGHT
-  // edge of the HDG|MAG|CRS panel, `top_panel` only -- twin of
-  // HSI._draw_bearing_tab, the mirror of navTab: same top and height, square
-  // left edge flush with the panel (px is the panel's right edge), rounded
-  // right corners on the panel's radius, one row per available pointer.
-  // Width is constant, the widest of BEARING_TAB_LABELS. The font is
-  // min(0.8 fontSize, 0.75 row height), floored at 9 px (0.6 of the stock
-  // 15 px fontSize). The widget also shrinks it to the room left beside the
-  // panel; here the panel and that room scale together, and the widest label
-  // (about 17 units) never fills the room (about 25), so that step never
-  // binds and is not drawn. An Off row is the panel's dark fill with a cyan
-  // bold label; the cyan outline leaves the shared edge to the panel's
-  // border, painted after. Drawn only when a pointer is available.
-  const BEARING_TAB_LABELS = ["BRG OFF", "BRG1 OFF", "BRG1 VOR1", "BRG1 VOR2", "BRG2 VOR1", "BRG2 VOR2"];
+  // BRG tab (HSIBRG1, one button since HSIBRG4, pyEfis#504): the
+  // bearing-pointer selector on the RIGHT edge of the HDG|MAG|CRS panel,
+  // `top_panel` only -- twin of HSI._draw_bearing_tab. It is navTab mirrored:
+  // the same sideTab geometry and font, a square left edge flush with the
+  // panel (px is the panel's right edge) and rounded right corners. Drawn
+  // only when a pointer is available. The label is the state, NONE / BRG 1 /
+  // BRG 2 / BOTH (HSI._BEARING_STATES); with a needle on the tab is filled
+  // bearing_color with a darkened label, at NONE it is the panel's dark fill
+  // with a cyan label and outline. The outline leaves the shared edge to the
+  // panel's border, painted after.
+  const BEARING_STATES = [["NONE", []], ["BRG 1", [1]], ["BRG 2", [2]], ["BOTH", [1, 2]]];
   const bearingTab = (px, py, ph, rr, stroke) => {
     if (!brgAvail.length) return "";
-    const th = ph - 2 * rr, top = py + rr, r = Math.min(rr, th / 2), rh = th / brgAvail.length;
-    const pad = FS * 0.35, size = Math.max(FS * 0.6, Math.min(FS * 0.8, rh * 0.75));
-    // Per-glyph width at navTab's unit (4.6 at font size 7).
-    const textW = Math.max(...BEARING_TAB_LABELS.map((l) => l.length * size * 4.6 / 7));
-    const x0 = px, x1 = px + textW + 2 * pad, ov = FS * 0.03, single = brgAvail.length === 1;
-    let g = "";
-    brgAvail.forEach((n, i) => {
-      const y0 = top + rh * i, y1 = y0 + rh, rt = i === 0 ? r : 0, rb = i === brgAvail.length - 1 ? r : 0;
-      const on = brgOn[n];
-      g += `<path d="M${x0 - ov} ${y0} L${x1 - rt} ${y0} A${rt} ${rt} 0 0 1 ${x1} ${y0 + rt} L${x1} ${y1 - rb} A${rb} ${rb} 0 0 1 ${x1 - rb} ${y1} L${x0 - ov} ${y1} Z" fill="${on ? bearingC : "rgba(0,0,0,0.55)"}"/>`
-        + `<text x="${(x0 + x1) / 2}" y="${(y0 + y1) / 2 + size * 0.35}" fill="${on ? darkenToContrast(bearingC) : bearingC}" font-size="${size}" font-weight="700" text-anchor="middle">${!on && single ? "BRG OFF" : `BRG${n} OFF`}</text>`;
-    });
-    g += `<path d="M${x0} ${top} L${x1 - r} ${top} A${r} ${r} 0 0 1 ${x1} ${top + r} L${x1} ${top + th - r} A${r} ${r} 0 0 1 ${x1 - r} ${top + th} L${x0} ${top + th}" fill="none" stroke="${bearingC}" stroke-width="${stroke}"/>`;
-    if (!single) g += `<line x1="${x0}" y1="${top + rh}" x2="${x1}" y2="${top + rh}" stroke="${bearingC}" stroke-width="${stroke}"/>`;
-    return g;
+    const { top, th, r, w, size } = sideTab(py, ph, rr);
+    const x0 = px, x1 = px + w, y1 = top + th, ov = FS * 0.03;
+    const onPtrs = [1, 2].filter((n) => brgOn[n]).join();
+    const label = (BEARING_STATES.find(([, p]) => p.join() === onPtrs) || ["NONE"])[0];
+    const on = onPtrs !== "";
+    return `<path d="M${x0 - ov} ${top} L${x1 - r} ${top} A${r} ${r} 0 0 1 ${x1} ${top + r} L${x1} ${y1 - r} A${r} ${r} 0 0 1 ${x1 - r} ${y1} L${x0 - ov} ${y1} Z" fill="${on ? bearingC : "rgba(0,0,0,0.55)"}"/>`
+      + `<text x="${(x0 + x1) / 2}" y="${top + th / 2 + size * 0.35}" fill="${on ? darkenToContrast(bearingC) : bearingC}" font-size="${size}" text-anchor="middle">${label}</text>`
+      + `<path d="M${x0} ${top} L${x1 - r} ${top} A${r} ${r} 0 0 1 ${x1} ${top + r} L${x1} ${y1 - r} A${r} ${r} 0 0 1 ${x1 - r} ${y1} L${x0} ${y1}" fill="none" stroke="${bearingC}" stroke-width="${stroke}"/>`;
   };
   // Bottom-corner bearing labels -- twin of HSI._bearing_corner_label. Off,
-  // they read "1 OFF" / "2 OFF" as the pointer's control, but only where no
-  // BRG tab carries Off: under `top_panel` the corners stay clear. Font
-  // 0.85 fontSize at 3% / 97% of the width; in `split` the baseline rises
-  // to clear the CRS/HDG boxes (_bearing_label_baseline).
+  // they read "1 OFF" / "2 OFF" as the tap target for the BRG state, but
+  // only for a pointer that is offered (its source is not the CDI's) and
+  // only where no BRG tab carries the state: under `top_panel` the corners
+  // stay clear. Font 0.85 fontSize at 3% / 97% of the width; in `split` the
+  // baseline rises to clear the CRS/HDG boxes (_bearing_label_baseline).
   const bearingCorners = () => {
     if (layout === "top_panel") return "";
     const fs = FS * 0.85, y = layout === "split" ? 86 : 100 - FS * 0.5;
-    return brgAvail.filter((n) => !brgOn[n]).map((n) => n === 1
+    return brgOffered.filter((n) => !brgOn[n]).map((n) => n === 1
       ? `<text x="3" y="${y}" fill="${bearingC}" font-size="${fs}">1 OFF</text>`
       : `<text x="97" y="${y}" text-anchor="end" fill="${bearingC}" font-size="${fs}">2 OFF</text>`).join("");
   };
