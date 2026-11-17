@@ -120,12 +120,17 @@
     <code>aircraft.ini</code> into the aircraft's
     <code>~/makerplane/fixgw/config/init_data/</code> and listing it last under
     <code>initialization files</code>; device push arrives with config
-    delivery (Phase C). The altimeter setting units are the exception: they
-    reach every paired display of this aircraft with its next
-    <code>pyefis-data config-pull</code>, and every screen starts in them.
-    The ownship identity is saved with the profile but is not sent to the
-    aircraft yet: until it is, the address shown above is the value for
-    <code>ownship_address</code> in fix-gateway's stratux connection.</p>
+    delivery (Phase C). These settings are the exception: they reach every
+    paired display of this aircraft with its next
+    <code>pyefis-data config-pull</code>.
+    <span data-device-pull="units">The altimeter setting units, which every
+    screen starts in.</span>
+    <span data-device-pull="ownship_address">The ownship identity: the
+    address shown above is written as <code>ownship_address</code> in
+    fix-gateway's preferences, where the stratux traffic plugin uses it
+    when its own connection does not set one.</span>
+    <span data-device-pull="tank">The fuel tanks' labels and slots, for
+    every gauge the panel binds to a tank.</span></p>
 </main>
 <input type="file" id="inifile" accept=".ini,text/plain" style="display:none">
 <script>
