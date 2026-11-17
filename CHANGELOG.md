@@ -24,6 +24,11 @@ and the `configurator`. Semver on the Python package; process in
   No plates pack is published yet. See [docs/plates.md](docs/plates.md).
 
 ### Configurator and device config
+- **The Aircraft page footer names what `config-pull` sends (AER-5900, #218).**
+  It said the ownship identity was not sent to the aircraft; it has been
+  since P3f. It now lists the altimeter setting units, the ownship address
+  and bound fuel tanks' labels and slots, and a test fails if that list
+  drifts from what `GET /device/config` serves.
 - **The editor previews the new `autopilot_panel` (AER-5812).** The twin draws
   pyEfis's AFC3 mode controller (#497) in both layouts, with the `buttons`
   list, the edit icons, Font size and all ten colours, from the schema's
