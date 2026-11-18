@@ -91,9 +91,9 @@ regions: []
 # ===========================================================================
 # Behaviour
 # ===========================================================================
-auto_update: true     # let the systemd timer refresh on the FAA cycle
+auto_update: true     # false: the daily timer skips its update; an update you
+                      # start (picker, `pyefis-data update`, USB) still runs
 stage_next: true      # pre-download the next AIRAC cycle before it takes effect
-# storage_budget_gb: 64   # optional cap; updater skips bulk packs over budget
 
 # Safety advisories (opt-in, off by default). When true, each update also
 # fetches the public, signed advisories.json from base_url and checks it
