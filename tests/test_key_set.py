@@ -150,3 +150,11 @@ def test_production_set_is_small_parses_and_has_distinct_key_ids():
     ids = [signing.PublicKey.from_text(k).key_id for k in cli.PUBLIC_KEYS]
     assert len(set(ids)) == len(ids)
 
+
+def test_signing_key_doc_lists_every_production_key_id():
+    """docs/signing_key.md names each key the device trusts, so a reader of the
+    procedure can tell which key is which without reading code."""
+    doc = (REPO / "docs" / "signing_key.md").read_text("utf-8")
+    for k in cli.PUBLIC_KEYS:
+        kid = signing.PublicKey.from_text(k).key_id.hex()
+        assert re.search(rf"\b{kid}\b", doc), kid

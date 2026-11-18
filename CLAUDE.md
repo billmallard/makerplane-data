@@ -141,8 +141,10 @@ placeholder).
 `.gitignore` blocks them, but be deliberate:
 
 - `keys/minisign.sec` — the offline signing secret. Compromise = ability to sign
-  malicious packs. In CI it's the `MINISIGN_SECRET_KEY` Actions secret (base64,
-  unencrypted for unattended signing); never printed, never committed.
+  malicious packs. In CI it's the `MINISIGN_SECRET_KEY` secret of the
+  main-only `signing` Environment (base64, unencrypted for unattended
+  signing); never printed, never committed. Custody, rotation, revocation:
+  `docs/signing_key.md`.
 - `CloudFlare R2 Bucket Keys.txt`, `.env` — R2/S3 credentials for uploads. The
   R2 token is **R2-scoped only**: it can put objects, it **cannot** deploy
   Workers/D1/KV (that's `wrangler login` OAuth — see configurator/CLAUDE.md).
