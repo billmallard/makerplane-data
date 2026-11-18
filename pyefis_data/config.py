@@ -57,7 +57,6 @@ class Config:
     regions: tuple[str, ...] = DEFAULT_REGIONS          # opted-in bulk regions
     auto_update: bool = True
     stage_next: bool = True          # pre-download the next cycle before it's effective
-    storage_budget_gb: float | None = None
     # Device config (panel design) pull — set by `pyefis-data pair` (#65).
     configurator_url: str = DEFAULT_CONFIGURATOR_URL
     device_token: str | None = None
@@ -132,8 +131,6 @@ class Config:
             kw["auto_update"] = data["auto_update"]
         if isinstance(data.get("stage_next"), bool):
             kw["stage_next"] = data["stage_next"]
-        if isinstance(data.get("storage_budget_gb"), (int, float)):
-            kw["storage_budget_gb"] = float(data["storage_budget_gb"])
         if isinstance(data.get("configurator_url"), str):
             kw["configurator_url"] = data["configurator_url"]
         if isinstance(data.get("device_token"), str):
