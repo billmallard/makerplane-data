@@ -121,17 +121,21 @@ the label's own definition it should not be.**
 
 Nothing is changed here. Fixing it is a label decision, and reaching the
 live packs is a publish: the label is bound into each pack's signed record,
-so a correction lands only with the next terrain edition. The options are
-for Bill on AER-5978:
+so a correction lands only with the next terrain edition.
 
-1. Add a fourth value for agency-originated data with a stated accuracy
-   that is not FAA (for example `agency`). It is build-side only
-   (`manifest.ORIGINS`; the device does not read `origin`), and the stage
-   preview and terrain default would move with it.
-2. Keep three values and widen `federal` to mean any government
-   originator. Cheapest, but a pilot reading `federal` on European data is
-   misled, which is the opposite of what the label is for.
-3. Relabel terrain `community`. Wrong for the reasons above.
+**Decided by Bill on AER-5978, 2026-11-18: add a fourth value, `agency`**,
+for non-FAA government-originated data with a stated accuracy. Terrain uses
+it from the next edition; the live packs keep `federal` until then. The
+change is a follow-on (BACKLOG `CERT10c`), not this document. It is build-side
+only (`manifest.ORIGINS`; the device does not read `origin`), and moves
+`make_terrain.TERRAIN_ORIGIN`, the stage preview in
+`packtools/cloud/entrypoint.sh`, and the definitions in
+do200b_applicability.md section 5 with it.
+
+The options that were not taken: widening `federal` to any government
+originator (a pilot reading `federal` on European data is misled), and
+relabelling terrain `community` (it has an authoritative originator and
+stated accuracy).
 
 ## Gaps this table shows
 
