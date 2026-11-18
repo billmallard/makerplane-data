@@ -11,6 +11,11 @@ One ed25519 key, in minisign format, signs `manifest.json` and
 that lists the pack's sha256. Whoever holds the key can make every device
 install anything. Everything below follows from that.
 
+This procedure answers one hazard: compromise or loss of the signing key. It
+does nothing for a wrong pack that was built and signed honestly. That is
+bounded by the publish gate and the signed retraction (`manifest-admin.yml`),
+not here.
+
 ## Who holds it
 
 | Copy | Where | Who can use it |
@@ -21,8 +26,36 @@ install anything. Everything below follows from that.
 No agent, reviewer, or other maintainer holds a copy. The secret is never
 printed, committed, or pasted into an issue. One custodian is a single point of
 failure: if Bill's copy and its backup are lost, recovery is the same as a
-compromise (below). A second offline holder is recommended but has not been
-appointed.
+compromise (below), and every device needs a software update before it trusts
+anything new. Until then no new data reaches any device, so loss is an
+availability hazard (the whole fleet's data goes stale), not only a security
+one. A second offline holder is recommended but has not been appointed.
+
+### Who can cause a signature
+
+Holding the key and causing a signature are different sets. The second is the
+one that matters, and it is much larger than one person:
+
+- **makerplane-data `main`.** The rulesets on `main` block deletion and
+  force-push and require CI to pass. None requires a pull-request review. A
+  commit with green CI that edits a signing workflow reaches the key with no
+  human review.
+- **pyEfis `dev`.** The signing jobs check out pyEfis at `PYEFIS_REF` (`dev`)
+  and run its builders in the same job that holds the key. pyEfis `dev` has the
+  same rulesets: CI only, no review. A green commit there reaches the key too.
+- **Repository variables.** `PYEFIS_REPO` and `PYEFIS_REF` come from
+  repository variables. Whoever can set them can point the signing job at
+  another repository's builders.
+- **Who that is.** The only collaborator on either repository is
+  `billmallard`. The agents push with tokens on that account, with write access
+  to both. So the set that can cause a signature is everyone holding a write
+  token for either repository, which today includes every agent.
+
+Two changes would close most of this, and both are Bill's call: a
+pull-request rule with one required approval on makerplane-data `main`, and
+pinning the signing job's pyEfis checkout to a reviewed commit, not `dev`.
+Moving signing into its own job, apart from the builders, closes the pyEfis
+path properly. None of the three is in place.
 
 The jobs that read the CI copy are `cyclical.yml` build, `roads.yml` build,
 `water.yml` build, `manifest-admin.yml` admin, and `advisories.yml` publish.
@@ -73,14 +106,21 @@ lists only `main`; `gh secret list --repo $R` no longer lists the key;
 
 What it then holds: a run on any other branch that names the Environment is
 refused before its first step, and a job that does not name it gets an empty
-secret. What it does not hold:
+secret. What it does not hold (the first three are the paths in "Who can
+cause a signature" above):
 
 - Anyone who can push to `main` can still change a signing workflow.
 - The signing job checks out pyEfis at `PYEFIS_REF` (`dev`) and runs its
   builders in the same job that holds the key. A change on pyEfis `dev` can
   read the key. Splitting signing into its own job is a later change.
+- The repository variables that pick the builder source still steer the
+  signing job.
 - The R2 write credentials are still repository secrets. They cannot sign,
-  so a device refuses what they alone can write, but they can delete packs.
+  so a device refuses a catalog they alone can write. They can still delete
+  packs or `manifest.json` (every device's data then goes stale), or serve an
+  older signed catalog. A device with a cached catalog refuses the older one
+  (CERT3). A device with no cache has no baseline and accepts it; the packs'
+  currency windows then show expired data, and the DATA flag says so.
 
 A consequence: `water.yml` and `manifest-admin.yml` have been dispatched from
 `dev` before. After step 1 they run from `main` only, as do the dry runs of
@@ -121,12 +161,27 @@ backup):
    now. If there is no next, or it was exposed too, generate a new pair and
    release it at once. Every device then needs a software update before it
    trusts anything new.
+   Switching keys does not recover a device that has already taken a catalog
+   signed by whoever else holds the key. Such a catalog can carry a
+   far-future `generated` stamp (2099, say). The device caches it, and every
+   legitimate catalog after it is older, so the device refuses each one as a
+   rollback (CERT3). It stays on that catalog. Step 2 protects only devices
+   that have not yet taken a bad catalog. For any device that has, only step
+   3 helps. `--allow-rollback` recovers a device by hand, but only one whose
+   owner already knows it is affected.
 3. **Revoke.** Release `pyefis_data` with the compromised key removed from
-   `PUBLIC_KEYS`, and tell builders to update. Do not rely on the advisory
-   feed to tell them: it is signed with the same key.
-4. **Close the other doors.** Rotate the R2 credentials
-   (`docs/cloudflare_setup.md`), because a signature alone does nothing
-   without a way to serve it.
+   `PUBLIC_KEYS`, and tell builders to update. Once a device has the release,
+   its cached catalog no longer verifies, so it no longer counts as a
+   baseline, and a legitimate catalog installs. Do not rely on the advisory
+   feed to tell them: it is signed with the same key. Tell them also that,
+   until they update, they should not import a bundle (`pyefis-data import`,
+   `update --source`) or set a `base_url` that did not come from
+   navdata.aerocommons.org.
+4. **Close our serving door.** Rotate the R2 credentials
+   (`docs/cloudflare_setup.md`). That stops a bad catalog being served from
+   our bucket. It does not stop it reaching devices another way: a device
+   accepts a validly signed catalog from a USB bundle or from any `base_url`
+   set in `data.yaml`, as well as from our bucket.
 5. **Find what was signed.** Every pack a workflow here built and published
    has a build provenance attestation (`docs/provenance.md`), signed by
    Sigstore, not by our key; a staged water publish is the one exception. A
@@ -135,7 +190,9 @@ backup):
 6. Write up what happened in the issue, with the exposure window.
 
 The real limit is step 3: a revocation that depends on each device's
-software update. A self-certifying key chain (each new key set signed by the
+software update. Our pipeline's exposure ends at step 1. A device's exposure
+ends only when it takes the release in step 3, and we cannot see when that
+is. A self-certifying key chain (each new key set signed by the
 old one, as The Update Framework's root role does) would let keys rotate and
 be revoked through the signed catalog itself. That is a proposal, not built.
 
