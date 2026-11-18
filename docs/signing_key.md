@@ -49,9 +49,12 @@ The public key is also copied, for people checking by hand, into
 ## Step 1: put the key in the Environment (once, a repository admin)
 
 An agent's token cannot create Environments (HTTP 403), so this step is
-Bill's. Do it after this change reaches `main`. Until the Environment exists,
-a job that names it runs in an Environment GitHub creates with no branch rule,
-and the key still comes from the repository secret.
+Bill's. The first three commands are safe at any time: a job that does not
+name the Environment keeps using the repository secret. Delete the repository
+secret only once the workflows that name `signing` are on `main` and a run has
+passed. If the Environment does not exist when a job first names it, GitHub
+creates one with no branch rule, and the key still comes from the repository
+secret.
 
 ```bash
 R=billmallard/makerplane-data
