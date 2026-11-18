@@ -18,7 +18,7 @@ from tests.test_pi_updater import ORIGIN, TODAY, build_store
 @pytest.fixture
 def store(tmp_path, monkeypatch, capsys):
     root, pub = build_store(tmp_path)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
     monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))
     capsys.readouterr()
     return root

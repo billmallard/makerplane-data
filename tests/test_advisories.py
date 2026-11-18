@@ -371,7 +371,7 @@ def test_requests_carry_no_device_identifying_data(tmp_path, keys, monkeypatch):
     for name in ("post", "put", "head", "patch", "request"):
         monkeypatch.setattr(requests, name, forbidden)
     monkeypatch.setattr(requests.Session, "request", forbidden)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
 
     data_yaml = tmp_path / "data.yaml"
     data_yaml.write_text("advisories: true\n")
@@ -400,7 +400,7 @@ def test_requests_carry_no_device_identifying_data(tmp_path, keys, monkeypatch):
 
 def test_enable_disable_round_trip(tmp_path, keys, monkeypatch, capsys):
     sk, pub = keys
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
     remote = DictRemote()
     _serve(remote, sk, _feed(1))
     monkeypatch.setattr("pyefis_data.core.HttpRemote", lambda: remote)
@@ -459,7 +459,7 @@ def test_update_reports_a_matching_advisory_end_to_end(tmp_path, keys, monkeypat
     feed.publish(LocalStore(root), sk, _feed(2, [_adv(affects=[
         {"pack": "obstacles-conus", "cycles": [cycle]}])]), sign=signing.sign,
         log=lambda m: None)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
     monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))
     status = tmp_path / "status.json"
     monkeypatch.setattr("pyefis_data.config.default_status_path", lambda: status)
@@ -482,7 +482,7 @@ def test_update_reports_a_matching_advisory_end_to_end(tmp_path, keys, monkeypat
 def test_update_with_empty_feed_prints_nothing(tmp_path, keys, monkeypatch, capsys):
     from tests.test_pi_updater import TODAY
     root = _published_store(tmp_path, keys, [])
-    monkeypatch.setattr(cli, "PUBLIC_KEY", keys[1])
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (keys[1],))
     monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))
     status = tmp_path / "status.json"
     monkeypatch.setattr("pyefis_data.config.default_status_path", lambda: status)
@@ -500,7 +500,7 @@ def test_a_broken_feed_never_fails_the_update(tmp_path, keys, monkeypatch, capsy
     from tests.test_pi_updater import TODAY
     root = _published_store(tmp_path, keys, [])
     (root / "advisories.json").write_bytes(b"{tampered")
-    monkeypatch.setattr(cli, "PUBLIC_KEY", keys[1])
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (keys[1],))
     monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))
     monkeypatch.setattr("pyefis_data.config.default_status_path",
                         lambda: tmp_path / "status.json")
