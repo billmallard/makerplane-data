@@ -16,6 +16,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractConst, extractFunction } from "./support/extract.mjs";
 import { labelFitError } from "../public/fuel_label.js";
+import { buildAircraftIni } from "../public/aircraft_ini.js";
 import { fuelCheck as serverFuelCheck, TANK_CEILING, TANK_LABEL_MAX, FUEL_ROLES }
   from "../src/fuel_profile.ts";
 import { checkAircraftProfilePut } from "../src/aircraft_profile.ts";
@@ -26,10 +27,10 @@ const pick = (f, name) => { try { return f(SRC, name); } catch { return ""; } };
 const CONSTS = ["BARO_UNITS", "FUEL_ROLES", "TANK_CEILING", "TANK_LABEL_MAX"];
 const FNS = ["normalizeProfile", "newTankId", "migrateFuel", "adoptTankValues",
   "syncTankValues", "addTank", "removeTank", "setTankSlot", "fuelCheck",
-  "cylinderExpand", "buildIni"];
+  "buildIni"];
 // buildIni reads the page's globals: the project label, the saved version,
 // today's date and the profile. Stub all four so two compiles can be compared.
-const page = new Function("$", "PROJECT", "savedVersion", "Date", "labelFitError",
+const page = new Function("$", "PROJECT", "savedVersion", "Date", "labelFitError", "buildAircraftIni",
   CONSTS.map(n => pick(extractConst, n)).join("\n") + "\n"
   + FNS.map(n => pick(extractFunction, n)).join("\n") + "\n"
   + "let profile;\n"
@@ -37,7 +38,7 @@ const page = new Function("$", "PROJECT", "savedVersion", "Date", "labelFitError
   + ", ini(p) { profile = p; return buildIni(); },"
   + CONSTS.map(n => `${n}: typeof ${n} === "undefined" ? undefined : ${n}`).join(", ") + " };")(
   () => ({ textContent: "Test Project" }), "p1", 7,
-  class { toISOString() { return "2026-11-09T00:00:00.000Z"; } }, labelFitError);
+  class { toISOString() { return "2026-11-09T00:00:00.000Z"; } }, labelFitError, buildAircraftIni);
 
 const clone = o => JSON.parse(JSON.stringify(o));
 // The save/load path: PUT body JSON -> D1 TEXT -> GET JSON.parse -> normalize.
