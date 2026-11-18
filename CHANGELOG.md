@@ -16,6 +16,17 @@ and the `configurator`. Semver on the Python package; process in
   labelled `origin: federal`, which the label's definition does not fit.
 
 ### Device updater (pyefis_data)
+- **`config-pull` delivers `aircraft.ini` to fix-gateway, in maintenance mode
+  only (ACINI1, AER-5993).** The served `fixgw:` block now carries the
+  aircraft profile's values as `aircraft_ini` with its sha256. The boot pull
+  checks and stages it. `config-pull --maintenance`, run on the ground, dry-runs
+  it through fix-gateway's own loader (a key the database lacks would stop
+  fix-gateway), installs it at `init_data/aircraft.ini`, lists it last in
+  `default.yaml`, restarts fix-gateway and puts both files back if it does not
+  stay up. Every fix-gateway restart `config-pull` makes now needs
+  `--maintenance`, the ownship address's included: the boot pull writes the
+  address and fix-gateway reads it when it next starts.
+  See [docs/canfix_configurator.md](docs/canfix_configurator.md) section 7.
 - **The updater trusts a small signing-key set, current and next (AER-5994,
   CERT16).** `PUBLIC_KEYS` in `pyefis_data/cli.py` replaces the single
   embedded key; a catalog signed by any key in it verifies, one signed by any
@@ -47,6 +58,15 @@ and the `configurator`. Semver on the Python package; process in
   No plates pack is published yet. See [docs/plates.md](docs/plates.md).
 
 ### Configurator and device config
+- **`GET /device/config` serves the compiled `aircraft.ini` (ACINI1,
+  AER-5993).** When the profile holds a value, the `fixgw:` block carries it
+  as `aircraft_ini` with `aircraft_ini_sha256`, and the ETag covers it, so a
+  value change is a new config; each device whose profile holds values
+  re-pulls once when this deploys. One compiler (`public/aircraft_ini.js`)
+  serves the pull and the Aircraft page's Download, and its comments are now
+  `#`: fix-gateway read a `;` header line holding an `=` (a project named
+  `A=B`) as a key and stopped at startup. Values that are not finite numbers,
+  and keys that are not plain FIX keys, are left out.
 - **The Aircraft page footer names what `config-pull` sends (AER-5900, #218).**
   It said the ownship identity was not sent to the aircraft; it has been
   since P3f. It now lists the altimeter setting units, the ownship address
