@@ -986,11 +986,23 @@ def test_cli_restarts_fixgw_on_change_and_rolls_it_back_on_a_crash(tmp_path, mon
     calls = []
     monkeypatch.setattr(config_pull, "restart_fixgw",
                         lambda: calls.append(_merged(fcd).get("ownship_address")) or True)
+    monkeypatch.setattr(config_pull, "restart_fixgw_and_verify",
+                        lambda: calls.append(_merged(fcd).get("ownship_address"))
+                        or config_pull.RESTART_OK)
     monkeypatch.setattr(config_pull, "restart_pyefis", lambda **kw: True)
     monkeypatch.setattr(config_pull, "restart_and_verify",
                         lambda **kw: config_pull.RESTART_OK)
+    # The boot pull (no --maintenance) writes the address but never restarts
+    # fix-gateway (ACINI1: fix-gateway restarts in maintenance mode only).
+    boot = argparse.Namespace(config=str(data), configurator_url=None,
+                              no_restart=False, wait_online=0, maintenance=False)
+    assert cli.cmd_config_pull(boot) == 0
+    assert calls == []
+    assert _merged(fcd)["ownship_address"] == "AB4549"
+    (cd / ".panel_prefs.yaml").unlink()                  # start the rest over
+    (fcd / "preferences.yaml.custom").write_text(_FIXGW_CUSTOM, encoding="utf-8")
     args = argparse.Namespace(config=str(data), configurator_url=None,
-                              no_restart=False, wait_online=0)
+                              no_restart=False, wait_online=0, maintenance=True)
     assert cli.cmd_config_pull(args) == 0
     assert calls == ["AB4549"]                       # restarted with the new key
     # Same address again (a panel-only change): no fix-gateway restart.
