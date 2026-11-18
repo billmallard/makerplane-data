@@ -368,8 +368,9 @@ def gate_one(store, live: Manifest | None, entry: PackEntry, path: str | Path, *
 
 def put_record(store, g: Gated) -> PackEntry:
     """Upload an accepted record and bind it to its entry (``report_url``,
-    ``report_sha256``, ``origin``, ``build_commit``). Call only after every
-    pack in the publish was accepted, and before the manifest is signed."""
+    ``report_sha256``, ``origin``, ``build_commit``, ``build_run_url``,
+    ``pyefis_commit``). Call only after every pack in the publish was
+    accepted, and before the manifest is signed."""
     if not g.accepted:
         raise GateError(f"{g.entry.id} {g.entry.cycle} was refused; it has no record to bind")
     g.key = report_key(g.entry.id, g.entry.cycle)
@@ -378,5 +379,8 @@ def put_record(store, g: Gated) -> PackEntry:
     e.report_url = report_url_for(e)
     e.report_sha256 = _sha256_bytes(g.raw)
     e.origin = g.record.get("origin") or ""
-    e.build_commit = (g.record.get("built") or {}).get("commit") or ""
+    built = g.record.get("built") or {}
+    e.build_commit = built.get("commit") or ""
+    e.build_run_url = built.get("run_url") or ""
+    e.pyefis_commit = (built.get("builder_refs") or {}).get("pyEfis") or ""
     return e

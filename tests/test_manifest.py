@@ -248,10 +248,12 @@ def test_notice_is_the_adopted_short_text_verbatim():
 def test_testing_visibility_fields_default_empty_and_roundtrip():
     e = _entry()
     assert (e.report_url, e.report_sha256, e.origin, e.notice,
-            e.build_commit) == ("", "", "", "", "")
+            e.build_commit, e.build_run_url, e.pyefis_commit) == ("",) * 7
     full = _entry(report_url="https://x/reports/navdata-conus/2606/report.json",
                   report_sha256="b" * 64, origin="federal", notice=NOTICE,
-                  build_commit="c" * 40)
+                  build_commit="c" * 40,
+                  build_run_url="https://github.com/o/r/actions/runs/123",
+                  pyefis_commit="d" * 40)
     m = Manifest.new(GEN)
     m.upsert(full)
     assert Manifest.from_bytes(m.to_bytes()).packs[0] == full

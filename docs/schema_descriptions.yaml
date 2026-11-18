@@ -54,6 +54,8 @@ manifest.report_sha256: "SHA-256 of that test record."
 manifest.origin: "Where the data came from: federal, community or user-supplied. A pedigree label, not a score."
 manifest.notice: "The standing use notice."
 manifest.build_commit: "The makerplane-data commit that built the pack."
+manifest.build_run_url: "The workflow run that built and signed the pack; its run id is the last segment. Empty for a local build and for editions published before CERT16."
+manifest.pyefis_commit: "Full pyEfis commit sha whose tools built the pack (pack_meta.pyefis_commit). Empty for packs built by no pyEfis code and for editions published before CERT16."
 
 pack_meta.id: "Stable pack id; equals the manifest entry's id."
 pack_meta.kind: "Pack kind; equals the manifest entry's kind."
