@@ -7,6 +7,12 @@ and the `configurator`. Semver on the Python package; process in
 ## Unreleased
 
 ### Device updater (pyefis_data)
+- **The updater trusts a small signing-key set, current and next (AER-5994,
+  CERT16).** `PUBLIC_KEYS` in `pyefis_data/cli.py` replaces the single
+  embedded key; a catalog signed by any key in it verifies, one signed by any
+  other key is refused and nothing installs. It holds only the current key
+  until the next one is generated. Rotation and revocation:
+  [docs/signing_key.md](docs/signing_key.md).
 - **`auto_update: false` now stops the daily update, and `storage_budget_gb`
   is gone (AER-5896, #196).** Both keys were parsed and did nothing. The timer's
   unit now runs `pyefis-data update --scheduled`, which installs nothing when
@@ -54,6 +60,14 @@ data blocks are carried (VNAV1, #209). It also carries the CERT17 panel-change
 cue on the device and the fuel-tank and preview work in the configurator.
 
 ### Packs (packtools)
+- **Each catalog entry names the run and the pyEfis commit that built it
+  (AER-5994, CERT16).** `build_run_url` and `pyefis_commit` join
+  `build_commit`, read from the pack's test record. Additive, empty for
+  editions published before them; no manifest version bump.
+- **The signing key is read only from the `signing` Environment (AER-5994,
+  CERT16).** Every job that signs names it, and the Environment allows `main`
+  only. The Environment and its secret are set by a repository admin
+  ([docs/signing_key.md](docs/signing_key.md), step 1).
 - **The procedures pack carries the FAS data blocks (VNAV1, AER-5623).** A new
   `fas_blocks` table holds every CIFP Path Point (`PP`) record: the LP/LPV
   Final Approach Segment block, every field, attached to its approach. The
