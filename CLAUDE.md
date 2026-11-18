@@ -105,6 +105,7 @@ pyefis-data import <dir>                              # USB path, same verify co
 pyefis-data verify [path]                            # check a manifest signature
 pyefis-data pair <code>                              # redeem a configurator claim code -> device token
 pyefis-data config-pull [--wait-online N]            # pull this device's panel, install, restart pyEfis, roll back on crash
+                        [--maintenance]              # on the ground: install a staged aircraft.ini, restart fix-gateway
 pyefis-data panel-ack [--yes --hash H]               # acknowledge a panel change a pull made (clears the Data Status cue)
 pyefis-data advisories [--enable|--disable|--check]  # opt-in signed safety advisory feed, matched on the device
 ```

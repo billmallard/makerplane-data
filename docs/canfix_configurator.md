@@ -236,6 +236,30 @@ YAML (claim-code pairing -> device token -> signed pack ->
   staged, atomic move — a bad download never disturbs the flying
   config.
 
+**As built (ACINI1, AER-5993, 2026-11-18).** Where it differs from the plan
+above:
+
+- The "config pack" is the served panel YAML from `GET /device/config`. The
+  file rides its `fixgw:` block as `aircraft_ini` with `aircraft_ini_sha256`
+  ([panel_config_format.md](panel_config_format.md)). That channel is
+  token-authorised HTTPS and **not minisign-signed**: the hash catches a file
+  mangled in the YAML layer or a torn write on the device, not a forged
+  server. Signing the config channel is its own item.
+- No timestamp or profile version in the header: either would make a save
+  that changes no value a new file, so a fixgw restart.
+- The on-ground guard (Bill's ruling, packet AER-5973: ground/maintenance mode
+  only, as AVI-CON-4 requires of every config-write path) is **explicit**:
+  `pyefis-data config-pull --maintenance`, run by a person on the ground. The
+  boot pull stages the file and changes nothing fixgw reads. Every fixgw
+  restart config-pull makes, the ownship one included, takes the same gate.
+  An automatic ground test (airspeed or ground speed below some value, a
+  weight-on-wheels key) would need a threshold that has not been chosen.
+- Before install the staged file is dry-run through fixgw's own database and
+  init-file loader, by fixgw's interpreter. One key its database lacks, or a
+  value its type refuses, is an exception that stops fixgw at startup (and
+  `Restart=always` loops it). After the restart fixgw must keep one PID and
+  stay active, or the ini and `default.yaml` are put back.
+
 This makes the last un-versioned deployed state (fixgw config's
 aircraft numbers) versioned, signed and reproducible.
 

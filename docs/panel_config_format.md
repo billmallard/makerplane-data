@@ -217,7 +217,50 @@ fixgw:
 - fix-gateway (`fixgw` or `fixgateway` unit, user or system scope) is restarted
   only when its file changed. Its override is in the panel snapshot, so a
   crashed install puts it back (or removes a file the install created) and
-  restarts fix-gateway again.
+  restarts fix-gateway again. Since ACINI1 that restart happens only in
+  maintenance mode (below); the boot pull writes the line, and fix-gateway
+  reads it when it next starts.
+
+### fix-gateway block: aircraft.ini (ACINI1)
+
+When the profile holds at least one parameter value, the `fixgw:` block also
+carries the compiled `aircraft.ini` (the file the Aircraft page's Download
+button writes, from the same compiler, `public/aircraft_ini.js`) and its hash:
+
+```yaml
+fixgw:
+  aircraft_ini_sha256: "8f2bc3d6..."   # sha256 of the text below, 64 hex digits
+  aircraft_ini: |
+    # aircraft.ini -- compiled by the pyEfis configurator from this aircraft's profile.
+    ...
+
+    IAS.Vne = 139
+    IAS.Vs0 = 45
+```
+
+- Lines are blank, `#` comments, or `KEY.aux = <number>`: fix-gateway's
+  loader skips only `#` lines and reads any other line holding `=` as a key.
+  The file ends in one newline and never a blank line, so the literal block
+  reads back byte for byte. No date or profile version is in the header, so
+  a save that changes no value is the same file.
+- The ETag hash covers it: a value change is a new config. Each device whose
+  profile holds values re-pulls once when this ships. A profile with no values
+  sends no file and its ETag is unchanged; an absent key means "not managed",
+  so the device keeps whatever `aircraft.ini` it has.
+- On the device, `config-pull` checks the text against the hash and line by
+  line, and stages it as `init_data/aircraft.ini.pending`. Nothing fix-gateway
+  reads changes until **maintenance mode**, `config-pull --maintenance`: a
+  person, on the ground, says so (AVI-CON-4; Bill's ruling on AER-5973). Then
+  the staged file is dry-run through fix-gateway's own database and init-file
+  loader, run by fix-gateway's interpreter: one key the database lacks, or a
+  value its type refuses (`21.5` for an integer key), stops fix-gateway at
+  startup. A file it refuses is dropped and reported. Otherwise it is written
+  as `init_data/aircraft.ini`, then listed last under `initialization files`
+  in `default.yaml` (edited as text, idempotent, re-parsed), both writes
+  fsynced. fix-gateway is restarted and must keep one PID and stay active;
+  if it does not, both files are put back and it is restarted on those.
+- Both files are in the panel snapshot, so a new panel that crashes pyEfis
+  puts them back too.
 - The preview endpoint returns the block as `fixgw` beside `preferences`.
 
 ### Aircraft references: a gauge bound to a tank (FUEL1 F3)
