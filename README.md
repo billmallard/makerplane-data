@@ -145,7 +145,8 @@ python -m packtools.run_cyclical --no-upload --only airports-conus \
 `packtools.manifest` with the build side, so verify can never drift from sign.
 
 - **`config.py`** — `~/.makerplane/pyefis/data.yaml` (base_url, packs, root,
-  auto_update, stage_next). Construct-never-raises: a missing/bad config yields
+  auto_update, stage_next; `auto_update: false` makes the timer's
+  `update --scheduled` a no-op). Construct-never-raises: a missing/bad config yields
   defaults, never an exception.
 - **`core.py`** — `Updater` with the safety contract: the manifest signature is
   verified (embedded public key) *before* it's trusted or cached; a pack is

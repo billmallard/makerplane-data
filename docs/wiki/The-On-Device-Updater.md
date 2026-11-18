@@ -110,9 +110,15 @@ only the tiles that no remaining region provides are removed. For every pack,
 version folders other than the current and the staged one are deleted after
 each update.
 
-`auto_update` and `storage_budget_gb` are read from the file but have no effect.
-The daily timer runs regardless of `auto_update`, and no storage limit is
-applied.
+`auto_update: false` stops the daily timer's update. The timer runs
+`pyefis-data update --scheduled`, and a scheduled run with `auto_update` off
+installs nothing and exits 0. An update started by hand, by the picker or by
+a USB import still runs. A device installed before this change keeps
+updating daily until its `pyefis-data.service` is recopied from
+`pyefis_data/systemd/`.
+
+There is no storage limit. You control how much is downloaded by choosing
+packs and regions; the picker shows each pack's size and the free space.
 
 ## Pack status
 
@@ -209,7 +215,7 @@ and each file's header says where it goes.
 | Unit | Kind | What it does |
 |---|---|---|
 | `pyefis-data.timer` | user | Daily, with up to an hour's random delay, and catches up after a missed day (`Persistent=true`) |
-| `pyefis-data.service` | user | `pyefis-data update`, then writes `status.json` |
+| `pyefis-data.service` | user | `pyefis-data update --scheduled` (skipped when `auto_update` is false), then writes `status.json` |
 | `pyefis-config-pull.service` | user | At boot, after pyEfis starts: `pyefis-data config-pull --wait-online 60`. No timer, so the display is never restarted in flight |
 | `99-makerplane-data.rules` | udev | Starts the USB import when a partition with a filesystem is plugged in |
 | `makerplane-usb-import@.service` | system | Runs `usb-import.sh` for that partition |
