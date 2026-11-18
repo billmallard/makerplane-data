@@ -689,6 +689,7 @@ def _list_checks(kind: str | None) -> int:
             print(f"  {c.id:<14} {flag:<13} {c.title}")
             print(f"  {'':<14} expected:     {c.expected}")
             print(f"  {'':<14} cannot catch: {c.cannot_catch}")
+            print(f"  {'':<14} protects:     {', '.join(c.protects)}")
     return 0
 
 

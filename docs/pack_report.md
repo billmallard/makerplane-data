@@ -335,6 +335,9 @@ implies, not just a non-empty grid.
 `packtool report --list-checks` prints every kind's checks with their
 expectation and `cannot_catch` line; `packtools/report.py` is the source.
 Thresholds are named constants at the top of that file.
+Each check also names the DO-200B data quality attributes it protects
+(`protects:`); the per-kind matrix, and the attributes no check covers, are
+in [data_quality_requirements.md](data_quality_requirements.md).
 
 **QA reviews the definitions and thresholds (AER-4102)** before any of them
 gates a publish (plan section 4.4). The author proposes; QA decides what to
