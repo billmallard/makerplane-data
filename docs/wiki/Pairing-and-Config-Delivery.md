@@ -76,20 +76,26 @@ active aircraft profile
     units:
       Pressure: inHg      # or hPa
   ```
-- **A `fixgw:` block**, when the profile's ownship identity yields an address:
+- **A `fixgw:` block**, when the profile's ownship identity yields an address,
+  or the profile holds any parameter value:
 
   ```yaml
   fixgw:
     ownship_address: "AB4549"   # always quoted, six upper-case hex digits
+    aircraft_ini_sha256: "8f2bc3d6..."
+    aircraft_ini: |
+      # aircraft.ini -- compiled by the pyEfis configurator ...
+
+      IAS.Vne = 139
   ```
 
 A panel that already has its own top-level `preferences:` or `fixgw:` key does
 not get a second one. The ETag is `"v<version>"` when none of the three
 applies, otherwise `"v<version>-p<hash>"`, the hash covering the blocks and the
-resolved tank bindings. So changing only the unit, the address, or a bound
-tank's label or slot is a new config, while editing a profile value the device
-does not receive is not. Everything else in the profile reaches the aircraft
-only through `aircraft.ini`; see [[Aircraft Parameters]].
+resolved tank bindings. So changing the unit, the address, a bound tank's
+label or slot, or any parameter value is a new config, while a save that
+changes none of them is not. The parameter values arrive as `aircraft.ini`;
+see [[Aircraft Parameters]].
 
 **Download YAML** in the Panel Editor (`GET /api/devices/:id/config/served`)
 returns the last saved version exactly as the device's next pull would
@@ -104,7 +110,15 @@ catalog, the panel is not signed.
 pyefis-data config-pull                    # pull, install, restart pyEfis
 pyefis-data config-pull --no-restart       # pull and install only
 pyefis-data config-pull --wait-online 60   # retry every 3 s for up to 60 s with no network
+pyefis-data config-pull --maintenance      # on the ground: also apply fix-gateway changes
 ```
+
+**Maintenance mode.** fix-gateway is the aircraft's data bus, so `config-pull`
+restarts it only with `--maintenance`: you are on the ground and say so. The
+boot pull never does. A new `aircraft.ini` waits, staged, until a
+maintenance-mode pull (one that finds the panel up to date still applies it),
+and a new ownship address is written but read only when fix-gateway next
+starts.
 
 It runs once at every boot, after pyEfis has started, from
 `pyefis-config-pull.service` (`config-pull --wait-online 60`). There is no
@@ -149,7 +163,16 @@ shipped files are never modified, and every write is atomic.
   that key changed. fix-gateway's stratux connection uses the address when
   its own `ownship_address` setting is blank. A line you changed by hand is
   never removed. fix-gateway (unit `fixgw` or `fixgateway`) is restarted only
-  when the file changed, and a rollback restores the file too.
+  when the file changed, in maintenance mode, and a rollback restores the
+  file too.
+- **aircraft.ini:** the `fixgw:` block's file is checked against its sha256
+  and staged as `init_data/aircraft.ini.pending` in fix-gateway's config
+  folder. In maintenance mode it is first run through fix-gateway's own
+  loader, which refuses a key its database lacks or a value of the wrong
+  type: either one would stop fix-gateway at startup. Then it is installed
+  as `init_data/aircraft.ini` and listed last under `initialization files`
+  in `default.yaml`, once, keeping every other line. fix-gateway is
+  restarted and checked; if it does not stay up, both files are put back.
 - **The change record:** a pull that changed the panel is recorded for the
   Data Status screen until someone acknowledges it; see
   [[The On-Device Updater]].
