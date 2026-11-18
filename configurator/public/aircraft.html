@@ -116,13 +116,15 @@
   </div>
   <div id="groups"></div>
   <p class="footer-note">Aircraft Parameter Profile — schema from fix-gateway
-    (<span id="schema-ver"></span>). Delivered today by downloading
-    <code>aircraft.ini</code> into the aircraft's
-    <code>~/makerplane/fixgw/config/init_data/</code> and listing it last under
-    <code>initialization files</code>; device push arrives with config
-    delivery (Phase C). These settings are the exception: they reach every
-    paired display of this aircraft with its next
-    <code>pyefis-data config-pull</code>.
+    (<span id="schema-ver"></span>). These settings reach every paired
+    display of this aircraft with its next <code>pyefis-data config-pull</code>.
+    <span data-device-pull="aircraft_ini">The parameter values, as
+    <code>aircraft.ini</code> (the same file Download writes): config-pull
+    checks it against fix-gateway's database, installs it in
+    <code>~/makerplane/fixgw/config/init_data/</code> listed last under
+    <code>initialization files</code>, and restarts fix-gateway to apply it
+    only in maintenance mode (<code>pyefis-data config-pull
+    --maintenance</code>, on the ground). Until then it waits, staged.</span>
     <span data-device-pull="units">The altimeter setting units, which every
     screen starts in.</span>
     <span data-device-pull="ownship_address">The ownship identity: the
