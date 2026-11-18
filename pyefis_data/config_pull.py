@@ -53,6 +53,26 @@ removes only a line config-pull wrote. fix-gateway's file is snapshotted with
 the panel, and a crashed install restores it. fix-gateway is restarted only
 when its file changed.
 
+**aircraft.ini** (ACINI1, AER-5993; docs/canfix_configurator.md section 7):
+the ``fixgw:`` block may carry ``aircraft_ini``, the aircraft profile's values
+compiled into fix-gateway's init_data dialect, with ``aircraft_ini_sha256``.
+The text is checked against its hash and line by line, then staged as
+``init_data/aircraft.ini.pending``. Installing it is a fix-gateway change, so
+it happens only in maintenance mode (``config-pull --maintenance``: a person
+on the ground says so; Bill's ruling on AER-5973, roadmap AVI-CON-4). There
+the staged file is dry-run through fix-gateway's own database and init-file
+loader, since one key or value its database refuses stops fix-gateway at
+startup, then written as ``init_data/aircraft.ini``, listed last under
+``initialization files`` in ``default.yaml`` (idempotent, edited as text and
+re-parsed, like the ownship line), and fix-gateway is restarted and checked.
+If fix-gateway does not stay up, both files are put back. Outside maintenance
+mode nothing fix-gateway reads changes; the staged file waits for the next
+``config-pull --maintenance``. Both writes are fsynced: a ``default.yaml``
+lost to a power cut stops fix-gateway.
+
+Every fix-gateway restart, including the one the ownship address asks for,
+happens only in maintenance mode.
+
 The shipped config files are never modified. Before each install the current
 panel state is snapshotted to ``.panel_backup/`` so a config that crashes pyEfis
 is rolled back to the last working panel. Every write is atomic (temp +
@@ -60,6 +80,7 @@ is rolled back to the last working panel. Every write is atomic (temp +
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -91,6 +112,19 @@ _FIXGW_KEY = "ownship_address"
 _FIXGW_BACKUP = "fixgw/preferences.yaml.custom"
 _FIXGW_MARK = ("# ownship_address: set by pyefis-data config-pull from the "
                "configurator's aircraft profile.")
+
+# aircraft.ini (ACINI1): where it goes, how default.yaml lists it, where it
+# waits for maintenance mode, and its snapshot copies under .panel_backup/.
+_FIXGW_MAIN = "default.yaml"
+_INI_REL = "init_data/aircraft.ini"
+_INI_PENDING_REL = "init_data/aircraft.ini.pending"
+_INI_ENTRY = "{CONFIG}/init_data/aircraft.ini"
+_INI_BACKUP = "fixgw/aircraft.ini"
+_MAIN_BACKUP = "fixgw/default.yaml"
+# The only lines the configurator's compiler writes (public/aircraft_ini.js):
+# blank, '#' comment, or a plain FIX key (with aux) and a number.
+_INI_LINE = re.compile(
+    r"[A-Za-z0-9]+(\.[A-Za-z0-9]+)? = [-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?")
 
 # Standard on-device SVS data layout (the makerplane-data updater installs here).
 # Injected into a virtual_vfr instrument so it renders terrain, mirroring the
@@ -195,6 +229,28 @@ def _atomic_write(path: Path, text: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
+
+
+def _durable_write(path: Path, text: str) -> None:
+    """_atomic_write that also survives a power cut: fsync the temp file
+    before the rename and the directory after it (docs: crash consistency).
+    Used for the fix-gateway files, where a lost or empty default.yaml stops
+    fix-gateway at the next start."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    try:
+        fd = os.open(path.parent, os.O_RDONLY)
+    except OSError:
+        return                                # no directory fsync on this OS
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _device_default_screen(cd: Path) -> str:
@@ -392,19 +448,29 @@ def _snapshot(cd: Path, fcd: Path | None = None) -> None:
         _atomic_write(prepanel, custom.read_text("utf-8"))
 
 
+def snapshot(cd: Path | None = None, fcd: Path | None = None) -> None:
+    """Snapshot the working panel and fix-gateway files now, for a change
+    made outside install_config (a staged aircraft.ini installed on a pull
+    that found the panel up to date)."""
+    _snapshot(cd or config_dir(), fcd or fixgw_config_dir())
+
+
 def _snapshot_fixgw(bk: Path, fcd: Path | None) -> None:
-    """Add fix-gateway's preferences.yaml.custom to the snapshot: its text, or
+    """Add the fix-gateway files config-pull writes (preferences.yaml.custom,
+    init_data/aircraft.ini, default.yaml) to the snapshot: each one's text, or
     an ``absent`` marker when there is none, so rollback can remove a file the
     failed install created. Nothing when fix-gateway has no config dir here."""
     if fcd is None or not fcd.is_dir():
         return
-    src = fcd / _FIXGW_CUSTOM
-    dst = bk / _FIXGW_BACKUP
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if src.exists():
-        dst.write_text(src.read_text("utf-8"), encoding="utf-8")
-    else:
-        (bk / (_FIXGW_BACKUP + ".absent")).write_text("", encoding="utf-8")
+    for rel, saved in ((_FIXGW_CUSTOM, _FIXGW_BACKUP), (_INI_REL, _INI_BACKUP),
+                       (_FIXGW_MAIN, _MAIN_BACKUP)):
+        src = fcd / rel
+        dst = bk / saved
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if src.exists():
+            dst.write_text(src.read_text("utf-8"), encoding="utf-8")
+        else:
+            (bk / (saved + ".absent")).write_text("", encoding="utf-8")
 
 
 def _load_custom(cd: Path) -> dict:
@@ -590,6 +656,309 @@ def _apply_fixgw(cd: Path, fcd: Path | None, block) -> dict:
     return result
 
 
+def _served_ini(block):
+    """The ``aircraft_ini`` text of a served ``fixgw:`` block.
+
+    None when the block is absent or carries no file (the profile does not
+    manage it); ``(_MALFORMED, reason)`` when the text is not a string, does
+    not match ``aircraft_ini_sha256``, or holds a line the configurator's
+    compiler never writes. Never raises."""
+    if block is None:
+        return None
+    if not isinstance(block, dict):
+        return (_MALFORMED, "fixgw block is not a mapping")
+    text = block.get("aircraft_ini")
+    if text is None:
+        return None
+    want = block.get("aircraft_ini_sha256")
+    if not isinstance(text, str) or not isinstance(want, str):
+        return (_MALFORMED, "aircraft_ini or its sha256 is not a string")
+    if hashlib.sha256(text.encode("utf-8")).hexdigest() != want.strip().lower():
+        return (_MALFORMED, "aircraft_ini does not match its sha256")
+    bad = _ini_bad_line(text)
+    if bad:
+        return (_MALFORMED, f"aircraft_ini line not in the init_data dialect: {bad!r}")
+    return text
+
+
+def _ini_bad_line(text: str) -> str | None:
+    """The first line of ``text`` that is not blank, a '#' comment, or a
+    ``KEY[.aux] = <number>`` assignment; None when every line is one."""
+    for line in text.splitlines():
+        s = line.strip()
+        if s and not s.startswith("#") and not _INI_LINE.fullmatch(s):
+            return line
+    return None
+
+
+def _ini_sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _enrol_ini(text: str) -> str | None:
+    """``default.yaml`` text with ``{CONFIG}/init_data/aircraft.ini`` listed
+    LAST under ``initialization files`` -- last wins, so the profile
+    overrides the shipped defaults and custom.ini without touching them.
+
+    Returns ``text`` itself when it is already so (idempotent), the edited
+    text otherwise, or None when the file cannot be edited safely. Edited as
+    text so every other line and comment is kept; an entry already listed
+    elsewhere is moved, and the result must re-parse to exactly the old
+    mapping with only that list changed."""
+    import yaml
+    try:
+        doc = yaml.safe_load(text) if text.strip() else {}
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    files = doc.get("initialization files")
+    if files is None:
+        files = []
+    if not (isinstance(files, list) and all(isinstance(f, str) for f in files)):
+        return None
+    want_files = [f for f in files if f != _INI_ENTRY] + [_INI_ENTRY]
+    if files == want_files:
+        return text
+    want = dict(doc)
+    want["initialization files"] = want_files
+
+    lines = text.splitlines(keepends=True)
+    head = [i for i, l in enumerate(lines)
+            if re.match(r"initialization files[ \t]*:[ \t]*(#.*)?$", l.rstrip("\r\n"))]
+    entry = f'"{_INI_ENTRY}"'
+    if not head:
+        if "initialization files" in doc:
+            return None                       # a form this edit does not know
+        new = "".join(lines)
+        if new and not new.endswith("\n"):
+            new += "\n"
+        new += f"initialization files:\n  - {entry}\n"
+    else:
+        h = head[0]
+        items, end = [], h + 1
+        while end < len(lines):
+            s = lines[end].strip()
+            if s and not s.startswith("#") and not re.match(r"[ \t]*- ", lines[end]):
+                break
+            if re.match(r"[ \t]*- ", lines[end]):
+                items.append(end)
+            end += 1
+        ours = []
+        for i in items:
+            try:
+                if yaml.safe_load(lines[i].strip()[2:]) == _INI_ENTRY:
+                    ours.append(i)
+            except Exception:
+                return None
+        indent = re.match(r"([ \t]*)- ", lines[items[0]]).group(1) if items else "  "
+        keep = [i for i in items if i not in ours]
+        at = (keep[-1] + 1) if keep else h + 1
+        new_lines = list(lines)
+        if not new_lines[at - 1].endswith("\n"):
+            new_lines[at - 1] += "\n"
+        new_lines.insert(at, f"{indent}- {entry}\n")
+        for i in sorted(ours, reverse=True):
+            new_lines.pop(i if i < at else i + 1)
+        new = "".join(new_lines)
+    try:
+        ok = yaml.safe_load(new) == want
+    except Exception:
+        ok = False
+    return new if ok else None
+
+
+# Run by fix-gateway's own interpreter: build its database from its own
+# config the way fixgw/server.py does at startup, then load every init file
+# it lists, with the live aircraft.ini swapped for the staged one. Prints one
+# line per assignment fix-gateway would refuse (each one would stop it).
+_DRY_RUN = r"""
+import os, sys, logging
+logging.disable(logging.CRITICAL)
+cfg_file, staged, live = sys.argv[1:4]
+bad = 0
+try:
+    import yaml
+    from fixgw import cfg, database
+    path = os.path.dirname(cfg_file)
+    def merge(a, b):
+        for k, v in (b or {}).items():
+            if isinstance(v, dict) and isinstance(a.get(k), dict):
+                merge(a[k], v)
+            else:
+                a[k] = v
+    with open(os.path.join(path, "preferences.yaml")) as f:
+        prefs = yaml.safe_load(f) or {}
+    custom = os.path.join(path, "preferences.yaml.custom")
+    if os.path.exists(custom):
+        with open(custom) as f:
+            merge(prefs, yaml.safe_load(f))
+    config = cfg.from_yaml(cfg_file, preferences=prefs)
+    database.init(config["database file"].format(CONFIG=path))
+    files = [f.format(CONFIG=path) for f in (config.get("initialization files") or [])]
+    files = [f for f in files if os.path.realpath(f) != os.path.realpath(live)] + [staged]
+    for fn in files:
+        with open(fn) as f:
+            for n, line in enumerate(f, 1):
+                l = line.strip()
+                if l and l[0] != "#":
+                    x = l.split("=")
+                    if len(x) >= 2:
+                        try:
+                            database.write(x[0].strip(), x[1].strip())
+                        except Exception as e:
+                            bad += 1
+                            print("%s:%d: %s (%s: %s)" % (os.path.basename(fn), n, l,
+                                                          type(e).__name__, e))
+except Exception as e:
+    print("dry run could not run: %s: %s" % (type(e).__name__, e))
+    sys.stdout.flush()
+    os._exit(2)
+sys.stdout.flush()
+os._exit(1 if bad else 0)
+"""
+
+
+def _fixgw_python(scope: str, unit: str) -> tuple[str, str | None] | None:
+    """fix-gateway's interpreter (the shebang of the unit's ExecStart script,
+    or the script itself when it is python) and the unit's WorkingDirectory.
+    None when it cannot be found. Never raises."""
+    show = lambda prop: _systemctl_show(prop, scope, unit)
+    m = re.search(r"path=(\S+)", show("ExecStart"))
+    if not m:
+        return None
+    exe = m.group(1)
+    # systemd marks a missing-ok WorkingDirectory with a leading "!" (the Pi's
+    # fixgw unit shows "!/home/wpballard"); "-" is the unit-file spelling.
+    workdir = show("WorkingDirectory").lstrip("!-") or None
+    if re.search(r"python[\d.]*$", Path(exe).name):
+        return exe, workdir
+    try:
+        with open(exe, "rb") as f:
+            first = f.readline().decode("utf-8", "replace").strip()
+    except OSError:
+        return None
+    if not first.startswith("#!"):
+        return None
+    interp = first[2:].strip().split()[0]
+    return (interp, workdir) if Path(interp).is_file() else None
+
+
+def validate_ini(fcd: Path, staged: Path) -> tuple[bool | None, str]:
+    """Dry-run ``staged`` through fix-gateway's own loader (see _DRY_RUN).
+
+    ``(True, "")`` when fix-gateway would load it, ``(False, why)`` when it
+    would refuse a line (and so stop at startup), ``(None, why)`` when the
+    check could not run here -- no fix-gateway service, or its interpreter
+    cannot be found. Never raises."""
+    found = _fixgw_unit()
+    if found is None:
+        return (None, "no fix-gateway service found to check aircraft.ini against")
+    py = _fixgw_python(found[1], found[0])
+    if py is None:
+        return (None, "could not find fix-gateway's python to check aircraft.ini")
+    try:
+        out = subprocess.run(
+            [py[0], "-c", _DRY_RUN, str(fcd / _FIXGW_MAIN), str(staged), str(fcd / _INI_REL)],
+            cwd=py[1], capture_output=True, text=True, timeout=120)
+    except Exception as e:
+        return (None, f"fix-gateway dry run failed to start: {e}")
+    msg = " | ".join(l for l in out.stdout.splitlines() if l.strip())[-600:]
+    if out.returncode == 0:
+        return (True, "")
+    if out.returncode == 1:
+        return (False, "fix-gateway would refuse: " + msg)
+    return (None, msg or f"fix-gateway dry run exited {out.returncode}")
+
+
+def _stage_ini(cd: Path, fcd: Path, text: str) -> None:
+    _durable_write(fcd / _INI_PENDING_REL, text)
+    _update_record(cd, "fixgw_aircraft_ini_pending", _ini_sha(text))
+
+
+def _drop_pending(cd: Path, fcd: Path) -> None:
+    (fcd / _INI_PENDING_REL).unlink(missing_ok=True)
+    if "fixgw_aircraft_ini_pending" in _load_record(cd):
+        _update_record(cd, "fixgw_aircraft_ini_pending", None)
+
+
+def pending_ini(cd: Path | None = None, fcd: Path | None = None) -> str | None:
+    """The sha256 of the aircraft.ini staged for maintenance mode, or None.
+    A staged file whose text no longer matches the recorded hash (a torn
+    write) does not count. Never raises."""
+    cd = cd or config_dir()
+    fcd = fcd or fixgw_config_dir()
+    want = _load_record(cd).get("fixgw_aircraft_ini_pending")
+    text = _read_text(fcd / _INI_PENDING_REL)
+    if isinstance(want, str) and text is not None and _ini_sha(text) == want:
+        return want
+    return None
+
+
+def _apply_aircraft_ini(cd: Path, fcd: Path | None, block, maintenance: bool) -> dict:
+    """Stage the served aircraft.ini, and in maintenance mode install it.
+    Returns ``{"state": ..., "changed": bool}`` (plus ``sha256``, and a
+    ``skipped`` reason when nothing could be done). ``state`` is None (not
+    managed), ``unchanged``, ``pending`` (staged, waiting for maintenance
+    mode) or ``installed``. ``changed`` means fix-gateway must restart."""
+    served = _served_ini(block)
+    if served is None:
+        return {"state": None, "changed": False}
+    if isinstance(served, tuple):
+        return {"state": None, "changed": False, "skipped": served[1]}
+    if fcd is None or not fcd.is_dir():
+        return {"state": None, "changed": False, "skipped": "no fix-gateway config dir"}
+    sha = _ini_sha(served)
+    main = _read_text(fcd / _FIXGW_MAIN)
+    if (_read_text(fcd / _INI_REL) == served and main is not None
+            and _enrol_ini(main) == main):
+        _drop_pending(cd, fcd)
+        return {"state": "unchanged", "changed": False, "sha256": sha}
+    _stage_ini(cd, fcd, served)
+    if not maintenance:
+        return {"state": "pending", "changed": False, "sha256": sha}
+    return install_pending_ini(cd, fcd)
+
+
+def install_pending_ini(cd: Path | None = None, fcd: Path | None = None) -> dict:
+    """Install the staged aircraft.ini (maintenance mode only -- the caller
+    decides that). Same result shape as _apply_aircraft_ini. The staged file
+    is checked against its recorded hash, dry-run through fix-gateway's
+    loader, then written in place and listed in default.yaml, in that order
+    (a default.yaml naming a missing file stops fix-gateway). A file
+    fix-gateway would refuse is dropped; one that could not be checked
+    stays staged."""
+    cd = cd or config_dir()
+    fcd = fcd or fixgw_config_dir()
+    sha = pending_ini(cd, fcd)
+    if sha is None:
+        return {"state": None, "changed": False}
+    staged = fcd / _INI_PENDING_REL
+    ok, why = validate_ini(fcd, staged)
+    if ok is False:
+        _drop_pending(cd, fcd)
+        return {"state": None, "changed": False, "sha256": sha, "skipped": why}
+    if ok is None:
+        return {"state": "pending", "changed": False, "sha256": sha, "skipped": why}
+    main = _read_text(fcd / _FIXGW_MAIN)
+    new_main = _enrol_ini(main) if main is not None else None
+    if new_main is None:
+        return {"state": "pending", "changed": False, "sha256": sha,
+                "skipped": f"could not list aircraft.ini in {fcd / _FIXGW_MAIN} safely"}
+    _durable_write(fcd / _INI_REL, staged.read_text("utf-8"))
+    if new_main != main:
+        _durable_write(fcd / _FIXGW_MAIN, new_main)
+    _drop_pending(cd, fcd)
+    return {"state": "installed", "changed": True, "sha256": sha}
+
+
 def _clear_managed_includes(inc: dict, boot: str) -> None:
     """Drop any include keys a prior install (single OR multi) added, so the two
     shapes can switch cleanly and a shrinking screen set leaves no stale entries.
@@ -603,10 +972,14 @@ def _clear_managed_includes(inc: dict, boot: str) -> None:
 
 
 def install_config(yaml_text: str, cd: Path | None = None,
-                   fcd: Path | None = None, scope: str | None = None) -> dict:
+                   fcd: Path | None = None, scope: str | None = None,
+                   maintenance: bool = False) -> dict:
     """Install a pulled native config ({main, screens}) as the managed panel.
 
-    Returns a summary dict (always with ``boot_screen`` + ``screens``). Raises
+    ``maintenance`` (the aircraft is on the ground and a person said so)
+    lets a served aircraft.ini be installed; without it the file is only
+    staged. Returns a summary dict (always with ``boot_screen`` + ``screens``,
+    and ``aircraft_ini`` from _apply_aircraft_ini). Raises
     ValueError if the config isn't native form (e.g. an old design blob), so the
     caller can tell the user to re-save.
     """
@@ -631,6 +1004,7 @@ def install_config(yaml_text: str, cd: Path | None = None,
     else:
         summary = _install_multi(cd, screens, default_name, boot, prefs, legacy)
     summary["fixgw"] = _apply_fixgw(cd, fcd, doc.get("fixgw"))
+    summary["aircraft_ini"] = _apply_aircraft_ini(cd, fcd, doc.get("fixgw"), maintenance)
     summary["config_dir"] = str(cd)
     summary["legacy_overlay"] = legacy
     return summary
@@ -872,28 +1246,55 @@ def restart_pyefis(timeout: int = 120, scope: str | None = None) -> bool:
 _FIXGW_UNITS = ("fixgw", "fixgateway")
 
 
-def restart_fixgw(timeout: int = 60) -> bool | None:
-    """Restart fix-gateway so it re-reads preferences.yaml.custom. True on a
-    successful restart command, False if it failed, None if no fix-gateway
-    unit is loaded in either scope (nothing to restart here). Never raises."""
+def _fixgw_unit() -> tuple[str, str] | None:
+    """``(unit, scope)`` of the loaded fix-gateway service, or None."""
     for unit in _FIXGW_UNITS:
         for scope in ("user", "system"):
             if _unit_loaded(scope, unit):
-                base, env = _systemctl_base(scope)
-                try:
-                    subprocess.run(base + ["restart", unit], check=True, env=env,
-                                   timeout=timeout, stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL)
-                    return True
-                except Exception:
-                    return False
+                return unit, scope
     return None
 
 
-def _systemctl_show(prop: str, scope: str) -> str:
+def restart_fixgw(timeout: int = 60) -> bool | None:
+    """Restart fix-gateway so it re-reads its config. True on a successful
+    restart command, False if it failed, None if no fix-gateway unit is
+    loaded in either scope (nothing to restart here). Never raises.
+
+    The caller restarts fix-gateway only in maintenance mode."""
+    found = _fixgw_unit()
+    if found is None:
+        return None
+    base, env = _systemctl_base(found[1])
+    try:
+        subprocess.run(base + ["restart", found[0]], check=True, env=env,
+                       timeout=timeout, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
+
+
+def restart_fixgw_and_verify(wait_s: int = 10) -> str | None:
+    """Restart fix-gateway and say whether it stayed up: RESTART_OK,
+    RESTART_CRASHED (it exited and systemd respawned it, or it is not
+    active -- an init file it refuses does exactly this), RESTART_FAILED (the
+    restart command failed), or None (no fix-gateway service here)."""
+    ok = restart_fixgw()
+    if ok is not True:
+        return None if ok is None else RESTART_FAILED
+    unit, scope = _fixgw_unit() or (_FIXGW_UNITS[0], "user")
+    p0 = _systemctl_show("MainPID", scope, unit)
+    time.sleep(wait_s)
+    p1 = _systemctl_show("MainPID", scope, unit)
+    if p0 and p0 != "0" and p0 == p1 and _systemctl_show("ActiveState", scope, unit) == "active":
+        return RESTART_OK
+    return RESTART_CRASHED
+
+
+def _systemctl_show(prop: str, scope: str, unit: str = _UNIT) -> str:
     base, env = _systemctl_base(scope)
     try:
-        out = subprocess.run(base + ["show", _UNIT, "-p", prop, "--value"],
+        out = subprocess.run(base + ["show", unit, "-p", prop, "--value"],
                              env=env, capture_output=True, text=True, timeout=10)
         return out.stdout.strip()
     except Exception:
@@ -986,20 +1387,27 @@ def rollback(cd: Path | None = None) -> str:
 
 
 def rollback_fixgw(cd: Path | None = None, fcd: Path | None = None) -> bool:
-    """Put fix-gateway's preferences.yaml.custom back as the pre-install
-    snapshot holds it (removing one the failed install created). Returns True
-    if the file changed, so the caller knows to restart fix-gateway."""
+    """Put the fix-gateway files config-pull writes back as the pre-install
+    snapshot holds them (removing one the failed install created):
+    default.yaml first, so it never lists an aircraft.ini that is then
+    removed, then aircraft.ini and preferences.yaml.custom. Returns True if
+    any file changed, so the caller knows to restart fix-gateway."""
     cd = cd or config_dir()
     fcd = fcd or fixgw_config_dir()
     bk = cd / _BACKUP_DIR
-    path = fcd / _FIXGW_CUSTOM
-    saved = bk / _FIXGW_BACKUP
-    if saved.exists():
-        text = saved.read_text("utf-8")
-        if not path.exists() or path.read_text("utf-8") != text:
-            _atomic_write(path, text)
-            return True
-    elif (bk / (_FIXGW_BACKUP + ".absent")).exists() and path.exists():
-        path.unlink()
-        return True
-    return False
+    changed = False
+    for rel, saved_rel, write in ((_FIXGW_MAIN, _MAIN_BACKUP, _durable_write),
+                                  (_INI_REL, _INI_BACKUP, _durable_write),
+                                  (_FIXGW_CUSTOM, _FIXGW_BACKUP, _atomic_write)):
+        path = fcd / rel
+        saved = bk / saved_rel
+        if saved.exists():
+            text = saved.read_text("utf-8")
+            if not path.exists() or path.read_text("utf-8") != text:
+                write(path, text)
+                changed = True
+        elif (bk / (saved_rel + ".absent")).exists() and path.exists() \
+                and rel != _FIXGW_MAIN:       # config-pull never creates default.yaml
+            path.unlink()
+            changed = True
+    return changed

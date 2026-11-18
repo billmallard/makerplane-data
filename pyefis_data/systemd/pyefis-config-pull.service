@@ -8,6 +8,10 @@
 # never restart its EFIS to apply a config change in flight. For an on-demand
 # update on the ground, run `pyefis-data config-pull` by hand.
 #
+# This boot pull never restarts fix-gateway: a new aircraft.ini is only staged,
+# and a new ownship address is read when fix-gateway next starts. On the
+# ground, `pyefis-data config-pull --maintenance` applies them (ACINI1).
+#
 # config-pull is safe: it verifies pyEfis comes back up after applying a new
 # config and auto-rolls-back to the last working panel if it doesn't, so a bad
 # config can never brick the boot.
