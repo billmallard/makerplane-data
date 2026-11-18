@@ -6,6 +6,15 @@ and the `configurator`. Semver on the Python package; process in
 
 ## Unreleased
 
+### Packs (packtools)
+- **Every catalogue check names the DO-200B data quality attribute it
+  protects (CERT10b, AER-5978).** `report.PROTECTS`, printed by
+  `packtool report --list-checks`; the per-kind matrix is
+  [docs/data_quality_requirements.md](docs/data_quality_requirements.md), held
+  to the code by a test. The record is unchanged. The matrix shows no check
+  covers resolution in any kind, and the live GLO-30 terrain packs are
+  labelled `origin: federal`, which the label's definition does not fit.
+
 ### Device updater (pyefis_data)
 - **The updater trusts a small signing-key set, current and next (AER-5994,
   CERT16).** `PUBLIC_KEYS` in `pyefis_data/cli.py` replaces the single
