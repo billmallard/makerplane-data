@@ -17,7 +17,9 @@ Type=oneshot
 # Exit 3 = the software notice is not yet accepted for this pyefis-data version;
 # nothing is installed until someone runs `pyefis-data accept` at a terminal
 # (docs/install_acknowledgment.md).
-ExecStart=%h/.local/bin/pyefis-data update
+# --scheduled: skipped when data.yaml sets `auto_update: false`; a manual
+# `pyefis-data update` still runs.
+ExecStart=%h/.local/bin/pyefis-data update --scheduled
 # Refresh the status JSON the EFIS reads (fixed path, not under the data root).
 ExecStartPost=-%h/.local/bin/pyefis-data status --json --out %h/.makerplane/pyefis/status.json
 

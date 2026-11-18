@@ -346,6 +346,12 @@ def cmd_update(args) -> int:
     # data.yaml so the next auto-update tracks the same set (the on-device
     # picker uses this; it turns the picker into the yaml editor). A --root
     # given alongside --only is also persisted (the picker's storage chooser).
+    # --scheduled: this run is the daily timer's (pyefis-data.service). With
+    # `auto_update: false` in data.yaml it installs nothing and exits 0; an
+    # update a person starts (no --scheduled) always runs (#196).
+    if getattr(args, "scheduled", False) and not Config.load(args.config).auto_update:
+        print("auto_update is off in data.yaml; scheduled update skipped")
+        return 0
     if _rollback_dry_run(args):
         return 2
     if not args.dry_run:
@@ -874,6 +880,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="emit JSON progress events on stdout (for the on-device picker)")
     u.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
     u.add_argument("--allow-rollback", action="store_true", help=_ALLOW_ROLLBACK_HELP)
+    u.add_argument("--scheduled", action="store_true",
+                   help="this is the daily timer's run: skip it when data.yaml "
+                        "sets auto_update: false")
     u.add_argument("--software", action="append", metavar="NAME=VERSION",
                    help=_SOFTWARE_HELP)
     u.set_defaults(func=cmd_update)
