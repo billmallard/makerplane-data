@@ -80,14 +80,16 @@ YAML is the path to deleting "compile" entirely (a pyEfis-side task).
 - The bundle = the compiled overlay (a few small YAML files) as a tar.gz.
   Compile + pack on demand in the Worker, cache by version in R2
   (`configs/<user>/<device>/compiled-v<n>.tgz`).
-- **Integrity:** sha256 in the manifest for corruption + change detection only;
-  transport is TLS; the token authorises. **No signing** (see decisions).
+- **Integrity:** transport is TLS; the token authorises. **No signing and no
+  sha256** (see decisions, item 1). As built, change detection is the ETag, not
+  a hash.
 
 ### 4. On-Pi pull + install
 Extend `pyefis_data` with a config capability (one updater, reuse its plumbing):
 1. If a `device_token` is configured, after the navdata pass call
    `GET <configurator>/api/device/config` with the token.
-2. If `version` > installed, download the tgz, verify sha256 (+ sig if signed).
+2. If `version` > installed, download the config. (As built: the YAML body,
+   with no sha256 or sig to verify; see decisions, item 1.)
 3. **Atomic-swap** the overlay into `~/makerplane/pyefis/config` (write to a temp
    tree, back up the previous, `os.replace`), then restart the `pyefis` user service.
 4. Record installed version + `last_pull_at`; surface in `status.json` for the
@@ -112,8 +114,34 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
 ## Decisions (confirmed 2026-06-22)
 1. **No per-device signing.** Unlike the public navdata packs, a device config has
    no authenticity chain worth protecting — it loads and works or it doesn't, and
-   the pull is already token-authorised over TLS. Keep a `sha256` for integrity /
-   corruption / change detection only; no `sig` field.
+   the pull is already token-authorised over TLS. No `sig` field.
+
+   **The `sha256` was dropped (Bill, 2026-11-17, #194).** This item used to keep
+   one for integrity, corruption and change detection; it was never built. What
+   ships instead:
+   - **Transport:** TLS, which already detects corruption in transit. A hash the
+     Worker computed at serve time and sent over the same connection would check
+     nothing more.
+   - **Change detection:** the ETag, sent back as `If-None-Match`. It is
+     `"v<version>"`, or `"v<version>-p<hash>"` when the aircraft profile adds
+     a `preferences:` or `fixgw:` block or the panel references the aircraft
+     (`configurator/src/device_prefs.ts`). That hash covers those blocks and
+     bindings, not the panel bytes, so the ETag names a version; it is not an
+     integrity check.
+   - **The device does hash the YAML, for a different job.** The panel-change
+     cue ([panel_change_cue.md](panel_change_cue.md)) takes the sha256 of the
+     body as pulled and compares it with the previous install's, to decide
+     whether to show the change. Nothing served is compared against it, so it
+     is not an integrity check either.
+   - **Install checks:** the body must parse as YAML with a non-empty `screens:`
+     block, or nothing is installed. After the swap, `config-pull` watches the
+     restarted pyEfis and rolls back to the snapshot if it fails to come up or
+     logs a traceback.
+
+   Not covered: a panel that is valid YAML, loads without crashing, and is still
+   not what was saved. A hash computed at save time and stored in D1 would catch
+   R2 corrupting the stored blob; it was judged not worth a D1 migration, a
+   Worker deploy and a client change, leaving at-rest integrity to R2.
 2. **Extend `pyefis_data`** (don't add a sibling) — it already owns the device,
    the timer, and atomic install; add `device_token` + `configurator_url` to
    `data.yaml`.
