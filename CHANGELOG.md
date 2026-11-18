@@ -7,6 +7,14 @@ and the `configurator`. Semver on the Python package; process in
 ## Unreleased
 
 ### Device updater (pyefis_data)
+- **`auto_update: false` now stops the daily update, and `storage_budget_gb`
+  is gone (AER-5896, #196).** Both keys were parsed and did nothing. The timer's
+  unit now runs `pyefis-data update --scheduled`, which installs nothing when
+  `auto_update` is false; updates started by hand, by the picker or over USB
+  still run. Recopy `pyefis-data.service` to a device to get this; the old unit
+  keeps updating daily. The storage budget is removed rather than built: the
+  picker shows pack sizes and free space, and a data.yaml that still sets the
+  key loads as before.
 - **`config-pull` adds `screens/virtualvfr_db.yaml` when the device's pyEfis
   still needs it (AER-5675).** 0.5.0 dropped the include for SVS-on panels and
   0.6.0 for all, each gated on a pyEfis change (#349, #457) that pyEfis
