@@ -3,8 +3,10 @@
 <!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 **Status:** added 2026-11-18 (AER-5994, CERT16). Safety and Compliance
-reviews this procedure. The setting in step 1 below is not yet in place;
-until it is, the key is still a repository secret that any branch can read.
+reviews this procedure. Step 1 was done on 2026-11-19 except its last
+line: the repository-level copy of the key stays until these workflows are on
+`main` and a scheduled run has passed with the Environment. Until it is
+deleted, a branch that does not name the Environment can still read the key.
 
 One ed25519 key, in minisign format, signs `manifest.json` and
 `advisories.json`. A device trusts a pack because that key signed the catalog
