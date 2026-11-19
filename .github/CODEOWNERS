@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 #
 # CERT16c: a change to anything that can cause or steer a signature needs
 # Bill's review before it reaches `main`. The `main` ruleset requires a
