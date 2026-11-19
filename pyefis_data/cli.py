@@ -42,6 +42,13 @@ PUBLIC_KEY = (
     "RWQXjK7+q8WvsWtCd+QPQNxO7OcI5XuF1uxY7MGp+R2JidxFSO/20AR4\n"
 )
 
+# The keys this device trusts (CERT16): the current key, then the next one
+# once it exists. A manifest is accepted if a key in this set signed it, so a
+# device that carries the next key survives the rotation to it with no
+# update. Adding or removing a key here is the rotation and revocation
+# procedure in docs/signing_key.md; no next key has been generated yet.
+PUBLIC_KEYS = (PUBLIC_KEY,)
+
 # statuses that mean "the EFIS should annunciate" — also used for exit codes.
 _ATTENTION = {EXPIRED, EXPIRES, UPDATE, MISSING, ROLLBACK}
 
@@ -159,7 +166,7 @@ def _updater(args, *, override: dict | None = None) -> Updater:
     if src:
         from .core import LocalDirRemote
         remote = LocalDirRemote(Path(src))
-    return Updater(cfg, PUBLIC_KEY, remote=remote,
+    return Updater(cfg, PUBLIC_KEYS, remote=remote,
                    allow_rollback=getattr(args, "allow_rollback", False))
 
 
@@ -453,7 +460,7 @@ def cmd_verify(args) -> int:
         p = Path(args.path)
         sig = p.with_name(p.name + ".minisig")
         try:
-            trusted = signing.verify(p.read_bytes(), sig.read_text("ascii"), PUBLIC_KEY)
+            trusted = signing.verify(p.read_bytes(), sig.read_text("ascii"), PUBLIC_KEYS)
         except Exception as e:
             print(f"INVALID: {e}", file=sys.stderr)
             return 2

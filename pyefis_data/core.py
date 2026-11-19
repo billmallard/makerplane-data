@@ -395,10 +395,12 @@ def _entry_notice(entry: PackEntry | None) -> str:
 
 
 class Updater:
-    def __init__(self, config: Config, public_key: str, *,
+    def __init__(self, config: Config, public_key: str | tuple[str, ...], *,
                  remote=None, today: _dt.date | None = None, log=print,
                  allow_rollback: bool = False):
         self.config = config
+        # One key text or the trusted key set (cli.PUBLIC_KEYS, CERT16);
+        # signing.verify takes either.
         self.public_key = public_key
         self.remote = remote if remote is not None else HttpRemote()
         self.today = today or _dt.date.today()

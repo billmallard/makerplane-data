@@ -20,6 +20,10 @@ on:
 
 jobs:
   publish:
+    # CERT16 (AER-5994): MINISIGN_SECRET_KEY lives in the `signing`
+    # Environment, which only main can deploy to, so a run on any other
+    # branch never receives it. docs/signing_key.md.
+    environment: signing
     runs-on: ubuntu-latest
     concurrency: advisories
     permissions:

@@ -84,6 +84,14 @@ class PackEntry:
     origin: str = ""
     notice: str = ""
     build_commit: str = ""
+    # Who built it (CERT16, AER-5994): additive, default "", like the above.
+    # build_run_url is the workflow run that built and signed the pack (its
+    # run id is the URL's last segment); pyefis_commit is the pyEfis commit
+    # whose tools built it (CERT5a's pack_meta field, mirrored here so the
+    # signed catalog names it without opening the pack). Both come from the
+    # pack's test record, as build_commit does.
+    build_run_url: str = ""
+    pyefis_commit: str = ""
 
     # --- currency helpers (shared with the Pi updater) ---
     def covers(self, day: _dt.date) -> bool:
