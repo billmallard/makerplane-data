@@ -30,11 +30,12 @@ from .sources import COPERNICUS_DEM_LICENSE, COPERNICUS_DEM_LICENSE_URL
 DEFAULT_ATTRIBUTION = "Copernicus GLO-30 (redistribution permitted)"
 
 # Origin label for terrain test records (PACK-003). report.ORIGIN_BY_KIND has
-# no terrain default, so make-terrain supplies this one. Bill's ruling on
-# AER-4101 (2026-10-29): Copernicus GLO-30 is government-programme data with
-# a documented production process, the "federal" pedigree tier; the label
-# marks pedigree, not nationality, and the attribution names Copernicus.
-TERRAIN_ORIGIN = "federal"
+# no terrain default, so make-terrain supplies this one. Copernicus GLO-30 is
+# EU government-programme data with a documented production process and a
+# stated accuracy, but it is not FAA-originated, so it is not "federal"
+# (do200b_applicability.md section 5). Bill's ruling on AER-5978 (2026-11-18)
+# added "agency" for it, superseding "federal" from AER-4101.
+TERRAIN_ORIGIN = "agency"
 
 # Deepest mip-pyramid level a pack may carry. Coarse tiles ride in
 # .mip/<L>/<NSdir>/<name>.hgt (terrain_mip_pyramid.md); the renderer's get_mip()

@@ -71,11 +71,14 @@ All `/api/*` routes need a session and answer `401` without one.
 | `POST /api/projects/:id/devices` | Add a device (`{name}`) |
 | `DELETE /api/devices/:id` | Delete a device |
 | `GET`, `PUT /api/devices/:id/config` | The newest saved panel; save a new version (`{yaml}`) |
-| `GET /api/devices/:id/preferences` | The `preferences:` block the device would be sent |
+| `GET /api/devices/:id/config/served` | The newest saved panel exactly as the device's next pull receives it, with its ETag (**Download YAML**) |
+| `GET /api/devices/:id/preferences` | The `preferences` and `fixgw` blocks the device would be sent |
 | `POST /api/devices/:id/pair` | Start pairing: `{claim_code, expires_in}` |
 | `GET`, `PUT /api/projects/:id/aircraft` | The active aircraft profile; save a new version (`{profile}`) |
 | `GET /api/projects/:id/aircraft/versions` | Every profile version |
 | `POST /api/projects/:id/aircraft/activate/:v` | Make an earlier version active |
+| `POST /api/projects/:id/aircraft/orphans` | Which devices' newest panels have a tank-bound gauge that a candidate profile (`{profile}` or `{version}`) would leave unbound |
+| `GET /api/projects/:id/aircraft/refs?source=aircraft.fuel.tanks` | The tanks a gauge can be bound to, and the last label of each removed one. Also by device: `/api/devices/:id/aircraft/refs` |
 
 The device API:
 

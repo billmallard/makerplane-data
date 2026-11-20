@@ -80,14 +80,16 @@ YAML is the path to deleting "compile" entirely (a pyEfis-side task).
 - The bundle = the compiled overlay (a few small YAML files) as a tar.gz.
   Compile + pack on demand in the Worker, cache by version in R2
   (`configs/<user>/<device>/compiled-v<n>.tgz`).
-- **Integrity:** sha256 in the manifest for corruption + change detection only;
-  transport is TLS; the token authorises. **No signing** (see decisions).
+- **Integrity:** transport is TLS; the token authorises. **No signing and no
+  sha256** (see decisions, item 1). As built, change detection is the ETag, not
+  a hash.
 
 ### 4. On-Pi pull + install
 Extend `pyefis_data` with a config capability (one updater, reuse its plumbing):
 1. If a `device_token` is configured, after the navdata pass call
    `GET <configurator>/api/device/config` with the token.
-2. If `version` > installed, download the tgz, verify sha256 (+ sig if signed).
+2. If `version` > installed, download the config. (As built: the YAML body,
+   with no sha256 or sig to verify; see decisions, item 1.)
 3. **Atomic-swap** the overlay into `~/makerplane/pyefis/config` (write to a temp
    tree, back up the previous, `os.replace`), then restart the `pyefis` user service.
 4. Record installed version + `last_pull_at`; surface in `status.json` for the
@@ -112,8 +114,34 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
 ## Decisions (confirmed 2026-06-22)
 1. **No per-device signing.** Unlike the public navdata packs, a device config has
    no authenticity chain worth protecting — it loads and works or it doesn't, and
-   the pull is already token-authorised over TLS. Keep a `sha256` for integrity /
-   corruption / change detection only; no `sig` field.
+   the pull is already token-authorised over TLS. No `sig` field.
+
+   **The `sha256` was dropped (Bill, 2026-11-17, #194).** This item used to keep
+   one for integrity, corruption and change detection; it was never built. What
+   ships instead:
+   - **Transport:** TLS, which already detects corruption in transit. A hash the
+     Worker computed at serve time and sent over the same connection would check
+     nothing more.
+   - **Change detection:** the ETag, sent back as `If-None-Match`. It is
+     `"v<version>"`, or `"v<version>-p<hash>"` when the aircraft profile adds
+     a `preferences:` or `fixgw:` block or the panel references the aircraft
+     (`configurator/src/device_prefs.ts`). That hash covers those blocks and
+     bindings, not the panel bytes, so the ETag names a version; it is not an
+     integrity check.
+   - **The device does hash the YAML, for a different job.** The panel-change
+     cue ([panel_change_cue.md](panel_change_cue.md)) takes the sha256 of the
+     body as pulled and compares it with the previous install's, to decide
+     whether to show the change. Nothing served is compared against it, so it
+     is not an integrity check either.
+   - **Install checks:** the body must parse as YAML with a non-empty `screens:`
+     block, or nothing is installed. After the swap, `config-pull` watches the
+     restarted pyEfis and rolls back to the snapshot if it fails to come up or
+     logs a traceback.
+
+   Not covered: a panel that is valid YAML, loads without crashing, and is still
+   not what was saved. A hash computed at save time and stored in D1 would catch
+   R2 corrupting the stored blob; it was judged not worth a D1 migration, a
+   Worker deploy and a client change, leaving at-rest integrity to R2.
 2. **Extend `pyefis_data`** (don't add a sibling) — it already owns the device,
    the timer, and atomic install; add `device_token` + `configurator_url` to
    `data.yaml`.
@@ -143,18 +171,28 @@ fragment — [panel_config_format.md](panel_config_format.md)); there's no separ
   list + the SVS GL widget **segfaults the eglfs `QOpenGLCompositor`** — #71. The
   full set is fine.) Stock files untouched; a `.prepanel` backup is kept for
   rollback. A `virtual_vfr` gets an `svs` block (terrain). Validated on the Pi 5.
-  - **No `screens/virtualvfr_db.yaml` include (AER-4354, AER-5421).** It
-    carried the screen-level `dbpath`/`indexpath` for the legacy CIFP Virtual
-    VFR overlay, which pyEfis #457 (VVFR1) deleted. Synthetic Vision draws
-    airports, runways and a PAPI from the NASR airports pack; with SVS off a
-    `virtual_vfr` is the plain sky/ground attitude view and reads no `dbpath`.
-    `config-pull` stopped adding the include for SVS-on panels in AER-4354
-    and for SVS-off panels in AER-5421. An include a screen already lists is
-    left alone: pyEfis keeps the file as an empty `{}` stub so it still loads.
-    **Release gate:** a device on a pyEfis older than #457 still builds the
-    legacy overlay for an SVS-off panel and crashes on the first resize
-    without the include, so this `config-pull` must not reach a device before
-    its pyEfis carries #457. (SVS-on panels are unaffected from #349 on.)
+  - **The `screens/virtualvfr_db.yaml` include follows the device's pyEfis
+    (AER-4354, AER-5421, AER-5675).** It carries the screen-level
+    `dbpath`/`indexpath` for the legacy CIFP Virtual VFR overlay. Synthetic
+    Vision draws airports, runways and a PAPI from the NASR airports pack, and
+    pyEfis #457 (VVFR1) deleted the overlay. But a pyEfis before #349 builds
+    the overlay for every `virtual_vfr`, and one from #349 to #457 builds it
+    for an SVS-off panel. On those its first resize raises on a `None`
+    `dbpath` and PyQt6 aborts pyEfis. So `config-pull` reads the pyEfis the
+    `pyefis` unit actually runs: it asks the unit's own `ExecStart` interpreter
+    where `pyefis` lives, from its `WorkingDirectory`, and checks
+    `instruments/ai/VirtualVfr.py`. File absent = #457 on, no include. File
+    with `_svs_owns_view` = #349 on, include only for an SVS-off panel (flat
+    `svs_enabled` over the nested `svs:` block, as pyEfis resolves it).
+    Otherwise, include for every `virtual_vfr`. If pyEfis can't be located,
+    `config-pull` adds the include anyway: pyEfis #457 keeps the file as an
+    empty `{}` stub exactly so that a screen listing it still loads. It never
+    lists the include when the device's config dir has no such file, since a
+    missing include is a hard error. The result is in the install summary as
+    `legacy_overlay` (`always`, `svs-skip` or `none`). An include a screen
+    already lists is left alone. This replaces the old release gates (#349
+    for 0.5.0, #457 for 0.6.0): no makerplane-data release now depends on
+    which pyEfis the device runs.
 - **P4 — Polish (mostly DONE):**
   - **Proper release (DONE):** `makerplane-data` **v0.2.2** wheel built + installed
     on the Pi, replacing the hot-patch (`pyefis-data pair` + `config-pull` ship in it).

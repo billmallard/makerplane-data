@@ -221,17 +221,106 @@ def _sanitize(name: str) -> str:
     return s
 
 
-def _prep_screen(screen_def: dict) -> dict:
-    """Inject the device-side bits the editor can't know into one screen:
-    a ``virtual_vfr`` gets an ``svs`` options block (terrain/airport/water data
-    paths) so it renders synthetic vision, unless it already carries one.
+# The legacy CIFP Virtual VFR overlay and the stock include carrying its
+# screen-level ``dbpath``. Which pyEfis the device runs decides whether a
+# ``virtual_vfr`` needs it (AER-5675), so config-pull reads the installed
+# pyEfis rather than assuming its version:
+#   * LEGACY_ALWAYS -- before pyEfis #349: the overlay is always built and its
+#     first resize raises on a ``None`` dbpath, so every ``virtual_vfr`` needs
+#     the include.
+#   * LEGACY_SVS_SKIP -- #349 (CIFP1) to #457: the overlay is skipped when SVS
+#     is on, so only an SVS-off ``virtual_vfr`` needs it.
+#   * LEGACY_NONE -- #457 (VVFR1) on: the overlay is gone; nothing reads it.
+_VVFR_DB_INCLUDE = "screens/virtualvfr_db.yaml"
+LEGACY_ALWAYS = "always"
+LEGACY_SVS_SKIP = "svs-skip"
+LEGACY_NONE = "none"
 
-    No ``screens/virtualvfr_db.yaml`` include is added, SVS on or off: pyEfis
-    #457 (VVFR1) deleted the legacy CIFP overlay that read its ``dbpath``, so
-    an SVS-off ``virtual_vfr`` is the plain attitude view (AER-5421). An
-    include a screen already lists is left alone; pyEfis keeps the file as an
-    empty stub. Returns a new screen dict (the input is not mutated)."""
+
+def _svs_enabled(opts: dict) -> bool:
+    """Whether a ``virtual_vfr``'s SVS is on, resolved the way pyEfis's
+    ``screenbuilder_factory`` does: the nested ``svs:`` dict overlaid by the
+    flat ``svs_*`` editor options, so an explicit ``svs_enabled: false`` wins
+    over the injected block. A missing ``enabled`` counts as off."""
+    svs = opts.get("svs")
+    cfg = dict(svs) if isinstance(svs, dict) else {}
+    cfg.update({k[4:]: v for k, v in opts.items() if k.startswith("svs_")})
+    return bool(cfg.get("enabled"))
+
+
+def _overlay_mode(pkg: Path | None) -> str | None:
+    """Classify an installed ``pyefis`` package directory by its legacy
+    overlay: LEGACY_NONE when ``VirtualVfr.py`` is gone (#457), LEGACY_SVS_SKIP
+    when it carries the #349 SVS skip (``_svs_owns_view``), LEGACY_ALWAYS when
+    it predates #349. None when the directory isn't a recognisable pyEfis."""
+    if pkg is None:
+        return None
+    ai = pkg / "instruments" / "ai"
+    if not ai.is_dir():
+        return None
+    vvfr = ai / "VirtualVfr.py"
+    if not vvfr.is_file():
+        return LEGACY_NONE
+    try:
+        text = vvfr.read_text("utf-8", errors="replace")
+    except OSError:
+        return None
+    return LEGACY_SVS_SKIP if "_svs_owns_view" in text else LEGACY_ALWAYS
+
+
+def _pyefis_package_dir(scope: str | None = None) -> Path | None:
+    """The ``pyefis`` package directory the pyEfis service actually runs: ask
+    the unit's own interpreter (``ExecStart`` ``path=``) where ``pyefis`` lives,
+    from the unit's ``WorkingDirectory``, without importing it. Falls back to a
+    source checkout's ``src/pyefis`` under that directory. None if neither
+    answers. Never raises."""
+    scope = _resolve_scope(scope)
+    workdir = _systemctl_show("WorkingDirectory", scope) or None
+    m = re.search(r"path=(\S+)", _systemctl_show("ExecStart", scope))
+    if m:
+        try:
+            out = subprocess.run(
+                [m.group(1), "-c",
+                 "import importlib.util as u; s = u.find_spec('pyefis'); "
+                 "print(list(s.submodule_search_locations)[0] if s else '')"],
+                cwd=workdir, capture_output=True, text=True, timeout=30)
+            loc = out.stdout.strip()
+            if out.returncode == 0 and loc and Path(loc).is_dir():
+                return Path(loc)
+        except Exception:
+            pass
+    if workdir and (Path(workdir) / "src" / "pyefis").is_dir():
+        return Path(workdir) / "src" / "pyefis"
+    return None
+
+
+def legacy_overlay(cd: Path, scope: str | None = None) -> str:
+    """Which legacy-overlay case this device is in (see LEGACY_*), probed once
+    per install. When the installed pyEfis can't be located or read, answer
+    LEGACY_ALWAYS: the include is then added to every ``virtual_vfr``, which
+    every pyEfis accepts (#457 keeps the file as an empty stub for exactly
+    this). When the device's config dir has no such file, answer LEGACY_NONE:
+    a missing include is a hard error, so it must never be written."""
+    if not (cd / _VVFR_DB_INCLUDE).is_file():
+        return LEGACY_NONE
+    return _overlay_mode(_pyefis_package_dir(scope)) or LEGACY_ALWAYS
+
+
+def _prep_screen(screen_def: dict, legacy: str = LEGACY_NONE) -> dict:
+    """Inject the device-side bits the editor can't know into one screen:
+
+    * a ``virtual_vfr`` gets an ``svs`` options block (terrain/airport/water data
+      paths) so it renders synthetic vision, unless it already carries one.
+    * a ``virtual_vfr`` that the device's pyEfis would build the legacy CIFP
+      overlay for (``legacy``, from legacy_overlay()) gets the stock
+      ``screens/virtualvfr_db.yaml`` include. That overlay raises on a ``None``
+      dbpath on its first resize, which aborts pyEfis (AER-5675). On a pyEfis
+      with #457 (VVFR1) nothing is added (AER-5421).
+
+    An include a screen already lists is left alone. Returns a new screen dict
+    (the input is not mutated)."""
     screen_def = dict(screen_def)
+    needs_db = False
     insts = []
     for inst in screen_def.get("instruments", []):
         if isinstance(inst, dict) and inst.get("type") == "virtual_vfr":
@@ -239,8 +328,16 @@ def _prep_screen(screen_def: dict) -> dict:
             opts = dict(inst.get("options") or {})
             opts.setdefault("svs", dict(_SVS_OPTS))   # keep an explicit svs if present
             inst["options"] = opts
+            if legacy == LEGACY_ALWAYS or (
+                    legacy == LEGACY_SVS_SKIP and not _svs_enabled(opts)):
+                needs_db = True
         insts.append(inst)
     screen_def["instruments"] = insts
+    if needs_db:
+        inc = list(screen_def.get("include") or [])
+        if _VVFR_DB_INCLUDE not in inc:
+            inc.append(_VVFR_DB_INCLUDE)
+        screen_def["include"] = inc
     return screen_def
 
 
@@ -506,7 +603,7 @@ def _clear_managed_includes(inc: dict, boot: str) -> None:
 
 
 def install_config(yaml_text: str, cd: Path | None = None,
-                   fcd: Path | None = None) -> dict:
+                   fcd: Path | None = None, scope: str | None = None) -> dict:
     """Install a pulled native config ({main, screens}) as the managed panel.
 
     Returns a summary dict (always with ``boot_screen`` + ``screens``). Raises
@@ -526,23 +623,26 @@ def install_config(yaml_text: str, cd: Path | None = None,
     if default_name not in screens:
         default_name = next(iter(screens))
     boot = _device_default_screen(cd)
+    legacy = legacy_overlay(cd, scope)  # which pyEfis: does virtual_vfr need dbpath?
 
     _snapshot(cd, fcd)                  # capture the working state for rollback
     if len(screens) == 1:
-        summary = _install_single(cd, screens[default_name], boot, prefs)
+        summary = _install_single(cd, screens[default_name], boot, prefs, legacy)
     else:
-        summary = _install_multi(cd, screens, default_name, boot, prefs)
+        summary = _install_multi(cd, screens, default_name, boot, prefs, legacy)
     summary["fixgw"] = _apply_fixgw(cd, fcd, doc.get("fixgw"))
     summary["config_dir"] = str(cd)
+    summary["legacy_overlay"] = legacy
     return summary
 
 
-def _install_single(cd: Path, screen_def: dict, boot: str, prefs=None) -> dict:
+def _install_single(cd: Path, screen_def: dict, boot: str, prefs=None,
+                    legacy: str = LEGACY_NONE) -> dict:
     """Original proven path: one managed screen named after the device's
     defaultScreen, activated by overriding only that screen's include while
     KEEPING the device's stock screen list."""
     import yaml
-    screen_def = _prep_screen(screen_def)
+    screen_def = _prep_screen(screen_def, legacy)
     _atomic_write(cd / "screens" / "managed.yaml",
                   yaml.safe_dump({boot: screen_def}, sort_keys=False))
     custom = _load_custom(cd)
@@ -608,7 +708,7 @@ def _ensure_boot_loaded(cd: Path, inc: dict, boot: str) -> None:
 
 
 def _install_multi(cd: Path, screens: dict, default_name: str, boot: str,
-                   prefs=None) -> dict:
+                   prefs=None, legacy: str = LEGACY_NONE) -> dict:
     """Multi-screen path (#72). The hard constraint: a SHORT screen list + the
     SVS GL widget segfaults the eglfs ``QOpenGLCompositor`` (a real eglfs bug that
     correlates with screen count, independent of pyEfis #274). So we KEEP the full
@@ -652,7 +752,7 @@ def _install_multi(cd: Path, screens: dict, default_name: str, boot: str,
         btn_cfg = f"buttons/managed-next-{on_name}.yaml"
         _atomic_write(cd / btn_cfg, _switch_button_cfg(suffix, nxt))
 
-        sdef = _prep_screen(screens[n])
+        sdef = _prep_screen(screens[n], legacy)
         sdef["instruments"] = list(sdef.get("instruments") or []) + [_switch_button(btn_cfg)]
         fname = f"managed_{on_name}.yaml"
         _atomic_write(cd / "screens" / fname,

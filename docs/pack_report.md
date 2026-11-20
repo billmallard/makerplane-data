@@ -55,7 +55,7 @@ never into the record.
 | `schema` | string | yes | Always `"pack-report/1"`. |
 | `record` | string enum | yes | `build`, `retro` or `rejected`. See below. |
 | `pack` | object | yes | Which bytes this record is about. |
-| `origin` | string enum | yes | `federal`, `community` or `user-supplied`; same value as the manifest `origin`. |
+| `origin` | string enum | yes | `federal`, `agency`, `community` or `user-supplied`; same value as the manifest `origin`. |
 | `built` | object | yes | Who built it, from what code, where. |
 | `sources` | array | yes | Upstream inputs. May be empty only for `retro` when the inputs are no longer known; say so in a `not-run` check. |
 | `previous` | object or `null` | yes | The edition this one is compared against; `null` for a first edition. |
@@ -335,6 +335,9 @@ implies, not just a non-empty grid.
 `packtool report --list-checks` prints every kind's checks with their
 expectation and `cannot_catch` line; `packtools/report.py` is the source.
 Thresholds are named constants at the top of that file.
+Each check also names the DO-200B data quality attributes it protects
+(`protects:`); the per-kind matrix, and the attributes no check covers, are
+in [data_quality_requirements.md](data_quality_requirements.md).
 
 **QA reviews the definitions and thresholds (AER-4102)** before any of them
 gates a publish (plan section 4.4). The author proposes; QA decides what to
@@ -678,7 +681,7 @@ default to `""`, with no `manifest_version` bump -- the same pattern as
 |---|---|
 | `report_url` | Absolute URL of this edition's `report.json`. |
 | `report_sha256` | sha256 of those exact bytes, 64 lowercase hex. |
-| `origin` | `federal`, `community` or `user-supplied` (`manifest.ORIGINS`; `docs/do200b_applicability.md` section 5). A pedigree label, not a quality score. |
+| `origin` | `federal`, `agency`, `community` or `user-supplied` (`manifest.ORIGINS`; `docs/do200b_applicability.md` section 5). A pedigree label, not a quality score. |
 | `notice` | `manifest.NOTICE`, verbatim. `PackEntry.from_pack` fills it by default. |
 | `build_commit` | Full makerplane-data commit sha that built the pack. |
 

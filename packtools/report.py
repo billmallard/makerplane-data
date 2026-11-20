@@ -130,7 +130,7 @@ OSM_STATE_MIN = 100
 OSM_MEASURE_MIN = {"length_km": 100.0, "area_km2": 10.0}
 
 # Default pedigree label per kind (docs/do200b_applicability.md section 5).
-# Terrain (Copernicus) is neither federal nor community: pass --origin.
+# Terrain has no default here: make-terrain passes TERRAIN_ORIGIN ("agency").
 ORIGIN_BY_KIND = {
     "navdata": "federal", "navaids": "federal", "obstacles": "federal",
     "procedures": "federal", "cifp": "federal", "plates": "federal",
@@ -252,6 +252,12 @@ class Check:
     #: into the record as ``pending_review``; such a check never stops a
     #: publish, whatever it finds (publish_blockers).
     review: str = ""
+
+    @property
+    def protects(self) -> tuple:
+        """The DO-200B data quality attributes this check protects
+        (:data:`PROTECTS`, docs/data_quality_requirements.md)."""
+        return PROTECTS.get(self.id, ())
 
 
 @dataclass
@@ -1641,13 +1647,13 @@ _COMMON = [
           "both non-empty",
           "A license tag or attribution that is present but wrong for the data.",
           _c_meta_fields),
-    Check("PACK-003", "Origin label is federal, community or user-supplied", True,
-          "one of federal / community / user-supplied",
+    Check("PACK-003", "Origin label is federal, agency, community or user-supplied", True,
+          "one of federal / agency / community / user-supplied",
           "Whether the label matches where the data really came from. For a kind with "
           "a default label (ORIGIN_BY_KIND in packtools/report.py) the label comes from "
           "that table, not from the builder or the pack, so the check is tautological "
           "and always passes; measured says which. With --origin it shows only that the "
-          "label given is one of the three.", _c_origin, "AER-699"),
+          "label given is one of the four.", _c_origin, "AER-699"),
     Check("PACK-004", "Upstream sources are recorded", False,
           "at least one source, each with a non-empty edition and a 64-hex sha256",
           "A recorded source that is not the one the build actually used, and an "
@@ -1990,6 +1996,85 @@ _HWY_SCHEMA = Check(
     "OSM-003", "highway_lines columns agree with the declared schema_version", True,
     "declared schema_version equals the one the column set implies",
     "A column whose meaning changed without its name changing.", _c_hwy_schema, "AER-1715")
+
+
+# --- DO-200B data quality attributes (CERT10b) ------------------------------
+# The seven DO-200B data quality requirement attributes
+# (docs/do200b_applicability.md section 1) and, for every check, the ones it
+# protects. A pointer, not a claim of compliance: it says which attribute a
+# check's failure would be evidence against, so docs/data_quality_requirements.md
+# can show, per kind, which attributes no check covers. Not written into the
+# record, so pack-report/1 is unchanged.
+
+DQ_ATTRIBUTES = ("accuracy", "resolution", "assurance", "traceability", "timeliness",
+                 "completeness", "format")
+
+PROTECTS = {
+    "PACK-001": ("format",),
+    "PACK-002": ("traceability",),
+    "PACK-003": ("traceability",),
+    "PACK-004": ("traceability",),
+    "ACC-001": ("format",),
+    "SQL-001": ("assurance", "format"),
+    "ROW-001": ("completeness",),
+    "ROW-002": ("completeness",),
+    "ROW-003": ("completeness", "format"),
+    "SG-001": ("format",),
+    "SG-002": ("format", "completeness"),
+    "SG-003": ("format",),
+    "SG-004": ("completeness",),
+    "GEO-001": ("accuracy",),
+    "UNQ-001": ("assurance",),
+    "GEO-002": ("accuracy",),
+    "OBS-001": ("completeness",),
+    "UNQ-002": ("assurance",),
+    "PROC-TBL-001": ("completeness", "format"),
+    "PROC-FIX-001": ("completeness",),
+    "PROC-AWY-001": ("assurance",),
+    "PROC-AWY-002": ("assurance",),
+    "PROC-MSA-001": ("completeness",),
+    "PROC-MSA-002": ("accuracy",),
+    "PROC-MSA-003": ("accuracy",),
+    "PROC-MSA-004": ("completeness",),
+    "PROC-FAS-001": ("completeness",),
+    "PROC-FAS-002": ("assurance",),
+    "PROC-FAS-003": ("completeness",),
+    "PROC-MORA-001": ("completeness",),
+    "PROC-MORA-002": ("assurance",),
+    "PROC-MORA-003": ("accuracy",),
+    "PROC-MORA-004": ("completeness",),
+    "PROC-GLD-001": ("accuracy",),
+    "PROC-DIFF-001": ("accuracy",),
+    "ASP-001": ("format",),
+    "ASP-002": ("accuracy",),
+    "ASP-003": ("completeness",),
+    "TER-001": ("format",),
+    "TER-002": ("accuracy",),
+    "TER-006": ("completeness",),
+    "TER-003": ("completeness",),
+    "TER-004": ("accuracy",),
+    "TER-005": ("accuracy",),
+    "TER-007": ("completeness",),
+    "TER-008": ("completeness",),
+    "OSM-001": ("completeness",),
+    "OSM-002": ("completeness",),
+    "OSM-006": ("completeness",),
+    "OSM-004": ("format",),
+    "OSM-005": ("completeness",),
+    "OSM-003": ("format",),
+    "XS-001": ("accuracy",),
+    "XS-002": ("accuracy",),
+    "GLD-001": ("accuracy",),
+    "IDX-001": ("assurance",),
+}
+
+
+def dq_matrix() -> dict[str, dict[str, list[str]]]:
+    """Per kind, per attribute, the ids of the checks that protect it, in
+    report order. An empty list is an attribute no check in that kind's
+    catalogue covers."""
+    return {kind: {a: [c.id for c in checks if a in c.protects] for a in DQ_ATTRIBUTES}
+            for kind, checks in all_checks().items()}
 
 
 def catalogue(kind: str, *, is_zip: bool) -> list[Check]:
@@ -2354,7 +2439,7 @@ def validate_report(obj: dict) -> list[str]:
     if obj.get("record") not in RECORDS:
         errs.append("record is not build / retro / rejected")
     if obj.get("origin") not in ORIGINS:
-        errs.append("origin is not federal / community / user-supplied")
+        errs.append("origin is not federal / agency / community / user-supplied")
     if obj.get("notice") != NOTICE:
         errs.append("notice is not the standing text")
     checks = obj.get("checks")

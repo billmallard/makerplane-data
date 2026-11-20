@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# CERT16c: a change to anything that can cause or steer a signature needs
+# Bill's review before it reaches `main`. The `main` ruleset requires a
+# code-owner review (approvals otherwise 0), so every other change keeps
+# INTEGRATOR's merge-on-CI flow. Agents push as the aerocommons-agents App,
+# which is not a bypass actor. See docs/signing_key.md, "Who can cause a
+# signature".
+
+# The signing workflows, and every other workflow (a new one could read the key).
+/.github/workflows/            @billmallard
+# The signer and the device's trusted key set (PUBLIC_KEYS).
+/packtools/signing.py          @billmallard
+/pyefis_data/cli.py            @billmallard
+# The committed public keys.
+/keys/                         @billmallard
+# This file, so the rule cannot be removed without the review it enforces.
+/.github/CODEOWNERS            @billmallard

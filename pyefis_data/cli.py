@@ -42,6 +42,13 @@ PUBLIC_KEY = (
     "RWQXjK7+q8WvsWtCd+QPQNxO7OcI5XuF1uxY7MGp+R2JidxFSO/20AR4\n"
 )
 
+# The keys this device trusts (CERT16): the current key, then the next one
+# once it exists. A manifest is accepted if a key in this set signed it, so a
+# device that carries the next key survives the rotation to it with no
+# update. Adding or removing a key here is the rotation and revocation
+# procedure in docs/signing_key.md; no next key has been generated yet.
+PUBLIC_KEYS = (PUBLIC_KEY,)
+
 # statuses that mean "the EFIS should annunciate" — also used for exit codes.
 _ATTENTION = {EXPIRED, EXPIRES, UPDATE, MISSING, ROLLBACK}
 
@@ -159,7 +166,7 @@ def _updater(args, *, override: dict | None = None) -> Updater:
     if src:
         from .core import LocalDirRemote
         remote = LocalDirRemote(Path(src))
-    return Updater(cfg, PUBLIC_KEY, remote=remote,
+    return Updater(cfg, PUBLIC_KEYS, remote=remote,
                    allow_rollback=getattr(args, "allow_rollback", False))
 
 
@@ -346,6 +353,12 @@ def cmd_update(args) -> int:
     # data.yaml so the next auto-update tracks the same set (the on-device
     # picker uses this; it turns the picker into the yaml editor). A --root
     # given alongside --only is also persisted (the picker's storage chooser).
+    # --scheduled: this run is the daily timer's (pyefis-data.service). With
+    # `auto_update: false` in data.yaml it installs nothing and exits 0; an
+    # update a person starts (no --scheduled) always runs (#196).
+    if getattr(args, "scheduled", False) and not Config.load(args.config).auto_update:
+        print("auto_update is off in data.yaml; scheduled update skipped")
+        return 0
     if _rollback_dry_run(args):
         return 2
     if not args.dry_run:
@@ -447,7 +460,7 @@ def cmd_verify(args) -> int:
         p = Path(args.path)
         sig = p.with_name(p.name + ".minisig")
         try:
-            trusted = signing.verify(p.read_bytes(), sig.read_text("ascii"), PUBLIC_KEY)
+            trusted = signing.verify(p.read_bytes(), sig.read_text("ascii"), PUBLIC_KEYS)
         except Exception as e:
             print(f"INVALID: {e}", file=sys.stderr)
             return 2
@@ -701,7 +714,7 @@ def cmd_config_pull(args) -> int:
     old_version = cfg.config_version          # to revert to if the new config crashes
     old_etag = cfg.config_etag
     try:
-        summary = config_pull.install_config(text)
+        summary = config_pull.install_config(text, scope=cfg.pyefis_unit_scope)
     except ValueError as e:
         print(f"config install skipped: {e}", file=sys.stderr)
         return 2
@@ -874,6 +887,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="emit JSON progress events on stdout (for the on-device picker)")
     u.add_argument("--accept-notice", action="store_true", help=_ACCEPT_NOTICE_HELP)
     u.add_argument("--allow-rollback", action="store_true", help=_ALLOW_ROLLBACK_HELP)
+    u.add_argument("--scheduled", action="store_true",
+                   help="this is the daily timer's run: skip it when data.yaml "
+                        "sets auto_update: false")
     u.add_argument("--software", action="append", metavar="NAME=VERSION",
                    help=_SOFTWARE_HELP)
     u.set_defaults(func=cmd_update)

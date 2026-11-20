@@ -26,6 +26,12 @@ Design choices:
   * Legacy ``"Ed"`` signature type (signs the raw bytes) — the manifest is a
     few KB, so prehashing buys nothing. Verification also accepts ``"ED"``
     (prehashed) in case a manifest is ever signed with the stock binary.
+
+  * **A verifier trusts a small key set, not one key** (CERT16). ``verify``
+    takes one public key or a sequence of them (the device ships current +
+    next) and picks the one whose key id the signature names. Rotation is
+    then "sign with next"; a device that already carries next needs nothing.
+    Procedure: docs/signing_key.md.
 """
 
 from __future__ import annotations
@@ -35,6 +41,7 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 import nacl.signing
 import nacl.exceptions
@@ -114,13 +121,21 @@ def sign(data: bytes, secret: SecretKey, *,
     )
 
 
-def verify(data: bytes, sig_text: str, public_key_text: str) -> str:
+def verify(data: bytes, sig_text: str, public_key_text: str | Sequence[str]) -> str:
     """Verify a minisign signature. Returns the trusted comment on success.
 
-    Raises ``BadSignatureError`` (or ValueError on a malformed signature)
-    on any failure. The caller treats *any* exception as "do not install".
+    ``public_key_text`` is one public key or a sequence of them (the trusted
+    key set). The signature's key id selects the key; a signature by a key
+    that is not in the set is refused before any crypto is done.
+
+    Raises ``BadSignatureError`` (or ValueError on a malformed signature or
+    an untrusted key) on any failure. The caller treats *any* exception as
+    "do not install".
     """
-    pk = PublicKey.from_text(public_key_text)
+    keys = [public_key_text] if isinstance(public_key_text, str) else list(public_key_text)
+    if not keys:
+        raise ValueError("no trusted public key")
+    trusted = [PublicKey.from_text(k) for k in keys]
     lines = [ln for ln in sig_text.splitlines()]
     try:
         sig_blob = base64.b64decode(lines[1])
@@ -130,8 +145,10 @@ def verify(data: bytes, sig_text: str, public_key_text: str) -> str:
         raise ValueError(f"malformed signature file: {e}") from e
 
     sig_alg, key_id, signature = sig_blob[:2], sig_blob[2:10], sig_blob[10:]
-    if key_id != pk.key_id:
-        raise ValueError("signature key id does not match public key")
+    pk = next((k for k in trusted if k.key_id == key_id), None)
+    if pk is None:
+        raise ValueError(f"signature key id {key_id.hex()} does not match "
+                         f"any trusted public key")
 
     if sig_alg == _SIG_LEGACY:
         message = data

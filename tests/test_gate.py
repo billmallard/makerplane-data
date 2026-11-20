@@ -111,6 +111,35 @@ def test_staged_build_provenance_reaches_the_record(tmp_path):
     assert not {"built_at", "runner", "builder_refs"} & set(rep.calls[0])
 
 
+def test_entry_names_the_run_and_the_pyefis_commit_that_built_it(tmp_path):
+    # CERT16 (AER-5994): beside build_commit, the signed entry carries the
+    # workflow run and the pyEfis commit, both read from the bound record.
+    store, (sk, pub) = _store(tmp_path)
+    entry, path = _pack(tmp_path)
+    run = "https://github.com/billmallard/makerplane-data/actions/runs/19400000001"
+
+    def built_in_ci(rec):
+        rec["built"]["run_url"] = run
+        rec["built"]["builder_refs"] = {"pyEfis": "d" * 40}
+    publish(store, sk, [(entry, path)], generated=GEN, sign=signing.sign,
+            gate=gate.Options(reporter=Recording(mutate=built_in_ci)), **quiet)
+    raw = store.get_bytes("manifest.json")
+    signing.verify(raw, store.get_bytes("manifest.json.minisig").decode(), pub)
+    e = _live(store).packs[0]
+    assert (e.build_commit, e.build_run_url, e.pyefis_commit) == ("c" * 40, run, "d" * 40)
+    body = json.loads(store.get_bytes("reports/highways-conus/2026q3r1/report.json"))
+    assert body["built"]["run_url"] == run           # the record agrees
+
+
+def test_local_build_leaves_run_and_pyefis_commit_empty(tmp_path):
+    # A record with no run (a local build) and no pyEfis builder claims none.
+    store, (sk, _) = _store(tmp_path)
+    entry, path = _pack(tmp_path)
+    publish(store, sk, [(entry, path)], generated=GEN, sign=signing.sign, gate=STANDIN, **quiet)
+    e = _live(store).packs[0]
+    assert (e.build_run_url, e.pyefis_commit) == ("", "")
+
+
 def test_record_for_other_bytes_is_refused(tmp_path):
     # The gate checks the record against the file being signed, so a record
     # about any other bytes cannot clear it (AER-4102 closing verdict).

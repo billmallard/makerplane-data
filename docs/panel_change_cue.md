@@ -79,12 +79,17 @@ with no flags shows the change and asks for the word `acknowledge`. Exit 0
 also when nothing is waiting. The command rewrites status.json itself.
 
 `panel-ack` is never run by a timer or a service; a person runs it, from the
-Data Status screen or a terminal. Note that the Data Status screen is not the
-boot screen: since BACKLOG L3 pyEfis boots the flight screen (`defaultScreen:
-PFD`), and Data Status opens from the PFD DATA flag. Bill decided on
-AER-5481 (2026-11-14) that the flag lights amber while a panel change is
-pending, not only for pack currency (pyEfis#468), and that the configurator
-puts the DATA flag on every panel it builds (makerplane-data#206).
+Data Status screen or a terminal.
+
+How the pilot reaches the screen (BACKLOG BOOT1, pyEfis#482, Bill
+2026-11-14): pyEfis boots to Data Status on the ground, when IAS is valid and
+below `IAS.Vgnd`, and straight to the flight screen otherwise (moving, IAS
+invalid or absent, or GPS showing the aircraft moving). After Continue, Data
+Status is reached only from a DATA flag a builder has placed on a panel; that
+flag lights amber while a panel change is pending, not only for pack currency
+(pyEfis#468). The configurator does not add the flag to panels: #206 did, and
+Bill ruled it out (#211 reverts it). A menu route from the flight screens is
+an open backlog item (MENU1).
 
 ## The cue (approved by Bill 2026-11-13, as written; the pyEfis side is AVIONICS's)
 
@@ -97,6 +102,5 @@ puts the DATA flag on every panel it builds (makerplane-data#206).
   - body: `Config v8 installed 2026-11-12 14:03Z, hash 9f2c4b7a01de. Check every instrument shows the right source before flight.`
   - button: `Acknowledge`
 - **Colour:** amber, the screen's existing attention colour.
-- Reaching the screen: the pilot opens Data Status from the PFD DATA flag,
-  which lights amber while `panel_change.pending` is true (pyEfis#468) and
-  is on every configurator-built panel by default (makerplane-data#206).
+- Reaching the screen: a ground boot opens Data Status, so a boot pull's
+  change is in front of the pilot before Continue; see "Acknowledging" above.
