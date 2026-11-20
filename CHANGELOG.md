@@ -6,15 +6,6 @@ and the `configurator`. Semver on the Python package; process in
 
 ## Unreleased
 
-### Packs (packtools)
-- **Every catalogue check names the DO-200B data quality attribute it
-  protects (CERT10b, AER-5978).** `report.PROTECTS`, printed by
-  `packtool report --list-checks`; the per-kind matrix is
-  [docs/data_quality_requirements.md](docs/data_quality_requirements.md), held
-  to the code by a test. The record is unchanged. The matrix shows no check
-  covers resolution in any kind, and the live GLO-30 terrain packs are
-  labelled `origin: federal`, which the label's definition does not fit.
-
 ### Device updater (pyefis_data)
 - **`config-pull` delivers `aircraft.ini` to fix-gateway, in maintenance mode
   only (ACINI1, AER-5993).** The served `fixgw:` block now carries the
@@ -27,6 +18,46 @@ and the `configurator`. Semver on the Python package; process in
   `--maintenance`, the ownship address's included: the boot pull writes the
   address and fix-gateway reads it when it next starts.
   See [docs/canfix_configurator.md](docs/canfix_configurator.md) section 7.
+
+### Configurator and device config
+- **`GET /device/config` serves the compiled `aircraft.ini` (ACINI1,
+  AER-5993).** When the profile holds a value, the `fixgw:` block carries it
+  as `aircraft_ini` with `aircraft_ini_sha256`, and the ETag covers it, so a
+  value change is a new config; each device whose profile holds values
+  re-pulls once when this deploys. One compiler (`public/aircraft_ini.js`)
+  serves the pull and the Aircraft page's Download, and its comments are now
+  `#`: fix-gateway read a `;` header line holding an `=` (a project named
+  `A=B`) as a key and stopped at startup. Values that are not finite numbers,
+  and keys that are not plain FIX keys, are left out.
+
+## 0.7.0 — 2026-11-20
+
+Promotes the `dev` work since 0.6.0 (14 PRs). It exists to put CERT16's
+signing workflows on `main`: until every signing job there names the
+`signing` Environment, the nightly run on `main` reads the repository-level
+signing secret and that secret cannot be deleted. It also registers the
+`plates` pack kind, so a plates pack can be published once this is on `main`.
+The two CERT16 Packs entries below were filed under 0.6.0 by mistake; they
+were never on `main` before this release.
+
+### Packs (packtools)
+- **Each catalog entry names the run and the pyEfis commit that built it
+  (AER-5994, CERT16).** `build_run_url` and `pyefis_commit` join
+  `build_commit`, read from the pack's test record. Additive, empty for
+  editions published before them; no manifest version bump.
+- **The signing key is read only from the `signing` Environment (AER-5994,
+  CERT16).** Every job that signs names it, and the Environment allows `main`
+  only. The Environment and its secret are set by a repository admin
+  ([docs/signing_key.md](docs/signing_key.md), step 1).
+- **Every catalogue check names the DO-200B data quality attribute it
+  protects (CERT10b, AER-5978).** `report.PROTECTS`, printed by
+  `packtool report --list-checks`; the per-kind matrix is
+  [docs/data_quality_requirements.md](docs/data_quality_requirements.md), held
+  to the code by a test. The record is unchanged. The matrix shows no check
+  covers resolution in any kind, and the live GLO-30 terrain packs are
+  labelled `origin: federal`, which the label's definition does not fit.
+
+### Device updater (pyefis_data)
 - **The updater trusts a small signing-key set, current and next (AER-5994,
   CERT16).** `PUBLIC_KEYS` in `pyefis_data/cli.py` replaces the single
   embedded key; a catalog signed by any key in it verifies, one signed by any
@@ -58,15 +89,10 @@ and the `configurator`. Semver on the Python package; process in
   No plates pack is published yet. See [docs/plates.md](docs/plates.md).
 
 ### Configurator and device config
-- **`GET /device/config` serves the compiled `aircraft.ini` (ACINI1,
-  AER-5993).** When the profile holds a value, the `fixgw:` block carries it
-  as `aircraft_ini` with `aircraft_ini_sha256`, and the ETag covers it, so a
-  value change is a new config; each device whose profile holds values
-  re-pulls once when this deploys. One compiler (`public/aircraft_ini.js`)
-  serves the pull and the Aircraft page's Download, and its comments are now
-  `#`: fix-gateway read a `;` header line holding an `=` (a project named
-  `A=B`) as a key and stopped at startup. Values that are not finite numbers,
-  and keys that are not plain FIX keys, are left out.
+- **The DATA flag twin draws amber, as pyEfis does, not as a black box
+  (AER-5654, #210).** Tested against what the real widget paints.
+- **The HSI BRG tab is one button, sized to the source tab (AER-5848,
+  #222).** Matches pyEfis's HSI bearing tab; tested against the real widget.
 - **The Aircraft page footer names what `config-pull` sends (AER-5900, #218).**
   It said the ownship identity was not sent to the aircraft; it has been
   since P3f. It now lists the altimeter setting units, the ownship address
@@ -79,6 +105,11 @@ and the `configurator`. Semver on the Python package; process in
   palette offers the instrument once pyEfis's schema assets are regenerated
   and uploaded after #497 merges.
 
+### Repository
+- **CODEOWNERS names Bill on every workflow, the signer, the trusted keys
+  and CODEOWNERS itself (CERT16c, #229).** It takes effect when the `main` ruleset
+  requires a code-owner review.
+
 ## 0.6.0 — 2026-11-14
 
 Promotes the `dev` work since 0.5.0 (18 PRs). It exists so that one
@@ -89,14 +120,6 @@ data blocks are carried (VNAV1, #209). It also carries the CERT17 panel-change
 cue on the device and the fuel-tank and preview work in the configurator.
 
 ### Packs (packtools)
-- **Each catalog entry names the run and the pyEfis commit that built it
-  (AER-5994, CERT16).** `build_run_url` and `pyefis_commit` join
-  `build_commit`, read from the pack's test record. Additive, empty for
-  editions published before them; no manifest version bump.
-- **The signing key is read only from the `signing` Environment (AER-5994,
-  CERT16).** Every job that signs names it, and the Environment allows `main`
-  only. The Environment and its secret are set by a repository admin
-  ([docs/signing_key.md](docs/signing_key.md), step 1).
 - **The procedures pack carries the FAS data blocks (VNAV1, AER-5623).** A new
   `fas_blocks` table holds every CIFP Path Point (`PP`) record: the LP/LPV
   Final Approach Segment block, every field, attached to its approach. The
