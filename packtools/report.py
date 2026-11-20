@@ -130,7 +130,7 @@ OSM_STATE_MIN = 100
 OSM_MEASURE_MIN = {"length_km": 100.0, "area_km2": 10.0}
 
 # Default pedigree label per kind (docs/do200b_applicability.md section 5).
-# Terrain (Copernicus) is neither federal nor community: pass --origin.
+# Terrain has no default here: make-terrain passes TERRAIN_ORIGIN ("agency").
 ORIGIN_BY_KIND = {
     "navdata": "federal", "navaids": "federal", "obstacles": "federal",
     "procedures": "federal", "cifp": "federal", "plates": "federal",
@@ -1647,13 +1647,13 @@ _COMMON = [
           "both non-empty",
           "A license tag or attribution that is present but wrong for the data.",
           _c_meta_fields),
-    Check("PACK-003", "Origin label is federal, community or user-supplied", True,
-          "one of federal / community / user-supplied",
+    Check("PACK-003", "Origin label is federal, agency, community or user-supplied", True,
+          "one of federal / agency / community / user-supplied",
           "Whether the label matches where the data really came from. For a kind with "
           "a default label (ORIGIN_BY_KIND in packtools/report.py) the label comes from "
           "that table, not from the builder or the pack, so the check is tautological "
           "and always passes; measured says which. With --origin it shows only that the "
-          "label given is one of the three.", _c_origin, "AER-699"),
+          "label given is one of the four.", _c_origin, "AER-699"),
     Check("PACK-004", "Upstream sources are recorded", False,
           "at least one source, each with a non-empty edition and a 64-hex sha256",
           "A recorded source that is not the one the build actually used, and an "
@@ -2439,7 +2439,7 @@ def validate_report(obj: dict) -> list[str]:
     if obj.get("record") not in RECORDS:
         errs.append("record is not build / retro / rejected")
     if obj.get("origin") not in ORIGINS:
-        errs.append("origin is not federal / community / user-supplied")
+        errs.append("origin is not federal / agency / community / user-supplied")
     if obj.get("notice") != NOTICE:
         errs.append("notice is not the standing text")
     checks = obj.get("checks")

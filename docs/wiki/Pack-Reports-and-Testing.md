@@ -22,7 +22,7 @@ is covered by the catalog signature
 |---|---|
 | `record` | `build` (written by the publish gate), `retro` (written later from the published bytes), or `rejected` |
 | `pack` | id, kind, cycle, SHA-256, size and `schema_version` |
-| `origin` | `federal`, `community` or `user-supplied` |
+| `origin` | `federal`, `agency`, `community` or `user-supplied` |
 | `built` | When, from which commit, the builder commits, the Actions run, and the runner: `github-hosted`, `self-hosted` or `local` |
 | `sources` | The upstream files the build read, each with its edition and SHA-256 |
 | `previous` | The edition it was compared against |
