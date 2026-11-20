@@ -1,0 +1,483 @@
+{
+  "schema_version": 1,
+  "generated": "2026-11-20",
+  "source": "fix-gateway config/database",
+  "default_counts": {
+    "e": 1,
+    "c": 6,
+    "t": 3
+  },
+  "engine_providers": {
+    "piston": {
+      "label": "Piston",
+      "groups": [
+        "engine",
+        "cylinders"
+      ]
+    }
+  },
+  "groups": [
+    {
+      "id": "speeds",
+      "label": "Airspeeds",
+      "repeat": null,
+      "keys": [
+        {
+          "key": "IAS",
+          "label": "Indicated Airspeed",
+          "type": "float",
+          "units": "knots",
+          "min": 0.0,
+          "max": 1000.0,
+          "aux": [
+            "Min",
+            "Max",
+            "V1",
+            "V2",
+            "Vne",
+            "Vfe",
+            "Vmc",
+            "Va",
+            "Vno",
+            "Vs",
+            "Vs0",
+            "Vx",
+            "Vy",
+            "Vgnd"
+          ],
+          "band_aux": [
+            "Min",
+            "Max"
+          ],
+          "aux_meta": {
+            "Vgnd": {
+              "label": "Engine alarms: on-ground IAS limit",
+              "min": 10,
+              "max": 100,
+              "default": 40,
+              "help": "Oil pressure, oil temperature and volts alarms are silenced with the engine stopped only while IAS is below this. Set it below the slowest IAS the aircraft flies at (below the stall speed in landing configuration), never above it, or the alarms can go quiet in flight."
+            }
+          },
+          "canfix_id": 387
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "label": "Engine",
+      "repeat": "engine",
+      "provider": "piston",
+      "keys": [
+        {
+          "key": "TACHe",
+          "label": "Engine RPM Engine %e",
+          "type": "int",
+          "units": "RPM",
+          "min": 0,
+          "max": 10000,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm",
+            "warmup"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {
+            "warmup": {
+              "label": "Low CHT/EGT alarms: warm-up after engine start",
+              "units": "s",
+              "min": 0,
+              "max": 600,
+              "default": 30,
+              "help": "The low cylinder head and exhaust gas temperature alarms wait this long after the engine starts (rpm reaching 500 on the ground), so a cold engine does not set them off. High alarms do not wait. 0 turns the wait off."
+            }
+          },
+          "canfix_id": null
+        },
+        {
+          "key": "MAPe",
+          "label": "Manifold Pressure Engine %e",
+          "type": "float",
+          "units": "inHg",
+          "min": 0.0,
+          "max": 60.0,
+          "aux": [
+            "Min",
+            "Max",
+            "highWarn",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "highWarn",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        },
+        {
+          "key": "OILPe",
+          "label": "Oil Pressure Engine %e",
+          "type": "float",
+          "units": "psi",
+          "min": 0.0,
+          "max": 200.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        },
+        {
+          "key": "OILTe",
+          "label": "Oil Temperature Engine %e",
+          "type": "float",
+          "units": "degC",
+          "min": 0.0,
+          "max": 150.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        },
+        {
+          "key": "FUELFe",
+          "label": "Fuel Flow Engine %e",
+          "type": "float",
+          "units": "gal/hr",
+          "min": 0.0,
+          "max": 100.0,
+          "aux": [
+            "Min",
+            "Max"
+          ],
+          "band_aux": [
+            "Min",
+            "Max"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        },
+        {
+          "key": "FUELPe",
+          "label": "Fuel Pressure Engine %e",
+          "type": "float",
+          "units": "psi",
+          "min": 0.0,
+          "max": 200.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        }
+      ]
+    },
+    {
+      "id": "cylinders",
+      "label": "Cylinders",
+      "repeat": "engine_cylinder",
+      "provider": "piston",
+      "keys": [
+        {
+          "key": "CHTec",
+          "label": "Cylinder Head Temp Engine %e, Cylinder %c",
+          "type": "float",
+          "units": "degC",
+          "min": 0.0,
+          "max": 1000.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        },
+        {
+          "key": "EGTec",
+          "label": "Exhaust Gas Temp Engine %e, Cylinder %c",
+          "type": "float",
+          "units": "degC",
+          "min": 0.0,
+          "max": 1000.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        },
+        {
+          "key": "CHTMAXe",
+          "label": "Maximum Cylinder Head Temp Engine %e",
+          "type": "float",
+          "units": "degC",
+          "min": 0.0,
+          "max": 1000.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        }
+      ]
+    },
+    {
+      "id": "fuel",
+      "label": "Fuel tanks",
+      "repeat": "tank",
+      "keys": [
+        {
+          "key": "FUELQt",
+          "label": "Fuel Quantity Tank %t",
+          "type": "float",
+          "units": "gal",
+          "min": 0.0,
+          "max": 200.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "lowAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "lowAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        }
+      ]
+    },
+    {
+      "id": "electrical",
+      "label": "Electrical",
+      "repeat": null,
+      "keys": [
+        {
+          "key": "VOLT",
+          "label": "System Voltage",
+          "type": "float",
+          "units": "volt",
+          "min": 0.0,
+          "max": 18.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": 1294
+        },
+        {
+          "key": "CURRNT",
+          "label": "Bus Current",
+          "type": "float",
+          "units": "amps",
+          "min": 0.0,
+          "max": 60.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": 1298
+        }
+      ]
+    },
+    {
+      "id": "air",
+      "label": "Air / environment",
+      "repeat": null,
+      "keys": [
+        {
+          "key": "OAT",
+          "label": "Outside Air Temperature",
+          "type": "float",
+          "units": "degC",
+          "min": -100.0,
+          "max": 100.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn"
+          ],
+          "aux_meta": {},
+          "canfix_id": 1030
+        },
+        {
+          "key": "CAT",
+          "label": "Cabin Air Temperature",
+          "type": "float",
+          "units": "degC",
+          "min": -100.0,
+          "max": 100.0,
+          "aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "band_aux": [
+            "Min",
+            "Max",
+            "lowWarn",
+            "highWarn",
+            "lowAlarm",
+            "highAlarm"
+          ],
+          "aux_meta": {},
+          "canfix_id": null
+        }
+      ]
+    },
+    {
+      "id": "aoa",
+      "label": "AOA (calibration placeholder)",
+      "repeat": null,
+      "keys": [
+        {
+          "key": "AOA",
+          "label": "Angle of attack",
+          "type": "float",
+          "units": "deg",
+          "min": -180.0,
+          "max": 180.0,
+          "aux": [
+            "Min",
+            "Max",
+            "0g",
+            "Warn",
+            "Stall"
+          ],
+          "band_aux": [
+            "Min",
+            "Max"
+          ],
+          "aux_meta": {},
+          "canfix_id": 386
+        }
+      ]
+    }
+  ]
+}

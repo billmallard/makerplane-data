@@ -515,7 +515,10 @@ function unitLabel(gid, units) { return isSpeed(gid) ? SPEED_UNIT_LABEL[profile.
 
 // Aux slots that are settings rather than published limits (fix-gateway
 // aux_meta, e.g. IAS.Vgnd, AER-4619): label, help, and min/max/default in
-// the key's native units. Only slots the key actually lists are returned.
+// the key's native units, or in m.units where given (TACHe.warmup is seconds,
+// not RPM, AER-6145). Only slots the key actually lists are returned. An aux
+// takes its key's type: fix-gateway refuses 12.5 for an int key's aux, and a
+// refused line stops it at startup, so those settings take whole numbers.
 function auxSettings(k) {
   const m = (k && k.aux_meta) || {};
   return Object.keys(m).filter(a => (k.aux || []).includes(a)).map(a => [a, m[a]]);
@@ -532,13 +535,13 @@ function setEntry(fk, raw, gid) {
   validate(); if (gid === "speeds") drawArc();
 }
 
-function settingField(fk, m, gid, units) {
+function settingField(fk, m, gid, units, whole) {
   const u = unitLabel(gid, units), d = x => fmt(toDisplay(x, gid));
   const f = document.createElement("div"); f.className = "field setting";
   const lab = document.createElement("label");
   lab.textContent = (m.label || fk.split(".")[1]) + (u ? ` (${u})` : "");
   const inp = document.createElement("input");
-  inp.type = "number"; inp.step = "any"; inp.dataset.fk = fk; inp.dataset.gid = gid;
+  inp.type = "number"; inp.step = whole ? "1" : "any"; inp.dataset.fk = fk; inp.dataset.gid = gid;
   if (m.min != null) inp.min = d(m.min);
   if (m.max != null) inp.max = d(m.max);
   if (m.default != null) inp.placeholder = d(m.default) + " (default)";
@@ -606,7 +609,8 @@ function render() {
         }
         card.appendChild(grid);
         for (const [aux, m] of auxSettings(k))
-          card.appendChild(settingField(inst + "." + aux, m, g.id, k.units));
+          card.appendChild(settingField(inst + "." + aux, m, g.id, m.units ?? k.units,
+                                        k.type === "int"));
       }
     }
     if (g.id === "speeds") {
@@ -746,9 +750,11 @@ function validate() {
       const fk = inst + "." + aux, v = V[fk];
       if (fk === "IAS.Vgnd") vgnd = { v: v ?? m.default, set: v != null, m, gid: g.id };
       if (v == null) continue;
-      const d = x => Number(fmt(toDisplay(x, g.id))), u = unitLabel(g.id, k.units);
+      const d = x => Number(fmt(toDisplay(x, g.id))), u = unitLabel(g.id, m.units ?? k.units);
       if ((m.min != null && d(v) < d(m.min)) || (m.max != null && d(v) > d(m.max))) {
         hard.push(`${m.label || fk}: must be ${d(m.min)}-${d(m.max)} ${u}`); mark(fk); }
+      else if (k.type === "int" && !Number.isInteger(v)) {
+        hard.push(`${m.label || fk}: must be a whole number of ${u}`); mark(fk); }
     }
   // Vgnd at or above Vs0 can silence the engine alarms in flight (AER-4619);
   // a blank Vgnd means the shipped default, so that is checked too.
