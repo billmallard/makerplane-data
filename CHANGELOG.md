@@ -6,7 +6,25 @@ and the `configurator`. Semver on the Python package; process in
 
 ## Unreleased
 
+## 0.7.0 — 2026-11-20
+
+Promotes the `dev` work since 0.6.0 (14 PRs). It exists to put CERT16's
+signing workflows on `main`: until every signing job there names the
+`signing` Environment, the nightly run on `main` reads the repository-level
+signing secret and that secret cannot be deleted. It also registers the
+`plates` pack kind, so a plates pack can be published once this is on `main`.
+The two CERT16 Packs entries below were filed under 0.6.0 by mistake; they
+were never on `main` before this release.
+
 ### Packs (packtools)
+- **Each catalog entry names the run and the pyEfis commit that built it
+  (AER-5994, CERT16).** `build_run_url` and `pyefis_commit` join
+  `build_commit`, read from the pack's test record. Additive, empty for
+  editions published before them; no manifest version bump.
+- **The signing key is read only from the `signing` Environment (AER-5994,
+  CERT16).** Every job that signs names it, and the Environment allows `main`
+  only. The Environment and its secret are set by a repository admin
+  ([docs/signing_key.md](docs/signing_key.md), step 1).
 - **Every catalogue check names the DO-200B data quality attribute it
   protects (CERT10b, AER-5978).** `report.PROTECTS`, printed by
   `packtool report --list-checks`; the per-kind matrix is
@@ -53,6 +71,10 @@ and the `configurator`. Semver on the Python package; process in
   No plates pack is published yet. See [docs/plates.md](docs/plates.md).
 
 ### Configurator and device config
+- **The DATA flag twin draws amber, as pyEfis does, not as a black box
+  (AER-5654, #210).** Tested against what the real widget paints.
+- **The HSI BRG tab is one button, sized to the source tab (AER-5848,
+  #222).** Matches pyEfis's HSI bearing tab; tested against the real widget.
 - **The Aircraft page footer names what `config-pull` sends (AER-5900, #218).**
   It said the ownship identity was not sent to the aircraft; it has been
   since P3f. It now lists the altimeter setting units, the ownship address
@@ -65,6 +87,11 @@ and the `configurator`. Semver on the Python package; process in
   palette offers the instrument once pyEfis's schema assets are regenerated
   and uploaded after #497 merges.
 
+### Repository
+- **CODEOWNERS names Bill on every workflow, the signer, the trusted keys
+  and CODEOWNERS itself (CERT16c, #229).** It takes effect when the `main` ruleset
+  requires a code-owner review.
+
 ## 0.6.0 — 2026-11-14
 
 Promotes the `dev` work since 0.5.0 (18 PRs). It exists so that one
@@ -75,14 +102,6 @@ data blocks are carried (VNAV1, #209). It also carries the CERT17 panel-change
 cue on the device and the fuel-tank and preview work in the configurator.
 
 ### Packs (packtools)
-- **Each catalog entry names the run and the pyEfis commit that built it
-  (AER-5994, CERT16).** `build_run_url` and `pyefis_commit` join
-  `build_commit`, read from the pack's test record. Additive, empty for
-  editions published before them; no manifest version bump.
-- **The signing key is read only from the `signing` Environment (AER-5994,
-  CERT16).** Every job that signs names it, and the Environment allows `main`
-  only. The Environment and its secret are set by a repository admin
-  ([docs/signing_key.md](docs/signing_key.md), step 1).
 - **The procedures pack carries the FAS data blocks (VNAV1, AER-5623).** A new
   `fas_blocks` table holds every CIFP Path Point (`PP`) record: the LP/LPV
   Final Approach Segment block, every field, attached to its approach. The
