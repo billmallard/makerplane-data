@@ -29,6 +29,16 @@ and the `configurator`. Semver on the Python package; process in
   `#`: fix-gateway read a `;` header line holding an `=` (a project named
   `A=B`) as a key and stopped at startup. Values that are not finite numbers,
   and keys that are not plain FIX keys, are left out.
+- **Aircraft page: the low CHT/EGT alarm warm-up (G92, AER-6145).** With a
+  fix-gateway schema that carries `TACHe.warmup`, the Engine card shows one
+  field per engine, in seconds, from 0 to 600. The placeholder reads
+  `30 (default)`. A set value compiles to `TACH<e>.warmup = <n>`. A blank one
+  compiles nothing, so fix-gateway's own 30 s applies. An `aux_meta` setting
+  is now labelled in its own `units` when it gives them; without that the
+  field read "RPM". On an int key it takes whole numbers only, because
+  fix-gateway refuses `12.5` there. A device whose fix-gateway predates the
+  slot refuses the whole file at the maintenance-mode dry run and keeps its
+  current one.
 
 ## 0.7.0 — 2026-11-20
 
