@@ -14,6 +14,12 @@ and the `configurator`. Semver on the Python package; process in
   to the code by a test. The record is unchanged. The matrix shows no check
   covers resolution in any kind, and the live GLO-30 terrain packs are
   labelled `origin: federal`, which the label's definition does not fit.
+- **A fourth origin label, `agency`, and terrain uses it (CERT10c,
+  AER-6078).** `manifest.ORIGINS` and `PACK-003` accept `agency`: non-FAA
+  government data with a stated accuracy (do200b_applicability.md section 5).
+  `make_terrain.TERRAIN_ORIGIN` and the cloud stage preview now write it in
+  place of `federal`. Published terrain packs are not republished; the label
+  changes with the next edition. The device does not read `origin`.
 
 ### Device updater (pyefis_data)
 - **The updater trusts a small signing-key set, current and next (AER-5994,
