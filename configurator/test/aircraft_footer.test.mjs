@@ -32,7 +32,7 @@ const PROFILE = JSON.stringify({
       { id: "tk_l", label: "L MAIN", role: "main", slot: 1, feeds: [], capacity: 20, unusable: 0 },
     ] },
   },
-  values: {},
+  values: { "IAS.Vne": 160 },
 });
 const gauge = (options) => ({ type: "vertical_bar_gauge", row: 0, column: 0,
   span: { rows: 20, columns: 10 }, options });
@@ -49,9 +49,10 @@ test("the footer names exactly the settings config-pull receives", async () => {
   const panelKeys = Object.keys(yaml.load(PANEL));
   const served = [
     // Every top-level block the profile added (preferences:, fixgw:, and
-    // any block added later), by its keys.
+    // any block added later), by its keys. A `<key>_sha256` is the
+    // integrity hash of a delivered setting, not a setting of its own.
     ...Object.keys(doc).filter((k) => !panelKeys.includes(k))
-      .flatMap((k) => Object.keys(doc[k])),
+      .flatMap((k) => Object.keys(doc[k])).filter((k) => !k.endsWith("_sha256")),
     // A resolved reference shows as its resolved options on the instrument.
     ...Object.entries(AIRCRAFT_REFS)
       .filter(([, r]) => doc.screens.EMS.instruments.some((i) =>

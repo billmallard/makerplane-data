@@ -18,6 +18,7 @@
 // profile <-> downloaded aircraft.ini, not config-pull.
 
 import { test } from "node:test";
+import { buildAircraftIni } from "../public/aircraft_ini.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -97,7 +98,7 @@ const FUNCS = ["normalizeProfile", "normalizeRegistration", "nNumberAddress", "p
   "ownshipStatus", "instances", "isSpeed", "toNative", "toDisplay", "fmt",
   "unitLabel", "auxSettings", "setEntry", "settingField", "fillCounts", "chainErrors", "render",
   "validate",
-  "drawArc", "cylinderExpand", "buildIni", "importIni", "newTankId", "migrateFuel",
+  "drawArc", "buildIni", "importIni", "newTankId", "migrateFuel",
   "adoptTankValues", "syncTankValues", "addTank", "removeTank", "setTankSlot", "fuelCheck",
   "fuelEditor"];
 // Helpers this change introduced are skipped when absent, so the same test
@@ -115,14 +116,14 @@ const BODY = pick(CONSTS, extractConst) + "\n" + pick(FUNCS, extractFunction);
 function page(meta = {}, values = {}, schema = SCHEMA) {
   const document = makeDom();
   const $ = (id) => document.getElementById(id);
-  const api = new Function("document", "$", "schema", "PROJECT", "labelFitError",
+  const api = new Function("document", "$", "schema", "PROJECT", "labelFitError", "buildAircraftIni",
     `let profile = { schema_version: 1, meta: { engines:1, cylinders:4, tanks:2, speed_unit:"kt",
        baro_unit:"inHg", twin_speeds:false }, values: {} };
      let savedVersion = null;
      ${BODY}
      return { render, validate, buildIni, importIni, normalizeProfile,
               get profile() { return profile; }, set profile(p) { profile = p; } };`,
-  )(document, $, schema, "1", labelFitError);
+  )(document, $, schema, "1", labelFitError, buildAircraftIni);
   Object.assign(api.profile.meta, meta);
   Object.assign(api.profile.values, values);
   api.render();

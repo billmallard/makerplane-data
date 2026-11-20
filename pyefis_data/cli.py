@@ -646,24 +646,91 @@ def cmd_pair(args) -> int:
 
 
 def _restart_fixgw_reported(config_pull) -> None:
-    """Restart fix-gateway after its preferences.yaml.custom changed; a failure
-    is reported, never fatal (the panel is pyEfis's, not fix-gateway's)."""
+    """Restart fix-gateway after its config changed; a failure is reported,
+    never fatal (the panel is pyEfis's, not fix-gateway's). Maintenance mode
+    only -- the caller checks."""
     ok = config_pull.restart_fixgw()
     if ok:
         print("restarted fix-gateway")
     elif ok is None:
         print("no fix-gateway service found to restart; restart it to apply "
-              "the ownship address", file=sys.stderr)
+              "its new config", file=sys.stderr)
     else:
-        print("could not restart fix-gateway; restart it to apply the "
-              "ownship address", file=sys.stderr)
+        print("could not restart fix-gateway; restart it to apply its new "
+              "config", file=sys.stderr)
+
+
+_MAINTENANCE_HINT = ("on the ground, run `pyefis-data config-pull --maintenance` "
+                     "to apply it")
+
+
+def _report_aircraft_ini(ini: dict) -> None:
+    sha = (ini.get("sha256") or "")[:12]
+    if ini.get("skipped"):
+        print(f"aircraft.ini not installed: {ini['skipped']}", file=sys.stderr)
+    elif ini.get("state") == "installed":
+        print(f"installed aircraft.ini (sha256 {sha}) in fix-gateway's init_data, "
+              f"listed last in default.yaml")
+    if ini.get("state") == "pending":
+        print(f"aircraft.ini (sha256 {sha}) is staged; fix-gateway restarts only in "
+              f"maintenance mode -- {_MAINTENANCE_HINT}", file=sys.stderr)
+
+
+def _restart_fixgw_checked(config_pull) -> bool:
+    """Maintenance mode: restart fix-gateway and check it stays up. If it does
+    not, put its previous files back and restart it on those. False when
+    fix-gateway did not take the new config."""
+    res = config_pull.restart_fixgw_and_verify()
+    if res == config_pull.RESTART_OK:
+        print("restarted fix-gateway -- it is up")
+        return True
+    if res is None:
+        print("no fix-gateway service found to restart; restart it to apply "
+              "its new config", file=sys.stderr)
+        return True
+    if res == config_pull.RESTART_FAILED:
+        print("could not restart fix-gateway; restart it to apply its new "
+              "config", file=sys.stderr)
+        return False
+    print("fix-gateway did not stay up on its new config; putting its previous "
+          "files back", file=sys.stderr)
+    if config_pull.rollback_fixgw():
+        again = config_pull.restart_fixgw_and_verify()
+        print("fix-gateway is up on its previous config" if again == config_pull.RESTART_OK
+              else "fix-gateway is still not up -- check `systemctl --user status fixgw`",
+              file=sys.stderr)
+    return False
+
+
+def _pending_ini_step(config_pull, maintenance: bool, no_restart: bool) -> int:
+    """On a pull that changed nothing: install an aircraft.ini an earlier
+    pull staged, if this is maintenance mode. 0 unless fix-gateway refused it."""
+    if config_pull.pending_ini() is None:
+        return 0
+    if not maintenance:
+        _report_aircraft_ini({"state": "pending", "sha256": config_pull.pending_ini()})
+        return 0
+    config_pull.snapshot()
+    ini = config_pull.install_pending_ini()
+    _report_aircraft_ini(ini)
+    if not ini.get("changed"):
+        return 1 if ini.get("skipped") else 0
+    if no_restart:
+        print("(skipped fix-gateway restart; --no-restart) restart it to apply aircraft.ini")
+        return 0
+    return 0 if _restart_fixgw_checked(config_pull) else 1
 
 
 def cmd_config_pull(args) -> int:
     """Pull this device's panel config from the configurator and install it,
-    then restart pyEfis (#65 P3)."""
+    then restart pyEfis (#65 P3).
+
+    fix-gateway is restarted only with --maintenance: the aircraft is on the
+    ground and a person said so (AVI-CON-4; Bill's ruling, AER-5973). Without
+    it a served aircraft.ini is staged, not installed (ACINI1)."""
     import time
     from . import config_pull
+    maintenance = bool(getattr(args, "maintenance", False))
     cfg = Config.load(args.config)
     if getattr(args, "configurator_url", None):
         cfg = _replace(cfg, configurator_url=args.configurator_url)
@@ -694,7 +761,7 @@ def cmd_config_pull(args) -> int:
         return 2
     if status == "up-to-date":
         print(f"panel config up to date (v{version})")
-        return 0
+        return _pending_ini_step(config_pull, maintenance, args.no_restart)
     if status == "none":
         print("no panel config published for this device yet")
         return 0
@@ -714,7 +781,8 @@ def cmd_config_pull(args) -> int:
     old_version = cfg.config_version          # to revert to if the new config crashes
     old_etag = cfg.config_etag
     try:
-        summary = config_pull.install_config(text, scope=cfg.pyefis_unit_scope)
+        summary = config_pull.install_config(text, scope=cfg.pyefis_unit_scope,
+                                             maintenance=maintenance)
     except ValueError as e:
         print(f"config install skipped: {e}", file=sys.stderr)
         return 2
@@ -741,6 +809,13 @@ def cmd_config_pull(args) -> int:
         addr = fixgw.get("ownship_address")
         print(f"fix-gateway ownship address: {addr}" if addr
               else "fix-gateway ownship address: removed")
+    ini = summary.get("aircraft_ini") or {}
+    _report_aircraft_ini(ini)
+    if fixgw.get("changed") and not maintenance:
+        print("fix-gateway not restarted (not in maintenance mode); the ownship "
+              "address applies when it next starts, or " + _MAINTENANCE_HINT,
+              file=sys.stderr)
+    fixgw_due = maintenance and (fixgw.get("changed") or ini.get("changed"))
     n = summary.get("screens", 1)
     if n > 1:
         print(f"installed panel config v{version} -- {n} screens "
@@ -750,15 +825,14 @@ def cmd_config_pull(args) -> int:
         print(f"installed panel config v{version} (boot screen: {summary['boot_screen']})")
     if args.no_restart:
         print("(skipped pyEfis restart; --no-restart)")
-        if fixgw.get("changed"):
-            print("(skipped fix-gateway restart too; restart it to apply the address)")
+        if fixgw_due:
+            print("(skipped fix-gateway restart too; restart it to apply its new config)")
         return 0
-    if fixgw.get("changed"):
-        _restart_fixgw_reported(config_pull)
+    fixgw_ok = _restart_fixgw_checked(config_pull) if fixgw_due else True
     outcome = config_pull.restart_and_verify(scope=cfg.pyefis_unit_scope)
     if outcome == config_pull.RESTART_OK:
         print("restarted pyEfis -- panel is up")
-        return 0
+        return 0 if fixgw_ok else 1
     if outcome == config_pull.RESTART_FAILED:
         # The panel installed fine; only the restart *mechanism* failed (e.g.
         # pyEfis runs in a systemd scope we couldn't reach). Do NOT roll back a
@@ -774,7 +848,9 @@ def cmd_config_pull(args) -> int:
     # RESTART_CRASHED: the new config actually crashed pyEfis -> roll back to the
     # last working state so the device is never left on a screen it can't boot.
     restored = config_pull.rollback()
-    if config_pull.rollback_fixgw():
+    # Outside maintenance mode fix-gateway never read the new files, so
+    # putting them back needs no restart.
+    if config_pull.rollback_fixgw() and maintenance:
         _restart_fixgw_reported(config_pull)
     write_config(args.config, {"config_version": old_version, "config_etag": old_etag})
     _record_panel_change(lambda pc: pc.record_rollback(text))
@@ -954,6 +1030,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="retry a transient (network-not-ready) fetch failure for up "
                          "to SECONDS before giving up -- used by the boot service so a "
                          "power-cycle reliably pulls once the network is up")
+    cp.add_argument("--maintenance", action="store_true",
+                    help="the aircraft is on the ground in maintenance: allow "
+                         "fix-gateway to restart, to apply aircraft.ini and the "
+                         "ownship address. Without it aircraft.ini is only staged.")
     cp.set_defaults(func=cmd_config_pull)
     return ap
 
