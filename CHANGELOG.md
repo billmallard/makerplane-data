@@ -6,14 +6,6 @@ and the `configurator`. Semver on the Python package; process in
 
 ## Unreleased
 
-### Packs (packtools)
-- **A fourth origin label, `agency`, and terrain uses it (CERT10c,
-  AER-6078).** `manifest.ORIGINS` and `PACK-003` accept `agency`: non-FAA
-  government data with a stated accuracy (do200b_applicability.md section 5).
-  `make_terrain.TERRAIN_ORIGIN` and the cloud stage preview now write it in
-  place of `federal`. Published terrain packs are not republished; the label
-  changes with the next edition. The device does not read `origin`.
-
 ### Device updater (pyefis_data)
 - **`config-pull` delivers `aircraft.ini` to fix-gateway, in maintenance mode
   only (ACINI1, AER-5993).** The served `fixgw:` block now carries the
@@ -40,7 +32,7 @@ and the `configurator`. Semver on the Python package; process in
 
 ## 0.7.0 — 2026-11-20
 
-Promotes the `dev` work since 0.6.0 (14 PRs). It exists to put CERT16's
+Promotes the `dev` work since 0.6.0 (15 PRs). It exists to put CERT16's
 signing workflows on `main`: until every signing job there names the
 `signing` Environment, the nightly run on `main` reads the repository-level
 signing secret and that secret cannot be deleted. It also registers the
@@ -49,6 +41,13 @@ The two CERT16 Packs entries below were filed under 0.6.0 by mistake; they
 were never on `main` before this release.
 
 ### Packs (packtools)
+- **A fourth origin label, `agency`, and terrain uses it (CERT10c,
+  AER-6078).** `manifest.ORIGINS` and `PACK-003` accept `agency`: non-FAA
+  government data with a stated accuracy (do200b_applicability.md section 5).
+  `make_terrain.TERRAIN_ORIGIN` and the cloud stage preview now write it in
+  place of `federal`. Published terrain packs are not republished; the label
+  changes with the next edition. The device does not read `origin`.
+  Merged to `dev` after the 0.7.0 cut and shipped in it (#230).
 - **Each catalog entry names the run and the pyEfis commit that built it
   (AER-5994, CERT16).** `build_run_url` and `pyefis_commit` join
   `build_commit`, read from the pack's test record. Additive, empty for
