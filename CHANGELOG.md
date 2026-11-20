@@ -18,6 +18,12 @@ and the `configurator`. Semver on the Python package; process in
   `--maintenance`, the ownship address's included: the boot pull writes the
   address and fix-gateway reads it when it next starts.
   See [docs/canfix_configurator.md](docs/canfix_configurator.md) section 7.
+- **`config-pull --maintenance` keeps fix-gateway's tank count at or above
+  the highest fuel slot `aircraft.ini` names (FUEL1h, AER-6135).** fix-gateway
+  has keys only for `FUELQ1..FUELQ<t>`, so a `FUELQ5` line with the stock
+  `t: 3` stopped it at startup. The install now raises `t` in
+  `database/variables.yaml` before the dry run, never lowers it, and puts it
+  back on rollback.
 
 ### Configurator and device config
 - **`GET /device/config` serves the compiled `aircraft.ini` (ACINI1,

@@ -671,6 +671,9 @@ def _report_aircraft_ini(ini: dict) -> None:
     elif ini.get("state") == "installed":
         print(f"installed aircraft.ini (sha256 {sha}) in fix-gateway's init_data, "
               f"listed last in default.yaml")
+        if ini.get("tanks"):
+            print(f"raised fix-gateway's fuel tank count to {ini['tanks']} "
+                  f"(database/variables.yaml t)")
     if ini.get("state") == "pending":
         print(f"aircraft.ini (sha256 {sha}) is staged; fix-gateway restarts only in "
               f"maintenance mode -- {_MAINTENANCE_HINT}", file=sys.stderr)

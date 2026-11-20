@@ -70,6 +70,14 @@ mode nothing fix-gateway reads changes; the staged file waits for the next
 ``config-pull --maintenance``. Both writes are fsynced: a ``default.yaml``
 lost to a power cut stops fix-gateway.
 
+**Tank count** (FUEL1h, AER-6135; docs/fuel_provider_model.md section 4):
+fix-gateway has keys only for fuel tanks FUELQ1..FUELQ<t>, ``t`` from its
+``database/variables.yaml``, and an aircraft.ini naming a higher slot stops
+it at startup. So before the dry run, the install raises ``t`` to the
+highest slot the file names. It never lowers ``t``, so a slot a served
+config uses always exists. The file is edited as text (one number) and
+re-parsed, snapshotted with the others, and put back on rollback.
+
 Every fix-gateway restart, including the one the ownship address asks for,
 happens only in maintenance mode.
 
@@ -125,6 +133,14 @@ _MAIN_BACKUP = "fixgw/default.yaml"
 # blank, '#' comment, or a plain FIX key (with aux) and a number.
 _INI_LINE = re.compile(
     r"[A-Za-z0-9]+(\.[A-Za-z0-9]+)? = [-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?")
+
+# fix-gateway's database variables (FUEL1h, brief F8): ``t`` is the tank
+# count, and FUELQ1..FUELQ<t> are the only tank keys its database has. An
+# aircraft.ini naming a higher slot is a KeyError that stops fix-gateway.
+_VARS_REL = "database/variables.yaml"
+_VARS_BACKUP = "fixgw/variables.yaml"
+_INI_TANK = re.compile(r"FUELQ(\d+)(\.[A-Za-z0-9]+)? =")
+_VARS_TANK = re.compile(r"([ \t]+t[ \t]*:[ \t]*)(\d+)([ \t]*(#.*)?)$")
 
 # Standard on-device SVS data layout (the makerplane-data updater installs here).
 # Injected into a virtual_vfr instrument so it renders terrain, mirroring the
@@ -457,13 +473,14 @@ def snapshot(cd: Path | None = None, fcd: Path | None = None) -> None:
 
 def _snapshot_fixgw(bk: Path, fcd: Path | None) -> None:
     """Add the fix-gateway files config-pull writes (preferences.yaml.custom,
-    init_data/aircraft.ini, default.yaml) to the snapshot: each one's text, or
-    an ``absent`` marker when there is none, so rollback can remove a file the
-    failed install created. Nothing when fix-gateway has no config dir here."""
+    init_data/aircraft.ini, default.yaml, database/variables.yaml) to the
+    snapshot: each one's text, or an ``absent`` marker when there is none, so
+    rollback can remove a file the failed install created. Nothing when
+    fix-gateway has no config dir here."""
     if fcd is None or not fcd.is_dir():
         return
     for rel, saved in ((_FIXGW_CUSTOM, _FIXGW_BACKUP), (_INI_REL, _INI_BACKUP),
-                       (_FIXGW_MAIN, _MAIN_BACKUP)):
+                       (_FIXGW_MAIN, _MAIN_BACKUP), (_VARS_REL, _VARS_BACKUP)):
         src = fcd / rel
         dst = bk / saved
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -695,6 +712,57 @@ def _ini_sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _ini_tanks(text: str) -> int:
+    """The highest fuel tank slot ``text`` names (``FUELQ5.Max = ...`` -> 5);
+    0 when it names none. FUELQT, the total, is not a slot."""
+    slots = [int(m.group(1)) for line in text.splitlines()
+             for m in [_INI_TANK.match(line.strip())] if m]
+    return max(slots, default=0)
+
+
+def _vars_tanks(text: str | None) -> int | None:
+    """``variables: t`` of a fix-gateway variables.yaml, or None when there
+    is no file, it does not parse, or ``t`` is not a whole number."""
+    import yaml
+    try:
+        doc = yaml.safe_load(text) if text is not None else None
+    except Exception:
+        return None
+    var = doc.get("variables") if isinstance(doc, dict) else None
+    t = var.get("t") if isinstance(var, dict) else None
+    return t if isinstance(t, int) and not isinstance(t, bool) else None
+
+
+def _raise_tanks(text: str, need: int) -> str | None:
+    """variables.yaml ``text`` with ``t`` at least ``need``: ``text`` itself
+    when it already is (``t`` is never lowered), the edited text otherwise,
+    or None when it cannot be edited safely. Only the number on the one
+    ``t:`` line changes; the result must re-parse to the same mapping with
+    only ``variables: t`` different."""
+    import yaml
+    have = _vars_tanks(text)
+    if have is None:
+        return None
+    if have >= need:
+        return text
+    lines = text.splitlines(keepends=True)
+    hits = [i for i, l in enumerate(lines) if _VARS_TANK.match(l.rstrip("\r\n"))]
+    if len(hits) != 1:
+        return None
+    i = hits[0]
+    body = lines[i].rstrip("\r\n")
+    m = _VARS_TANK.match(body)
+    lines[i] = m.group(1) + str(need) + m.group(3) + lines[i][len(body):]
+    new = "".join(lines)
+    want = yaml.safe_load(text)
+    want["variables"] = dict(want["variables"], t=need)
+    try:
+        ok = yaml.safe_load(new) == want
+    except Exception:
+        ok = False
+    return new if ok else None
+
+
 def _read_text(path: Path) -> str | None:
     try:
         return path.read_text("utf-8")
@@ -917,8 +985,10 @@ def _apply_aircraft_ini(cd: Path, fcd: Path | None, block, maintenance: bool) ->
         return {"state": None, "changed": False, "skipped": "no fix-gateway config dir"}
     sha = _ini_sha(served)
     main = _read_text(fcd / _FIXGW_MAIN)
+    need = _ini_tanks(served)
+    tanks_ok = not need or (_vars_tanks(_read_text(fcd / _VARS_REL)) or 0) >= need
     if (_read_text(fcd / _INI_REL) == served and main is not None
-            and _enrol_ini(main) == main):
+            and _enrol_ini(main) == main and tanks_ok):
         _drop_pending(cd, fcd)
         return {"state": "unchanged", "changed": False, "sha256": sha}
     _stage_ini(cd, fcd, served)
@@ -929,34 +999,58 @@ def _apply_aircraft_ini(cd: Path, fcd: Path | None, block, maintenance: bool) ->
 
 def install_pending_ini(cd: Path | None = None, fcd: Path | None = None) -> dict:
     """Install the staged aircraft.ini (maintenance mode only -- the caller
-    decides that). Same result shape as _apply_aircraft_ini. The staged file
-    is checked against its recorded hash, dry-run through fix-gateway's
-    loader, then written in place and listed in default.yaml, in that order
-    (a default.yaml naming a missing file stops fix-gateway). A file
-    fix-gateway would refuse is dropped; one that could not be checked
-    stays staged."""
+    decides that). Same result shape as _apply_aircraft_ini, plus ``tanks``
+    when fix-gateway's tank count was raised. The staged file is checked
+    against its recorded hash; fix-gateway's ``t`` is raised to the highest
+    FUELQ slot it names (never lowered); it is dry-run through fix-gateway's
+    loader, which so sees the raised count; then written in place and listed
+    in default.yaml, in that order (a default.yaml naming a missing file
+    stops fix-gateway). A raised ``t`` alone loads with the old files, and is
+    put back when the install goes no further. A file fix-gateway would
+    refuse is dropped; one that could not be checked stays staged."""
     cd = cd or config_dir()
     fcd = fcd or fixgw_config_dir()
     sha = pending_ini(cd, fcd)
     if sha is None:
         return {"state": None, "changed": False}
     staged = fcd / _INI_PENDING_REL
+    vars_path = fcd / _VARS_REL
+    old_vars = _read_text(vars_path)
+    need = _ini_tanks(staged.read_text("utf-8"))
+    new_vars = old_vars
+    if need:
+        new_vars = _raise_tanks(old_vars, need) if old_vars is not None else None
+        if new_vars is None:
+            return {"state": "pending", "changed": False, "sha256": sha,
+                    "skipped": f"aircraft.ini names fuel tank {need}; could not set "
+                               f"t: {need} in {vars_path} safely"}
+        if new_vars != old_vars:
+            _durable_write(vars_path, new_vars)
+
+    def stopped(res: dict) -> dict:
+        if new_vars != old_vars:
+            _durable_write(vars_path, old_vars)
+        return res
+
     ok, why = validate_ini(fcd, staged)
     if ok is False:
         _drop_pending(cd, fcd)
-        return {"state": None, "changed": False, "sha256": sha, "skipped": why}
+        return stopped({"state": None, "changed": False, "sha256": sha, "skipped": why})
     if ok is None:
-        return {"state": "pending", "changed": False, "sha256": sha, "skipped": why}
+        return stopped({"state": "pending", "changed": False, "sha256": sha, "skipped": why})
     main = _read_text(fcd / _FIXGW_MAIN)
     new_main = _enrol_ini(main) if main is not None else None
     if new_main is None:
-        return {"state": "pending", "changed": False, "sha256": sha,
-                "skipped": f"could not list aircraft.ini in {fcd / _FIXGW_MAIN} safely"}
+        return stopped({"state": "pending", "changed": False, "sha256": sha,
+                        "skipped": f"could not list aircraft.ini in {fcd / _FIXGW_MAIN} safely"})
     _durable_write(fcd / _INI_REL, staged.read_text("utf-8"))
     if new_main != main:
         _durable_write(fcd / _FIXGW_MAIN, new_main)
     _drop_pending(cd, fcd)
-    return {"state": "installed", "changed": True, "sha256": sha}
+    res = {"state": "installed", "changed": True, "sha256": sha}
+    if new_vars != old_vars:
+        res["tanks"] = need
+    return res
 
 
 def _clear_managed_includes(inc: dict, boot: str) -> None:
@@ -1390,14 +1484,17 @@ def rollback_fixgw(cd: Path | None = None, fcd: Path | None = None) -> bool:
     """Put the fix-gateway files config-pull writes back as the pre-install
     snapshot holds them (removing one the failed install created):
     default.yaml first, so it never lists an aircraft.ini that is then
-    removed, then aircraft.ini and preferences.yaml.custom. Returns True if
-    any file changed, so the caller knows to restart fix-gateway."""
+    removed, then aircraft.ini, then variables.yaml, so the tank count only
+    drops once no file names the higher slots, then preferences.yaml.custom.
+    Returns True if any file changed, so the caller knows to restart
+    fix-gateway."""
     cd = cd or config_dir()
     fcd = fcd or fixgw_config_dir()
     bk = cd / _BACKUP_DIR
     changed = False
     for rel, saved_rel, write in ((_FIXGW_MAIN, _MAIN_BACKUP, _durable_write),
                                   (_INI_REL, _INI_BACKUP, _durable_write),
+                                  (_VARS_REL, _VARS_BACKUP, _durable_write),
                                   (_FIXGW_CUSTOM, _FIXGW_BACKUP, _atomic_write)):
         path = fcd / rel
         saved = bk / saved_rel
@@ -1407,7 +1504,7 @@ def rollback_fixgw(cd: Path | None = None, fcd: Path | None = None) -> bool:
                 write(path, text)
                 changed = True
         elif (bk / (saved_rel + ".absent")).exists() and path.exists() \
-                and rel != _FIXGW_MAIN:       # config-pull never creates default.yaml
+                and rel not in (_FIXGW_MAIN, _VARS_REL):   # config-pull never creates these
             path.unlink()
             changed = True
     return changed
