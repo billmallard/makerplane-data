@@ -259,6 +259,16 @@ above:
   value its type refuses, is an exception that stops fixgw at startup (and
   `Restart=always` loops it). After the restart fixgw must keep one PID and
   stay active, or the ini and `default.yaml` are put back.
+- The tank count (FUEL1h, AER-6135; [fuel_provider_model.md](fuel_provider_model.md)
+  row F8). fixgw has keys only for `FUELQ1..FUELQ<t>`, `t` from its
+  `database/variables.yaml` (stock `t: 3`), so an ini naming `FUELQ5` is one
+  of those startup-stopping keys. Before the dry run, the install raises `t`
+  to the highest slot the ini names, so the dry run checks the raised count.
+  `t` is never lowered, so no slot a served config used disappears. A raised
+  `t` loads with the old files too (more keys, none written), so it is
+  written first. It is put back if the install stops, and on rollback after
+  the ini is. A `variables.yaml` the edit cannot change safely keeps the ini
+  staged.
 
 This makes the last un-versioned deployed state (fixgw config's
 aircraft numbers) versioned, signed and reproducible.
