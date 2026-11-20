@@ -3,10 +3,12 @@
 //
 // AER-5553 (HSIBRG1 twin of pyEfis#464): bearing pointers are bearing_color
 // (cyan) whatever the source, start Off at boot, and under top_panel are
-// stepped by a BRG tab on the panel's right edge. Runs the REAL buildHSI()
+// stepped by a BRG tab on the panel's right edge. AER-5848 (HSIBRG4 twin of
+// pyEfis#504): that tab is one button reading NONE at boot, the nav-source
+// tab mirrored (HSI._side_tab_metrics). Runs the REAL buildHSI()
 // out of editor.html (brace-matched, see test/support/extract.mjs) against
 // test/fixtures/hsi_bearing_pyefis.json, written by tools/hsi_bearing_oracle.py
-// from the merged widget at 425 px (the size where the twin's 44-unit panel
+// from the merged widget (pyEfis#504) at 425 px (the size where the twin's 44-unit panel
 // is the widget's 12.5 fontSize wide). Regenerate the fixture with that tool;
 // never hand-edit it.
 
@@ -16,10 +18,10 @@ import { readFileSync } from "node:fs";
 import { editorSource, extractConst, extractFunction } from "./support/extract.mjs";
 
 const ORACLE = JSON.parse(readFileSync(new URL("./fixtures/hsi_bearing_pyefis.json", import.meta.url), "utf8"));
-const CONSTS = ["SOURCE_LABEL_MIN_CONTRAST"];
+const CONSTS = ["SOURCE_LABEL_MIN_CONTRAST", "ND_ADV", "ND_KERN"];
 const FUNCS = ["svgFromString", "headingLabel", "_polar", "rgbaFromColor", "bgOpacity",
   "normHex", "_hexToRgb", "_rgbToHex", "_srgbToLinear", "_relativeLuminance", "contrastRatio",
-  "_rgbToHsv", "_hsvToRgb", "darkenToContrast", "buildHSI"];
+  "_rgbToHsv", "_hsvToRgb", "darkenToContrast", "ndAdvance", "buildHSI"];
 const body = CONSTS.map((c) => extractConst(editorSource(), c)).join("\n")
   + "\n\n" + FUNCS.map((f) => extractFunction(editorSource(), f)).join("\n\n");
 
@@ -45,7 +47,9 @@ function texts(svg) {
              fill: at("fill"), anchor: at("text-anchor"), text };
   });
 }
-const tabTexts = (svg) => texts(svg).filter((t) => t.text.startsWith("BRG"));
+const TAB_LABELS = ["NONE", "BRG 1", "BRG 2", "BOTH"];
+const tabTexts = (svg) => texts(svg).filter((t) => TAB_LABELS.includes(t.text));
+const navTabText = (svg) => texts(svg).find((t) => t.text === "GPS" && t.anchor === "middle");
 const cornerTexts = (svg) => texts(svg).filter((t) => /^[12] /.test(t.text));
 // The twin's panel rect (segPanel / arc inline rect share the literal).
 function panel(svg) {
@@ -58,46 +62,59 @@ function tabOutline(svg, color = "#00ffff") {
   return m && { x0: +m[1], top: +m[2], x1: +m[4], bottom: +m[5] };
 }
 
+// The nav-source tab's span, from its filled path: x0 is the target of the
+// first rounded-corner arc, the right edge is the panel's left edge.
+function navTabSpan(svg) {
+  const m = svg.match(/<path d="M([\d.]+) ([\d.]+) L([\d.]+) [\d.]+ L[\d.]+ ([\d.]+) [^"]*?A[\d.]+ [\d.]+ 0 0 1 ([\d.]+) [^"]*" fill="#[0-9a-f]+"\/><text [^>]*>GPS</);
+  return m && { x0: +m[5], x1: +m[3], top: +m[2], bottom: +m[4] };
+}
+
 // How far the twin may sit from the widget, in viewBox units (0..100), and
 // why. The twin's corner radius is its own panel's 1.4, the widget's is
 // 0.145 of the panel height (1.76 here), so the tab's top and bottom sit up
-// to 0.4 off (measured 0.36). Its glyph widths are navTab's per-character
-// unit, not hinted DejaVu advances; measured 0.18 off at the right edge, held
-// to 0.5. Font sizes agree to
-// 0.1 because the twin's fontSize (44/12.5) is the widget's 15 px at 425.
-const TOL_EDGE = 0.4, TOL_RIGHT = 0.5, TOL_FONT = 0.1;
+// to 0.4 off (measured 0.36). Its width uses DejaVu Sans Condensed's
+// unhinted advances, the widget's are hinted to whole px; measured 0.073
+// under at 425 px, held to 0.2. Font sizes agree to 0.1 because the twin's
+// fontSize (44/12.5) is the widget's 15 px at 425.
+const TOL_EDGE = 0.4, TOL_WIDTH = 0.2, TOL_FONT = 0.1;
 
 for (const [name, cfg] of Object.entries(ORACLE.configs)) {
-  test(`${name}: BRG tab labels and font match the widget at boot`, () => {
+  test(`${name}: BRG tab label and font match the widget at boot`, () => {
     const svg = render(cfg.options);
     const got = tabTexts(svg);
     assert.deepEqual(got.map((t) => t.text), cfg.tab_text.map((t) => t.label));
     for (const [i, t] of got.entries()) {
-      assert.equal(t.fill, "#00ffff", "an Off row's label is cyan");
-      assert.equal(t.weight, "700", "the tab label is bold");
+      assert.equal(t.fill, "#00ffff", "the NONE label is cyan");
+      assert.equal(cfg.tab_text[i].bold, false);
+      assert.equal(t.weight, undefined, "the tab label is not bold");
       assert.ok(Math.abs(t.size - cfg.tab_text[i].px / ORACLE.size * 100) <= TOL_FONT,
         `${t.text}: font ${t.size} vs widget ${cfg.tab_text[i].px / ORACLE.size * 100}`);
+      assert.equal(t.size, navTabText(svg).size, "the BRG tab's font is the source tab's");
     }
   });
 
   test(`${name}: BRG tab geometry matches the widget`, () => {
     const svg = render(cfg.options);
-    const rows = Object.values(cfg.tab_rows);
     const out = tabOutline(svg);
-    if (!rows.length) { assert.equal(out, null, "no pointer available, no tab"); return; }
+    if (!cfg.tab) { assert.equal(out, null, "no pointer available, no tab"); return; }
     assert.ok(out, "expected the BRG tab outline");
+    assert.match(svg, /fill="rgba\(0,0,0,0\.55\)"\/><text [^>]*>NONE</, "NONE is the panel's dark fill");
+    // The widget's two tabs share one size (_side_tab_metrics).
+    assert.deepEqual(cfg.tab.slice(1), cfg.source_tab.slice(1), "widget: BRG tab is the source tab's size");
     const p = panel(svg);
     assert.equal(out.x0, p.x + p.w, "the tab's square left edge is flush with the panel's right edge");
-    const top = rows[0][1] * 100, bottom = (rows.at(-1)[1] + rows.at(-1)[3]) * 100;
-    const right = (rows[0][0] + rows[0][2]) * 100, wPanelRight = (cfg.panel[0] + cfg.panel[2]) * 100;
+    const [, top, w, h] = cfg.tab.map((v) => v * 100);
     assert.ok(Math.abs(out.top - top) <= TOL_EDGE, `top ${out.top} vs ${top}`);
-    assert.ok(Math.abs(out.bottom - bottom) <= TOL_EDGE, `bottom ${out.bottom} vs ${bottom}`);
-    // Width from each one's own panel edge: the twin's panel is 44 wide, the
-    // widget's 12.5 fontSize, so compare how far each tab reaches past it.
-    assert.ok(Math.abs((out.x1 - out.x0) - (right - wPanelRight)) <= TOL_RIGHT,
-      `width ${out.x1 - out.x0} vs ${right - wPanelRight}`);
-    if (rows.length === 2) assert.match(svg, /<line x1="[\d.]+" y1="[\d.]+" x2="[\d.]+" y2="[\d.]+" stroke="#00ffff" stroke-width="0.5"\/>/,
-      "two rows share a hairline");
+    assert.ok(Math.abs(out.bottom - (top + h)) <= TOL_EDGE, `bottom ${out.bottom} vs ${top + h}`);
+    assert.ok(Math.abs((out.x1 - out.x0) - w) <= TOL_WIDTH, `width ${out.x1 - out.x0} vs ${w}`);
+    // And the twin's two tabs are one size, mirrored about the panel.
+    const nav = navTabSpan(svg);
+    assert.ok(nav, "expected the nav-source tab");
+    assert.equal(nav.x1, p.x, "the source tab's square edge is flush with the panel's left edge");
+    assert.ok(Math.abs((out.x1 - out.x0) - (nav.x1 - nav.x0)) < 1e-9, "same width as the source tab");
+    assert.equal(out.top, nav.top);
+    assert.equal(out.bottom, nav.bottom);
+    assert.doesNotMatch(svg, /<line [^>]*stroke="#00ffff" stroke-width="0.5"\/>/, "one button, no row hairline");
   });
 
   test(`${name}: corner labels match the widget at boot`, () => {
@@ -131,7 +148,10 @@ test("bearing_color drives the tab and the corner labels, not the source colour"
   assert.deepEqual(cornerTexts(co).map((t) => t.fill), ["#ffaa00", "#ffaa00"]);
 });
 
-test("pointer 2 alone reads BRG OFF, one row", () => {
-  const svg = render({ bearing2_enabled: true });
-  assert.deepEqual(tabTexts(svg).map((t) => t.text), ["BRG OFF"]);
+test("one pointer or two, the tab is one button reading NONE", () => {
+  for (const opts of [{ bearing1_enabled: true }, { bearing2_enabled: true },
+                      { bearing1_enabled: true, bearing2_enabled: true }]) {
+    assert.deepEqual(tabTexts(render(opts)).map((t) => t.text), ["NONE"], JSON.stringify(opts));
+  }
+  assert.doesNotMatch(render({ bearing1_enabled: true, bearing2_enabled: true }), /BRG[12] OFF|BRG OFF/);
 });

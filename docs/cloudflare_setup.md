@@ -180,7 +180,9 @@ Then:
    It is the only thing that can sign a manifest; losing it means minting a
    new key and re-committing the public key (and the Pi must be updated). Do
    **not** commit it — `*.sec` is gitignored.
-3. Put the secret into CI as `MINISIGN_SECRET_KEY` (Step 5).
+3. Put the secret into CI as `MINISIGN_SECRET_KEY` in the `signing`
+   Environment, which only `main` may deploy to (Step 5;
+   [signing_key.md](signing_key.md) has the commands).
 
 The secret format is base64 of `key_id(8 bytes) ‖ ed25519_seed(32 bytes)` —
 exactly the one line in `keys/minisign.sec`. See `packtools/signing.py`.
@@ -193,20 +195,23 @@ exactly the one line in `keys/minisign.sec`. See `packtools/signing.py`.
 
 ## Step 5 — GitHub Actions secrets + variables
 
-Four secrets drive `cyclical.yml`. Set them on the repo (admin required):
+Four secrets drive `cyclical.yml`: three on the repo, the signing key in the `signing` Environment (admin required):
 
 ```bash
 R=billmallard/makerplane-data        # or makerplane/makerplane-data after transfer
 
-# Signing key (from keys/minisign.sec — stays off your terminal history via <)
-gh secret set MINISIGN_SECRET_KEY  --repo "$R" < keys/minisign.sec
+# Signing key (from keys/minisign.sec — stays off your terminal history via <).
+# An Environment secret, not a repository one: create the main-only `signing`
+# Environment first (docs/signing_key.md, step 1).
+gh secret set MINISIGN_SECRET_KEY  --repo "$R" --env signing < keys/minisign.sec
 
 # R2 credentials (from Step 3)
 gh secret set R2_ENDPOINT          --repo "$R" --body "https://<account-id>.r2.cloudflarestorage.com"
 gh secret set R2_ACCESS_KEY_ID     --repo "$R" --body "<access-key-id>"
 gh secret set R2_SECRET_ACCESS_KEY --repo "$R" --body "<secret-access-key>"
 
-gh secret list --repo "$R"          # expect all four
+gh secret list --repo "$R"          # expect the three R2_* secrets
+gh secret list --repo "$R" --env signing   # expect MINISIGN_SECRET_KEY
 ```
 
 Optional **repository variables** (not secrets) — only if you need to override
@@ -349,11 +354,9 @@ Read & Write token (Step 3), update the three `R2_*` secrets (Step 5), then
 revoke the old token in the dashboard. No code change; next run uses the new
 creds.
 
-**Rotate the signing key:** `genkey` a new pair, commit the new
-`keys/minisign.pub`, reset `MINISIGN_SECRET_KEY`, and ship the new public key
-to devices (a pyEfis update — the Pi embeds the pub). Old manifests stay valid
-only under the old key, so re-sign on the next build. Keep the old `.sec` until
-all devices have the new pub.
+**Rotate or revoke the signing key:** [signing_key.md](signing_key.md). The
+device trusts a current + next key set, so a planned rotation ships the next
+public key first and switches signing to it later.
 
 **Tear down:** delete the bucket (`wrangler r2 bucket delete makerplane-data`
 or dashboard), revoke the API token, and delete the GitHub secrets. The repo

@@ -35,8 +35,9 @@ NOTICE = ("Experimental / Amateur-Built use only. Not certified. This data is "
 # Coarse data-pedigree label (docs/do200b_applicability.md section 5).
 # Deliberately not a score: it says where the data came from, nothing about
 # how good it is. "" on an entry means unspecified (entries published before
-# the field existed).
-ORIGINS = ("federal", "community", "user-supplied")
+# the field existed). "agency" is non-FAA government data with a stated
+# accuracy (Copernicus terrain; Bill, AER-5978).
+ORIGINS = ("federal", "agency", "community", "user-supplied")
 
 
 def _rank_key(p: "PackEntry") -> tuple:
@@ -84,6 +85,14 @@ class PackEntry:
     origin: str = ""
     notice: str = ""
     build_commit: str = ""
+    # Who built it (CERT16, AER-5994): additive, default "", like the above.
+    # build_run_url is the workflow run that built and signed the pack (its
+    # run id is the URL's last segment); pyefis_commit is the pyEfis commit
+    # whose tools built it (CERT5a's pack_meta field, mirrored here so the
+    # signed catalog names it without opening the pack). Both come from the
+    # pack's test record, as build_commit does.
+    build_run_url: str = ""
+    pyefis_commit: str = ""
 
     # --- currency helpers (shared with the Pi updater) ---
     def covers(self, day: _dt.date) -> bool:

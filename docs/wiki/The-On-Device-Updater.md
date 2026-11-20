@@ -34,6 +34,7 @@ Global options, before the command: `--config PATH` (default
 | `advisories [--enable \| --disable] [--check] [--json]` | The opt-in safety advisory feed |
 | `pair CODE [--configurator-url URL]` | Redeem a claim code from the configurator |
 | `config-pull [--no-restart] [--wait-online SECONDS]` | Pull and install this device's panel, restart pyEfis, roll back if it does not come up |
+| `panel-ack [--yes] [--hash HASH] [--json]` | Acknowledge a panel change that `config-pull` installed (below) |
 
 `update` options:
 
@@ -109,9 +110,15 @@ only the tiles that no remaining region provides are removed. For every pack,
 version folders other than the current and the staged one are deleted after
 each update.
 
-`auto_update` and `storage_budget_gb` are read from the file but have no effect.
-The daily timer runs regardless of `auto_update`, and no storage limit is
-applied.
+`auto_update: false` stops the daily timer's update. The timer runs
+`pyefis-data update --scheduled`, and a scheduled run with `auto_update` off
+installs nothing and exits 0. An update started by hand, by the picker or by
+a USB import still runs. A device installed before this change keeps
+updating daily until its `pyefis-data.service` is recopied from
+`pyefis_data/systemd/`.
+
+There is no storage limit. You control how much is downloaded by choosing
+packs and regions; the picker shows each pack's size and the free space.
 
 ## Pack status
 
@@ -153,7 +160,9 @@ with values shortened:
      "next_cycle": null, "next_effective": null, "next_staged": false,
      "notice": "...", "detail": "..."}
   ],
-  "advisories": {"enabled": false}
+  "advisories": {"enabled": false},
+  "panel_change": {"pending": false, "config_hash": null, "config_version": null,
+                   "changed": null, "trigger": null, "acknowledged": null}
 }
 ```
 
@@ -161,7 +170,41 @@ with values shortened:
 `any_attention` is true when any pack is `EXPIRED`, `EXPIRES`, `UPDATE
 AVAILABLE`, `MISSING`, or the catalog was refused. When the catalog cannot be
 read at all, `status --json` prints `{"ok": false, "error": "...", "packs":
-[]}`.
+[]}`. `panel_change` is described below.
+
+## Panel changes and `panel-ack`
+
+The boot pull installs a changed panel with nobody watching. Rollback catches a
+panel that crashes pyEfis, not one that starts cleanly with an instrument
+reading the wrong key. So every pull that changes the installed panel is
+recorded and shown on the Data Status screen until a person acknowledges it
+([`pyefis_data/panel_change.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/panel_change.py),
+[`docs/panel_change_cue.md`](https://github.com/billmallard/makerplane-data/blob/dev/docs/panel_change_cue.md)).
+
+- **What counts as a change:** the SHA-256 of the served YAML exactly as pulled
+  (panel and any `preferences:` and `fixgw:` blocks) differs from the one
+  installed before. A pull that brings the same bytes records nothing.
+- **The record:** one line per event in
+  `~/.local/state/makerplane/panel_changes.jsonl`, beside the software-notice
+  log (`$XDG_STATE_HOME` is honoured, and `MAKERPLANE_PANEL_LOG` overrides the
+  path). Events are `changed` (with `config_version` and `trigger`: `boot` when
+  `config-pull` ran with `--wait-online`, else `manual`), `rolled_back` (the
+  new panel crashed pyEfis and was withdrawn) and `acknowledged`.
+- **`status.json`:** `config-pull` rewrites the `panel_change` key, keeping the
+  others, after it records a change or a rollback. `pending` is true until the
+  installed panel's hash is acknowledged. `status` prints a pending change as a
+  `!` line.
+
+```
+pyefis-data panel-ack --yes --hash <config_hash>   # what the Data Status screen runs
+pyefis-data panel-ack                              # at a terminal: shows the change, asks for the word "acknowledge"
+```
+
+`--hash` is the hash the caller displayed; if the installed panel is no longer
+that one, nothing is recorded. Exit codes: `0` acknowledged, or nothing was
+waiting; `2` the hash no longer matches, or the record could not be written;
+`3` not acknowledged at the terminal, or no terminal and no `--yes`. It
+rewrites `status.json` itself.
 
 ## The daily timer and the boot pull
 
@@ -172,7 +215,7 @@ and each file's header says where it goes.
 | Unit | Kind | What it does |
 |---|---|---|
 | `pyefis-data.timer` | user | Daily, with up to an hour's random delay, and catches up after a missed day (`Persistent=true`) |
-| `pyefis-data.service` | user | `pyefis-data update`, then writes `status.json` |
+| `pyefis-data.service` | user | `pyefis-data update --scheduled` (skipped when `auto_update` is false), then writes `status.json` |
 | `pyefis-config-pull.service` | user | At boot, after pyEfis starts: `pyefis-data config-pull --wait-online 60`. No timer, so the display is never restarted in flight |
 | `99-makerplane-data.rules` | udev | Starts the USB import when a partition with a filesystem is plugged in |
 | `makerplane-usb-import@.service` | system | Runs `usb-import.sh` for that partition |

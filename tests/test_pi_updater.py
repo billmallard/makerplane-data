@@ -575,7 +575,7 @@ def test_allow_rollback_accepts_older_manifest_and_logs_it(tmp_path):
 
 def test_cli_update_refuses_rollback_then_allows_it(tmp_path, monkeypatch, capsys):
     up, _sk, _raw, _logs = _replay_setup(tmp_path)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", up.public_key)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (up.public_key,))
     monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))
     monkeypatch.setattr("pyefis_data.config.default_status_path",
                         lambda: tmp_path / "status.json")
@@ -602,7 +602,7 @@ def test_cli_update_refuses_rollback_then_allows_it(tmp_path, monkeypatch, capsy
 
 def test_import_dir_via_cli_offline(tmp_path, monkeypatch):
     root, pub = build_store(tmp_path)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)   # cli embeds the prod key; sub the test one
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))   # cli embeds the prod key; sub the test one
     # Pin the updater's clock: the CLI path has no today seam, so without this it
     # uses the real date and cycle 2606 (expires 2026-07-09) reads as expired ->
     # select() returns None -> nothing installs. Mirrors make_updater(today=TODAY).
@@ -616,7 +616,7 @@ def test_import_dir_via_cli_offline(tmp_path, monkeypatch):
 
 def test_cli_verify_file(tmp_path, monkeypatch):
     root, pub = build_store(tmp_path)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
     assert cli.main(["verify", str(root / "manifest.json")]) == 0
     # tamper -> non-zero
     (root / "manifest.json").write_bytes(b"{}")
@@ -628,7 +628,7 @@ def test_catalog_cli_via_source(tmp_path, monkeypatch, capsys):
     dir, with the picker fields and the tracked/installed flags."""
     import json
     root, pub = build_store(tmp_path)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
     capsys.readouterr()                 # discard build_store's progress output
     rc = cli.main(["--base-url", ORIGIN, "--root", str(tmp_path / "pi"),
                    "catalog", "--json", "--source", str(root)])
@@ -648,7 +648,7 @@ def test_update_only_persists_and_installs(tmp_path, monkeypatch):
     writes it to data.yaml (core kinds emptied so the resolved set == the
     selection), so the next auto-update tracks the same set."""
     root, pub = build_store(tmp_path)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
     monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))  # pin clock (see import test)
     piroot = tmp_path / "pi"
     cfgpath = tmp_path / "data.yaml"
@@ -668,7 +668,7 @@ def test_update_only_persists_root_when_given(tmp_path, monkeypatch):
     """A --root passed with --only (picker storage chooser) installs there AND
     persists the new data root to data.yaml."""
     root, pub = build_store(tmp_path)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
     monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))  # pin clock (see import test)
     cfgpath = tmp_path / "data.yaml"
     newroot = tmp_path / "usbssd"
@@ -718,7 +718,7 @@ def test_update_emits_progress_events(tmp_path):
 def test_update_progress_flag_prints_json(tmp_path, monkeypatch, capsys):
     import json
     root, pub = build_store(tmp_path)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
     monkeypatch.setattr(cli, "Updater", partial(Updater, today=TODAY))  # pin clock (see import test)
     capsys.readouterr()
     cli.main(["--base-url", ORIGIN, "--root", str(tmp_path / "pi"),
@@ -737,7 +737,7 @@ def test_update_cancel_cleans_staging_and_exits_130(tmp_path, monkeypatch, capsy
     exception the signal handler raises, without delivering a real signal."""
     import json
     root, pub = build_store(tmp_path)
-    monkeypatch.setattr(cli, "PUBLIC_KEY", pub)
+    monkeypatch.setattr(cli, "PUBLIC_KEYS", (pub,))
     piroot = tmp_path / "pi"
 
     def fake_update(self, *, dry_run=False, remote=None):

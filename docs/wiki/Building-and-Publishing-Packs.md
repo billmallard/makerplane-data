@@ -201,10 +201,12 @@ workstation build as `runner: local`.
 The catalog is signed with an ed25519 key in minisign format
 ([`packtools/signing.py`](https://github.com/billmallard/makerplane-data/blob/dev/packtools/signing.py)).
 The build reads the secret key from the `MINISIGN_SECRET_KEY` environment
-variable, which in GitHub Actions is a repository secret, or from a file given
-with `--sec`. The secret is never in the repository. Only
+variable, which in GitHub Actions is a secret of the `signing` Environment
+(only `main` may deploy to it), or from a file given with `--sec`. The secret
+is never in the repository. Only
 [`keys/minisign.pub`](https://github.com/billmallard/makerplane-data/blob/dev/keys/minisign.pub)
-is published.
+is published. Who holds the key, and how it is rotated or revoked:
+[`docs/signing_key.md`](https://github.com/billmallard/makerplane-data/blob/dev/docs/signing_key.md).
 
 A throwaway keypair for local testing:
 

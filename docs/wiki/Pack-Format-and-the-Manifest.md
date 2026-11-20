@@ -74,7 +74,7 @@ Each entry in `packs`:
 | `effective`, `expires` | no | The currency window. An entry with `expires` must also have `effective` |
 | `regions` | no | Region ids the pack covers |
 | `attribution`, `license`, `license_url` | no | As in `pack_meta` |
-| `origin` | no | `federal`, `community` or `user-supplied` |
+| `origin` | no | `federal`, `agency`, `community` or `user-supplied` |
 | `notice` | no | The standing notice shown with the data |
 | `report_url`, `report_sha256` | no | The pack's test record and its SHA-256 |
 | `build_commit` | no | The makerplane-data commit that built the pack |

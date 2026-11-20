@@ -35,14 +35,22 @@ def test_overrides_are_applied(tmp_path):
         "regions: [conus]\n"
         "auto_update: false\n"
         "stage_next: false\n"
-        "storage_budget_gb: 16\n"
     )
     cfg = Config.load(p)
     assert cfg.base_url == "https://staging.example.com"
     assert cfg.packs == ("airports-conus",)
     assert cfg.auto_update is False
     assert cfg.stage_next is False
-    assert cfg.storage_budget_gb == 16.0
+
+
+def test_retired_storage_budget_key_is_ignored(tmp_path):
+    # storage_budget_gb was documented but never applied, and was removed
+    # (#196). A data.yaml that still carries it loads as if it were absent.
+    p = tmp_path / "data.yaml"
+    p.write_text("storage_budget_gb: 16\nstage_next: false\n")
+    cfg = Config.load(p)
+    assert cfg.stage_next is False
+    assert not hasattr(cfg, "storage_budget_gb")
 
 
 def test_root_expands_user(tmp_path):

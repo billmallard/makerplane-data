@@ -1,5 +1,5 @@
 {
- "pyefis_commit": "de037c4b8852240bdfe44f495b18a7a6f31f758d",
+ "pyefis_commit": "ee213df45aab298f671b9bfc1f569411a85e418b",
  "shipped_theme_colors": {},
  "tokens": [
   {
@@ -114,6 +114,18 @@
   "atitude_indicator": {
    "symbol_color": "nav.ownship",
    "horizon_heading_color": "ink.primary"
+  },
+  "autopilot_panel": {
+   "active_color": "state.valid",
+   "armed_color": "ink.primary",
+   "caution_color": "state.caution",
+   "key_color": "surface.raised",
+   "level_color": "",
+   "text_color": "ink.primary",
+   "muted_color": "ink.muted",
+   "line_color": "line.border",
+   "target_color": "nav.reference",
+   "bg_color": "surface.base"
   },
   "button": {
    "bg_color": "surface.raised",
