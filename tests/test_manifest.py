@@ -242,7 +242,7 @@ def test_notice_is_the_adopted_short_text_verbatim():
     assert NOTICE == ("Experimental / Amateur-Built use only. Not certified. "
                       "This data is provided as-is with no warranty and any "
                       "use of the data is at your own risk.")
-    assert ORIGINS == ("federal", "community", "user-supplied")
+    assert ORIGINS == ("federal", "agency", "community", "user-supplied")
 
 
 def test_testing_visibility_fields_default_empty_and_roundtrip():
@@ -291,6 +291,7 @@ def test_validate_new_entry_needs_report_and_notice():
     prev = _obj()
     validate(_obj(_reported()), previous=prev)                 # complete: ok
     validate(_obj(_reported(origin="")), previous=prev)        # origin optional
+    validate(_obj(_reported(origin="agency")), previous=prev)  # AER-5978
     for bad in (dict(report_url=""), dict(report_sha256=""),
                 dict(report_sha256="B" * 64), dict(report_sha256="short"),
                 dict(notice=""), dict(notice="   "), dict(origin="vendor")):

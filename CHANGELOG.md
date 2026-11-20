@@ -6,6 +6,14 @@ and the `configurator`. Semver on the Python package; process in
 
 ## Unreleased
 
+### Packs (packtools)
+- **A fourth origin label, `agency`, and terrain uses it (CERT10c,
+  AER-6078).** `manifest.ORIGINS` and `PACK-003` accept `agency`: non-FAA
+  government data with a stated accuracy (do200b_applicability.md section 5).
+  `make_terrain.TERRAIN_ORIGIN` and the cloud stage preview now write it in
+  place of `federal`. Published terrain packs are not republished; the label
+  changes with the next edition. The device does not read `origin`.
+
 ### Device updater (pyefis_data)
 - **`config-pull` delivers `aircraft.ini` to fix-gateway, in maintenance mode
   only (ACINI1, AER-5993).** The served `fixgw:` block now carries the

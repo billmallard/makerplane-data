@@ -266,8 +266,17 @@ manifest schema distinguishes:
   airspace, `docs/openaip_evaluation.md`, planned per AER-376) — no stated
   accuracy/resolution/assurance level, no traceability to an authoritative
   originator, quality that is whatever volunteers happened to map.
+- **Agency-originated** data (terrain, from Copernicus GLO-30) — produced
+  by a non-FAA government programme (here the European Union's, from the
+  TanDEM-X mission) with a documented production process and a stated
+  accuracy, but no FAA origination and no published cycle. It is not
+  `federal` (a pilot reading `federal` on European data would be misled)
+  and not `community` (it has an authoritative originator). Added as the
+  `agency` value by Bill on AER-5978 (2026-11-18); terrain carries it from
+  the next edition after CERT10c, and the editions published before keep
+  the `federal` label they were signed with.
 
-Both kinds ship through the identical sign → verify → atomic-swap pipeline,
+All three ship through the identical sign → verify → atomic-swap pipeline,
 which correctly proves **authenticity and freshness** but says nothing
 about **confidence in what's inside**. A pilot (or the on-device picker)
 currently cannot tell the difference without reading documentation.
@@ -279,6 +288,8 @@ a numeric DPAL score — we have no assurance program to back a number, and a
 false-precision score would be worse than none. A coarse enum is enough:
 e.g. `federal` / `community` / `user-supplied` (the last bucket already
 exists conceptually for NavCanada VNC charts, per `docs/LICENSE-AUDIT.md`).
+As built, `manifest.ORIGINS` is `federal` / `agency` / `community` /
+`user-supplied`; `agency` is the fourth value defined above.
 
 How far that label should travel is a product decision, not a research
 conclusion — three options, ranked by cost:

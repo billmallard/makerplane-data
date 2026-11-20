@@ -35,8 +35,9 @@ NOTICE = ("Experimental / Amateur-Built use only. Not certified. This data is "
 # Coarse data-pedigree label (docs/do200b_applicability.md section 5).
 # Deliberately not a score: it says where the data came from, nothing about
 # how good it is. "" on an entry means unspecified (entries published before
-# the field existed).
-ORIGINS = ("federal", "community", "user-supplied")
+# the field existed). "agency" is non-FAA government data with a stated
+# accuracy (Copernicus terrain; Bill, AER-5978).
+ORIGINS = ("federal", "agency", "community", "user-supplied")
 
 
 def _rank_key(p: "PackEntry") -> tuple:
