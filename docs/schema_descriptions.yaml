@@ -51,7 +51,7 @@ manifest.min_pyefis: "Oldest pyEfis version that can read this pack, when there 
 manifest.tiles_bbox: "Bounding box of the pack's tiles: [lat_min, lon_min, lat_max, lon_max]."
 manifest.report_url: "The pack's test record (pack-report/1), bound to the signature by report_sha256."
 manifest.report_sha256: "SHA-256 of that test record."
-manifest.origin: "Where the data came from: federal, community or user-supplied. A pedigree label, not a score."
+manifest.origin: "Where the data came from: federal (FAA), agency (another government body, e.g. Copernicus terrain), community or user-supplied. A pedigree label, not a score."
 manifest.notice: "The standing use notice."
 manifest.build_commit: "The makerplane-data commit that built the pack."
 manifest.build_run_url: "The workflow run that built and signed the pack; its run id is the last segment. Empty for a local build and for editions published before CERT16."

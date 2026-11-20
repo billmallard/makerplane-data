@@ -893,7 +893,7 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--upload", action="store_true", help="upload to R2 + re-sign the live manifest")
     b.add_argument("--bucket", default="makerplane-data")
     b.add_argument("--origin", help="origin label for the test record: federal / "
-                    "community / user-supplied (default: by kind)")
+                    "agency / community / user-supplied (default: by kind)")
     b.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",
                     help="build note for a check that warns, written by a person for this "
                          "edition ([PACK_ID:]CHECK_ID=TEXT; a warn without one refuses the publish)")
@@ -1072,7 +1072,7 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--bucket", default="makerplane-data")
     t.add_argument("--sec", help="secret key file (or set MINISIGN_SECRET_KEY)")
     t.add_argument("--origin", help="origin label for the test record: federal / "
-                    "community / user-supplied (default: make_terrain.TERRAIN_ORIGIN, federal)")
+                    "agency / community / user-supplied (default: make_terrain.TERRAIN_ORIGIN, agency)")
     t.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",
                     help="build note for a check that warns, written by a person for this "
                          "edition ([PACK_ID:]CHECK_ID=TEXT; a warn without one refuses the publish)")
@@ -1149,7 +1149,7 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument("--golden-facts", dest="golden_facts",
                      help="golden facts file for GLD-001 (default: the packaged one)")
     rep.add_argument("--record", choices=("build", "retro", "rejected"), default="build")
-    rep.add_argument("--origin", help="federal / community / user-supplied "
+    rep.add_argument("--origin", help="federal / agency / community / user-supplied "
                      "(default: by kind; required for terrain)")
     rep.add_argument("--sources", help="JSON file: the record's sources[] array")
     rep.add_argument("--note", action="append", metavar="CHECK_ID=TEXT",

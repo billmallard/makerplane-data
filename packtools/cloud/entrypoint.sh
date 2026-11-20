@@ -123,7 +123,7 @@ if ! PYTHONPATH="$PYEFIS_SRC_DIR" QT_QPA_PLATFORM=offscreen \
   exit 1
 fi
 NOTES_FILE="$PACK_OUT/build-notes-$EDITION.txt"
-GATE_ARGS=()     # origin label: make_terrain.TERRAIN_ORIGIN (federal, AER-4101)
+GATE_ARGS=()     # origin label: make_terrain.TERRAIN_ORIGIN (agency, AER-5978)
 if [ -f "$NOTES_FILE" ]; then
   echo "   build notes: $NOTES_FILE"
   GATE_ARGS+=(--notes-file "$NOTES_FILE")
@@ -198,7 +198,7 @@ stage_check() {   # stage_check <pack id> <region key or "mosaic">
   if curl -fsS -A makerplane-data-stage "${URL_BASE%/packs}/reports/$id/$PREV_EDITION/report.json" \
         -o "$prev_rec" >> "$log" 2>&1; then
     PYTHONPATH=. python -m packtools.cli report "$pack" --previous "$prev_rec" \
-        --origin federal --out "$PACK_OUT/stage-$EDITION-$id.report.json" \
+        --origin agency --out "$PACK_OUT/stage-$EDITION-$id.report.json" \
         ${GATE_ARGS[@]+"${GATE_ARGS[@]}"} >> "$log" 2>&1 || ok=FAIL
   else
     echo "!! no published record for $id $PREV_EDITION" >> "$log"; ok=FAIL

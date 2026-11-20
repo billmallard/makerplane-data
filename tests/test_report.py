@@ -822,6 +822,13 @@ def test_origin_check_says_how_the_label_was_set(tmp_path):
     assert c["measured"] == "community (passed with --origin)"
 
 
+def test_terrain_passes_origin_check_with_agency(tmp_path):
+    # AER-5978: Copernicus terrain is "agency", a fourth label PACK-003 accepts.
+    pack = _terrain_pack(tmp_path / "t.pack", {"N40/N40W100.hgt": _hgt(3)})
+    c = _by_id(_rep(pack, origin="agency"))["PACK-003"]
+    assert (c["status"], c["measured"]) == ("pass", "agency (passed with --origin)")
+
+
 def test_sources_check_looks_at_each_sources_edition_and_sha256(tmp_path):
     pack = _proc_pack(tmp_path / "p.pack")
     good = {"name": "FAA CIFP", "edition": "2611", "url": "u", "retrieved": "t",

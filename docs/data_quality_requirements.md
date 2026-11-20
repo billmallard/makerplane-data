@@ -130,7 +130,7 @@ change is a follow-on (BACKLOG `CERT10c`), not this document. It is build-side
 only (`manifest.ORIGINS`; the device does not read `origin`), and moves
 `make_terrain.TERRAIN_ORIGIN`, the stage preview in
 `packtools/cloud/entrypoint.sh`, and the definitions in
-do200b_applicability.md section 5 with it.
+do200b_applicability.md section 5 with it. Done by CERT10c (AER-6078).
 
 The options that were not taken: widening `federal` to any government
 originator (a pilot reading `federal` on European data is misled), and

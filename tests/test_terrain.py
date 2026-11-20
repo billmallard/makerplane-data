@@ -475,9 +475,10 @@ def test_cli_require_wmask_refuses_before_upload(tmp_path, monkeypatch):
     assert cli.main(argv) == 0                            # masks present: gate passes
 
 
-def test_cli_upload_labels_terrain_records_federal_by_default(tmp_path, monkeypatch):
-    # Bill's ruling on AER-4101: terrain test records carry origin "federal"
-    # (PACK-003 has no terrain default in the catalogue).
+def test_cli_upload_labels_terrain_records_agency_by_default(tmp_path, monkeypatch):
+    # Bill's ruling on AER-5978 (superseding AER-4101's "federal"): a terrain
+    # build without --origin labels its records "agency", since Copernicus is
+    # not FAA-originated (PACK-003 has no terrain default in the catalogue).
     from packtools import cli, upload
     src = make_hgt_tree(tmp_path / "hgt", US_WEST_TILES)
     _add_mosaic(src)
@@ -493,4 +494,4 @@ def test_cli_upload_labels_terrain_records_federal_by_default(tmp_path, monkeypa
     argv = ["make-terrain", str(src), "--edition", "2024ed", "--mosaic",
             "--out", str(tmp_path / "b"), "--require-wmask", "--upload"]
     assert cli.main(argv) == 0
-    assert [g.origin for g in seen] == ["federal"] == [make_terrain.TERRAIN_ORIGIN]
+    assert [g.origin for g in seen] == ["agency"] == [make_terrain.TERRAIN_ORIGIN]
