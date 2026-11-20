@@ -262,15 +262,28 @@ _FAKE_FIXGW = {
                 return yaml.safe_load(f)
         '''),
     # Mirrors fixgw.database.write: an unknown key or aux is a KeyError, a
-    # value the type refuses is a ValueError -- both stop fix-gateway.
+    # value the type refuses is a ValueError -- both stop fix-gateway. A key
+    # ending in a lower-case letter expands over database/variables.yaml, as
+    # FUELQt does over t.
     "database.py": textwrap.dedent('''\
+        import os, yaml
         _db = {}
         def init(f):
+            v = os.path.join(os.path.dirname(f), "database", "variables.yaml")
+            variables = {}
+            if os.path.exists(v):
+                with open(v) as fh:
+                    variables = yaml.safe_load(fh)["variables"]
             with open(f) as fh:
                 for line in fh:
                     if line.strip():
                         k, kind = line.split()
-                        _db[k] = kind
+                        name, dot, aux = k.partition(".")
+                        if name[-1].islower():
+                            for i in range(variables[name[-1]]):
+                                _db[name[:-1] + str(i + 1) + dot + aux] = kind
+                        else:
+                            _db[k] = kind
         def write(key, value):
             kind = _db[key]
             {"int": int, "float": float}[kind](value)
@@ -409,3 +422,170 @@ def test_cli_puts_fixgw_files_back_when_fixgw_does_not_stay_up(dirs, valid, tmp_
     assert not (fcd / "init_data" / "aircraft.ini").exists()
     assert (fcd / "default.yaml").read_text() == _MAIN
     assert "previous config" in capsys.readouterr().err
+
+
+# ---- FUEL1h (AER-6135): fix-gateway's tank count covers every FUELQ slot -----
+
+# fix-gateway's stock database/variables.yaml as shipped (fix-gateway master
+# c53ce89, 2026-11-20), trimmed to the lines that matter here.
+_VARS = textwrap.dedent('''\
+    # This is where you define how many engines you have and such
+    # You could also add additional variables too
+    variables:
+      e: 1  # Engines
+      c: 6  # Cylinders
+      t: 3  # Fuel Tanks
+      n: 5  # Nodes
+      s: 40 # Touchscreen buttons
+    ''')
+_INI5 = _INI + "\nFUELQ1.Max = 20\nFUELQ5.Max = 12\nFUELQ5.lowWarn = 3\nFUELQT.Max = 70\n"
+
+
+@pytest.fixture
+def tanks(dirs):
+    cd, fcd = dirs
+    (fcd / "database").mkdir()
+    (fcd / "database" / "variables.yaml").write_text(_VARS)
+    return cd, fcd
+
+
+def _t(fcd):
+    return yaml.safe_load((fcd / "database" / "variables.yaml").read_text())["variables"]["t"]
+
+
+def test_ini_tanks_is_the_highest_slot_named():
+    assert config_pull._ini_tanks(_INI5) == 5
+    assert config_pull._ini_tanks(_INI) == 0
+    assert config_pull._ini_tanks("FUELQT.Max = 70\n# FUELQ9.Max = 1\n") == 0
+
+
+def test_raise_tanks_changes_only_the_number():
+    new = config_pull._raise_tanks(_VARS, 5)
+    assert new == _VARS.replace("  t: 3  # Fuel Tanks", "  t: 5  # Fuel Tanks")
+    assert config_pull._raise_tanks(new, 5) == new                # idempotent
+
+
+def test_raise_tanks_never_lowers():
+    assert config_pull._raise_tanks(_VARS, 2) == _VARS
+    assert config_pull._raise_tanks(_VARS, 3) == _VARS
+
+
+@pytest.mark.parametrize("text", [
+    "variables:\n  e: 1\n",                          # no t to raise
+    "variables:\n  t: three\n",
+    "variables: {t: 3}\n",                           # a flow form the edit does not know
+    "variables:\n  t: 3\nother:\n  t: 3\n",          # two t lines
+    "key: [unclosed\n",
+])
+def test_raise_tanks_refuses_what_it_cannot_edit_safely(text):
+    assert config_pull._raise_tanks(text, 5) is None
+
+
+def test_maintenance_raises_t_before_the_dry_run(tanks, monkeypatch):
+    cd, fcd = tanks
+    seen = []
+    monkeypatch.setattr(config_pull, "validate_ini",
+                        lambda fcd, staged: seen.append(_t(fcd)) or (True, ""))
+    s = config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    assert s["aircraft_ini"]["state"] == "installed" and s["aircraft_ini"]["tanks"] == 5
+    assert seen == [5]                                            # the dry run saw t: 5
+    assert _t(fcd) == 5
+    # The same file again: nothing changes.
+    again = config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    assert again["aircraft_ini"]["state"] == "unchanged"
+
+
+def test_t_is_never_lowered_by_a_profile_with_fewer_tanks(tanks, valid):
+    cd, fcd = tanks
+    config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    two = _INI + "FUELQ2.Max = 20\n"
+    s = config_pull.install_config(_served(two), cd=cd, fcd=fcd, maintenance=True)
+    assert s["aircraft_ini"]["state"] == "installed" and "tanks" not in s["aircraft_ini"]
+    assert _t(fcd) == 5
+
+
+def test_a_file_within_t_leaves_variables_untouched(tanks, valid):
+    cd, fcd = tanks
+    s = config_pull.install_config(_served(_INI + "FUELQ3.Max = 9\n"), cd=cd, fcd=fcd,
+                                   maintenance=True)
+    assert s["aircraft_ini"]["state"] == "installed" and "tanks" not in s["aircraft_ini"]
+    assert (fcd / "database" / "variables.yaml").read_text() == _VARS
+
+
+def test_outside_maintenance_t_is_not_touched(tanks, valid):
+    cd, fcd = tanks
+    config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd)
+    assert (fcd / "database" / "variables.yaml").read_text() == _VARS
+
+
+@pytest.mark.parametrize("verdict, state", [
+    ((False, "fix-gateway would refuse: X"), None),
+    ((None, "no fix-gateway service found"), "pending"),
+])
+def test_t_is_put_back_when_the_install_stops(tanks, monkeypatch, verdict, state):
+    cd, fcd = tanks
+    monkeypatch.setattr(config_pull, "validate_ini", lambda fcd, staged: verdict)
+    s = config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    assert s["aircraft_ini"]["state"] == state
+    assert (fcd / "database" / "variables.yaml").read_text() == _VARS
+
+
+def test_t_is_put_back_when_default_yaml_cannot_list_the_file(tanks, valid):
+    cd, fcd = tanks
+    (fcd / "default.yaml").write_text("initialization files: []\n")
+    s = config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    assert s["aircraft_ini"]["state"] == "pending"
+    assert (fcd / "database" / "variables.yaml").read_text() == _VARS
+
+
+def test_no_variables_file_keeps_a_tank_file_staged(dirs, valid):
+    cd, fcd = dirs
+    s = config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    assert s["aircraft_ini"]["state"] == "pending"
+    assert "fuel tank 5" in s["aircraft_ini"]["skipped"]
+    assert valid == []
+    assert not (fcd / "init_data" / "aircraft.ini").exists()
+
+
+def test_rollback_puts_t_back(tanks, valid):
+    cd, fcd = tanks
+    config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    assert config_pull.rollback_fixgw(cd=cd, fcd=fcd) is True
+    assert (fcd / "database" / "variables.yaml").read_text() == _VARS
+    assert not (fcd / "init_data" / "aircraft.ini").exists()
+
+
+def test_rollback_never_deletes_variables_yaml(dirs):
+    cd, fcd = dirs
+    config_pull.snapshot(cd, fcd)                                 # no variables.yaml then
+    (fcd / "database").mkdir()
+    (fcd / "database" / "variables.yaml").write_text(_VARS)
+    config_pull.rollback_fixgw(cd=cd, fcd=fcd)
+    assert (fcd / "database" / "variables.yaml").read_text() == _VARS
+
+
+def test_a_lowered_t_is_raised_again_on_the_next_maintenance_pull(tanks, valid):
+    cd, fcd = tanks
+    config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    (fcd / "database" / "variables.yaml").write_text(_VARS)       # t: 3 by hand
+    s = config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    assert s["aircraft_ini"]["state"] == "installed" and s["aircraft_ini"]["tanks"] == 5
+    assert _t(fcd) == 5
+
+
+def test_a_five_tank_file_passes_fixgws_own_loader(fake_fixgw, dirs):
+    # The brief's F8 failure, through the real dry-run subprocess: with t: 3
+    # FUELQ5.Max is a KeyError (fix-gateway would not start); the install
+    # raises t first, so the same loader accepts it.
+    cd, fcd = dirs
+    (fcd / "database").mkdir()
+    (fcd / "database" / "variables.yaml").write_text(_VARS)
+    with open(fcd / "database.yaml", "a") as f:
+        f.write("FUELQt.Max float\nFUELQt.lowWarn float\nFUELQT.Max float\n")
+    staged = fcd / "five.ini"
+    staged.write_text(_INI5)
+    ok, why = config_pull.validate_ini(fcd, staged)
+    assert ok is False and "FUELQ5.Max = 12 (KeyError" in why
+    s = config_pull.install_config(_served(_INI5), cd=cd, fcd=fcd, maintenance=True)
+    assert s["aircraft_ini"]["state"] == "installed", s["aircraft_ini"]
+    assert _t(fcd) == 5
