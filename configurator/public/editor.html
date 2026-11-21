@@ -1063,6 +1063,21 @@ function buildHSI(inst) {
   // wide (_draw_readouts), and the twin's panel is 44.
   const FS = 44 / 12.5;
 
+  // Turn-rate trend (ATT1b, pyEfis#520) -- twin of HSI._turn_trend_deg /
+  // _turn_trend_marks: an arc from the lubber to the heading reached in 6 s at
+  // the present ROT, fixed white marks at half (9 deg) and standard (18 deg)
+  // rate each side, and above 4 deg/s the arc stops at 24 deg with an
+  // arrowhead. Screen-fixed at the lubber, not the card. The preview shows a
+  // standard-rate right turn (rotSample), so the arc ends on the long mark.
+  const turnOn = o.turn_rate_enabled !== false;
+  const turnC = o.turn_rate_color || "#ff00ff";
+  const rotSample = 3;                                      // deg/s, + = right
+  const TT_SEC = 6, TT_STD = 3 * TT_SEC, TT_LIM = 4 * TT_SEC;
+  const ttMarks = [-TT_STD, -TT_STD / 2, TT_STD / 2, TT_STD];
+  const ttRaw = rotSample * TT_SEC, ttCapped = Math.abs(ttRaw) > TT_LIM;
+  const ttDeg = ttCapped ? Math.sign(ttRaw) * TT_LIM : ttRaw;
+  const ttMarkW = Math.max(0.25, FS * 0.08), ttArcW = Math.max(0.5, FS * 0.2);
+
   // Every label the widget's nav-source tab can show (GPS, VOR/LOC/VLOC x
   // NAV1/NAV2) -- twin of hsi._SOURCE_TAB_LABELS (pyEfis#148/AER-473). Width
   // is measured against the widest of these, not the label actually drawn,
@@ -1220,6 +1235,27 @@ function buildHSI(inst) {
       const off = tk * 1.4 + anfs * 0.7, lx = b.x + dx / dl * off, ly = b.y + dy / dl * off;
       anums += `<text x="${lx}" y="${ly + anfs * 0.35}" fill="${fg}" font-size="${anfs}" text-anchor="middle">${headingLabel(cnt)}</text>`;
     }
+    // Turn-rate trend along the band (twin of _draw_turn_trend_arc): marks and
+    // arc follow the band at (heading + rel), lifted 0.35 fontSize toward the
+    // lubber; marks vertical, the standard-rate pair longer. Painted under the
+    // lubber, as the widget does.
+    let aturn = "";
+    if (turnOn) {
+      const tp = (rel) => { const b = band(heading + rel); return { x: b.x, y: b.y - FS * 0.35 }; };
+      for (const m of ttMarks) {
+        const p = tp(m), half = FS * (Math.abs(m) >= TT_STD ? 0.3 : 0.2);
+        aturn += `<line x1="${p.x}" y1="${p.y - half}" x2="${p.x}" y2="${p.y + half}" stroke="${fg}" stroke-width="${ttMarkW}"/>`;
+      }
+      if (Math.abs(ttDeg) > 1e-6) {
+        const n = Math.max(2, Math.ceil(Math.abs(ttDeg) / 0.5) + 1);
+        const pts = Array.from({ length: n }, (_, i) => tp(ttDeg * i / (n - 1)));
+        aturn += `<polyline points="${pts.map((p) => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="${turnC}" stroke-width="${ttArcW}" stroke-linecap="butt"/>`;
+        if (ttCapped) {
+          const sg = Math.sign(ttDeg), p = tp(ttDeg), s = FS * 0.4;
+          aturn += `<path d="M${p.x + sg * s} ${p.y} L${p.x} ${p.y - s * 0.6} L${p.x} ${p.y + s * 0.6} Z" fill="${turnC}"/>`;
+        }
+      }
+    }
     // Top lubber triangle (points up at the band).
     const alub = `<path d="M${50 - tk * 0.55} ${TOPY - tk} L${50 + tk * 0.55} ${TOPY - tk} L50 ${TOPY + tk * 0.35} Z" fill="${fg}"/>`;
     // Ownship symbol (silhouette).
@@ -1317,6 +1353,7 @@ function buildHSI(inst) {
 <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="gauge-svg" font-family="${font}">
   ${aticks}
   ${anums}
+  ${aturn}
   ${alub}
   ${abp}
   ${acourse}
@@ -1372,6 +1409,28 @@ function buildHSI(inst) {
   let rings = "";
   if (depthRings) for (const [rad, op] of [[R * 0.78, 0.35], [R * 0.52, 0.22]])
     rings += `<circle cx="${CX}" cy="${CY}" r="${rad}" fill="none" stroke="${rgbaFromColor(fg, op)}" stroke-width="0.3"/>`;
+  // Turn-rate trend on the rose (twin of _draw_turn_trend_rose), in screen
+  // space, 0 deg = the lubber, clockwise +. Radial marks start just outside
+  // the ring and end past the arc's radius (r + 0.25 fontSize); the arc runs
+  // from 12 o'clock, clockwise for a right turn. Painted under the lubber.
+  let turn = "";
+  if (turnOn) {
+    const rt = R + FS * 0.25, r0 = R + FS * 0.08;
+    for (const m of ttMarks) {
+      const r1 = rt + FS * (Math.abs(m) >= TT_STD ? 0.4 : 0.15);
+      const p0 = _polar(CX, CY, r0, m), p1 = _polar(CX, CY, r1, m);
+      turn += `<line x1="${p0.x}" y1="${p0.y}" x2="${p1.x}" y2="${p1.y}" stroke="${fg}" stroke-width="${ttMarkW}"/>`;
+    }
+    if (Math.abs(ttDeg) > 1e-6) {
+      const end = _polar(CX, CY, rt, ttDeg);
+      turn += `<path d="M${CX} ${CY - rt} A${rt} ${rt} 0 0 ${ttDeg > 0 ? 1 : 0} ${end.x} ${end.y}" fill="none" stroke="${turnC}" stroke-width="${ttArcW}" stroke-linecap="butt"/>`;
+      if (ttCapped) {
+        const a = ttDeg * Math.PI / 180, sg = Math.sign(ttDeg), s = FS * 0.4;
+        const ux = sg * Math.cos(a), uy = sg * Math.sin(a), px = Math.sin(a), py = -Math.cos(a);
+        turn += `<path d="M${end.x + ux * s} ${end.y + uy * s} L${end.x + px * s * 0.6} ${end.y + py * s * 0.6} L${end.x - px * s * 0.6} ${end.y - py * s * 0.6} Z" fill="${turnC}"/>`;
+      }
+    }
+  }
   // Top lubber triangle (points down at the rose).
   const lub = `<path d="M${CX - t * 0.9} ${CY - R - t * 1.4} L${CX + t * 0.9} ${CY - R - t * 1.4} L${CX} ${CY - R + t * 0.7} Z" fill="${fg}"/>`;
   // Centre aircraft symbol (silhouette, not a triangle). Config: center_symbol.
@@ -1495,6 +1554,7 @@ function buildHSI(inst) {
   ${rings}
   <g transform="rotate(${-heading} ${CX} ${CY})">${ticks}</g>
   ${nums}
+  ${turn}
   ${lub}
   ${sym}
   ${bpointers}
