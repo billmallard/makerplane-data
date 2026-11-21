@@ -1,5 +1,5 @@
 {
- "pyefis_commit": "ee213df45aab298f671b9bfc1f569411a85e418b",
+ "pyefis_commit": "d9f7066d01cc6b490526e1547d9e85174564bee9",
  "shipped_theme_colors": {},
  "tokens": [
   {
@@ -155,6 +155,7 @@
    "vloc_color": "state.valid",
    "heading_bug_color": "nav.reference",
    "track_color": "nav.course",
+   "turn_rate_color": "nav.course",
    "bearing_color": "nav.reference"
   },
   "moving_map": {

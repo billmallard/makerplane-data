@@ -26,6 +26,13 @@ and the `configurator`. Semver on the Python package; process in
   back on rollback.
 
 ### Configurator and device config
+- **The HSI preview draws the turn-rate trend (ATT1b twin of pyEfis#520,
+  AER-6089).** The preview shows white half-rate and standard-rate marks beside
+  the lubber, and a standard-rate right-turn arc in `turn_rate_color`. It draws
+  them on the rose and in the arc view. `turn_rate_enabled: false` hides them.
+  `turn_rate_color` reads the `nav.course` token, as the widget does. The
+  geometry is pinned to the widget's own drawing by
+  `test/hsi_turn_trend_twin.test.mjs`.
 - **`GET /device/config` serves the compiled `aircraft.ini` (ACINI1,
   AER-5993).** When the profile holds a value, the `fixgw:` block carries it
   as `aircraft_ini` with `aircraft_ini_sha256`, and the ETag covers it, so a
