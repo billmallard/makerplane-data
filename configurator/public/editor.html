@@ -55,6 +55,9 @@
   .screen-tab.active { color: #e6edf3; background: #0d1117; border-color: #30363d; }
   .screen-add { font: inherit; background: none; border: 1px dashed #30363d; color: #8b949e;
     padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+  .screen-tab.cas-missing::after { content: " !"; color: #d29922; font-weight: 600; }
+  .screen-warn { margin: 6px 10px 0; padding: 5px 10px; border: 1px solid #9e6a03; border-radius: 6px;
+    background: #2b2111; color: #e3b341; font-size: 12px; }
   .screen-actions { margin-left: auto; display: flex; gap: 6px; }
   .screen-act { font: inherit; font-size: 12px; background: none; border: 1px solid #30363d; color: #8b949e;
     padding: 4px 9px; border-radius: 6px; cursor: pointer; }
@@ -345,6 +348,7 @@
   <aside class="palette" id="palette"></aside>
   <div class="center">
     <div class="screens-bar" id="screens-bar"></div>
+    <div class="screen-warn hidden" id="screen-warn"></div>
     <div class="stage" id="stage"><div id="canvas"><div id="guides"></div><div id="align"></div></div></div>
     <div id="code-pane">
       <div class="code-bar"><span class="muted">YAML — edits apply live</span><span id="code-msg" class="muted"></span></div>
@@ -3296,6 +3300,7 @@ function renderCanvas() {
     handle.addEventListener("mousedown", (e) => startResize(e, i, el));
     c.appendChild(el);
   });
+  renderCasWarning();
   syncCode();
 }
 
@@ -5890,6 +5895,37 @@ function renderScreensBar() {
   if (state.screens[state.active].name !== state.defaultScreen) actions.appendChild(mk("Set default", () => setDefaultScreen(state.active)));
   if (state.screens.length > 1) actions.appendChild(mk("Delete", () => deleteScreen(state.active)));
   bar.appendChild(actions);
+  renderCasWarning();
+}
+
+// CAS3 (amendment accepted 2026-11-22): crew alerts must be on every screen, so
+// a screen with no `cas_window` or `cas_marker` gets a warning. It warns, never
+// refuses. Inert until the schema carries one of the two types, so it cannot
+// nag before pyEfis can satisfy it. Only instruments always on the screen count
+// (top level, or inside a group); one on a tab page is hidden behind the tab.
+const CAS_PLACEMENT_TYPES = ["cas_window", "cas_marker"];
+function screensMissingCas(screens, schemaInstruments, groupsById) {
+  if (!CAS_PLACEMENT_TYPES.some((t) => schemaInstruments && schemaInstruments[t])) return [];
+  const out = [];
+  screens.forEach((sc, i) => {
+    const has = (sc.instruments || []).some((inst) => {
+      if (CAS_PLACEMENT_TYPES.includes(inst.type)) return true;
+      const def = inst.type === "group" && groupsById && groupsById[inst.id];
+      return !!def && (def.instruments || []).some((ch) => CAS_PLACEMENT_TYPES.includes(ch.type));
+    });
+    if (!has) out.push(i);
+  });
+  return out;
+}
+function renderCasWarning() {
+  const missing = screensMissingCas(state.screens, state.schema && state.schema.instruments, state.groupsById);
+  $("screens-bar").querySelectorAll(".screen-tab").forEach((tab, i) =>
+    tab.classList.toggle("cas-missing", missing.includes(i)));
+  const note = $("screen-warn");
+  const on = missing.includes(state.active);
+  note.classList.toggle("hidden", !on);
+  note.textContent = on ? "No CAS window or CAS marker on this screen: crew alerts will not "
+    + "show while it is displayed. pyEfis raises CAS NOT SHOWN. Place one from the palette." : "";
 }
 // canvas -> code: refresh the textarea (unless the user is typing in it, so we
 // never clobber an in-progress edit). Setting .value doesn't fire 'input', so
