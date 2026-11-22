@@ -38,15 +38,17 @@ def nasr_apt_csv_url(c: Cycle) -> str:
             f"{_faa_day(c.effective)}_APT_CSV.zip")
 
 
-def nasr_navaid_csv_urls(c: Cycle) -> tuple[str, str, str]:
-    """The three 28DaySub 'extra' zips a navaids pack is built from
-    (navaids, fixes, airways). Same URL family as APT, verified live
-    2026-07-04 for the 11_Jun_2026 cycle."""
+def nasr_navaid_csv_urls(c: Cycle) -> tuple[str, str, str, str]:
+    """The four 28DaySub 'extra' zips a navaids pack is built from
+    (navaids, fixes, airways, holding patterns). Same URL family as APT,
+    verified live 2026-07-04 for the 11_Jun_2026 cycle; HPF verified live
+    2026-11-22 for the 29_Oct_2026 cycle (docs/hpf_holds.md)."""
     base = "https://nfdc.faa.gov/webContent/28DaySub/extra/"
     day = _faa_day(c.effective)
     return (f"{base}{day}_NAV_CSV.zip",
             f"{base}{day}_FIX_CSV.zip",
-            f"{base}{day}_AWY_CSV.zip")
+            f"{base}{day}_AWY_CSV.zip",
+            f"{base}{day}_HPF_CSV.zip")
 
 
 def cifp_url(c: Cycle) -> str:

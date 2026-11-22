@@ -28,12 +28,13 @@ def test_nasr_url_is_locale_independent():
     assert "11_Jun_2026" in url and "June" not in url
 
 
-def test_nasr_navaid_urls_are_the_three_extra_zips():
+def test_nasr_navaid_urls_are_the_four_extra_zips():
     urls = sources.nasr_navaid_csv_urls(C("2026-06-11", "2026-07-09"))
     assert urls == (
         "https://nfdc.faa.gov/webContent/28DaySub/extra/11_Jun_2026_NAV_CSV.zip",
         "https://nfdc.faa.gov/webContent/28DaySub/extra/11_Jun_2026_FIX_CSV.zip",
         "https://nfdc.faa.gov/webContent/28DaySub/extra/11_Jun_2026_AWY_CSV.zip",
+        "https://nfdc.faa.gov/webContent/28DaySub/extra/11_Jun_2026_HPF_CSV.zip",
     )
 
 
