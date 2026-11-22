@@ -65,15 +65,16 @@ def survey(args) -> None:
           f"({collections.Counter(r['ALTITUDE'] for r in odd).most_common()})")
 
     fixes = {(r["FIX_ID"], r["ICAO_REGION_CODE"]) for r in read(args.fix, "FIX_BASE.csv")}
-    navs = {(r["NAV_ID"], r["NAV_TYPE"]) for r in read(args.nav, "NAV_BASE.csv")}
+    navs = {(r["NAV_ID"], r["NAV_TYPE"], r["STATE_CODE"], r["COUNTRY_CODE"])
+            for r in read(args.nav, "NAV_BASE.csv")}
     miss = collections.Counter()
     for r in base:
         if r["FIX_ID"]:
             if (r["FIX_ID"], r["ICAO_REGION_CODE"]) not in fixes:
                 miss["fix " + r["ICAO_REGION_CODE"]] += 1
-        elif (r["NAV_ID"], r["NAV_TYPE"]) not in navs:
+        elif (r["NAV_ID"], r["NAV_TYPE"], r["STATE_CODE"], r["COUNTRY_CODE"]) not in navs:
             miss["navaid " + r["NAV_TYPE"]] += 1
-    print(f"join to FIX_BASE (id, region) / NAV_BASE (id, type): "
+    print(f"join to FIX_BASE (id, region) / NAV_BASE (id, type, state, country): "
           f"{len(base) - sum(miss.values())} of {len(base)}; misses {dict(miss)}")
 
     enr = [r for r in base if charts[key(r)] & ENROUTE_CHARTS]

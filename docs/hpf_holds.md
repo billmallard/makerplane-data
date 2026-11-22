@@ -35,7 +35,7 @@ below).
 
 | Editor needs | HPF field | Fill and values (2611) |
 |---|---|---|
-| The hold point | `FIX_ID` + `ICAO_REGION_CODE`, or `NAV_ID` + `NAV_TYPE` when the hold is at a navaid | 13,802 at a fix, 1,665 at a navaid. No coordinates: they come from FIX_BASE / NAV_BASE of the same cycle |
+| The hold point | `FIX_ID` + `ICAO_REGION_CODE`, or `NAV_ID` + `NAV_TYPE` + `STATE_CODE` + `COUNTRY_CODE` when the hold is at a navaid | 13,802 at a fix, 1,665 at a navaid. No coordinates: they come from FIX_BASE / NAV_BASE of the same cycle |
 | Inbound course | `COURSE_INBOUND_DEG` (integer, magnetic) | Filled on all 15,467 |
 | Direction from the fix | `HOLD_DIRECTION` | N, NE ... NW; 8 rows empty |
 | Radial / course / bearing / track | `HOLD_DEG_OR_CRS` with `AZIMUTH` | `AZIMUTH` is RNAV 10,590, RAD 3,921, CRS 663, BRG 293. 32 rows have a non-numeric `HOLD_DEG_OR_CRS` |
@@ -84,9 +84,19 @@ carried as text.
 ### Joins
 
 15,329 of 15,467 holds join to a point of the same cycle: a fix by
-`(FIX_ID, ICAO_REGION_CODE)` or a navaid by `(NAV_ID, NAV_TYPE)`. The 138
-misses are all at ILS components that are not in NAV_BASE (132 compass
-locators `LO`, 5 `LS`, 1 `LD`). These are approach holds.
+`(FIX_ID, ICAO_REGION_CODE)` or a navaid by
+`(NAV_ID, NAV_TYPE, STATE_CODE, COUNTRY_CODE)`. The 138 misses are all at ILS
+components that are not in NAV_BASE (132 compass locators `LO`, 5 `LS`,
+1 `LD`). These are approach holds.
+
+The navaid key needs the state and country. In 2611, `(NAV_ID, NAV_TYPE)`
+repeats across states for 33 NDBs, and six of them carry a hold (`AA`, `JN`,
+`MF`, `PI`, `SB`, `VV`). On the pair alone, the `AA` NDB hold in Georgia would
+be placed at the `AA` NDB in North Dakota. Found by AVIONICS on AER-6328. The
+four-part key still repeats once (`MB` NDB, Michigan: two different beacons,
+neither with a hold). The builder must treat a key that matches more than one
+point as unresolved, never take the first match. `(FIX_ID, ICAO_REGION_CODE)`
+is unique in FIX_BASE.
 
 ### The enroute and arrival subset
 
@@ -128,6 +138,7 @@ them.
 ```
 holds(hp_name, hp_no,             -- NASR key
       point_id, point_icao,       -- FIX_ID + ICAO_REGION_CODE, or NAV_ID (icao NULL)
+      point_state, point_country, -- STATE_CODE, COUNTRY_CODE: part of the navaid key
       point_type,                 -- 'FIX' or the NAV_TYPE of a navaid hold point
       lat, lon,                   -- joined from fixes / navaids of the same build
       nav_id, nav_type,           -- the facility giving the radial or course
@@ -141,7 +152,8 @@ hold_limits(hp_name, hp_no, speed_range, alt_raw,
             alt_min_ft, alt_max_ft)  -- feet; NULL unless alt_raw is MIN/MAX
 ```
 
-The builder drops a hold whose point does not resolve and prints the count,
+The builder drops a hold whose point does not resolve, or resolves to more
+than one point, and prints the count,
 as it does for SP airways. It refuses to run when an HPF CSV is missing,
 because a navaids pack built for holds that silently has none is the failure
 to avoid.
