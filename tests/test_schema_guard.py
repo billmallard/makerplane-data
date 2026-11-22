@@ -408,8 +408,27 @@ def test_airports_contract_guards_vgsi_fields():
     assert {"VGSI_CODE", "VISUAL_GLIDE_PATH_ANGLE"} <= set(required)
 
 
+def test_navaids_contract_guards_hpf_holds():
+    """HOLDFIX3: the navaids pack takes its published holds from the NASR HPF
+    zip, so the guard must require the columns the holds tables are built from
+    and police the vocabularies that change what a course or a turn means."""
+    contract = CONTRACTS["navaids"]
+    base = contract.required_columns["HPF_BASE.csv"]
+    assert {"COURSE_INBOUND_DEG", "TURN_DIRECTION", "LEG_LENGTH_DIST",
+            "FIX_ID", "ICAO_REGION_CODE", "NAV_ID", "NAV_TYPE"} <= set(base)
+    assert {"SPEED_RANGE", "ALTITUDE"} <= set(contract.required_columns["HPF_SPD_ALT.csv"])
+    assert "CHARTING_TYPE_DESC" in contract.required_columns["HPF_CHRT.csv"]
+    assert "HPF_structure.csv" in contract.structure_snapshots
+    enums = contract.enum_columns["HPF_BASE.csv"]
+    assert enums["TURN_DIRECTION"] == {"L", "R"}
+    assert enums["AZIMUTH"] == {"RAD", "CRS", "BRG", "RNAV"}
+
+
 @pytest.mark.parametrize("builder,rel", [
-    ("navaids", "work/localwork/navaids-conus/2607/extracted"),
+    # navaids pins to 2612: the contract now consumes the HPF zip (HOLDFIX3,
+    # docs/hpf_holds.md), which a 2607 input directory never fetched, so 2607
+    # would now correctly fail on the missing HPF files.
+    ("navaids", "work/localwork/navaids-conus/2612/extracted"),
     # airports pins to 2609: APT_structure.csv was refreshed for the NASR 26-01
     # DPN (PCN -> PCN_PCR_NUMBER + PAVEMENT_CLASSIFICATION), so the current-cycle
     # acceptance input is 2609. The 2607 APT inputs carry the old PCN column and
