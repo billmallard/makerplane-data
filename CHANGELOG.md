@@ -77,6 +77,16 @@ and the `configurator`. Semver on the Python package; process in
   slot refuses the whole file at the maintenance-mode dry run and keeps its
   current one.
 
+### Packs (packtools)
+- **The navaids pack fetches the NASR holding-pattern file, and the schema
+  guard polices it (HOLDFIX3, AER-6323).** `nasr_navaid_csv_urls` adds
+  `<date>_HPF_CSV.zip`. The navaids contract now requires the HPF_BASE,
+  HPF_SPD_ALT and HPF_CHRT columns the holds tables will be built from, checks
+  their structure against `schemas/HPF_structure.csv`, and stops on an unknown
+  turn, azimuth or hold direction. The pyEfis builder does not read HPF yet,
+  so packs are unchanged. HPF carries no leg time. See
+  [docs/hpf_holds.md](docs/hpf_holds.md).
+
 ## 0.7.0 — 2026-11-20
 
 Promotes the `dev` work since 0.6.0 (15 PRs). It exists to put CERT16's
