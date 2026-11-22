@@ -4063,9 +4063,11 @@ const COLOR_TOKEN_INDEX = Object.fromEntries(COLOR_TOKENS.map((t) => [t[0], t]))
 const COLOR_TOKEN_IMMUTABLE = ["nav", "state"];
 // {type: {colour prop: token}}; "" = a declared colour prop with no token.
 const COLOR_PROP_TOKENS = {
-  altimeter_tape: { alt_bug_color: "", alt_bug_alert_color: "" },
+  airspeed_tape: { ias_bug_color: "" },
+  altimeter_tape: { alt_bug_color: "", alt_bug_alert_color: "", altsel_capture_color: "", vs_bug_color: "" },
   altimeter_trend_tape: { bg_color: "surface.base" },
   atitude_indicator: { symbol_color: "nav.ownship", horizon_heading_color: "ink.primary" },
+  ap_annunciator: { active_color: "", armed_color: "", warning_color: "", background_color: "" },
   autopilot_panel: { active_color: "state.valid", armed_color: "ink.primary", caution_color: "state.caution",
     key_color: "surface.raised", level_color: "", text_color: "ink.primary", muted_color: "ink.muted",
     line_color: "line.border", target_color: "nav.reference", bg_color: "surface.base" },
@@ -4084,6 +4086,7 @@ const COLOR_PROP_TOKENS = {
   tab_section: { fg_color: "", bg_color: "" },
   value_text: { prefix_color: "ink.secondary", value_color: "ink.primary",
     border_color: "line.border", bg_color: "surface.base" },
+  vsi_pfd: { vs_bug_color: "" },
   virtual_vfr: { symbol_color: "nav.ownship", horizon_heading_color: "ink.primary",
     svs_road_color: "", svs_road_casing_color: "" },
 };
