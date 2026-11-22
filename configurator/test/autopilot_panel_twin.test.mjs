@@ -17,7 +17,7 @@ import { editorSource, extractFunction, extractConst } from "./support/extract.m
 const src = editorSource();
 const CONSTS = ["AP_GROUPS", "AP_DEFAULT_BUTTONS", "AP_BOXES", "AP_COLORS", "AP_FONT_METRICS",
   "DEJAVU_ASCENT"];
-const FUNCS = ["fontScale", "apButtons", "apColor", "apFontMetrics", "apFitToMask", "apText",
+const FUNCS = ["fontScale", "apButtons", "apColor", "apFontMetrics", "apFitToMask", "apText", "editIconGeom", "editIconSvg",
   "apPanelGeom", "apEsc", "apTextSvg", "apRectSvg", "apPanelSvg"];
 const twin = new Function(`
   ${CONSTS.map((c) => extractConst(src, c)).join("\n")}
