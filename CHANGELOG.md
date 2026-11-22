@@ -26,6 +26,19 @@ and the `configurator`. Semver on the Python package; process in
   back on rollback.
 
 ### Configurator and device config
+- **The editor previews the crew alerting window and marker, `cas_window`
+  and `cas_marker` (CAS3 twins of pyEfis#552, AER-6356).** The window draws
+  the schema's sample slots (`LEVEL|ACK|ID|TEXT|DETAIL`), sorted and
+  left-aligned as on the device: warnings red, cautions amber, advisories
+  white. The marker draws one tile naming its preview level. `lines` (with
+  the `+k` overflow row), the three level colours, `background_color`,
+  `background_opacity` and the Font options apply as on the device.
+  `background_opacity` replaces any alpha in `background_color`, as on the
+  device. The geometry, the font fit, both flash phases and the quiet window
+  are pinned to the widgets' own paint by `test/cas_twin.test.mjs`. The
+  palette entries come from pyEfis's schema and palette assets. Neither type
+  uses a colour token. The token table also gains ANN1's `annunciator` row
+  and the `state.warning` value, both read from the same pyEfis branch.
 - **The attitude previews draw the flight director (AFC5 twin of
   pyEfis#519, AER-6304).** `atitude_indicator` and `virtual_vfr` take the
   new `fd_style` option from the pyEfis schema (`single_cue`, the default,
