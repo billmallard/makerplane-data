@@ -5359,6 +5359,25 @@ function apText(text, rect, pt, scale, family, color, bold) {
   return { text, rect, px, family, color, bold,
     x: rect.x + rect.w / 2, baseline: rect.y + (rect.h - (m.ascent + m.descent)) / 2 + m.ascent };
 }
+// edit_focus.draw_edit_marks at rest: the dim icon badging the top-right
+// corner of the value rect r, pulled inside a box boundsW wide.
+function editIconGeom(r, boundsW) {
+  const s = Math.max(6, Math.min(10, Math.trunc(r.h * 0.6))), out = 3;
+  let ix = r.x + r.w + out - s / 2, iy = r.y - out - s / 2;
+  ix += Math.min(0, boundsW - (ix + s)); iy += Math.max(0, -iy);
+  const pw = Math.max(1, s / 7), rr = s / 2 - pw, hh = Math.max(2.5, s * 0.36);
+  return { x: ix, y: iy, s, pw, r: rr, head: hh };
+}
+// edit_focus.edit_icon_path: a 270 deg arc open at the lower right, its
+// arrowhead on the 6 o'clock end, over a black backing disc.
+function editIconSvg(ic) {
+  const c = ic.s / 2, ex = c, ey = c + ic.r;
+  return [`<g transform="translate(${ic.x} ${ic.y})">`,
+    `<circle cx="${c}" cy="${c}" r="${c}" fill="#000000" fill-opacity="${160 / 255}"/>`,
+    `<path d="M ${c + ic.r} ${c} A ${ic.r} ${ic.r} 0 1 0 ${ex} ${ey}" fill="none" stroke="#00ffff" stroke-opacity="${110 / 255}" stroke-width="${ic.pw}"/>`,
+    `<path d="M ${ex + ic.head} ${ey} L ${ex - ic.head * 0.15} ${ey - ic.head * 0.75} L ${ex - ic.head * 0.15} ${ey + ic.head * 0.75} Z" fill="#00ffff" fill-opacity="${110 / 255}"/>`,
+    "</g>"].join("\n");
+}
 function apPanelGeom(o, pv, w, h) {
   o = o || {}; pv = pv || {};
   const col = (k) => apColor(o[k] || AP_COLORS[k]);
@@ -5413,15 +5432,7 @@ function apPanelGeom(o, pv, w, h) {
       value: apText(pv[which] == null || pv[which] === "" ? "---" : String(pv[which]), r,
         apFitToMask(r.w * 0.82, r.h * 0.72, mask, family), scale, family, col("target_color"), false),
       icon: null };
-    if (touch) {
-      // draw_edit_marks at rest: the dim icon badging the ring's top-right
-      // corner, pulled inside the box.
-      const s = Math.max(6, Math.min(10, T(r.h * 0.6))), out = 3;
-      let ix = r.x + r.w + out - s / 2, iy = r.y - out - s / 2;
-      ix += Math.min(0, at.w - (ix + s)); iy += Math.max(0, -iy);
-      const pw = Math.max(1, s / 7), rr = s / 2 - pw, hh = Math.max(2.5, s * 0.36);
-      box.icon = { x: ix, y: iy, s, pw, r: rr, head: hh };
-    }
+    if (touch) box.icon = editIconGeom(r, at.w);
     return box;
   });
   const keys = buttons.map((name) => {
@@ -5476,16 +5487,7 @@ function apPanelSvg(g) {
     out.push(`<g class="ap-box" data-box="${b.which}" transform="translate(${b.at.x} ${b.at.y})">`, apTextSvg(b.label),
       apRectSvg(p.rect, p.radius, `fill="#000000" stroke="${apEsc(p.stroke[0])}" stroke-opacity="${p.stroke[1]}" stroke-width="${p.strokeW}"`),
       apTextSvg(b.value));
-    if (b.icon) {
-      // edit_focus.edit_icon_path: a 270 deg arc open at the lower right, its
-      // arrowhead on the 6 o'clock end, over a black backing disc.
-      const ic = b.icon, c = ic.s / 2, ex = c, ey = c + ic.r;
-      out.push(`<g transform="translate(${ic.x} ${ic.y})">`,
-        `<circle cx="${c}" cy="${c}" r="${c}" fill="#000000" fill-opacity="${160 / 255}"/>`,
-        `<path d="M ${c + ic.r} ${c} A ${ic.r} ${ic.r} 0 1 0 ${ex} ${ey}" fill="none" stroke="#00ffff" stroke-opacity="${110 / 255}" stroke-width="${ic.pw}"/>`,
-        `<path d="M ${ex + ic.head} ${ey} L ${ex - ic.head * 0.15} ${ey - ic.head * 0.75} L ${ex - ic.head * 0.15} ${ey + ic.head * 0.75} Z" fill="#00ffff" fill-opacity="${110 / 255}"/>`,
-        "</g>");
-    }
+    if (b.icon) out.push(editIconSvg(b.icon));
     out.push("</g>");
   }
   for (const k of g.keys) {
