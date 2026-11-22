@@ -1,0 +1,114 @@
+[
+ {
+  "name": "win_preview_on",
+  "type": "cas_window",
+  "w": 278,
+  "h": 196,
+  "state": "preview",
+  "t": 1000.0,
+  "options": {},
+  "caption": "window, shipped size 1920x1080: schema preview, flash on"
+ },
+ {
+  "name": "win_preview_off",
+  "type": "cas_window",
+  "w": 278,
+  "h": 196,
+  "state": "preview",
+  "t": 1000.5,
+  "options": {},
+  "caption": "same, flash off: unacknowledged lines outlined"
+ },
+ {
+  "name": "win_overflow",
+  "type": "cas_window",
+  "w": 278,
+  "h": 196,
+  "state": "overflow",
+  "t": 1000.0,
+  "options": {},
+  "caption": "7 messages, lines 4: three lines and +4"
+ },
+ {
+  "name": "win_detail",
+  "type": "cas_window",
+  "w": 360,
+  "h": 160,
+  "state": "detail",
+  "t": 1000.0,
+  "options": {},
+  "caption": "TEXT and DETAIL, advisory acknowledged"
+ },
+ {
+  "name": "win_small",
+  "type": "cas_window",
+  "w": 148,
+  "h": 109,
+  "state": "preview",
+  "t": 1000.0,
+  "options": {},
+  "caption": "window, shipped size 1024x600"
+ },
+ {
+  "name": "win_b612",
+  "type": "cas_window",
+  "w": 360,
+  "h": 160,
+  "state": "detail",
+  "t": 1000.0,
+  "options": {
+   "font_family": "B612"
+  },
+  "caption": "font_family B612"
+ },
+ {
+  "name": "mrk_caution_on",
+  "type": "cas_marker",
+  "w": 192,
+  "h": 59,
+  "state": "preview",
+  "t": 1000.0,
+  "options": {},
+  "caption": "marker, shipped size 1920x1080: caution, flash on"
+ },
+ {
+  "name": "mrk_caution_off",
+  "type": "cas_marker",
+  "w": 192,
+  "h": 59,
+  "state": "preview",
+  "t": 1000.5,
+  "options": {},
+  "caption": "same, flash off"
+ },
+ {
+  "name": "mrk_warning",
+  "type": "cas_marker",
+  "w": 160,
+  "h": 40,
+  "state": "warning",
+  "t": 1000.0,
+  "options": {},
+  "caption": "marker: warning"
+ },
+ {
+  "name": "mrk_advisory_off",
+  "type": "cas_marker",
+  "w": 160,
+  "h": 40,
+  "state": "advisory",
+  "t": 1000.5,
+  "options": {},
+  "caption": "marker: advisory, flash off phase"
+ },
+ {
+  "name": "mrk_small",
+  "type": "cas_marker",
+  "w": 102,
+  "h": 33,
+  "state": "preview",
+  "t": 1000.0,
+  "options": {},
+  "caption": "marker, shipped size 1024x600"
+ }
+]

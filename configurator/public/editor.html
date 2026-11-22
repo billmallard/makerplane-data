@@ -3378,6 +3378,8 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       el.appendChild(buildAutopilotPanel(inst));
     } else if (inst.type === "ap_annunciator") {
       el.appendChild(buildApAnnunciator(inst));
+    } else if (inst.type === "cas_window" || inst.type === "cas_marker") {
+      el.appendChild(buildCas(inst));
     } else if (inst.type === "button") {
       el.classList.remove("placeholder");   // has a real twin, not a placeholder
       el.appendChild(buildButton(inst));
@@ -5830,6 +5832,165 @@ function buildApAnnunciator(inst) {
   const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
   const { w, h } = mapDevicePx(inst);
   return svgFromString(apStripSvg(apStripGeom(inst.options || {}, apStripCells(meta.preview || {}), w, h)));
+}
+
+// --- the crew alerting window and marker twins (AER-6356) --------------------
+// pyEfis instruments/cas CASWindow (`cas_window`) and CASMarker (`cas_marker`),
+// CAS3, drawn in device pixels from inst.options and the schema's preview
+// block. On the device the lines come from the CAS2 list (CASMSG1..12, each
+// `LEVEL|ACK|ID|TEXT|DETAIL`); here the window draws the preview's sample
+// slots and the marker its preview level. Lines are the shared lamp tile
+// (instruments/tile.py paint_tile): warning red and caution amber in reverse
+// video, advisory white outlined; an unacknowledged line swaps reverse video
+// and outline each half-second, so the preview shows the "on" phase. Ports of
+// model.parse_slot / sort_key, CASWindow.rows / row_rects / paintEvent,
+// CASMarker.paintEvent and tile.fit_px / paint_tile; the tests pin them
+// against what the real widgets paint (tools/cas_oracle.py), flash phases,
+// overflow and the quiet window included. Text metrics are the
+// ap_annunciator's Qt table (apStripFont). status_path has no look.
+const CAS_TILE_LEVEL = { 3: "warning", 2: "caution", 1: "advisory" };
+const CAS_MARKER_TEXT = { 3: "WARNING", 2: "CAUTION", 1: "ADVISORY" };
+// tile.DEFAULT_COLORS for a colour prop left unset; tile.REVERSE_TEXT_COLOR.
+const CAS_COLORS = { warning: "#ff0000", caution: "#ffaa00", advisory: "#ffffff" };
+const CAS_REVERSE_TEXT = "#000000";
+// model.parse_slot: five `|` fields, level 1-3, ack 0/1, text non-empty; any
+// other slot is no message (the device drops and logs it).
+function casParseSlot(v) {
+  if (typeof v !== "string" || v === "") return null;
+  const parts = v.split("|");
+  if (parts.length !== 5) return null;
+  const [level, ack, id, text, detail] = parts;
+  if (!["1", "2", "3"].includes(level) || !["0", "1"].includes(ack) || !text) return null;
+  return { level: Number(level), acked: ack === "1", id, line: detail ? `${text}  ${detail}` : text };
+}
+// CASModel.messages: warnings, cautions, advisories; unacknowledged first
+// within a level; otherwise the bus order (a stable sort, as Python's).
+function casMessages(slots) {
+  const msgs = (Array.isArray(slots) ? slots : []).map(casParseSlot).filter(Boolean);
+  return msgs.map((m, i) => [m, i])
+    .sort((a, b) => (b[0].level - a[0].level) || (a[0].acked - b[0].acked) || (a[1] - b[1]))
+    .map((x) => x[0]);
+}
+// int(lines) as the device reads it; a value Python's int() refuses would stop
+// the device's paint, so the twin keeps the default 4 for it.
+function casLines(v) {
+  const n = Math.trunc(Number(v == null || v === "" ? 4 : v));
+  return Math.max(1, Number.isFinite(n) ? n : 4);
+}
+// CASWindow.rows: at most `lines` rows; past that the last row is +k for the
+// k hidden (count includes messages beyond the slots), coloured by the most
+// urgent hidden line and flashing if any hidden one is unacknowledged.
+function casWindowRows(msgs, count, lines) {
+  const n = casLines(lines);
+  const tile = (m) => ({ text: m.line, level: CAS_TILE_LEVEL[m.level], flash: !m.acked, kind: "line" });
+  const total = Math.max(count || 0, msgs.length);
+  if (total <= n) return msgs.map(tile);
+  const shown = msgs.slice(0, n - 1);
+  const hidden = msgs.slice(n - 1).length ? msgs.slice(n - 1) : msgs.slice(-1);
+  const top = Math.max(...hidden.map((m) => m.level));
+  return shown.map(tile).concat([{ text: `+${total - shown.length}`, level: CAS_TILE_LEVEL[top],
+    flash: hidden.some((m) => !m.acked), kind: "more" }]);
+}
+// tile.fit_px: the largest px, at most px, at which every text fits; one size
+// for the whole block. Metrics are at the whole pixel size Qt sets.
+function casFitPx(family, texts, width, height, px) {
+  px = Math.max(4, px);
+  for (let i = 0; i < 60; i++) {
+    const f = apStripFont(family, px);
+    const ok = texts.every((t) => f.advance(t) <= width && f.ascent + f.descent <= height);
+    if (ok || px <= 4) return px;
+    px = Math.max(4, px - 1);
+  }
+  return px;
+}
+// _CASWidget._background: setAlphaF replaces the colour's own alpha, so an
+// #AARRGGBB background_color keeps only its RGB; background_opacity rules.
+function casBackground(o, rect) {
+  const op = Number(o.background_opacity == null || o.background_opacity === "" ? 0.75 : o.background_opacity);
+  const c = apColor(o.background_color == null || o.background_color === "" ? "#000000" : o.background_color);
+  return { rect, color: c[0], alpha: Math.max(0, Math.min(1, Number.isFinite(op) ? op : 0.75)) };
+}
+// tile.paint_tile with flash_blank=False, as draw ops: the outline box (filled
+// in reverse video) and the caption. on is the flash phase.
+function casTile(rect, t, o, family, px, borderPx, on, left) {
+  const opt = o[t.level + "_color"];
+  const color = apColor(opt == null || opt === "" ? CAS_COLORS[t.level] : opt);
+  let reverse = t.level === "warning" || t.level === "caution";
+  if (t.flash && !on) reverse = !reverse;
+  const width = Math.max(1, borderPx), half = width / 2;
+  const box = { x: rect.x + half, y: rect.y + half, w: rect.w - width, h: rect.h - width };
+  const f = apStripFont(family, px);
+  const inset = left ? px * 0.4 : 0;
+  const tr = { x: box.x + inset, y: box.y, w: box.w - 2 * inset, h: box.h };
+  const adv = f.advance(t.text);
+  return { box, width, color, fill: reverse,
+    text: { text: t.text, rect: tr, px: f.px, family, adv, left,
+      color: reverse ? [CAS_REVERSE_TEXT, 1] : color,
+      x: left ? tr.x : tr.x + (tr.w - adv) / 2,
+      baseline: tr.y + (tr.h - (f.ascent + f.descent)) / 2 + f.ascent } };
+}
+// CASWindow.paintEvent: rows of height h / lines from the top, background
+// behind the used rows only; nothing at all when there is no message.
+function casWindowGeom(o, msgs, count, w, h, on = true) {
+  o = o || {};
+  const rows = casWindowRows(msgs, count, o.lines);
+  if (!rows.length) return { w, h, bg: null, tiles: [] };
+  const n = casLines(o.lines), rh = h / n;
+  const family = o.font_family || "DejaVu Sans Condensed";
+  const pad = Math.max(1, rh * 0.08);
+  const boxes = rows.map((_, i) => ({ x: pad, y: i * rh + pad / 2, w: w - 2 * pad, h: rh - pad }));
+  const px = casFitPx(family, rows.map((r) => r.text).concat(["GATEWAY LINK LOST"]),
+    boxes[0].w - 4 * pad, boxes[0].h * 0.8, boxes[0].h * 0.7 * fontScale(o.font_percent));
+  const border = Math.max(1, boxes[0].h * 0.06);
+  return { w, h, bg: casBackground(o, { x: 0, y: 0, w, h: rows.length * rh }),
+    tiles: rows.map((r, i) => Object.assign(casTile(boxes[i], r, o, family, px, border, on, true), { kind: r.kind })) };
+}
+// CASMarker.paintEvent: one centred tile naming the level; nothing when quiet.
+function casMarkerGeom(o, level, flash, w, h, on = true) {
+  o = o || {};
+  if (!CAS_MARKER_TEXT[level]) return { w, h, bg: null, tiles: [] };
+  const family = o.font_family || "DejaVu Sans Condensed";
+  const pad = Math.max(1, h * 0.06);
+  const box = { x: pad, y: pad, w: w - 2 * pad, h: h - 2 * pad };
+  const px = casFitPx(family, Object.values(CAS_MARKER_TEXT), box.w - 4 * pad, box.h * 0.8,
+    box.h * 0.6 * fontScale(o.font_percent));
+  const t = { text: CAS_MARKER_TEXT[level], level: CAS_TILE_LEVEL[level], flash };
+  return { w, h, bg: casBackground(o, { x: 0, y: 0, w, h }),
+    tiles: [casTile(box, t, o, family, px, Math.max(1, box.h * 0.08), on, false)] };
+}
+function casSvg(g) {
+  const out = [`<svg viewBox="0 0 ${g.w} ${g.h}" class="gauge-svg">`];
+  if (g.bg) {
+    const r = g.bg.rect;
+    out.push(`<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" fill="${apEsc(g.bg.color)}" fill-opacity="${g.bg.alpha}"/>`);
+  }
+  for (const t of g.tiles) {
+    const b = t.box, c = t.color;
+    out.push(`<rect x="${b.x}" y="${b.y}" width="${Math.max(0, b.w)}" height="${Math.max(0, b.h)}"` +
+      (t.fill ? ` fill="${apEsc(c[0])}" fill-opacity="${c[1]}"` : ' fill="none"') +
+      ` stroke="${apEsc(c[0])}" stroke-opacity="${c[1]}" stroke-width="${t.width}"/>`);
+    const x = t.text;
+    // Qt starts the caption at its laid-out x dropped to the whole pixel
+    // (measured on the side-by-side: 14.6 draws at 14, 27.5 at 27); the
+    // epsilon keeps a float 25.99999 at 26. The browser shapes its own width.
+    out.push(`<text x="${Math.floor(x.x + 1e-6)}" y="${x.baseline}" text-anchor="start"` +
+      ` font-family="${apEsc(x.family)}" font-size="${x.px}" font-weight="bold" xml:space="preserve" fill="${apEsc(x.color[0])}" fill-opacity="${x.color[1]}">${apEsc(x.text)}</text>`);
+  }
+  out.push("</svg>");
+  return out.join("\n");
+}
+// The marker's preview names a level ("caution"); anything else is CAUTION.
+const CAS_PREVIEW_LEVEL = { warning: 3, caution: 2, advisory: 1 };
+function buildCas(inst) {
+  const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
+  const pv = meta.preview || {};
+  const { w, h } = mapDevicePx(inst);
+  const o = inst.options || {};
+  if (inst.type === "cas_marker") {
+    return svgFromString(casSvg(casMarkerGeom(o, CAS_PREVIEW_LEVEL[String(pv.level || "").toLowerCase()] || 2, false, w, h)));
+  }
+  const msgs = casMessages(pv.lines);
+  return svgFromString(casSvg(casWindowGeom(o, msgs, msgs.length, w, h)));
 }
 
 // --- screens (multi-screen) -------------------------------------------------
