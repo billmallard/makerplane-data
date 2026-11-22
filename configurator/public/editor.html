@@ -916,6 +916,96 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
 </svg>`;
 }
 
+// --- autopilot target cues on the tapes (AER-6286) ---------------------------
+// pyEfis #499 (AFC4): the IASSEL box and bug on Airspeed_Tape, the ALTSEL
+// box's capture look and the VSSEL bug on Altimeter_Tape, the VSSEL bug on
+// VSI_PFD. On the device each shows only while the autopilot reports its mode;
+// the preview shows them in the states of pyEfis's own evidence sheet
+// (docs/aer-5808-evidence/tapes.png): IAS active at 90 kt, the ALTSEL box
+// capturing 4,000 ft, VS active at +500 fpm (the ap_annunciator preview's).
+// Each cue's shape is a port of the device's paint, pinned by
+// tools/ap_tape_cues_oracle.py; where it sits follows the editor's own tape
+// scale, which is an approximation of the device's.
+const AP_CUE_PREVIEW = { iassel: 90, altsel: 4000, vssel: 500, vs: 480 };
+// bugs.tape_bug_path: a block standing on the edge at x, its V notch facing
+// the scale (pointRight: the scale is to the right of x), apex on y.
+function tapeBugPath(x, y, width, height, pointRight) {
+  const h2 = height / 2, nh = height / 3, nd = width * 0.45, s = pointRight ? 1 : -1, far = x + s * width;
+  return [[x, y - h2], [far, y - h2], [far, y - nh / 2], [far - s * nd, y], [far, y + nh / 2], [far, y + h2], [x, y + h2]];
+}
+// An option the device reads as on unless it is set false (YAML or a string).
+function apCueOn(v, dflt) {
+  if (v == null || v === "") return dflt;
+  if (typeof v === "string") return ["true", "1", "yes", "on"].includes(v.trim().toLowerCase());
+  return Boolean(v);
+}
+// The cues one tape draws, in device px: { boxes, bugs }. bugY maps a value
+// on this tape's scale to y. A box is helpers.draw_readout_panel plus its
+// text; a bug is a filled tapeBugPath, pegged as bugs.clamp_to_span pegs it.
+function apTapeCues(type, o, w, h, bugY, tasTop) {
+  o = o || {};
+  const boxes = [], bugs = [], clamp = (y, lo, hi) => Math.min(hi, Math.max(lo, y));
+  const family = o.font_family || "DejaVu Sans Condensed";
+  if (type === "airspeed_tape" && apCueOn(o.ias_bug, true)) {
+    // ias_box_zone: the box's height plus the edit ring's margin each side.
+    const m = 4.5, zh = Math.max(16, Math.round(w * 0.30)) + 2 * m;
+    const r = { x: m, y: m, w: w - 2 * m, h: zh - 2 * m };
+    const color = apColor(o.ias_bug_color || "#00ffff");
+    boxes.push({ which: "iassel", rect: r, radius: 0.145 * r.h, stroke: ["#00ff00", 0.85],
+      strokeW: Math.max(1, r.h * 0.05), fill: 1, text: String(AP_CUE_PREVIEW.iassel), color,
+      px: Math.max(6, Math.round(r.h * 0.62)), bold: true, family,
+      icon: apCueOn(o.touch_edit, true) ? editIconGeom(r, w) : null });
+    const y = clamp(bugY(AP_CUE_PREVIEW.iassel), zh + 1, tasTop);
+    bugs.push({ which: "iassel", points: tapeBugPath(w, y, Math.max(5, w * 0.10), Math.max(10, w * 0.24), false), color });
+  }
+  if (type === "altimeter_tape") {
+    const dbkey = o.dbkey || "ALT";
+    let top = 0;
+    if (apCueOn(o.altsel_box, dbkey === "ALT")) {
+      // AltSelBox at (0, 0, w, bh), its value rect inset for the edit ring,
+      // in the capture look: altsel_capture_color, the border twice as thick.
+      const bh = Math.max(16, Math.round(w * 0.34)), m = 4.5;
+      const r = { x: m, y: m, w: w - 2 * m, h: bh - 2 * m };
+      // draw_readout_panel sets the border's alpha to 0.85 whatever the colour's.
+      const pt = apFitToMask(r.w * 0.86, r.h * 0.78, "00000", family);
+      boxes.push({ which: "altsel", rect: r, radius: 0.145 * r.h,
+        stroke: [apColor(o.altsel_capture_color || "#00ff00")[0], 0.85],
+        strokeW: Math.max(1, r.h * 0.10), fill: 1, text: String(AP_CUE_PREVIEW.altsel),
+        color: apColor(o.alt_bug_color || "#00ffff"), px: Math.max(1, pt) * 96 / 72, pt, bold: false, family,
+        icon: editIconGeom(r, w) });
+      top = bh;
+    }
+    if (apCueOn(o.vs_bug, dbkey === "VS")) {
+      const y = clamp(bugY(AP_CUE_PREVIEW.vssel), top, h);
+      bugs.push({ which: "vssel", points: tapeBugPath(w, y, Math.max(5, w * 0.12), Math.max(10, w * 0.26), false),
+        color: apColor(o.vs_bug_color || "#00ffff") });
+    }
+  }
+  if (type === "vsi_pfd" && apCueOn(o.vs_bug, true)) {
+    const y = clamp(bugY(AP_CUE_PREVIEW.vssel), 0, h);
+    bugs.push({ which: "vssel", points: tapeBugPath(0, y, Math.max(5, w * 0.30), Math.max(8, w * 0.45), true),
+      color: apColor(o.vs_bug_color || "#00ffff") });
+  }
+  return { w, h, boxes, bugs };
+}
+function apTapeCuesSvg(g) {
+  if (!g.boxes.length && !g.bugs.length) return "";
+  const out = [`<svg viewBox="0 0 ${g.w} ${g.h}" preserveAspectRatio="none" class="ap-cues" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible">`];
+  for (const b of g.bugs) {
+    out.push(`<path data-cue="${b.which}" d="M ${b.points.map((p) => p.join(" ")).join(" L ")} Z" fill="${apEsc(b.color[0])}" fill-opacity="${b.color[1]}"/>`);
+  }
+  for (const b of g.boxes) {
+    const r = b.rect;
+    out.push(`<rect data-cue="${b.which}" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="${b.radius}" ry="${b.radius}" fill="#000000" fill-opacity="${b.fill}"` +
+      ` stroke="${apEsc(b.stroke[0])}" stroke-opacity="${b.stroke[1]}" stroke-width="${b.strokeW}"/>`);
+    out.push(`<text x="${r.x + r.w / 2}" y="${r.y + r.h / 2}" dominant-baseline="central" text-anchor="middle" font-family="${apEsc(b.family)}" font-size="${b.px}"` +
+      `${b.bold ? ' font-weight="bold"' : ""} fill="${apEsc(b.color[0])}" fill-opacity="${b.color[1]}">${apEsc(b.text)}</text>`);
+    if (b.icon) out.push(editIconSvg(b.icon));
+  }
+  out.push("</svg>");
+  return out.join("\n");
+}
+
 // Vertical tape (airspeed / altimeter): scrolling numbers around a sample value
 // with a centred readout box. HTML (not SVG) so the digits never distort.
 // Vertical tape. Airspeed adds the V-speed colour bands, a TAS box across the
@@ -926,7 +1016,9 @@ function buildTape(inst) {
   const isAlt = inst.type === "altimeter_tape";
   const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
   const pv = meta.preview || {};
-  const value = isAlt ? 3500 : (pv.value ?? 110), step = isAlt ? 200 : 20, span = 6 * step;
+  // A VS tape (dbkey VS) previews AP_CUE_PREVIEW's climb, not an altitude.
+  const isVs = isAlt && (o.dbkey || "ALT") === "VS";
+  const value = isVs ? AP_CUE_PREVIEW.vs : isAlt ? 3500 : (pv.value ?? 110), step = isAlt ? 200 : 20, span = 6 * step;
   const r = rect(inst);
   const wrap = document.createElement("div");
   wrap.className = "gauge tape" + (isAlt ? " alt" : "");
@@ -977,6 +1069,12 @@ function buildTape(inst) {
     tas.innerHTML = `<div class="lbl">TAS</div><div class="val">${pv.tas ?? 118}</div>`;
     wrap.appendChild(tas);
   }
+  // The autopilot cues, in device px over the tape, placed on this tape's
+  // scale (ticks: top% = 50 - (n - value) / span * 100).
+  const dev = mapDevicePx(inst);
+  const cues = apTapeCuesSvg(apTapeCues(inst.type, o, dev.w, dev.h,
+    (v) => (50 - (v - value) / span * 100) / 100 * dev.h, (100 - botPad) / 100 * dev.h));
+  if (cues) wrap.appendChild(svgFromString(cues));
   return wrap;
 }
 
@@ -1687,6 +1785,11 @@ function buildVsiPfd(inst) {
     const num = document.createElement("span"); num.className = "vp-num"; num.textContent = Math.abs(v);
     row.appendChild(line); row.appendChild(num); wrap.appendChild(row);
   }
+  // The VSSEL bug on the left edge, under the rate dot (drawn after it on
+  // the device too).
+  const dev = mapDevicePx(inst);
+  const cues = apTapeCuesSvg(apTapeCues("vsi_pfd", o, dev.w, dev.h, (v) => (50 - v / (2 * max) * 100) / 100 * dev.h));
+  if (cues) wrap.appendChild(svgFromString(cues));
   const ind = document.createElement("div"); ind.className = "vp-ind"; ind.style.top = (50 - sample / (2 * max) * 100) + "%"; wrap.appendChild(ind);
   return wrap;
 }
