@@ -26,6 +26,23 @@ and the `configurator`. Semver on the Python package; process in
   back on rollback.
 
 ### Configurator and device config
+- **The editor previews the autopilot mode strip, `ap_annunciator` (AFC4
+  twin of pyEfis#499, AER-6286).** The preview draws the schema's sample
+  state (AP YD, HDG with GPS armed, VS +500 with ALT armed) in device
+  pixels. `ap_position: center` moves AP YD between the lateral and vertical
+  groups, and the colour, background and Font options apply as on the
+  device. The geometry, the font fit and the boxed, flashing, disconnect and
+  NO AP DATA looks are pinned to the widget's own paint by
+  `test/ap_annunciator_twin.test.mjs`. The fit is exact for DejaVu Sans
+  Condensed, DejaVu Sans and B612; other fonts use DejaVu Sans Condensed's
+  metrics.
+- **The tape previews draw the AFC4 autopilot cues (AER-6286).** The airspeed
+  tape shows the IASSEL box and bug, the ALT tape the ALTSEL box in its
+  capture look, and a VS tape and `vsi_pfd` the VSSEL bug. Each follows its
+  option (`ias_bug`, `ias_bug_color`, `touch_edit`, `altsel_box`,
+  `altsel_capture_color`, `vs_bug`, `vs_bug_color`). Their shapes are pinned
+  to the widgets by `test/ap_tape_cues_twin.test.mjs`. A VS tape now
+  previews a climb rate instead of an altitude.
 - **The HSI preview draws the turn-rate trend (ATT1b twin of pyEfis#520,
   AER-6089).** The preview shows white half-rate and standard-rate marks beside
   the lubber, and a standard-rate right-turn arc in `turn_rate_color`. It draws
