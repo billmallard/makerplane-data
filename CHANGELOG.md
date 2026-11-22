@@ -26,6 +26,13 @@ and the `configurator`. Semver on the Python package; process in
   back on rollback.
 
 ### Configurator and device config
+- **The attitude previews draw the flight director (AFC5 twin of
+  pyEfis#519, AER-6304).** `atitude_indicator` and `virtual_vfr` take the
+  new `fd_style` option from the pyEfis schema (`single_cue`, the default,
+  `cross_pointer` or `off`). The preview draws the chosen style in magenta
+  for a sample command 4 deg above and 25 deg of bank left of the preview
+  attitude, and nothing for `off`. It is a port of the widget's
+  `_draw_flight_director`, held to the widget's own paint output by a test.
 - **The HSI preview draws the turn-rate trend (ATT1b twin of pyEfis#520,
   AER-6089).** The preview shows white half-rate and standard-rate marks beside
   the lubber, and a standard-rate right-turn arc in `turn_rate_color`. It draws

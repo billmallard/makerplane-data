@@ -677,14 +677,65 @@ function buildAttitude(inst) {
   return svgFromString(attitudeSVG(inst,
     pv.pitch !== undefined ? pv.pitch : 4,
     pv.roll !== undefined ? pv.roll : -9,
-    pv.slip !== undefined ? pv.slip : 2, true, r.w / r.h));
+    pv.slip !== undefined ? pv.slip : 2, true, r.w / r.h,
+    mapDevicePx(inst).h));
+}
+
+// The flight director preview's sample command (AFC5, pyEfis#519), as the
+// error from the preview attitude: 4 deg above it and 25 deg of bank to the
+// left, the "both" column of pyEfis docs/aer-6052-evidence/styles.png. The
+// bars show command minus attitude, so the picture is the same on any pose.
+const FD_PREVIEW_ERROR = { pitch: 4, roll: -25 };
+const FD_STYLES = ["single_cue", "cross_pointer", "off"];
+const FD_ROLL_FULL_SCALE_DEG = 30;
+
+// Port of pyEfis AI._draw_flight_director. Returns the magenta bars as SVG in
+// attitudeSVG's symbol frame (viewBox units, origin at the fixed aircraft
+// symbol), or "" for fd_style off. pitchErr / rollErr are command minus
+// attitude in the device's sense (+ = nose up / right bank). The widget sizes
+// the cue in device px (span off width, thickness off height, 1.5 px outline,
+// px floors), so devH converts: one viewBox unit is devH * sc / 100 px.
+function flightDirectorSVG(o, pitchErr, rollErr, opts) {
+  const { sc, aspect, devH, ppd, hoff, conformal } = opts;
+  let style = String(o.fd_style ?? "single_cue").toLowerCase();
+  if (!FD_STYLES.includes(style)) style = "single_cue";
+  if (style === "off") return "";
+  const u = devH * sc / 100;
+  const ss = Math.max(0.3, Math.min(3, Number(o.symbol_scale) || 1));
+  // _pitch_px: the ladder's scale; under SVS, the terrain camera's tangent.
+  const d = conformal ? Math.max(-89, Math.min(89, -pitchErr)) : -pitchErr;
+  const y = conformal ? ppd * Math.tan(d * Math.PI / 180) * 180 / Math.PI : d * ppd;
+  const re = ((rollErr + 180) % 360 + 360) % 360 - 180;
+  const span = 16 * aspect * ss / sc;
+  const thick = Math.max(3, devH * 0.014 * ss) / u;
+  // Pinned inside the glass, so a large error still points the way.
+  const margin = thick * 3, cy = 50 / sc - hoff, hh = 100 / sc;
+  const ay = Math.max(margin - cy, Math.min(hh - margin - cy, y));
+  const poly = (pts) => `<polygon points="${pts.map(([px, py]) =>
+    `${px.toFixed(3)},${py.toFixed(3)}`).join(" ")}"/>`;
+  let shapes;
+  if (style === "cross_pointer") {
+    const x = Math.max(-1, Math.min(1, re / FD_ROLL_FULL_SCALE_DEG)) * span;
+    const t2 = thick / 2, yb = 50 + ay;
+    shapes = poly([[50 - span, yb - t2], [50 + span, yb - t2], [50 + span, yb + t2], [50 - span, yb + t2]])
+      + poly([[50 + x - t2, 50 - span], [50 + x + t2, 50 - span], [50 + x + t2, 50 + span], [50 + x - t2, 50 + span]]);
+  } else {
+    const gap = Math.max(2, devH * 0.006) / u, drop = span * 0.30;
+    const c = Math.cos(re * Math.PI / 180), s = Math.sin(re * Math.PI / 180);
+    shapes = poly([[0, -gap], [span, drop - gap], [span, drop - gap - thick],
+      [0, -gap - thick * 1.6], [-span, drop - gap - thick], [-span, drop - gap]]
+      .map(([px, py]) => [50 + px * c - py * s, 50 + ay + px * s + py * c]));
+  }
+  return `<g class="fd fd-${style}" fill="#ff00ff" stroke="#000000" stroke-width="${(1.5 / u).toFixed(4)}" stroke-linejoin="miter">${shapes}</g>`;
 }
 
 // Shared attitude symbology -- used by buildAttitude AND buildVirtualVfr (the SVS
 // preview draws the SAME symbology over a captured clean-terrain image). Returns
 // SVG markup. withBackground draws the sky/ground gradient; when false the SVG is
 // transparent so the terrain <img> behind shows through.
-function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
+// devH: the widget's height in device px, which sizes the flight director;
+// fdErr: its command minus attitude (FD_PREVIEW_ERROR unless given).
+function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect, devH, fdErr = FD_PREVIEW_ERROR) {
   const o = inst.options || {};
   const sym = o.symbol_color || "#ffff00";
   const font = o.font_family || "DejaVu Sans Condensed";  // pyEfis AI uses self.font_family
@@ -865,6 +916,13 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
       <line x1="${fx + fr * 1.1}" y1="${fy}" x2="${fx + fr * 2.4}" y2="${fy}"/>
       <line x1="${fx}" y1="${fy - fr * 1.1}" x2="${fx}" y2="${fy - fr * 2}"/>
     </g>`;
+  // Flight director (AFC5): the single cue goes under the aircraft symbol,
+  // which nests in it; the cross-pointer bars cross over it. Under SVS the
+  // pitch error uses the terrain camera's tangent, as the ladder does there.
+  const fd = flightDirectorSVG(o, fdErr.pitch, fdErr.roll,
+    { sc, aspect: aspect || 1, devH: devH || 300, ppd, hoff, conformal: !withBackground });
+  const fdCue = fd.includes("fd-single_cue") ? fd : "";
+  const fdBars = fd.includes("fd-cross_pointer") ? fd : "";
   // Compass heading scale on the horizon (matches ai._draw_horizon_heading):
   // ticks every interval deg + an upright label every label-interval deg, on
   // the y=50 horizon line so it rides the rolled/pitched horizon. Sample
@@ -909,8 +967,10 @@ function attitudeSVG(inst, pitch, roll, slip, withBackground, aspect) {
     <circle cx="${(50 + slip).toFixed(1)}" cy="${(arcTop + 1.9).toFixed(2)}" r="0.5" fill="#fff"/>
     </g>` : ``}
     <g transform="translate(0 ${(-hoff).toFixed(2)})">
+      ${fdCue}
       ${symbol}
       ${fpm}
+      ${fdBars}
     </g>
   </g>
 </svg>`;
@@ -2767,7 +2827,8 @@ function buildVirtualVfr(inst) {
   // LIVE from the user's options (aircraft symbol, pitch ladder, bank scale,
   // FPM, heading marks). Drawn at level (pitch 0 / roll 0) so it aligns with the
   // level terrain; transparent background so the terrain shows through.
-  const ov = svgFromString(attitudeSVG(inst, 0, 0, 0, false, r.w / r.h));
+  const ov = svgFromString(attitudeSVG(inst, 0, 0, 0, false, r.w / r.h,
+    mapDevicePx(inst).h));
   ov.style.position = "absolute";
   ov.style.left = "0";
   ov.style.top = "0";
