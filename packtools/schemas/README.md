@@ -12,9 +12,12 @@ pipeline consumes, kept verbatim (column, max length, data type, nullable).
 | `NAV_structure.csv` | `NAV_CSV_DATA_STRUCTURE.csv` | NAV_BASE |
 | `FIX_structure.csv` | `FIX_CSV_DATA_STRUCTURE.csv` | FIX_BASE |
 | `AWY_structure.csv` | `AWY_CSV_DATA_STRUCTURE.csv` | AWY_BASE |
+| `HPF_structure.csv` | `HPF_CSV_DATA_STRUCTURE.csv` | HPF_BASE, HPF_SPD_ALT, HPF_CHRT |
 
 **Source cycle: AIRAC 2607** (effective 2026-07-09), seeded 2026-07-05 from the
 extracted inputs under `work/localwork/{airports,navaids}-conus/2607/extracted/`.
+`HPF_structure.csv` was seeded 2026-11-22 from AIRAC 2611 (effective
+2026-10-29) and checked identical against 2612 (docs/hpf_holds.md).
 `APT_structure.csv` was **refreshed for AIRAC 2609** (effective 2026-09-03) on
 2026-08-08 — see the acknowledgement note below.
 

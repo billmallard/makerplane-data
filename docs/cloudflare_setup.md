@@ -261,7 +261,7 @@ manifest: 5 pack(s), 5 new, signed + uploaded
 | Pack id | Kind | Cadence | Upstream | Builder (pyEfis tools/) |
 |---|---|---|---|---|
 | `airports-conus` | `navdata` | AIRAC (current+next) | NASR `{date}_APT_CSV.zip` | `build_airport_db.py` |
-| `navaids-conus` | `navaids` | AIRAC (current+next) | NASR `{date}_NAV/FIX/AWY_CSV.zip` (three archives) | `build_navaid_db.py --nasr-dir` |
+| `navaids-conus` | `navaids` | AIRAC (current+next) | NASR `{date}_NAV/FIX/AWY/HPF_CSV.zip` (four archives) | `build_navaid_db.py --nasr-dir` |
 | `obstacles-conus` | `obstacles` | DOF (current only) | `DAILY_DOF_CSV.ZIP` | `build_obstacle_db.py` |
 | `cifp-conus` | `cifp` | AIRAC | CIFP zip | deferred (GPL indexer) |
 

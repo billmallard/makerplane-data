@@ -70,7 +70,7 @@ def test_run_builds_current_and_next_for_airac_only_current_for_dof(tmp_path):
 
 
 def test_multi_url_source_fetches_all_archives_into_one_input(tmp_path):
-    # navaids = NAV + FIX + AWY zips; every URL is fetched per cycle and the
+    # navaids = NAV + FIX + AWY + HPF zips; every URL is fetched per cycle and the
     # builder sees a single extracted directory.
     runner, store, pub = make_runner(tmp_path)
     fetched = []
@@ -79,7 +79,7 @@ def test_multi_url_source_fetches_all_archives_into_one_input(tmp_path):
     m = runner.run([NAVAIDS])
 
     cur = [u for u in fetched if "11_Jun_2026" in u]
-    assert [u.rsplit("_", 2)[1] for u in cur] == ["NAV", "FIX", "AWY"]
+    assert [u.rsplit("_", 2)[1] for u in cur] == ["NAV", "FIX", "AWY", "HPF"]
     assert ("navaids-conus", "2606") in {(p.id, p.cycle) for p in m.packs}
     assert store.exists("packs/navaids-conus-2606.pack")
 

@@ -154,18 +154,33 @@ CONTRACTS: dict[str, Contract] = {
     "navaids": Contract(
         builder="navaids",
         required_columns={
+            # STATE_CODE / COUNTRY_CODE (NAV) and ICAO_REGION_CODE (FIX) are
+            # the holds join keys: (NAV_ID, NAV_TYPE) alone repeats across
+            # states for 33 NDBs in 2611 (docs/hpf_holds.md, Joins).
             "NAV_BASE.csv": frozenset({
                 "NAV_ID", "NAV_TYPE", "NAME", "FREQ", "ELEV",
-                "LAT_DECIMAL", "LONG_DECIMAL"}),
+                "LAT_DECIMAL", "LONG_DECIMAL", "STATE_CODE", "COUNTRY_CODE"}),
             "FIX_BASE.csv": frozenset({
-                "FIX_ID", "FIX_USE_CODE", "LAT_DECIMAL", "LONG_DECIMAL"}),
+                "FIX_ID", "FIX_USE_CODE", "LAT_DECIMAL", "LONG_DECIMAL",
+                "ICAO_REGION_CODE"}),
             # AWY_DESIGNATION is read by the SP filter (docs section 4); it is
             # present today and policed by the enum check below.
             "AWY_BASE.csv": frozenset({
                 "AWY_ID", "AIRWAY_STRING", "AWY_DESIGNATION"}),
+            # Published holds (HOLDFIX3, docs/hpf_holds.md). Declared ahead of
+            # the builder reading them, so the fetch and the guard are on
+            # main before build_navaid_db.py starts to require them.
+            "HPF_BASE.csv": frozenset({
+                "HP_NAME", "HP_NO", "STATE_CODE", "COUNTRY_CODE", "FIX_ID",
+                "ICAO_REGION_CODE", "NAV_ID", "NAV_TYPE", "HOLD_DIRECTION", "HOLD_DEG_OR_CRS", "AZIMUTH",
+                "COURSE_INBOUND_DEG", "TURN_DIRECTION", "LEG_LENGTH_DIST"}),
+            "HPF_SPD_ALT.csv": frozenset({
+                "HP_NAME", "HP_NO", "SPEED_RANGE", "ALTITUDE"}),
+            "HPF_CHRT.csv": frozenset({
+                "HP_NAME", "HP_NO", "CHARTING_TYPE_DESC"}),
         },
         structure_snapshots=("NAV_structure.csv", "FIX_structure.csv",
-                             "AWY_structure.csv"),
+                             "AWY_structure.csv", "HPF_structure.csv"),
         enum_columns={
             # The nine designations observed in 2606 and 2607 plus SP, which is
             # pre-added ON PURPOSE: it is known and handled by the pyEfis SP
@@ -173,6 +188,14 @@ CONTRACTS: dict[str, Contract] = {
             # No Y/N here -- those are REGULATORY values, not designations.
             "AWY_BASE.csv": {"AWY_DESIGNATION": frozenset({
                 "AT", "BF", "G", "J", "PA", "PR", "R", "RN", "V", "SP"})},
+            # The values seen in 2611 and 2612. A new value changes what the
+            # inbound course or the turn means, so it stops the build.
+            "HPF_BASE.csv": {
+                "TURN_DIRECTION": frozenset({"L", "R"}),
+                "AZIMUTH": frozenset({"RAD", "CRS", "BRG", "RNAV"}),
+                "HOLD_DIRECTION": frozenset({
+                    "N", "NE", "E", "SE", "S", "SW", "W", "NW"}),
+            },
         },
         floors={"navaids": 800, "fixes": 35000, "awy_segments": 8600},
     ),
