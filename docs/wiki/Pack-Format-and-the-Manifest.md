@@ -78,6 +78,8 @@ Each entry in `packs`:
 | `notice` | no | The standing notice shown with the data |
 | `report_url`, `report_sha256` | no | The pack's test record and its SHA-256 |
 | `build_commit` | no | The makerplane-data commit that built the pack |
+| `build_run_url` | no | The workflow run that built and signed the pack |
+| `pyefis_commit` | no | The pyEfis commit whose tools built the pack |
 | `min_pyefis` | no | Oldest pyEfis that can read it |
 | `tiles_bbox` | no | For terrain, the box the tiles cover |
 

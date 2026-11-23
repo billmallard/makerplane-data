@@ -29,8 +29,8 @@ The home page reads `manifest.json` and the report index, and lists every pack
 in four groups: Navigation data, Terrain, Water and Roads. Each row shows:
 
 - the pack's name and its origin: `federal` for FAA data, `agency` for
-  Copernicus terrain (editions published before CERT10c still show
-  `federal`), `community` for OpenStreetMap and OurAirports;
+  Copernicus terrain (older terrain editions may still show `federal`),
+  `community` for OpenStreetMap and OurAirports;
 - the cycle and its effective dates, and a link to the next cycle when it is
   already published;
 - the test summary (pass, warn, fail, not run), with links to the report and
