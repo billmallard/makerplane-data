@@ -263,6 +263,25 @@
   }
   ul.layers .layer:hover { border-color: #8b949e; }
   ul.layers .layer.sel { border-color: #2ea043; color: #e6edf3; }
+  /* --- Knob (encoder) panel + ring badges (G96) ---------------------------- */
+  .knob-panel { margin: 10px 0 4px; }
+  .knob-panel > summary { font-size: 13px; font-weight: 600; color: #e6edf3; cursor: pointer; margin-bottom: 8px; }
+  .knob-check { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #c9d1d9; margin-bottom: 8px; cursor: pointer; }
+  .knob-note { font-size: 12px; margin: 0 0 8px; }
+  .knob-ring-head { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #6e7681; margin: 6px 0 4px; }
+  ol.knob-ring { list-style: none; padding: 0; margin: 0 0 6px; }
+  ol.knob-ring .knob-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid #21262d;
+    border-radius: 5px; margin-bottom: 4px; font-size: 12px; color: #8b949e; cursor: grab; }
+  ol.knob-ring .knob-item.sel { border-color: #2ea043; color: #e6edf3; }
+  ol.knob-ring .knob-item.over { border-color: #d29922; }
+  ol.knob-ring .knob-t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ol.knob-ring .knob-n, .knob-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px;
+    padding: 0 4px; box-sizing: border-box; border-radius: 9px; background: #d29922; color: #0d1117; font: 700 11px/1 system-ui, sans-serif; }
+  .knob-adv summary { font-size: 11px; color: #8b949e; cursor: pointer; margin-bottom: 6px; }
+  /* Editor chrome over the twin's top-left corner, like the selection outline. */
+  .knob-badge { position: absolute; left: 3px; top: 3px; z-index: 55; pointer-events: none;
+    box-shadow: 0 0 0 2px #0d1117; }
+  .knob-badge.inert { background: #0d1117; color: #d29922; box-shadow: inset 0 0 0 1.5px #d29922; }
   hr.sep { border: none; border-top: 1px solid #21262d; margin: 14px 0; }
   .tsel { font-size: 12px; color: #8b949e; display: flex; align-items: center; gap: 5px; }
   .tsel select, .num {
@@ -321,6 +340,7 @@
   <span class="muted" id="readout"></span>
   <label class="tsel"><input type="checkbox" id="gridToggle" checked> Grid</label>
   <label class="tsel"><input type="checkbox" id="snapToggle"> Snap</label>
+  <label class="tsel" title="Number each knob-reachable instrument in the order a turn of the knob visits it"><input type="checkbox" id="knobToggle" checked> Knob order</label>
   <label class="tsel">Guides
     <select id="guides-sel">
       <option value="none">none</option>
@@ -3282,6 +3302,8 @@ function allocateTsbtn() {
 function renderCanvas() {
   const c = $("canvas");
   c.querySelectorAll(".inst").forEach((e) => e.remove());
+  const badges = $("knobToggle").checked ? knobBadges(state.instruments) : new Map();
+  const knobInert = !knobBindingMode(state.screens[state.active]);
   state.instruments.forEach((inst, i) => {
     const meta = state.schema.instruments[inst.type] || {};
     const el = document.createElement("div");
@@ -3290,6 +3312,14 @@ function renderCanvas() {
     el.dataset.i = i;
     positionEl(el, inst);
     buildInstrumentTwin(el, inst, meta, i, 0);
+    if (badges.has(i)) {
+      const b = document.createElement("div");
+      b.className = "knob-badge" + (knobInert ? " inert" : "");
+      b.textContent = badges.get(i);
+      b.title = knobInert ? "Knob ring stop " + badges.get(i) + " - the knob is not bound on this screen"
+                          : "Knob ring stop " + badges.get(i);
+      el.appendChild(b);
+    }
     const handle = document.createElement("div"); handle.className = "handle";
     el.appendChild(handle);
     el.addEventListener("mousedown", (e) => startMove(e, i, el));
@@ -3676,6 +3706,252 @@ function selectNested(ci, slot, ti, ii) {
   renderProps();
 }
 
+// --- The knob (rotary encoder): screen binding + navigation ring (G96) ------
+// The knob is a physical device, so there is no twin to draw. What the editor
+// owns is (a) the screen's binding -- `encoder` (rotation), `encoder_button`
+// (push), `encoder_timeout` in the `screens.<name>` block, where
+// screenbuilder.init_screen reads them -- and (b) the ring: every instrument
+// whose options carry `encoder_order`, visited in ascending order. pyEfis
+// builds the ring with a stable sort on that integer (EncoderController
+// configure_inputs), enrols only types with enc_selectable (the schema's
+// `encoder.selectable`), and leaves the whole layer inert unless BOTH keys
+// are set. Spec: docs/knob_encoder_configurator.md, Phase A.
+const KNOB_DEFAULTS = { encoder: "ENC3", encoder_button: "BTN3", encoder_timeout: 10000 };
+const KNOB_ORDER_STEP = 10;   // spacing of generated encoder_order values
+
+function knobCapable(inst) {
+  return !!(inst && state.schema.instruments[inst.type]?.encoder?.selectable);
+}
+
+// The instrument's encoder_order as a number, or null when it is not on the
+// ring (absent, blank, or not a number -- coerceNumericOptions drops those on
+// save, so the device never sees them either).
+function knobOrderOf(inst) {
+  const v = inst && inst.options ? inst.options.encoder_order : undefined;
+  if (v === undefined || v === null || (typeof v === "string" && v.trim() === "")) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Indices into `instruments`, in the order the knob visits them. Array.sort is
+// stable, so equal orders keep instrument order -- the same tie-break the
+// device's sorted() gives (instruments enrol in list order).
+function knobRing(instruments) {
+  const ring = [];
+  instruments.forEach((inst, i) => { if (knobCapable(inst) && knobOrderOf(inst) !== null) ring.push(i); });
+  return ring.sort((a, b) => knobOrderOf(instruments[a]) - knobOrderOf(instruments[b]));
+}
+
+// Put an instrument on the ring (at the end) or take it off. Joining takes the
+// next spaced integer above the current last, so a hand-authored panel's
+// existing values (100011, 600031, ...) are left alone until the ring is
+// reordered.
+function setKnobReachable(instruments, i, on) {
+  const inst = instruments[i];
+  inst.options = inst.options || {};
+  if (!on) { delete inst.options.encoder_order; return; }
+  if (knobOrderOf(inst) !== null) return;
+  const ring = knobRing(instruments);
+  const last = ring.length ? Math.floor(knobOrderOf(instruments[ring[ring.length - 1]])) : 0;
+  inst.options.encoder_order = last + KNOB_ORDER_STEP;
+}
+
+// Move the ring entry at position `from` to position `to`, then renumber the
+// whole ring 10, 20, 30, ... in its new order.
+function moveKnobRing(instruments, from, to) {
+  const ring = knobRing(instruments);
+  if (from < 0 || from >= ring.length || to < 0 || to >= ring.length) return;
+  const [idx] = ring.splice(from, 1);
+  ring.splice(to, 0, idx);
+  ring.forEach((j, k) => { instruments[j].options.encoder_order = (k + 1) * KNOB_ORDER_STEP; });
+}
+
+// How this screen's knob is wired: "keys" (both keys set on the screen),
+// "include" (the device's HMI_ENCODER_BUTTONS file supplies them), or null
+// (inert on the device).
+function knobBindingMode(sc) {
+  const x = (sc && sc.extra) || {};
+  if (x.encoder && x.encoder_button) return "keys";
+  const inc = x.include;
+  if ((Array.isArray(inc) ? inc : [inc]).includes("HMI_ENCODER_BUTTONS")) return "include";
+  return null;
+}
+
+// Write the screen's binding keys (value undefined = remove). Each written key
+// is re-inserted so it serialises after any `include:` -- pyEfis merges an
+// include's keys in YAML order, so the later key wins, and a key the builder
+// set here has to beat the include.
+function setKnobBinding(sc, patch) {
+  const x = { ...(sc.extra || {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    delete x[k];
+    if (v !== undefined) x[k] = v;
+  }
+  if (Object.keys(x).length) sc.extra = x; else delete sc.extra;
+}
+
+// The catalogue's keys matching ENC<n> / BTN<n>, in numeric order, plus the
+// current value when the catalogue does not list it. The editor offers what
+// fix-gateway advertises and does not invent keys.
+function knobKeyChoices(prefix, current) {
+  const re = new RegExp("^" + prefix + "(\\d+)$");
+  const keys = (state.fixKeys || []).map((k) => k.key).filter((k) => re.test(k))
+    .sort((a, b) => Number(re.exec(a)[1]) - Number(re.exec(b)[1]));
+  if (current && !keys.includes(current)) keys.push(current);
+  return keys;
+}
+
+function knobItemLabel(inst) {
+  const meta = state.schema.instruments[inst.type] || {};
+  const o = inst.options || {};
+  const what = o.name || o.dbkey || o.title || "";
+  return (meta.label || inst.type) + (what ? " - " + what : "");
+}
+
+// The screen-level "Knob / encoder" panel: binding + the ring list.
+function renderKnobPanel(p) {
+  const sc = state.screens[state.active];
+  const det = document.createElement("details"); det.className = "knob-panel";
+  det.open = state.knobPanelOpen !== false;
+  det.addEventListener("toggle", () => { state.knobPanelOpen = det.open; });
+  const sum = document.createElement("summary"); sum.textContent = "Knob / encoder - " + sc.name;
+  det.appendChild(sum);
+
+  const x = sc.extra || {};
+  const mode = knobBindingMode(sc);
+  const bound = mode === "keys";
+  const bf = document.createElement("label"); bf.className = "knob-check";
+  const bcb = document.createElement("input"); bcb.type = "checkbox"; bcb.checked = bound;
+  bcb.addEventListener("change", () => {
+    setKnobBinding(sc, bcb.checked
+      ? { encoder: x.encoder || KNOB_DEFAULTS.encoder,
+          encoder_button: x.encoder_button || KNOB_DEFAULTS.encoder_button,
+          encoder_timeout: x.encoder_timeout ?? KNOB_DEFAULTS.encoder_timeout }
+      : { encoder: undefined, encoder_button: undefined, encoder_timeout: undefined });
+    renderCanvas(); renderProps();
+  });
+  bf.append(bcb, document.createTextNode(" The knob drives this screen"));
+  det.appendChild(bf);
+
+  if (bound) {
+    const keySel = (label, key, prefix) => {
+      const f = document.createElement("div"); f.className = "field";
+      const l = document.createElement("label"); l.textContent = label; f.appendChild(l);
+      const sel = document.createElement("select");
+      for (const k of knobKeyChoices(prefix, x[key])) {
+        const op = document.createElement("option"); op.value = k;
+        const d = (state.fixKeys || []).find((e) => e.key === k);
+        op.textContent = d ? `${k} - ${d.description}` : `${k} (not in the FIX catalogue)`;
+        sel.appendChild(op);
+      }
+      sel.value = x[key];
+      sel.addEventListener("change", () => { setKnobBinding(sc, { [key]: sel.value }); syncCode(); });
+      f.appendChild(sel);
+      return f;
+    };
+    det.appendChild(keySel("Rotation (encoder)", "encoder", "ENC"));
+    det.appendChild(keySel("Push (encoder_button)", "encoder_button", "BTN"));
+    const tf = document.createElement("div"); tf.className = "field";
+    const tl = document.createElement("label"); tl.textContent = "Selection timeout (ms)";
+    tl.title = "Inactivity before the knob's highlight clears; blank or 0 is the device default, 10000";
+    const ti = document.createElement("input"); ti.type = "number"; ti.min = "0"; ti.step = "500";
+    ti.value = x.encoder_timeout ?? "";
+    ti.placeholder = String(KNOB_DEFAULTS.encoder_timeout);
+    ti.addEventListener("change", () => {
+      const n = parseInt(ti.value, 10);
+      setKnobBinding(sc, { encoder_timeout: Number.isFinite(n) && n > 0 ? n : KNOB_DEFAULTS.encoder_timeout });
+      syncCode();
+    });
+    tf.append(tl, ti); det.appendChild(tf);
+  } else {
+    const note = document.createElement("p"); note.className = "muted knob-note";
+    note.textContent = mode === "include"
+      ? "Wired by the device's HMI_ENCODER_BUTTONS include (normally ENC3 / BTN3). Tick to set the keys here instead."
+      : "Not bound: on the device the knob does nothing on this screen, even for instruments on the ring.";
+    det.appendChild(note);
+  }
+
+  const rh = document.createElement("div"); rh.className = "knob-ring-head";
+  rh.textContent = "Ring - the order a turn visits";
+  det.appendChild(rh);
+  const ring = knobRing(state.instruments);
+  if (!ring.length) {
+    const e = document.createElement("p"); e.className = "muted knob-note";
+    e.textContent = "No instrument is reachable yet. Select one and tick \"Reachable by knob\".";
+    det.appendChild(e);
+  }
+  const list = document.createElement("ol"); list.className = "knob-ring";
+  ring.forEach((idx, k) => {
+    const li = document.createElement("li");
+    li.className = "knob-item" + (idx === state.selected ? " sel" : "");
+    li.draggable = true;
+    li.dataset.pos = k;
+    const n = document.createElement("span"); n.className = "knob-n"; n.textContent = k + 1;
+    const t = document.createElement("span"); t.className = "knob-t"; t.textContent = knobItemLabel(state.instruments[idx]);
+    li.append(n, t);
+    const mv = (lbl, tip, to) => {
+      const b = document.createElement("button"); b.className = "mini"; b.textContent = lbl; b.title = tip;
+      b.disabled = to < 0 || to >= ring.length;
+      b.addEventListener("click", (e) => { e.stopPropagation(); moveKnobRing(state.instruments, k, to); renderCanvas(); renderProps(); });
+      return b;
+    };
+    li.append(mv("↑", "Earlier in the ring", k - 1), mv("↓", "Later in the ring", k + 1));
+    li.addEventListener("click", () => select(idx));
+    li.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/x-knob-pos", String(k)); e.dataTransfer.effectAllowed = "move"; });
+    li.addEventListener("dragover", (e) => { e.preventDefault(); li.classList.add("over"); });
+    li.addEventListener("dragleave", () => li.classList.remove("over"));
+    li.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const from = Number(e.dataTransfer.getData("text/x-knob-pos"));
+      if (Number.isInteger(from) && from !== k) { moveKnobRing(state.instruments, from, k); renderCanvas(); renderProps(); }
+    });
+    list.appendChild(li);
+  });
+  det.appendChild(list);
+  p.appendChild(det);
+}
+
+// The selected instrument's knob section: the "Reachable by knob" toggle and,
+// behind Advanced, the raw encoder_order for parity with hand-authored panels.
+function renderKnobInstrument(p, inst) {
+  const h = document.createElement("h3"); h.textContent = "Knob"; p.appendChild(h);
+  const order = knobOrderOf(inst);
+  const lab = document.createElement("label"); lab.className = "knob-check";
+  const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = order !== null;
+  cb.addEventListener("change", () => {
+    setKnobReachable(state.instruments, state.selected, cb.checked);
+    renderCanvas(); renderProps();
+  });
+  lab.append(cb, document.createTextNode(" Reachable by knob"));
+  p.appendChild(lab);
+  if (order === null) return;
+  const ring = knobRing(state.instruments);
+  const note = document.createElement("p"); note.className = "muted knob-note";
+  note.textContent = `Stop ${ring.indexOf(state.selected) + 1} of ${ring.length} on this screen's ring.`;
+  p.appendChild(note);
+  const adv = document.createElement("details"); adv.className = "knob-adv";
+  const s = document.createElement("summary"); s.textContent = "Advanced"; adv.appendChild(s);
+  const f = document.createElement("div"); f.className = "field";
+  const l = document.createElement("label"); l.textContent = "encoder_order (raw)";
+  l.title = "Generated from the ring order. Set by hand only to match an existing panel's numbering.";
+  const inp = document.createElement("input"); inp.type = "number"; inp.step = "1"; inp.value = inst.options.encoder_order;
+  inp.addEventListener("change", () => {
+    const n = parseInt(inp.value, 10);
+    if (Number.isFinite(n)) inst.options.encoder_order = n;
+    renderCanvas(); renderProps();
+  });
+  f.append(l, inp); adv.appendChild(f);
+  p.appendChild(adv);
+}
+
+// Canvas overlay: the ring position on each reachable instrument, keyed by
+// instrument index. The badge is editor chrome, never part of the twin.
+function knobBadges(instruments) {
+  const out = new Map();
+  knobRing(instruments).forEach((idx, k) => out.set(idx, k + 1));
+  return out;
+}
+
 // --- properties panel -------------------------------------------------------
 function renderProps() {
   const p = $("props");
@@ -3705,6 +3981,7 @@ function renderProps() {
     }
     p.appendChild(list);
   }
+  renderKnobPanel(p);
 
   // A nested selection (AER-345) takes over the panel until it's cleared or
   // stale (its tab/container got deleted out from under it -- tab CRUD
@@ -3775,10 +4052,12 @@ function renderProps() {
   // make it a real object so the fields render AND edits have somewhere to land.
   inst.options = inst.options || {};
   const opts = { ...state.schema.common_options, ...meta.options };
+  if (knobCapable(inst)) delete opts.encoder_order;   // owned by the Knob section below
   if (Object.keys(opts).length) {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
     for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
   }
+  if (knobCapable(inst)) renderKnobInstrument(p, inst);
   const offer = migrationOffer(inst);
   if (offer) p.appendChild(offer);
 
@@ -5955,6 +6234,7 @@ async function boot() {
   buildThemeControl();
   $("gridToggle").addEventListener("change", (e) => $("canvas").classList.toggle("grid", e.target.checked));
   $("snapToggle").addEventListener("change", (e) => { state.snap = e.target.checked; });
+  $("knobToggle").addEventListener("change", renderCanvas);
   $("canvas").classList.toggle("grid", $("gridToggle").checked);
   sizeCanvas();
   renderPalette(); renderScreensBar(); renderCanvas(); renderProps(); updateReadout(); renderGuides();
