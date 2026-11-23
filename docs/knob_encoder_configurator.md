@@ -2,7 +2,10 @@
 
 # The Knob (Encoder) in the Configurator — spec / plan
 
-Status: **DRAFT for review** (2026-07-07). Companion to
+Status: **Phase A shipped** (G96, makerplane-data #19, 2026-11-23): the
+screen binding, the ring list with generated `encoder_order`, and the canvas
+badges, built on pyEfis #539's schema v4 `encoder` capability block. Phase B
+(edit options) is next. Drafted 2026-07-07. Companion to
 [soft_controls_configurator.md](soft_controls_configurator.md) (the Button — read
 that first; this reuses its plumbing), [device_deployment.md](device_deployment.md),
 and the pyEfis instrument-widget pipeline. Scope this round: **the knob** —

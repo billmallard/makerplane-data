@@ -1,0 +1,53 @@
+main:
+  screenWidth: 1024
+  screenHeight: 600
+  defaultScreen: RADIO
+screens:
+  RADIO:
+    module: pyefis.screens.screenbuilder
+    title: RADIO
+    layout:
+      rows: 110
+      columns: 200
+    instruments:
+      - type: arc_gauge
+        row: 5
+        column: 5
+        span:
+          rows: 45
+          columns: 60
+        options:
+          name: RPM
+          dbkey: TACH1
+          encoder_order: 20
+      - type: numeric_display
+        row: 5
+        column: 75
+        span:
+          rows: 20
+          columns: 60
+        options:
+          dbkey: COMACTFREQ
+          encoder_order: 30
+      - type: vertical_bar_gauge
+        row: 5
+        column: 145
+        span:
+          rows: 95
+          columns: 30
+        options:
+          name: OILP
+          dbkey: OILP1
+          encoder_order: 10
+      - type: button
+        row: 60
+        column: 5
+        span:
+          rows: 30
+          columns: 60
+        options:
+          text: MENU
+          dbkey: TSBTN{id}1
+    encoder: ENC3
+    encoder_button: BTN3
+    encoder_timeout: 10000
