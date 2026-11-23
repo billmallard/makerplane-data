@@ -203,8 +203,9 @@ instrument looks, its preview is changed to match.
 These have live previews: the attitude indicator, moving map, synthetic
 vision, airspeed, altimeter and heading tapes, the trend tapes, the HSI, the
 airspeed, altimeter and VSI dials, the turn coordinator, the PFD VSI, the wind
-display, the airspeed box, the button, the arc and bar gauges, the DATA flag,
-and the text instruments. A tab section draws its active tab. Anything else shows its
+display, the airspeed box, the autopilot panel (`autopilot_panel`),
+the autopilot mode annunciator (`ap_annunciator`), the button, the arc and bar
+gauges, the DATA flag, and the text instruments. A tab section draws its active tab. Anything else shows its
 palette picture. An instrument outlined in amber is one pyEfis cannot draw
 off-screen when it generates the editor's pictures, for example synthetic
 vision, which renders with the GPU; treat its preview as an approximation.
