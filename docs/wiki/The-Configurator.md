@@ -60,6 +60,7 @@ pyEfis screen YAML. What you place is what the device loads.
 | **Size** | The diagonal: 5, 7, 8, 10.1, 11.6, 15.6, 21.5, 23.8 or 27 inches, or Custom (1 to 120). Default 10.1. The readout beside it shows the aspect ratio and DPI |
 | **Grid** | Shows the grid |
 | **Snap** | Snaps placement to 10 grid cells |
+| **Knob order** | Numbers each instrument the knob can reach, in the order a turn visits it (below) |
 | **Guides** | Overlays: `center`, `thirds`, `golden φ`, `basic-T` (attitude, airspeed, altimeter, HSI and heading boxes) or `PFD + EMS (⅔)` |
 | **Theme** | What colour tokens preview as (below). One theme today: `pyEfis built-in` |
 | **Code** | Shows the YAML pane |
@@ -164,9 +165,34 @@ to bottom; when one matches, its actions run and checking stops, unless
   or OR, and runs actions: set a FIX value, change screen, change appearance,
   change an instrument mode, open a menu.
 
-A new button gets an unused `TSBTN` key automatically. Rotary encoder (knob)
-bindings are not edited in the configurator; they are written by hand in the
-YAML underneath. See
+A new button gets an unused `TSBTN` key automatically.
+
+### The knob (rotary encoder)
+
+The knob is a physical rotary encoder with a push: turn it to step through
+the instruments on a screen, push to take control of one. It has no picture
+on the glass, so the editor shows its **ring** instead: a numbered badge on
+each instrument it can reach, in the order a turn visits them.
+
+- **Knob / encoder** in the inspector, under the layers, belongs to the screen.
+  **The knob drives this screen** writes the screen's `encoder` (rotation) and
+  `encoder_button` (push) keys, chosen from the encoder and button keys in the
+  FIX catalogue (default `ENC3` and `BTN3`), and `encoder_timeout`, the
+  milliseconds before the highlight clears (default 10000). Unticked, the
+  knob does nothing on the device on this screen, and the badges are drawn
+  hollow. A screen that gets its keys from the device's `HMI_ENCODER_BUTTONS`
+  include says so.
+- The **ring** list below it shows the reachable instruments in order. Drag an
+  entry, or use ↑ ↓, to reorder it; click one to select it.
+- A selected instrument the knob can reach has a **Knob** section with
+  **Reachable by knob**. Ticking it adds the instrument at the end of the ring.
+
+The editor writes the order as `encoder_order` integers (10, 20, 30 ...), so
+you never type them. Adding an instrument keeps the numbers already there, as
+in a panel written by hand; reordering renumbers the ring. The raw number is
+under **Advanced** for matching an existing panel. Instruments inside a tab
+section, and how the knob edits a value (step, real-time, confirm), are still
+set in the YAML; see
 [Customizing Beyond the Configurator](https://github.com/billmallard/pyEfis/wiki/Customizing-Beyond-the-Configurator)
 in the pyEfis manual.
 
@@ -203,8 +229,9 @@ instrument looks, its preview is changed to match.
 These have live previews: the attitude indicator, moving map, synthetic
 vision, airspeed, altimeter and heading tapes, the trend tapes, the HSI, the
 airspeed, altimeter and VSI dials, the turn coordinator, the PFD VSI, the wind
-display, the airspeed box, the button, the arc and bar gauges, the DATA flag,
-and the text instruments. A tab section draws its active tab. Anything else shows its
+display, the airspeed box, the autopilot panel (`autopilot_panel`),
+the autopilot mode annunciator (`ap_annunciator`), the button, the arc and bar
+gauges, the DATA flag, and the text instruments. A tab section draws its active tab. Anything else shows its
 palette picture. An instrument outlined in amber is one pyEfis cannot draw
 off-screen when it generates the editor's pictures, for example synthetic
 vision, which renders with the GPU; treat its preview as an approximation.

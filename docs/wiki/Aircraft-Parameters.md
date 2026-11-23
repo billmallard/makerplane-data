@@ -80,6 +80,15 @@ limit**: oil pressure, oil temperature and volts alarms stay quiet with the
 engine stopped only while IAS is below it (default 40 kt, range 10 to 100). The
 page warns when it is not below Vs0.
 
+The Engine group has the **low CHT/EGT alarm warm-up** for each engine, when
+the aircraft's FIX-Gateway schema has it. The low cylinder head and exhaust
+gas temperature alarms wait this many seconds after engine start, so a cold
+engine does not set them off; high alarms do not wait. The range is 0 to 600,
+whole seconds only, and 0 turns the wait off. Left blank, nothing is written
+and FIX-Gateway's own default of 30 s applies. A set value is written as
+`TACH<engine>.warmup`. A FIX-Gateway too old to have the setting refuses the
+whole file when it is installed (below), and keeps the one it has.
+
 ### Fuel tanks
 
 A fuel system is a set of tanks and where each one feeds. Each tank has a
@@ -184,8 +193,8 @@ IAS.Vne = 139
 ...
 ```
 
-Comments are `#`, the only comment FIX-Gateway's loader skips (before ACINI1
-the file used `;`, which it read as a key whenever the line held an `=`).
+Comments are `#`, the only comment FIX-Gateway's loader skips. It reads any
+other line that holds an `=` as a key.
 
 A paired display installs the same file itself (below). By hand: copy it to
 `~/makerplane/fixgw/config/init_data/aircraft.ini` on the aircraft and list it
@@ -199,9 +208,11 @@ as `aircraft.ini` (without the dated header). The boot pull only stages it.
 On the ground, `pyefis-data config-pull --maintenance` checks it against the
 aircraft's own FIX-Gateway database, installs it and lists it last in
 `default.yaml`, and restarts FIX-Gateway, putting the old files back if
-FIX-Gateway does not stay up. A key the aircraft's database does not have
-(a fourth tank on a three-tank database, say) is refused, by line, and
-nothing is installed. See [[Pairing and Config Delivery]].
+FIX-Gateway does not stay up. A key the aircraft's database does not have is
+refused, by line, and nothing is installed. Fuel tanks are the exception:
+when the file names a tank slot above FIX-Gateway's tank count (`FUELQ5` on
+the stock three tanks, say), the install first raises the count to match. It
+never lowers it. See [[Pairing and Config Delivery]].
 
 Three more things ride the same pull outside the file: the **altimeter
 setting unit**, which every screen starts in; the **ownship address**; and
