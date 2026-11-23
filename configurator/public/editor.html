@@ -4713,8 +4713,16 @@ function buildWhen(structured) {
 // button's own dbkey), written to options.condition_keys so the widget
 // subscribes and re-evaluates on change. Raw `when` strings are scanned too.
 function deriveConditionKeys(inst) {
-  const keys = new Set();
   const own = inst.options && inst.options.dbkey;
+  const list = whenKeys((inst.options.conditions || []).map((c) => c.when), own);
+  if (list.length) inst.options.condition_keys = list;
+  else delete inst.options.condition_keys;
+}
+// The FIX keys a list of `when` expressions reads, sorted: flags and aux
+// names (.old, .aux.x) count as their key; magic keys and `own` are left out.
+// Shared by the Button's conditions and the annunciator's tiles.
+function whenKeys(whens, own) {
+  const keys = new Set();
   const add = (raw) => {
     if (!raw) return;
     const k = String(raw).split(".")[0];       // strip .old/.bad/.aux...
@@ -4725,20 +4733,18 @@ function deriveConditionKeys(inst) {
   };
   const KW = new Set(["and", "or", "not", "eq", "ne", "lt", "le", "gt", "ge",
     "contains", "true", "false"]);
-  for (const cond of (inst.options.conditions || [])) {
-    const parsed = parseWhen(cond.when);
+  for (const when of whens) {
+    const parsed = parseWhen(when);
     if (parsed) {
       for (const c of parsed.clauses) add(c.key);
-    } else if (typeof cond.when === "string") {
-      const bare = cond.when.replace(/'[^']*'/g, " ").replace(/"[^"]*"/g, " ");
+    } else if (typeof when === "string") {
+      const bare = when.replace(/'[^']*'/g, " ").replace(/"[^"]*"/g, " ");
       for (const t of bare.split(/[^A-Za-z0-9_{}.]+/)) {
         if (t && !KW.has(t.toLowerCase()) && /^[A-Za-z]/.test(t)) add(t);
       }
     }
   }
-  const list = [...keys].sort();
-  if (list.length) inst.options.condition_keys = list;
-  else delete inst.options.condition_keys;
+  return [...keys].sort();
 }
 
 function commitConditions(inst, restructure) {
@@ -4990,7 +4996,8 @@ function condCard(inst, cond, i) {
   card.appendChild(head);
 
   const when = document.createElement("div"); when.className = "cond-when";
-  when.appendChild(guided ? whenBuilder(inst, cond, parsed) : whenRaw(inst, cond));
+  const commit = (restructure) => commitConditions(inst, restructure);
+  when.appendChild(guided ? whenBuilder(cond, parsed, commit, "condkeys") : whenRaw(cond, commit, RAW_WHEN_HELP_BUTTON));
   card.appendChild(when);
 
   const contWrap = document.createElement("label"); contWrap.className = "cond-join";
@@ -5006,9 +5013,12 @@ function condCard(inst, cond, i) {
   return card;
 }
 
-function whenBuilder(inst, cond, parsed) {
+// The guided `when` editor: clauses of key, comparator, value joined by one
+// and/or. `commit(restructure)` stores the edit (the Button's conditions, an
+// annunciator tile); `keyList` is the datalist its key boxes offer.
+function whenBuilder(cond, parsed, commit, keyList) {
   const box = document.createElement("div");
-  const push = (restructure) => { cond.when = buildWhen(parsed); commitConditions(inst, restructure); };
+  const push = (restructure) => { cond.when = buildWhen(parsed); commit(restructure); };
 
   parsed.clauses.forEach((cl, ci) => {
     const noVal = cl.op === "is true" || cl.op === "is false";
@@ -5016,7 +5026,7 @@ function whenBuilder(inst, cond, parsed) {
     const fields = document.createElement("div"); fields.className = "cl-fields";
 
     const key = document.createElement("input"); key.type = "text";
-    key.setAttribute("list", "condkeys"); key.setAttribute("autocomplete", "off");
+    key.setAttribute("list", keyList); key.setAttribute("autocomplete", "off");
     key.placeholder = "key"; key.value = cl.key;
     key.addEventListener("input", () => { cl.key = key.value.trim(); push(false); });
     fields.appendChild(key);
@@ -5063,22 +5073,24 @@ function whenBuilder(inst, cond, parsed) {
   return box;
 }
 
-function whenRaw(inst, cond) {
+const RAW_WHEN_HELP_BUTTON = ["e.g. CLICKED eq true and NAVSRC lt 0.5",
+  "Raw pycond: FIX keys plus CLICKED, SCREEN, DBKEY; comparators "
+  + "eq ne lt le gt ge contains; combine with and / or / not."];
+function whenRaw(cond, commit, help) {
   const box = document.createElement("div");
   const ta = document.createElement("textarea"); ta.rows = 2;
   ta.value = typeof cond.when === "string" ? cond.when : String(cond.when);
-  ta.placeholder = "e.g. CLICKED eq true and NAVSRC lt 0.5";
+  ta.placeholder = help[0];
   ta.addEventListener("input", () => {
     const v = ta.value.trim();
     if (v === "true") cond.when = true;
     else if (v === "false") cond.when = false;
     else cond.when = ta.value;
-    commitConditions(inst, false);
+    commit(false);
   });
   box.appendChild(ta);
   const hint = document.createElement("p"); hint.className = "act-help";
-  hint.textContent = "Raw pycond: FIX keys plus CLICKED, SCREEN, DBKEY; comparators "
-    + "eq ne lt le gt ge contains; combine with and / or / not.";
+  hint.textContent = help[1];
   box.appendChild(hint);
   return box;
 }
