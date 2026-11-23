@@ -55,6 +55,9 @@
   .screen-tab.active { color: #e6edf3; background: #0d1117; border-color: #30363d; }
   .screen-add { font: inherit; background: none; border: 1px dashed #30363d; color: #8b949e;
     padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+  .screen-tab.cas-missing::after { content: " !"; color: #d29922; font-weight: 600; }
+  .screen-warn { margin: 6px 10px 0; padding: 5px 10px; border: 1px solid #9e6a03; border-radius: 6px;
+    background: #2b2111; color: #e3b341; font-size: 12px; }
   .screen-actions { margin-left: auto; display: flex; gap: 6px; }
   .screen-act { font: inherit; font-size: 12px; background: none; border: 1px solid #30363d; color: #8b949e;
     padding: 4px 9px; border-radius: 6px; cursor: pointer; }
@@ -365,6 +368,7 @@
   <aside class="palette" id="palette"></aside>
   <div class="center">
     <div class="screens-bar" id="screens-bar"></div>
+    <div class="screen-warn hidden" id="screen-warn"></div>
     <div class="stage" id="stage"><div id="canvas"><div id="guides"></div><div id="align"></div></div></div>
     <div id="code-pane">
       <div class="code-bar"><span class="muted">YAML — edits apply live</span><span id="code-msg" class="muted"></span></div>
@@ -3326,6 +3330,7 @@ function renderCanvas() {
     handle.addEventListener("mousedown", (e) => startResize(e, i, el));
     c.appendChild(el);
   });
+  renderCasWarning();
   syncCode();
 }
 
@@ -3408,6 +3413,8 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       el.appendChild(buildAutopilotPanel(inst));
     } else if (inst.type === "ap_annunciator") {
       el.appendChild(buildApAnnunciator(inst));
+    } else if (inst.type === "annunciator") {
+      el.appendChild(buildAnnunciator(inst));
     } else if (inst.type === "button") {
       el.classList.remove("placeholder");   // has a real twin, not a placeholder
       el.appendChild(buildButton(inst));
@@ -4055,7 +4062,10 @@ function renderProps() {
   if (knobCapable(inst)) delete opts.encoder_order;   // owned by the Knob section below
   if (Object.keys(opts).length) {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
-    for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
+    for (const [name, spec] of Object.entries(opts)) {
+      if (inst.type === "annunciator" && name === ANN_TILES_OPTION) continue;   // renderTiles
+      p.appendChild(optionField(inst, name, spec));
+    }
   }
   if (knobCapable(inst)) renderKnobInstrument(p, inst);
   const offer = migrationOffer(inst);
@@ -4070,6 +4080,9 @@ function renderProps() {
   // Soft-controls: a Button's behaviour is a list of conditions, each firing a
   // list of actions. Its own dedicated editor (below the plain options).
   if (inst.type === "button") p.appendChild(renderConditions(inst));
+  // An annunciator's lamps: the same clause editor, plus the flag and
+  // value-to-text binding kinds (ANN2).
+  if (inst.type === "annunciator") p.appendChild(renderTiles(inst));
 }
 
 // Properties panel for an instrument nested inside a tab_section's active tab
@@ -4104,10 +4117,14 @@ function renderNestedProps(p, container, ns, tab, inst) {
   const opts = { ...state.schema.common_options, ...meta.options };
   if (Object.keys(opts).length) {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
-    for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
+    for (const [name, spec] of Object.entries(opts)) {
+      if (inst.type === "annunciator" && name === ANN_TILES_OPTION) continue;   // renderTiles
+      p.appendChild(optionField(inst, name, spec));
+    }
   }
   const offer = migrationOffer(inst);
   if (offer) p.appendChild(offer);
+  if (inst.type === "annunciator") p.appendChild(renderTiles(inst));
 
   const rm = document.createElement("button");
   rm.textContent = "Remove from tab"; rm.style.marginTop = "8px";
@@ -4494,7 +4511,7 @@ const COLOR_TOKENS = [
   ["accent", "#00ffff", "interactive / selected / focused"],
   ["state.valid", "#00ff00", "received, complete, in-range"],
   ["state.caution", "#ffaa00", "attention"],
-  ["state.warning", null, "exceeded, failed"],
+  ["state.warning", "#ff0000", "exceeded, failed"],
   ["nav.course", "#ff00ff", "active course and track"],
   ["nav.reference", "#00ffff", "bugs, selected values"],
   ["nav.ownship", "#ffff00", "own-ship symbology"],
@@ -4512,6 +4529,8 @@ const COLOR_PROP_TOKENS = {
   altimeter_tape: { alt_bug_color: "", alt_bug_alert_color: "", altsel_capture_color: "", vs_bug_color: "" },
   altimeter_trend_tape: { bg_color: "surface.base" },
   atitude_indicator: { symbol_color: "nav.ownship", horizon_heading_color: "ink.primary" },
+  annunciator: { bg_color: "surface.base", status_color: "state.valid", advisory_color: "ink.primary",
+    info_color: "accent", off_color: "ink.muted", caution_color: "state.caution", warning_color: "state.warning" },
   ap_annunciator: { active_color: "", armed_color: "", warning_color: "", background_color: "" },
   autopilot_panel: { active_color: "state.valid", armed_color: "ink.primary", caution_color: "state.caution",
     key_color: "surface.raised", level_color: "", text_color: "ink.primary", muted_color: "ink.muted",
@@ -4985,8 +5004,16 @@ function buildWhen(structured) {
 // button's own dbkey), written to options.condition_keys so the widget
 // subscribes and re-evaluates on change. Raw `when` strings are scanned too.
 function deriveConditionKeys(inst) {
-  const keys = new Set();
   const own = inst.options && inst.options.dbkey;
+  const list = whenKeys((inst.options.conditions || []).map((c) => c.when), own);
+  if (list.length) inst.options.condition_keys = list;
+  else delete inst.options.condition_keys;
+}
+// The FIX keys a list of `when` expressions reads, sorted: flags and aux
+// names (.old, .aux.x) count as their key; magic keys and `own` are left out.
+// Shared by the Button's conditions and the annunciator's tiles.
+function whenKeys(whens, own) {
+  const keys = new Set();
   const add = (raw) => {
     if (!raw) return;
     const k = String(raw).split(".")[0];       // strip .old/.bad/.aux...
@@ -4997,20 +5024,18 @@ function deriveConditionKeys(inst) {
   };
   const KW = new Set(["and", "or", "not", "eq", "ne", "lt", "le", "gt", "ge",
     "contains", "true", "false"]);
-  for (const cond of (inst.options.conditions || [])) {
-    const parsed = parseWhen(cond.when);
+  for (const when of whens) {
+    const parsed = parseWhen(when);
     if (parsed) {
       for (const c of parsed.clauses) add(c.key);
-    } else if (typeof cond.when === "string") {
-      const bare = cond.when.replace(/'[^']*'/g, " ").replace(/"[^"]*"/g, " ");
+    } else if (typeof when === "string") {
+      const bare = when.replace(/'[^']*'/g, " ").replace(/"[^"]*"/g, " ");
       for (const t of bare.split(/[^A-Za-z0-9_{}.]+/)) {
         if (t && !KW.has(t.toLowerCase()) && /^[A-Za-z]/.test(t)) add(t);
       }
     }
   }
-  const list = [...keys].sort();
-  if (list.length) inst.options.condition_keys = list;
-  else delete inst.options.condition_keys;
+  return [...keys].sort();
 }
 
 function commitConditions(inst, restructure) {
@@ -5098,6 +5123,294 @@ function renderConditions(inst) {
   });
   wrap.appendChild(add);
   return wrap;
+}
+
+// --- Annunciator tiles (ANN2) -------------------------------------------------
+// options.tiles is a list of lamps (pyEfis instruments/annunciator). Every
+// field, binding kind, flag, level and the level rule comes from the schema's
+// `annunciator` block; a condition is edited with the Button's clause editor
+// (whenBuilder / whenRaw), and its other keys are derived into
+// condition_keys as the Button's are, so the author never lists them.
+const ANN_TILES_OPTION = "tiles";
+const RAW_WHEN_HELP_TILE = ["e.g. OILP lt 25 and not OILP.old",
+  "Raw pycond over FIX keys and their .old .bad .fail .annunciate flags; comparators "
+  + "eq ne lt le gt ge contains; combine with and / or / not."];
+
+function annTileField(rule, name) { return rule.tile_fields.find((f) => f.name === name) || null; }
+function annBindingFields(rule) { return rule.tile_fields.filter((f) => f.binding); }
+// The binding a tile uses: the first binding field set, or "" (lit while the
+// value is truthy). Two set is an error the card reports.
+function annTileBinding(rule, tile) {
+  const set = annBindingFields(rule).filter((f) => {
+    const v = tile[f.name];
+    return v !== undefined && v !== null && v !== "" && !(annIsMap(v) && !Object.keys(v).length);
+  });
+  return set.length ? set[0].name : "";
+}
+// The levels the editor offers a tile: the alert levels only on an alert
+// binding (Bill, 2026-11-22), never on a local condition. A tile already
+// asking for one the rule refuses keeps it listed, marked, so nothing is
+// silently rewritten.
+function annLevelChoices(rule, tile) {
+  const spec = annSpec({ ...tile, key: tile.key || "_" }, rule);
+  const alertOk = !spec.error && annAlertBound(spec, rule);
+  return rule.levels.filter((l) => alertOk || !rule.alert_levels.includes(l));
+}
+// condition_keys for a `when` tile: the other keys it reads (its own key is
+// read anyway). Gone for any other binding.
+function deriveTileConditionKeys(tile) {
+  const list = typeof tile.when === "string" || typeof tile.when === "boolean"
+    ? whenKeys([tile.when], String(tile.key || "").trim()) : [];
+  if (list.length) tile.condition_keys = list;
+  else delete tile.condition_keys;
+}
+function commitTiles(inst, restructure) {
+  for (const t of inst.options[ANN_TILES_OPTION]) if (annIsMap(t)) deriveTileConditionKeys(t);
+  renderCanvas();
+  if (restructure) renderProps();
+}
+
+function renderTiles(inst) {
+  const wrap = document.createElement("div");
+  const h = document.createElement("h3"); h.textContent = "Tiles"; wrap.appendChild(h);
+  const rule = annRule();
+  if (!rule) {
+    const n = document.createElement("p"); n.className = "muted";
+    n.textContent = "Tile editor unavailable (schema.json has no annunciator block).";
+    wrap.appendChild(n);
+    return wrap;
+  }
+  let tiles = inst.options[ANN_TILES_OPTION];
+  if (annIsMap(tiles)) tiles = [tiles];            // the device reads one mapping as one tile
+  if (!Array.isArray(tiles)) tiles = [];
+  inst.options[ANN_TILES_OPTION] = tiles;
+  const help = document.createElement("p"); help.className = "cond-help";
+  help.textContent = "Each tile is a lamp bound to one FIX key. Lit while the value is "
+    + "true, or bind it to a condition, one of the key's own flags, or a value-to-text "
+    + "map. Red and amber are only for the key's own annunciate flag: the limit lives "
+    + "once, in the gateway.";
+  wrap.appendChild(help);
+
+  const pv = document.createElement("div"); pv.className = "field";
+  pv.appendChild(Object.assign(document.createElement("label"), { textContent: "Preview tiles as" }));
+  const ps = document.createElement("select");
+  for (const [v, t] of [["lit", "Lit"], ["off", "Off"], ["stale", "Stale (keys old)"]]) {
+    const o = document.createElement("option"); o.value = v; o.textContent = t; ps.appendChild(o);
+  }
+  ps.value = ANN_PREVIEW_STATES.includes(state.annPreview) ? state.annPreview : "lit";
+  ps.title = "Canvas preview only; not saved";
+  ps.addEventListener("change", () => { state.annPreview = ps.value; renderCanvas(); });
+  pv.appendChild(ps); wrap.appendChild(pv);
+  if (!tiles.length) {
+    const n = document.createElement("p"); n.className = "cond-help";
+    n.textContent = "No tiles yet: the canvas shows a sample. The device draws nothing until you add one.";
+    wrap.appendChild(n);
+  }
+
+  const list = document.createElement("div"); list.className = "cond-list";
+  tiles.forEach((t, i) => list.appendChild(tileCard(inst, rule, tiles, i)));
+  wrap.appendChild(list);
+  const add = document.createElement("button"); add.className = "mini add";
+  add.textContent = "+ Add tile";
+  add.addEventListener("click", () => {
+    tiles.push({ label: "", key: "", level: rule.alert_fallback_level });
+    commitTiles(inst, true);
+  });
+  wrap.appendChild(add);
+  return wrap;
+}
+
+function tileCard(inst, rule, tiles, i) {
+  const card = document.createElement("div"); card.className = "cond";
+  const head = document.createElement("div"); head.className = "cond-head";
+  const n = document.createElement("span"); n.className = "cond-n"; n.textContent = "Tile #" + (i + 1);
+  head.appendChild(n);
+  const mv = (d, glyph, tip) => {
+    const b = document.createElement("button"); b.className = "mini"; b.textContent = glyph; b.title = tip;
+    const j = i + d;
+    if (j < 0 || j >= tiles.length) b.disabled = true;
+    b.addEventListener("click", () => { [tiles[i], tiles[j]] = [tiles[j], tiles[i]]; commitTiles(inst, true); });
+    head.appendChild(b);
+  };
+  mv(-1, "↑", "Earlier (tiles fill the grid row by row)");
+  mv(1, "↓", "Later");
+  const del = document.createElement("button"); del.className = "mini x"; del.textContent = "✕";
+  del.title = "Delete this tile";
+  del.addEventListener("click", () => { tiles.splice(i, 1); commitTiles(inst, true); });
+  head.appendChild(del);
+  card.appendChild(head);
+
+  const tile = tiles[i];
+  if (!annIsMap(tile)) {
+    const w = document.createElement("p"); w.className = "act-warn";
+    w.textContent = "Not a tile (not a mapping): the device skips it. Delete it, or fix it in the YAML.";
+    card.appendChild(w);
+    return card;
+  }
+  const field = (name, input) => {
+    const spec = annTileField(rule, name);
+    const f = document.createElement("div"); f.className = "field";
+    const l = document.createElement("label"); l.textContent = spec ? spec.label : name;
+    if (spec && spec.help) l.title = spec.help;
+    f.append(l, input);
+    card.appendChild(f);
+    return f;
+  };
+  const text = (name) => {
+    const inp = plainInput(tile[name] == null ? "" : String(tile[name]), (annTileField(rule, name) || {}).help || "", () => {
+      if (inp.value === "") delete tile[name]; else tile[name] = inp.value;
+      commitTiles(inst, false);
+    });
+    return inp;
+  };
+  field("label", text("label"));
+  const key = fixKeyInput(tile.key == null ? "" : String(tile.key), "FIX key", () => {
+    const v = key.value.trim();
+    if (v) tile.key = v; else delete tile.key;
+    commitTiles(inst, false);
+  });
+  field("key", key);
+
+  // The binding kind, then its own editor.
+  const kinds = annBindingFields(rule);
+  const kind = annTileBinding(rule, tile);
+  const ks = document.createElement("select");
+  for (const [v, t] of [["", "Value is true"], ...kinds.map((f) => [f.name, f.label])]) {
+    const o = document.createElement("option"); o.value = v; o.textContent = t; ks.appendChild(o);
+  }
+  ks.value = kind;
+  ks.addEventListener("change", () => {
+    for (const f of kinds) delete tile[f.name];
+    const f = annTileField(rule, ks.value);
+    if (f && f.kind === "condition") tile.when = tile.key ? `${tile.key} gt 0` : "";
+    else if (f && f.kind === "enum") tile[f.name] = f.enum[0];
+    else if (f && f.kind === "map") tile[f.name] = { 0: "" };
+    // A level the new binding may not use falls back, as the device would draw it.
+    if (tile.level && !annLevelChoices(rule, tile).includes(String(tile.level).trim().toLowerCase())) {
+      tile.level = rule.alert_fallback_level;
+    }
+    commitTiles(inst, true);
+  });
+  const bf = document.createElement("div"); bf.className = "field";
+  bf.append(Object.assign(document.createElement("label"), { textContent: "Lit when" }), ks);
+  card.appendChild(bf);
+  const kf = annTileField(rule, kind);
+  if (kf && kf.kind === "condition") {
+    const parsed = parseWhen(tile.when);
+    const raw = !!(inst._tileRaw && inst._tileRaw[i]);
+    const guided = !raw && parsed !== null;
+    const box = document.createElement("div"); box.className = "cond-when";
+    const tgl = document.createElement("button"); tgl.className = "mini";
+    tgl.textContent = guided ? "Raw" : "Guided";
+    tgl.addEventListener("click", () => {
+      inst._tileRaw = inst._tileRaw || [];
+      if (!guided && parseWhen(tile.when) === null) {
+        alert("This expression is too complex for the guided builder; keep editing it as raw text.");
+        return;
+      }
+      inst._tileRaw[i] = guided;
+      renderProps();
+    });
+    box.appendChild(tgl);
+    const commit = (restructure) => commitTiles(inst, restructure);
+    box.appendChild(guided ? whenBuilder(tile, parsed, commit, "fixkeys") : whenRaw(tile, commit, RAW_WHEN_HELP_TILE));
+    card.appendChild(box);
+    const ck = annTileField(rule, "condition_keys");
+    if (ck && tile.condition_keys && tile.condition_keys.length) {
+      const note = document.createElement("p"); note.className = "act-help";
+      note.textContent = `${ck.label}: ${tile.condition_keys.join(", ")} (from the condition; each must be fresh too)`;
+      card.appendChild(note);
+    }
+  } else if (kf && kf.kind === "enum") {
+    const sel = document.createElement("select");
+    const cur = String(tile[kf.name]);
+    for (const v of kf.enum.includes(cur) ? kf.enum : [...kf.enum, cur]) {
+      const o = document.createElement("option"); o.value = v; o.textContent = v; sel.appendChild(o);
+    }
+    sel.value = cur;
+    sel.addEventListener("change", () => { tile[kf.name] = sel.value; commitTiles(inst, true); });
+    field(kf.name, sel);
+  } else if (kf && kf.kind === "map") {
+    card.appendChild(annMapEditor(inst, tile, kf));
+  }
+
+  // Level: the rule's choices only.
+  const choices = annLevelChoices(rule, tile);
+  const lf = annTileField(rule, "level");
+  const ls = document.createElement("select");
+  const curLevel = tile.level == null ? lf.default : String(tile.level).trim().toLowerCase();
+  for (const l of choices.includes(curLevel) ? choices : [...choices, curLevel]) {
+    const o = document.createElement("option"); o.value = l;
+    o.textContent = choices.includes(l) ? l : `${l} (drawn ${rule.alert_fallback_level})`;
+    ls.appendChild(o);
+  }
+  ls.value = curLevel;
+  ls.addEventListener("change", () => { tile.level = ls.value; commitTiles(inst, true); });
+  field("level", ls);
+  if (!choices.some((l) => rule.alert_levels.includes(l))) {
+    const note = document.createElement("p"); note.className = "act-help";
+    note.textContent = `${rule.alert_levels.join(" and ")}: only with the key's own annunciate flag.`;
+    card.appendChild(note);
+  }
+
+  field("on_text", text("on_text"));
+  field("off_text", text("off_text"));
+  const ff = annTileField(rule, "flash_on_change");
+  const fl = document.createElement("input"); fl.type = "number"; fl.min = String(ff.minimum ?? 0);
+  fl.placeholder = String(ff.default ?? 0);
+  if (tile.flash_on_change != null) fl.value = tile.flash_on_change;
+  fl.addEventListener("input", () => {
+    if (fl.value === "") delete tile.flash_on_change; else tile.flash_on_change = parseFloat(fl.value);
+    commitTiles(inst, false);
+  });
+  field("flash_on_change", fl);
+
+  // What the device makes of the entry, in its own words.
+  const spec = annSpec(tile, rule);
+  if (spec.error) {
+    const w = document.createElement("p"); w.className = "act-warn";
+    w.textContent = `Not drawn on the device: ${spec.error}.`;
+    card.appendChild(w);
+  } else if (tile.level != null && spec.level !== String(tile.level).trim().toLowerCase()) {
+    const w = document.createElement("p"); w.className = "act-warn";
+    w.textContent = `Drawn at ${spec.level} on the device, not ${String(tile.level).trim()}.`;
+    card.appendChild(w);
+  }
+  return card;
+}
+
+// Value -> text rows for an `enum` binding. Values are stored as written, so
+// a whole number matches the key's value as the device matches it.
+function annMapEditor(inst, tile, f) {
+  const box = document.createElement("div"); box.className = "acts";
+  const lbl = document.createElement("div"); lbl.className = "acts-label"; lbl.textContent = f.label; box.appendChild(lbl);
+  const entries = Object.entries(tile[f.name] || {});
+  const store = () => {
+    const m = {};
+    for (const [k, v] of entries) if (String(k).trim() !== "") m[String(k).trim()] = v;
+    tile[f.name] = m;
+  };
+  entries.forEach((e, j) => {
+    const row = document.createElement("div"); row.className = "clause";
+    const fields = document.createElement("div"); fields.className = "cl-fields"; fields.style.gridTemplateColumns = "0.6fr 1.4fr";
+    const kv = plainInput(String(e[0]), "value", () => { e[0] = kv.value; store(); commitTiles(inst, false); });
+    const tv = plainInput(String(e[1]), "text", () => { e[1] = tv.value; store(); commitTiles(inst, false); });
+    fields.append(kv, tv); row.appendChild(fields);
+    const rm = document.createElement("button"); rm.className = "mini x"; rm.textContent = "✕";
+    rm.addEventListener("click", () => { entries.splice(j, 1); store(); commitTiles(inst, true); });
+    row.appendChild(rm); box.appendChild(row);
+  });
+  const add = document.createElement("button"); add.className = "mini add"; add.textContent = "+ value";
+  add.addEventListener("click", () => {
+    const used = new Set(entries.map((e) => String(e[0])));
+    let k = 0; while (used.has(String(k))) k++;
+    entries.push([String(k), ""]); store(); commitTiles(inst, true);
+  });
+  box.appendChild(add);
+  const hp = document.createElement("p"); hp.className = "act-help";
+  hp.textContent = (f.help || "") + ". An unmapped value shows itself.";
+  box.appendChild(hp);
+  return box;
 }
 
 // --- Phase 2: bind-a-control surface (control_bindings.md section 7) ---------
@@ -5262,7 +5575,8 @@ function condCard(inst, cond, i) {
   card.appendChild(head);
 
   const when = document.createElement("div"); when.className = "cond-when";
-  when.appendChild(guided ? whenBuilder(inst, cond, parsed) : whenRaw(inst, cond));
+  const commit = (restructure) => commitConditions(inst, restructure);
+  when.appendChild(guided ? whenBuilder(cond, parsed, commit, "condkeys") : whenRaw(cond, commit, RAW_WHEN_HELP_BUTTON));
   card.appendChild(when);
 
   const contWrap = document.createElement("label"); contWrap.className = "cond-join";
@@ -5278,9 +5592,12 @@ function condCard(inst, cond, i) {
   return card;
 }
 
-function whenBuilder(inst, cond, parsed) {
+// The guided `when` editor: clauses of key, comparator, value joined by one
+// and/or. `commit(restructure)` stores the edit (the Button's conditions, an
+// annunciator tile); `keyList` is the datalist its key boxes offer.
+function whenBuilder(cond, parsed, commit, keyList) {
   const box = document.createElement("div");
-  const push = (restructure) => { cond.when = buildWhen(parsed); commitConditions(inst, restructure); };
+  const push = (restructure) => { cond.when = buildWhen(parsed); commit(restructure); };
 
   parsed.clauses.forEach((cl, ci) => {
     const noVal = cl.op === "is true" || cl.op === "is false";
@@ -5288,7 +5605,7 @@ function whenBuilder(inst, cond, parsed) {
     const fields = document.createElement("div"); fields.className = "cl-fields";
 
     const key = document.createElement("input"); key.type = "text";
-    key.setAttribute("list", "condkeys"); key.setAttribute("autocomplete", "off");
+    key.setAttribute("list", keyList); key.setAttribute("autocomplete", "off");
     key.placeholder = "key"; key.value = cl.key;
     key.addEventListener("input", () => { cl.key = key.value.trim(); push(false); });
     fields.appendChild(key);
@@ -5335,22 +5652,24 @@ function whenBuilder(inst, cond, parsed) {
   return box;
 }
 
-function whenRaw(inst, cond) {
+const RAW_WHEN_HELP_BUTTON = ["e.g. CLICKED eq true and NAVSRC lt 0.5",
+  "Raw pycond: FIX keys plus CLICKED, SCREEN, DBKEY; comparators "
+  + "eq ne lt le gt ge contains; combine with and / or / not."];
+function whenRaw(cond, commit, help) {
   const box = document.createElement("div");
   const ta = document.createElement("textarea"); ta.rows = 2;
   ta.value = typeof cond.when === "string" ? cond.when : String(cond.when);
-  ta.placeholder = "e.g. CLICKED eq true and NAVSRC lt 0.5";
+  ta.placeholder = help[0];
   ta.addEventListener("input", () => {
     const v = ta.value.trim();
     if (v === "true") cond.when = true;
     else if (v === "false") cond.when = false;
     else cond.when = ta.value;
-    commitConditions(inst, false);
+    commit(false);
   });
   box.appendChild(ta);
   const hint = document.createElement("p"); hint.className = "act-help";
-  hint.textContent = "Raw pycond: FIX keys plus CLICKED, SCREEN, DBKEY; comparators "
-    + "eq ne lt le gt ge contains; combine with and / or / not.";
+  hint.textContent = help[1];
   box.appendChild(hint);
   return box;
 }
@@ -5972,20 +6291,21 @@ const AP_STRIP_TEMPLATES = { lat: "LOC", lat_arm: "LOC GPS", ap: "AP", yd: "YD",
 // colours are bugs.BUG_DEGRADED_COLOR and BUG_ALERT_COLOR.
 const AP_STRIP_COLORS = { active_color: "#00ff00", armed_color: "#ffffff", warning_color: "#ff0000", background_color: "#000000" };
 // Qt's bold advances per glyph and pixel size 1..160, ascent/descent, and the
-// kern pairs (generated by tools/ap_annunciator_metrics.py from the oracle's
-// fixture).
-const AP_STRIP_METRICS = {"chars":" +-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ","families":{"DejaVu Sans Condensed":{"u":[641.0,1544.0,765.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,1426.0,1404.0,1352.0,1530.0,1259.0,1259.0,1512.0,1542.0,685.0,685.0,1428.0,1174.0,1834.0,1542.0,1566.0,1350.0,1566.0,1419.0,1327.0,1257.0,1496.0,1426.0,2033.0,1421.0,1334.0,1336.0],"d":["0000000000000000000000000000002000000000","0000000000000002000000000000000000000000","1000000000000000000002000000000000000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000001000000000000000000000000000000000","0000000000000000000000008000000010000000","0000000000000000000400000000000000000000","4000000000000000000000000000000000000000","0000000000000008000000000000000000000000","0000000000000008000000000000000000000000","0000000000000000000004000000000000000000","0000000000000000000020000000000000000000","0000000000000000000000000000000000048000","0000000000000000000000000000000000008000","0000000004000000000000000000000000002000","0000000000000000000000000000100000000000","0000010000000000000000000000000000000000","0000000000000000000020000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000080000000000000000000000000","0000002000000000000000004000000000000000","0000000000000000000000000000002000000000","0008000000000000000000000000000000000040","0000001000000000000000000000000000000000","0000000000000000080000000000000000000000","0000000000000000000000000000000000000000","0000000080000000000000000000000000040000","0000000000000000000040000080000000000000"],"au":1901.0,"du":483.0,"a":"0000000000000000000000000000000000000000","s":"0000000000000000000000000000000000000000","k":{"-T":-301.0,"-V":-149.0,"-W":-92.0,"-X":-167.0,"-Y":-301.0,"AT":-159.0,"AU":-63.0,"AV":-139.0,"AW":-92.0,"AY":-196.0,"BV":-83.0,"BW":-112.0,"BY":-112.0,"C-":47.0,"CS":38.0,"D-":38.0,"DY":-149.0,"F-":-63.0,"FA":-235.0,"GT":-36.0,"GY":-45.0,"K-":-178.0,"KC":-92.0,"KO":-92.0,"KU":-36.0,"LO":-73.0,"LT":-339.0,"LU":-73.0,"LV":-282.0,"LW":-159.0,"LY":-319.0,"O-":38.0,"OA":-55.0,"OV":-55.0,"OX":-73.0,"OY":-73.0,"P-":-36.0,"PA":-188.0,"Q-":38.0,"RT":-92.0,"RY":-112.0,"SS":-92.0,"T-":-301.0,"TA":-159.0,"TT":47.0,"UA":-63.0,"V-":-149.0,"VA":-139.0,"VO":-36.0,"W-":-92.0,"WA":-92.0,"X-":-167.0,"XC":-73.0,"XO":-73.0,"Y-":-301.0,"YA":-196.0,"YC":-73.0,"YO":-73.0,"Z-":-36.0}},"DejaVu Sans":{"u":[713.0,1716.0,850.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,1585.0,1561.0,1503.0,1700.0,1399.0,1399.0,1681.0,1714.0,762.0,762.0,1587.0,1305.0,2038.0,1714.0,1741.0,1501.0,1741.0,1577.0,1475.0,1397.0,1663.0,1585.0,2259.0,1579.0,1483.0,1485.0],"d":["0000000000000100000000000000000000000000","0000000000000000000000000010000000008000","0000000000000000000000000000000000000000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000008000000000000000000000","0000000000000008000000000000000000000000","0000000000020000000000000000000000000000","0000000000000000000000000200000000000010","0000000400000000000000000000000000000000","0000000400000000000000000000000000000000","0000000000000000000000000000010000000000","0000000000040000000000000000000000400000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000100000000010000000000000000000000000","0000000000002000000000000000000000000080","0000000000000000000000000300000000000000","0000000000040000000000000000000000400000","0000000000000000000000000000000000000000","0000000000000000000001000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000800000","0000000000000020000010000000000000000000","0000000000000000000000000000000000100000","0100000000000000000000000000000000080000","0000000000000000008000000000000000000000","0000000000000000000000000000000020000000","0000000000000000000000000020000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000"],"au":1901.0,"du":483.0,"a":"0000000000000000000000000000000000000000","s":"0000000000000000000000000000000000000000","k":{"-T":-301.0,"-V":-149.0,"-W":-92.0,"-X":-167.0,"-Y":-301.0,"AT":-159.0,"AU":-63.0,"AV":-139.0,"AW":-92.0,"AY":-196.0,"BV":-83.0,"BW":-112.0,"BY":-112.0,"C-":47.0,"CS":38.0,"D-":38.0,"DY":-149.0,"F-":-63.0,"FA":-235.0,"GT":-36.0,"GY":-45.0,"K-":-178.0,"KC":-92.0,"KO":-92.0,"KU":-36.0,"LO":-73.0,"LT":-339.0,"LU":-73.0,"LV":-282.0,"LW":-159.0,"LY":-319.0,"O-":38.0,"OA":-55.0,"OV":-55.0,"OX":-73.0,"OY":-73.0,"P-":-36.0,"PA":-188.0,"Q-":38.0,"RT":-92.0,"RY":-112.0,"SS":-92.0,"T-":-301.0,"TA":-159.0,"TT":47.0,"UA":-63.0,"V-":-149.0,"VA":-139.0,"VO":-36.0,"W-":-92.0,"WA":-92.0,"X-":-167.0,"XC":-73.0,"XO":-73.0,"Y-":-301.0,"YA":-196.0,"YC":-73.0,"YO":-73.0,"Z-":-36.0}},"B612":{"u":[717.0,1229.0,922.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1229.0,1331.0,1229.0,1126.0,1331.0,1434.0,614.0,922.0,1229.0,1126.0,1843.0,1536.0,1638.0,1229.0,1638.0,1331.0,1126.0,1229.0,1434.0,1331.0,1946.0,1331.0,1229.0,1229.0],"d":["0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0802008020080200802008020080200802008020","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0802008020080200802008020080200802008020","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000"],"au":1980.0,"du":729.0,"a":"0000000000000000000000000040000001000000","s":"0000000000000000000000000000000800000000","k":{"BO":-102.0,"BT":-102.0,"BV":-102.0,"BW":-102.0,"CO":-102.0,"DC":102.0,"EO":-102.0,"EV":-102.0,"FA":-102.0,"GZ":102.0,"LO":-102.0,"LQ":-102.0,"LT":-102.0,"LV":-154.0,"LW":-102.0,"LY":-102.0,"OD":-102.0,"OT":-102.0,"OV":-102.0,"OW":-102.0,"OX":-102.0,"OY":-102.0,"PA":-102.0,"PL":-102.0,"PV":-102.0,"PX":-102.0,"PY":-102.0,"QV":-102.0,"QW":-102.0,"RO":-102.0,"RT":-102.0,"RV":-102.0,"RW":-102.0,"SV":-102.0,"TA":-102.0,"TO":-102.0,"UA":-102.0,"VO":-102.0,"WA":-102.0,"WO":-102.0,"WQ":-102.0,"XO":-102.0,"YA":-102.0,"YO":-102.0,"ZO":-102.0}}}};
-// QFontMetricsF for the strip's bold font at a whole pixel size: ascent,
+// kern pairs, over printable ASCII (generated by tools/qt_bold_metrics.py from
+// the annunciator oracle's fixture). Shared by the AP strip and the
+// annunciator, which both fit a bold caption by horizontalAdvance.
+const QT_BOLD_METRICS = {"chars":" !\"#$%&'()*+,-./0123456789:\u003b<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~","families":{"DejaVu Sans Condensed":{"u":[641.0,840.0,960.0,1544.0,1282.0,1846.0,1607.0,564.0,842.0,842.0,963.0,1544.0,700.0,765.0,700.0,673.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,1282.0,737.0,737.0,1544.0,1544.0,1544.0,1069.0,1843.0,1426.0,1404.0,1352.0,1530.0,1259.0,1259.0,1512.0,1542.0,685.0,685.0,1428.0,1174.0,1834.0,1542.0,1566.0,1350.0,1566.0,1419.0,1327.0,1257.0,1496.0,1426.0,2033.0,1421.0,1334.0,1336.0,842.0,673.0,842.0,1544.0,921.0,921.0,1243.0,1319.0,1092.0,1319.0,1250.0,801.0,1319.0,1312.0,631.0,631.0,1225.0,631.0,1920.0,1312.0,1266.0,1319.0,1319.0,909.0,1097.0,881.0,1312.0,1201.0,1702.0,1188.0,1201.0,1072.0,1312.0,673.0,1312.0,1544.0],"d":["0000000000000000000000000000002000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000002000000000000000000000000","0000000000000000000000000000000200000000","0000000000000000000000000000000000000000","0200000000000000010000000000000000800000","0000000000008000000000000000040000000000","0000000000000000000000000000000000000100","0000000000000000000000000000000000000100","0000000000000000000010000000000000000000","0000000000000002000000000000000000000000","0000200000000000000000004000000000000000","1000000000000000000002000000000000000000","0000200000000000000000004000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000200000000","0000000000000000000000000000000000000008","0000000000000000000000000000000000000008","0000000000000002000000000000000000000000","0000000000000002000000000000000000000000","0000000000000002000000000000000000000000","0000000000000000100000200000000000000000","0802008020080200802000000000000000000000","0000001000000000000000000000000000000000","0000000000000000000000008000000010000000","0000000000000000000400000000000000000000","4000000000000000000000000000000000000000","0000000000000008000000000000000000000000","0000000000000008000000000000000000000000","0000000000000000000004000000000000000000","0000000000000000000020000000000000000000","0000000000000000000000000000000000048000","0000000000000000000000000000000000008000","0000000004000000000000000000000000002000","0000000000000000000000000000100000000000","0000010000000000000000000000000000000000","0000000000000000000020000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000080000000000000000000000000","0000002000000000000000004000000000000000","0000000000000000000000000000002000000000","0008000000000000000000000000000000000040","0000001000000000000000000000000000000000","0000000000000000080000000000000000000000","0000000000000000000000000000000000000000","0000000080000000000000000000000000040000","0000000000000000000040000080000000000000","0000000000000000000000000000000000000100","0000000000000000000000000000000000000000","0000000000000000000000000000000000000100","0000000000000002000000000000000000000000","0040000000000000000000000000000000000000","0040000000000000000000000000000000000000","0004000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0080000000000000000000000000000000000000","0000000000000000000000000000001000002000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000004000000000000000000","0000000000000000000004000000000000000000","0000000000000100000000000000000000000000","0000000000000000000004000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000004000000000000000","0004000000400000040000004000000000000000","0000000000200000000000000000000080000000","0000000000000000000000000000000000000000","0000000000001000000000000000000000000000","2000000000000000004000000000000000000000","0000000000000000000000000000000000000010","0000000000001000000000000000000000000000","0000000000000000000008000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000002000000000000000000000000"],"au":1901.0,"du":483.0,"a":"0000000000000000000000000000000000000000","s":"0000000000000000000000000000000000000000","k":{"-T":-301.0,"-V":-149.0,"-W":-92.0,"-X":-167.0,"-Y":-301.0,"A,":38.0,"A.":38.0,"A:":38.0,"A\u003b":38.0,"AT":-159.0,"AU":-63.0,"AV":-139.0,"AW":-92.0,"AY":-196.0,"Av":-73.0,"Ay":-73.0,"BV":-83.0,"BW":-112.0,"BY":-112.0,"C-":47.0,"CS":38.0,"D-":38.0,"DY":-149.0,"F,":-329.0,"F-":-63.0,"F.":-301.0,"F:":-112.0,"F\u003b":-112.0,"FA":-235.0,"Fa":-120.0,"Fe":-83.0,"Fo":-83.0,"Fr":-131.0,"Fu":-102.0,"Fy":-112.0,"GT":-36.0,"GY":-45.0,"K-":-178.0,"KC":-92.0,"KO":-92.0,"KU":-36.0,"Ke":-36.0,"Ko":-36.0,"Ku":-36.0,"Ky":-131.0,"LO":-73.0,"LT":-339.0,"LU":-73.0,"LV":-282.0,"LW":-159.0,"LY":-319.0,"Ly":-139.0,"O,":-45.0,"O-":38.0,"O.":-45.0,"OA":-55.0,"OV":-55.0,"OX":-73.0,"OY":-73.0,"P,":-376.0,"P-":-36.0,"P.":-376.0,"PA":-188.0,"Pa":-55.0,"Ps":-36.0,"Py":38.0,"Q-":38.0,"R,":38.0,"R.":38.0,"RT":-92.0,"RY":-112.0,"Ry":-92.0,"SS":-92.0,"T,":-292.0,"T-":-301.0,"T.":-311.0,"T:":-112.0,"T\u003b":-112.0,"TA":-159.0,"TT":47.0,"Ta":-264.0,"Tc":-272.0,"Te":-272.0,"To":-272.0,"Tr":-225.0,"Ts":-272.0,"Tu":-225.0,"Tw":-225.0,"Ty":-243.0,"UA":-63.0,"V,":-264.0,"V-":-149.0,"V.":-264.0,"V:":-92.0,"V\u003b":-92.0,"VA":-139.0,"VO":-36.0,"Va":-112.0,"Ve":-112.0,"Vi":-36.0,"Vo":-112.0,"Vu":-73.0,"W,":-167.0,"W-":-92.0,"W.":-167.0,"W:":-63.0,"W\u003b":-63.0,"WA":-92.0,"Wa":-73.0,"We":-73.0,"Wo":-73.0,"Wr":-36.0,"X-":-167.0,"XC":-73.0,"XO":-73.0,"Xe":-55.0,"Y,":-339.0,"Y-":-301.0,"Y.":-339.0,"Y:":-178.0,"Y\u003b":-178.0,"YA":-196.0,"YC":-73.0,"YO":-73.0,"Ya":-188.0,"Ye":-188.0,"Yo":-188.0,"Yu":-149.0,"Z-":-36.0,"ay":-63.0,"f,":-112.0,"f-":-36.0,"f.":-112.0,"ff":-109.0,"fi":-66.0,"fl":-66.0,"ke":-55.0,"ko":-55.0,"r,":-301.0,"r.":-292.0,"v,":-167.0,"v.":-167.0,"w,":-131.0,"w.":-131.0,"y,":-159.0,"y.":-188.0}},"DejaVu Sans":{"u":[713.0,934.0,1067.0,1716.0,1425.0,2052.0,1786.0,627.0,936.0,936.0,1071.0,1716.0,778.0,850.0,778.0,748.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,1425.0,819.0,819.0,1716.0,1716.0,1716.0,1188.0,2048.0,1585.0,1561.0,1503.0,1700.0,1399.0,1399.0,1681.0,1714.0,762.0,762.0,1587.0,1305.0,2038.0,1714.0,1741.0,1501.0,1741.0,1577.0,1475.0,1397.0,1663.0,1585.0,2259.0,1579.0,1483.0,1485.0,936.0,748.0,936.0,1716.0,1024.0,1024.0,1382.0,1466.0,1214.0,1466.0,1389.0,891.0,1466.0,1458.0,702.0,702.0,1362.0,702.0,2134.0,1458.0,1407.0,1466.0,1466.0,1010.0,1219.0,979.0,1458.0,1335.0,1892.0,1321.0,1335.0,1192.0,1458.0,748.0,1458.0,1716.0],"d":["0000000000000100000000000000000000000000","0000000000000000000000000000000000001000","0000000000000000000000020000000000000000","0000000000000000000000000010000000008000","0000000000000000000000008000010000020000","0000000000000000000000000000000000000000","0000000000200000000000000000000080000000","0000000000000000000100000000000080000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000002000000000000000000","0000000000000000000000000010000000008000","0000008000000000000000000000000000000000","0000000000000000000000000000000000000000","0000008000000000000000000000000000000000","0000004000000000000000000000000000080000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000008000010000020000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000010000000008000","0000000000000000000000000010000000008000","0000000000000000000000000010000000008000","0000000000000000000000000000000000000010","0000000000000000000000000000000000000000","0000000000000000008000000000000000000000","0000000000000008000000000000000000000000","0000000000020000000000000000000000000000","0000000000000000000000000200000000000010","0000000400000000000000000000000000000000","0000000400000000000000000000000000000000","0000000000000000000000000000010000000000","0000000000040000000000000000000000400000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000100000000010000000000000000000000000","0000000000002000000000000000000000000080","0000000000000000000000000300000000000000","0000000000040000000000000000000000400000","0000000000000000000000000000000000000000","0000000000000000000001000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000800000","0000000000000020000010000000000000000000","0000000000000000000000000000000000100000","0100000000000000000000000000000000080000","0000000000000000008000000000000000000000","0000000000000000000000000000000020000000","0000000000000000000000000020000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000004000000000000000000000000000080000","0000000000000000000000000000000000000000","0000000000000000000000000010000000008000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000100000000000000000000000000000020000","0000000000100000000000000000000000200000","0000000000000000040000008000000000000000","0000000000100000000000000000000000200000","0004000000000000000000000000000000000000","0000000000000400000800000000000000000000","0000000000100000000000000000000000200000","0000000080000000000000100000000000000200","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000240000000000000","0000000000000000000000000000000000000000","0000000000000000000000000020000000000000","0000000080000000000000100000000000000200","0100000000000000000000000000000000200000","0000000000100000000000000000000000200000","0000000000100000000000000000000000200000","8000000000000000004000000000000000002000","0000080000000002000000000080000000002000","0000000000000000000000000000400000000000","0000000080000000000000100000000000000200","0000000000000000000200000000000000000000","0000000000040000000000000000000000000200","0000000000000000000000000000000020000000","0000000000000000000200000000000000000000","0400000000000000000000000000000000000000","0000000080000000000000100000000000000200","0000004000000000000000000000000000080000","0000000080000000000000100000000000000200","0000000000000000000000000010000000008000"],"au":1901.0,"du":483.0,"a":"0000000000000000000000000000000000000000","s":"0000000000000000000000000000000000000000","k":{"-T":-301.0,"-V":-149.0,"-W":-92.0,"-X":-167.0,"-Y":-301.0,"A,":38.0,"A.":38.0,"A:":38.0,"A\u003b":38.0,"AT":-159.0,"AU":-63.0,"AV":-139.0,"AW":-92.0,"AY":-196.0,"Av":-73.0,"Ay":-73.0,"BV":-83.0,"BW":-112.0,"BY":-112.0,"C-":47.0,"CS":38.0,"D-":38.0,"DY":-149.0,"F,":-329.0,"F-":-63.0,"F.":-301.0,"F:":-112.0,"F\u003b":-112.0,"FA":-235.0,"Fa":-120.0,"Fe":-83.0,"Fo":-83.0,"Fr":-131.0,"Fu":-102.0,"Fy":-112.0,"GT":-36.0,"GY":-45.0,"K-":-178.0,"KC":-92.0,"KO":-92.0,"KU":-36.0,"Ke":-36.0,"Ko":-36.0,"Ku":-36.0,"Ky":-131.0,"LO":-73.0,"LT":-339.0,"LU":-73.0,"LV":-282.0,"LW":-159.0,"LY":-319.0,"Ly":-139.0,"O,":-45.0,"O-":38.0,"O.":-45.0,"OA":-55.0,"OV":-55.0,"OX":-73.0,"OY":-73.0,"P,":-376.0,"P-":-36.0,"P.":-376.0,"PA":-188.0,"Pa":-55.0,"Ps":-36.0,"Py":38.0,"Q-":38.0,"R,":38.0,"R.":38.0,"RT":-92.0,"RY":-112.0,"Ry":-92.0,"SS":-92.0,"T,":-292.0,"T-":-301.0,"T.":-311.0,"T:":-112.0,"T\u003b":-112.0,"TA":-159.0,"TT":47.0,"Ta":-264.0,"Tc":-272.0,"Te":-272.0,"To":-272.0,"Tr":-225.0,"Ts":-272.0,"Tu":-225.0,"Tw":-225.0,"Ty":-243.0,"UA":-63.0,"V,":-264.0,"V-":-149.0,"V.":-264.0,"V:":-92.0,"V\u003b":-92.0,"VA":-139.0,"VO":-36.0,"Va":-112.0,"Ve":-112.0,"Vi":-36.0,"Vo":-112.0,"Vu":-73.0,"W,":-167.0,"W-":-92.0,"W.":-167.0,"W:":-63.0,"W\u003b":-63.0,"WA":-92.0,"Wa":-73.0,"We":-73.0,"Wo":-73.0,"Wr":-36.0,"X-":-167.0,"XC":-73.0,"XO":-73.0,"Xe":-55.0,"Y,":-339.0,"Y-":-301.0,"Y.":-339.0,"Y:":-178.0,"Y\u003b":-178.0,"YA":-196.0,"YC":-73.0,"YO":-73.0,"Ya":-188.0,"Ye":-188.0,"Yo":-188.0,"Yu":-149.0,"Z-":-36.0,"ay":-63.0,"f,":-112.0,"f-":-36.0,"f.":-112.0,"ff":-123.0,"fi":-75.0,"fl":-75.0,"ke":-55.0,"ko":-55.0,"r,":-301.0,"r.":-292.0,"v,":-167.0,"v.":-167.0,"w,":-131.0,"w.":-131.0,"y,":-159.0,"y.":-188.0}},"B612":{"u":[717.0,717.0,819.0,1741.0,1126.0,1843.0,1434.0,410.0,922.0,922.0,1126.0,1229.0,512.0,922.0,614.0,1126.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,1331.0,614.0,512.0,1331.0,1024.0,1331.0,1126.0,2048.0,1331.0,1331.0,1229.0,1331.0,1229.0,1126.0,1331.0,1434.0,614.0,922.0,1229.0,1126.0,1843.0,1536.0,1638.0,1229.0,1638.0,1331.0,1126.0,1229.0,1434.0,1331.0,1946.0,1331.0,1229.0,1229.0,922.0,1126.0,1024.0,1536.0,1126.0,1126.0,1075.0,1229.0,1024.0,1229.0,1126.0,819.0,1229.0,1229.0,614.0,614.0,1126.0,717.0,1843.0,1229.0,1229.0,1229.0,1229.0,819.0,922.0,819.0,1229.0,1126.0,1536.0,1126.0,1126.0,1024.0,1329.0,410.0,1229.0,1536.0],"d":["0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0802008020080200802008020080200802008020","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0802008020080200802008020080200802008020","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0802008020080200802008020080200802008020","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0802008020080200802008020080200802008020","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0802008020080200802008020080200802008020","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0000100000000010000000001000000000100000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0802008020080200802008020080200802008020","0802008020080200802008020080200802008020","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0802008020080200802008020080200802008020","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0040000400004000040000400004000040000400","0040000400004000040000400004000040000400","0000000000000000000000000000000000000000","0000000000020000000000000100000000080000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000","0000000000000000000000000000000000000000"],"au":1980.0,"du":729.0,"a":"0000000000000000000000000040000001000000","s":"0000000000000000000000000000000800000000","k":{"//":-205.0,"BO":-102.0,"BT":-102.0,"BV":-102.0,"BW":-102.0,"Bb":-102.0,"Bh":-102.0,"Bi":-102.0,"Bj":-102.0,"Bk":-102.0,"Bm":-102.0,"Bp":-102.0,"Bu":-102.0,"By":-102.0,"CO":-102.0,"DC":102.0,"Dt":102.0,"EO":-102.0,"EV":-102.0,"FA":-102.0,"Fa":-102.0,"Fb":-102.0,"Fc":-102.0,"Fd":-102.0,"Fe":-102.0,"Fg":-102.0,"Fh":-102.0,"Fi":-102.0,"Fj":-102.0,"Fk":-102.0,"Fm":-102.0,"Fn":-102.0,"Fo":-102.0,"Fp":-102.0,"Fq":-102.0,"Fr":-102.0,"Fs":-102.0,"Ft":-102.0,"Fu":-102.0,"Fv":-102.0,"Fw":-102.0,"Fy":-102.0,"GZ":102.0,"Ga":51.0,"Ge":102.0,"Go":102.0,"Gq":102.0,"LO":-102.0,"LQ":-102.0,"LT":-102.0,"LV":-154.0,"LW":-102.0,"LY":-102.0,"Lv":-102.0,"Mu":-102.0,"OD":-102.0,"OT":-102.0,"OV":-102.0,"OW":-102.0,"OX":-102.0,"OY":-102.0,"Ob":-102.0,"Oh":-102.0,"Oi":-102.0,"Oj":-102.0,"PA":-102.0,"PL":-102.0,"PV":-102.0,"PX":-102.0,"PY":-102.0,"Pa":-102.0,"Pc":-102.0,"Pd":-102.0,"Pe":-102.0,"Pg":-102.0,"Ph":-102.0,"Pi":-102.0,"Pj":-102.0,"Pm":-102.0,"Pn":-102.0,"Po":-102.0,"Pp":-102.0,"Pr":-102.0,"Pu":-102.0,"Px":-102.0,"QV":-102.0,"QW":-102.0,"RO":-102.0,"RT":-102.0,"RV":-102.0,"RW":-102.0,"Rd":-102.0,"SV":-102.0,"TA":-102.0,"TO":-102.0,"Ta":-102.0,"Tc":-102.0,"Td":-102.0,"Te":-102.0,"Tg":-102.0,"Tk":-102.0,"Tm":-102.0,"Tn":-102.0,"To":-102.0,"Tp":-102.0,"Tq":-102.0,"Tr":-102.0,"Ts":-102.0,"Tu":-102.0,"Tv":-102.0,"Tw":-102.0,"Tx":-102.0,"Ty":-102.0,"UA":-102.0,"VO":-102.0,"Va":-102.0,"Vd":-102.0,"Ve":-102.0,"Vg":-102.0,"Vi":-102.0,"Vj":-102.0,"Vk":-102.0,"Vm":-102.0,"Vn":-102.0,"Vo":-102.0,"Vp":-102.0,"Vq":-102.0,"Vr":-102.0,"Vu":-102.0,"Vv":-102.0,"Vw":-102.0,"Vx":-102.0,"Vy":-102.0,"Vz":-102.0,"WA":-102.0,"WO":-102.0,"WQ":-102.0,"Wa":-102.0,"Wd":-102.0,"We":-102.0,"Wg":-102.0,"Wh":-102.0,"Wi":-102.0,"Wj":-102.0,"Wk":-102.0,"Wm":-102.0,"Wn":-102.0,"Wo":-102.0,"Wp":-102.0,"Wq":-102.0,"Wr":-102.0,"Wu":-102.0,"Wv":-102.0,"Ww":-102.0,"Wx":-102.0,"Wy":-102.0,"Wz":-102.0,"XO":-102.0,"YA":-102.0,"YO":-102.0,"Ya":-102.0,"Yb":-102.0,"Yc":-102.0,"Yd":-102.0,"Ye":-102.0,"Yg":-102.0,"Yi":-102.0,"Yj":-102.0,"Yk":-102.0,"Ym":-102.0,"Yn":-102.0,"Yp":-102.0,"Yq":-102.0,"Yr":-102.0,"Yu":-102.0,"Yv":-102.0,"Yw":-102.0,"Yx":-102.0,"Yy":-102.0,"Yz":-102.0,"ZO":-102.0,"aT":-102.0,"aY":-102.0,"as":102.0,"cT":-102.0,"dd":-102.0,"eT":-102.0,"ew":-51.0,"fb":-102.0,"fc":-102.0,"fd":-102.0,"fe":-102.0,"ff":-102.0,"fg":-102.0,"fl":-102.0,"fm":-102.0,"fn":-102.0,"fo":-102.0,"fp":-102.0,"fq":-102.0,"fu":-102.0,"fw":-102.0,"gb":-102.0,"hT":-102.0,"hY":-102.0,"ll":-102.0,"ls":102.0,"nd":-51.0,"nj":-102.0,"nm":-102.0,"oT":-205.0,"oV":-102.0,"oY":-102.0,"pT":-102.0,"pl":-102.0,"qT":-102.0,"qY":-102.0,"ql":-102.0,"rS":102.0,"rf":102.0,"rs":102.0,"rt":102.0,"rv":102.0,"ry":102.0,"sT":-102.0,"se":51.0,"tT":-102.0,"tt":-102.0,"uT":-102.0,"uY":-102.0,"uj":-102.0,"vT":-102.0,"vd":-102.0,"vo":-102.0,"wd":-102.0,"yT":-102.0,"zO":-102.0,"zT":-102.0,"zY":-102.0}}}};
+// QFontMetricsF for a bold caption font at a whole pixel size: ascent,
 // descent, and horizontalAdvance = the hinted glyph advances plus the kern
 // pairs, each rounded. The table has DejaVu Sans Condensed, DejaVu Sans and
 // B612; the other font_family choices fall back to DejaVu Sans Condensed's
 // metrics; a glyph outside the table counts 0.6 em.
-function apStripFont(family, px) {
-  const t = AP_STRIP_METRICS.families[family] || AP_STRIP_METRICS.families["DejaVu Sans Condensed"];
+function qtBoldFont(family, px) {
+  const t = QT_BOLD_METRICS.families[family] || QT_BOLD_METRICS.families["DejaVu Sans Condensed"];
   const p = Math.max(1, Math.trunc(px));
   const bit = (hex) => (p <= 160 ? (parseInt(hex[(p - 1) >> 2], 16) >> (3 - ((p - 1) & 3))) & 1 : 0);
   const glyph = {};
-  [...AP_STRIP_METRICS.chars].forEach((c, i) => { glyph[c] = Math.round(t.u[i] * p / 2048) + bit(t.d[i]); });
+  [...QT_BOLD_METRICS.chars].forEach((c, i) => { glyph[c] = Math.round(t.u[i] * p / 2048) + bit(t.d[i]); });
   const advance = (text) => {
     let w = 0, prev = "";
     for (const ch of String(text)) {
@@ -6000,7 +6320,7 @@ function apStripFont(family, px) {
 // _fit_px: step down a pixel at a time until text fits width (floor 4 px).
 function apStripFit(family, text, width, px) {
   for (let n = 0; n < 40; n++) {
-    if (apStripFont(family, px).advance(text) <= width || px <= 4) break;
+    if (qtBoldFont(family, px).advance(text) <= width || px <= 4) break;
     px = Math.max(4, px - 1);
   }
   return px;
@@ -6049,7 +6369,7 @@ function apStripGeom(o, cells, w, h, on = true) {
   const bg = [col("background_color")[0], Math.max(0, Math.min(1, Number.isFinite(op) ? op : 0.75))];
   const pad = h * 0.12;
   const text = (cell, r, px) => {
-    const f = apStripFont(family, px);
+    const f = qtBoldFont(family, px);
     const adv = f.advance(cell.text);
     return { text: cell.text, rect: r, px: f.px, family, color: role[cell.role], adv,
       x: r.x + (r.w - adv) / 2, baseline: r.y + (r.h - (f.ascent + f.descent)) / 2 + f.ascent };
@@ -6072,7 +6392,7 @@ function apStripGeom(o, cells, w, h, on = true) {
     const cell = cells[slot], r = rects[slot];
     const cpx = apStripFit(family, cell.text, r.w - 2 * pad, px);
     if (cell.boxed) {
-      const f = apStripFont(family, cpx);
+      const f = qtBoldFont(family, cpx);
       const bw = Math.min(r.w - pad, f.advance(cell.text) + 2 * pad);
       const bh = Math.min(h - 2, f.ascent + f.descent + pad);
       boxes.push({ slot, rect: { x: r.x + r.w / 2 - bw / 2, y: (h - bh) / 2, w: bw, h: bh },
@@ -6105,6 +6425,203 @@ function buildApAnnunciator(inst) {
   const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
   const { w, h } = mapDevicePx(inst);
   return svgFromString(apStripSvg(apStripGeom(inst.options || {}, apStripCells(meta.preview || {}), w, h)));
+}
+
+// --- annunciator (ANN1/ANN2): pyEfis instruments/annunciator + tile.py ------
+// The tile fields, binding kinds, levels and the level rule come from the
+// schema's `annunciator` block; the default colours from the instrument's
+// `<level>_color` option defaults. What the schema does not carry is below,
+// pinned to the device by test/annunciator_twin.test.mjs.
+const ANN_STALE_COLOR = "#808080";       // tile.STALE_COLOR (not themeable)
+const ANN_REVERSE_TEXT = "#000000";      // tile.REVERSE_TEXT_COLOR
+const ANN_QUALITY_FLAGS = ["old", "bad", "fail"];   // annunciator.QUALITY_FLAGS
+// The editor-wide preview state of every annunciator tile (not saved): lit,
+// off, or stale (every key the tile reads marked old).
+const ANN_PREVIEW_STATES = ["lit", "off", "stale"];
+function annRule() { return (state.schema && state.schema.annunciator) || null; }
+function annIsMap(v) { return v !== null && typeof v === "object" && !Array.isArray(v); }
+// TileSpec._parse: one `tiles` entry, or {error}. Construct-never-raises.
+function annSpec(entry, rule) {
+  if (!annIsMap(entry)) return { error: "not a mapping" };
+  const label0 = entry.label ? String(entry.label) : "";
+  const key = String(entry.key || "").trim();
+  if (!key) return { error: "no key", label: label0 };
+  const bindings = rule.tile_fields.filter((f) => f.binding).map((f) => f.name);
+  const set = (v) => v !== undefined && v !== null && v !== "" && !(annIsMap(v) && !Object.keys(v).length);
+  const kinds = bindings.filter((k) => set(entry[k]));
+  if (kinds.length > 1) return { error: `more than one binding (${kinds.join(", ")})`, label: label0 };
+  const spec = { error: "", key, kind: kinds[0] || "value", when: "", flag: "", enum: [] };
+  if (spec.kind === "when") spec.when = String(entry.when);
+  else if (spec.kind === "flag") {
+    spec.flag = String(entry.flag).trim();
+    const field = rule.tile_fields.find((f) => f.name === "flag");
+    if (!field.enum.includes(spec.flag)) return { error: `flag ${spec.flag} is not one of ${field.enum.join(", ")}`, label: label0 };
+  } else if (spec.kind === "enum") {
+    if (!annIsMap(entry.enum)) return { error: "enum must map values to text", label: label0 };
+    spec.enum = Object.entries(entry.enum).map(([k, v]) => [String(k).trim(), String(v)]);
+  }
+  spec.label = label0 || key;
+  spec.on_text = entry.on_text != null ? String(entry.on_text) : spec.label;
+  spec.off_text = entry.off_text != null ? String(entry.off_text) : spec.label;
+  spec.level = annLevel(entry.level, spec, rule);
+  return spec;
+}
+// TileSpec._level, with Bill's rule (2026-11-22) as the schema states it: an
+// alert level needs one of the alert bindings, else the fallback level.
+function annLevel(raw, spec, rule) {
+  const fallback = rule.alert_fallback_level;
+  const level = String(raw || fallback).trim().toLowerCase();
+  if (!rule.levels.includes(level)) return fallback;
+  if (rule.alert_levels.includes(level) && !annAlertBound(spec, rule)) return fallback;
+  return level;
+}
+function annAlertBound(spec, rule) {
+  return rule.alert_bindings.some((b) => spec.kind === b.field && spec[b.field] === b.value);
+}
+// What AnnunciatorModel.tiles() shows for a usable spec in a preview state:
+// {text, level, stale} or null. An enum tile is always on and shows its first
+// mapped text; a tile on a quality flag is never drawn stale (in the stale
+// preview its keys are old, so only an `old` tile is lit).
+function annPreviewTile(spec, st) {
+  if (!spec || spec.error) return null;
+  const quality = spec.kind === "flag" && ANN_QUALITY_FLAGS.includes(spec.flag);
+  if (st === "stale" && !quality) return { text: spec.label, level: spec.level, stale: true };
+  if (spec.kind === "enum") return { text: spec.enum.length ? spec.enum[0][1] : "", level: spec.level, stale: false };
+  const on = st === "stale" ? spec.flag === "old" : st === "lit";
+  return on ? { text: spec.on_text, level: spec.level, stale: false }
+    : { text: spec.off_text, level: "off", stale: false };
+}
+// Python's int() of an option: a whole number or a numeric string, else null.
+function annInt(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string" && /^\s*[-+]?\d+\s*$/.test(v)) return parseInt(v, 10);
+  return null;
+}
+function annFloat(v) {
+  if (typeof v === "number") return v;
+  if (typeof v === "string" && v.trim() !== "") { const n = Number(v); if (!Number.isNaN(n)) return n; }
+  return null;
+}
+// Annunciator.grid: (rows, cols); cols 0 = as many as the tiles need.
+function annGrid(o, n) {
+  const rows = Math.max(1, annInt(o.rows ?? 1) ?? 1);
+  let cols = annInt(o.cols ?? 0) ?? 0;
+  if (cols <= 0) cols = Math.ceil(Math.max(1, n) / rows);
+  return [rows, Math.max(1, cols)];
+}
+// Annunciator.tile_rects: one rect per spec, row-major; past the grid, null.
+function annRects(o, n, w, h) {
+  const [rows, cols] = annGrid(o, n);
+  const gap = Math.max(0, annFloat(o.gap_px ?? 4) ?? 0);
+  const tw = (w - gap * (cols + 1)) / cols, th = (h - gap * (rows + 1)) / rows;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const r = Math.floor(i / cols), c = i % cols;
+    out.push(r >= rows || tw <= 0 || th <= 0 ? null : { x: gap + c * (tw + gap), y: gap + r * (th + gap), w: tw, h: th });
+  }
+  return out;
+}
+// tile.fit_px: the largest size, at most px, at which every text fits.
+function annFitPx(family, texts, width, height, px) {
+  px = Math.max(4, px);
+  for (let n = 0; n < 60; n++) {
+    const f = qtBoldFont(family, Math.max(1, Math.trunc(px)));
+    const ok = texts.every((t) => {
+      const lines = String(t).split("\n");
+      return Math.max(...lines.map((l) => f.advance(l))) <= width && (f.ascent + f.descent) * lines.length <= height;
+    });
+    if (ok || px <= 4) return px;
+    px = Math.max(4, px - 1);
+  }
+  return px;
+}
+// The block in device px: Annunciator.paintEvent + tile.paint_tile for each
+// tile, with no flash (the preview has no change to call out). `states` is a
+// preview state per tile; with no tiles configured, the schema's preview
+// sample is drawn (the device draws nothing until tiles are added).
+function annGeom(o, meta, rule, states, w, h) {
+  const g = { w, h, bg: null, tiles: [], sample: false };
+  const family = o.font_family || "DejaVu Sans Condensed";
+  const raw = Array.isArray(o.tiles) ? o.tiles : annIsMap(o.tiles) ? [o.tiles] : [];
+  let specs, tiles;
+  if (raw.length) {
+    specs = raw.map((e) => annSpec(e, rule));
+    tiles = specs.map((s, i) => annPreviewTile(s, states[i] || "lit"));
+  } else {
+    const pv = ((meta.preview || {}).tiles || []);
+    specs = pv.map((t) => ({ error: "", label: t.text, on_text: t.text, off_text: t.text, enum: [] }));
+    tiles = pv.map((t) => ({ text: t.text, level: t.level, stale: false }));
+    g.sample = true;
+  }
+  if (!tiles.some((t) => t)) return g;
+  let alpha = annFloat(o.bg_opacity ?? 75);
+  alpha = alpha === null ? 0.75 : Math.max(0, Math.min(1, alpha / 100));
+  if (alpha > 0) { const c = apColor(o.bg_color || "#000000"); g.bg = [c[0], c[1] * alpha]; }
+  const rects = annRects(o, specs.length, w, h);
+  const sized = rects.filter((r) => r);
+  if (!sized.length) return g;
+  const border = Math.max(1, annFloat(o.border_width ?? 2) ?? 1);
+  const pad = border * 2 + Math.min(sized[0].h, sized[0].w) * 0.06;
+  let fp = annFloat(o.font_percent);
+  if (fp !== null && fp > 1) fp /= 100;
+  const scale = fp ? fp : 1;
+  const templates = [];
+  for (const s of specs) if (!s.error) templates.push(s.label, s.on_text, s.off_text, ...s.enum.map((e) => e[1]));
+  const texts = templates.filter((t) => t);
+  const px = annFitPx(family, texts.length ? texts : [" "], sized[0].w - 2 * pad, sized[0].h - 2 * pad, sized[0].h * 0.5 * scale);
+  const font = qtBoldFont(family, Math.max(1, Math.trunc(px)));
+  const radius = annFloat(o.corner_radius ?? 4) || 0;
+  const colorOf = (level) => {
+    const name = level + "_color";
+    return o[name] || ((meta.options || {})[name] || {}).default || ((meta.options || {}).advisory_color || {}).default;
+  };
+  tiles.forEach((t, i) => {
+    const r = rects[i];
+    if (!t || !r) return;
+    const color = apColor(t.stale ? ANN_STALE_COLOR : colorOf(t.level));
+    const reverse = rule.alert_levels.includes(t.level) && !t.stale;
+    let width = border;
+    if (t.level === "off" && !t.stale) width = Math.max(1, width / 2);
+    const half = width / 2;
+    const box = { x: r.x + half, y: r.y + half, w: r.w - width, h: r.h - width };
+    const lines = t.text ? String(t.text).split("\n") : [];
+    const top = box.y + (box.h - lines.length * (font.ascent + font.descent)) / 2;
+    g.tiles.push({
+      rect: r, box, color, width, radius, stale: t.stale, fill: reverse, cap: "square", join: "bevel",
+      text: t.text, px: font.px, family, textColor: reverse ? apColor(ANN_REVERSE_TEXT) : color,
+      lines: lines.map((l, k) => ({ text: l, baseline: top + font.ascent + k * (font.ascent + font.descent) })),
+    });
+  });
+  return g;
+}
+function annSvg(g) {
+  const out = [`<svg viewBox="0 0 ${g.w} ${g.h}" class="gauge-svg">`];
+  if (g.bg) out.push(`<rect x="0" y="0" width="${g.w}" height="${g.h}" fill="${apEsc(g.bg[0])}" fill-opacity="${g.bg[1]}"/>`);
+  for (const t of g.tiles) {
+    // Qt's DashLine is 4 dashes, 2 gaps, in pen widths.
+    const dash = t.stale ? ` stroke-dasharray="${4 * t.width} ${2 * t.width}"` : "";
+    const fill = t.fill ? `fill="${apEsc(t.color[0])}" fill-opacity="${t.color[1]}"` : 'fill="none"';
+    // QPen(colour, width) is a square cap and a bevel join: the cap stretches
+    // each dash by half a width at both ends (8 on 4 off draws 10 on 2 off).
+    out.push(apRectSvg(t.box, t.radius, `${fill} stroke="${apEsc(t.color[0])}" stroke-opacity="${t.color[1]}" stroke-width="${t.width}"` +
+      ` stroke-linecap="${t.cap}" stroke-linejoin="${t.join}"${dash}`));
+    for (const l of t.lines) {
+      out.push(`<text x="${t.box.x + t.box.w / 2}" y="${l.baseline}" text-anchor="middle" font-family="${apEsc(t.family)}" font-size="${t.px}" font-weight="bold"` +
+        ` fill="${apEsc(t.textColor[0])}" fill-opacity="${t.textColor[1]}">${apEsc(l.text)}</text>`);
+    }
+  }
+  out.push("</svg>");
+  return out.join("\n");
+}
+function buildAnnunciator(inst) {
+  const meta = (state.schema && state.schema.instruments && state.schema.instruments[inst.type]) || {};
+  const rule = annRule();
+  const { w, h } = mapDevicePx(inst);
+  if (!rule) return svgFromString(`<svg viewBox="0 0 ${w} ${h}" class="gauge-svg"></svg>`);
+  const o = inst.options || {};
+  const n = Array.isArray(o.tiles) ? o.tiles.length : 1;
+  const st = ANN_PREVIEW_STATES.includes(state.annPreview) ? state.annPreview : "lit";
+  return svgFromString(annSvg(annGeom(o, meta, rule, Array(n).fill(st), w, h)));
 }
 
 // --- screens (multi-screen) -------------------------------------------------
@@ -6169,6 +6686,37 @@ function renderScreensBar() {
   if (state.screens[state.active].name !== state.defaultScreen) actions.appendChild(mk("Set default", () => setDefaultScreen(state.active)));
   if (state.screens.length > 1) actions.appendChild(mk("Delete", () => deleteScreen(state.active)));
   bar.appendChild(actions);
+  renderCasWarning();
+}
+
+// CAS3 (amendment accepted 2026-11-22): crew alerts must be on every screen, so
+// a screen with no `cas_window` or `cas_marker` gets a warning. It warns, never
+// refuses. Inert until the schema carries one of the two types, so it cannot
+// nag before pyEfis can satisfy it. Only instruments always on the screen count
+// (top level, or inside a group); one on a tab page is hidden behind the tab.
+const CAS_PLACEMENT_TYPES = ["cas_window", "cas_marker"];
+function screensMissingCas(screens, schemaInstruments, groupsById) {
+  if (!CAS_PLACEMENT_TYPES.some((t) => schemaInstruments && schemaInstruments[t])) return [];
+  const out = [];
+  screens.forEach((sc, i) => {
+    const has = (sc.instruments || []).some((inst) => {
+      if (CAS_PLACEMENT_TYPES.includes(inst.type)) return true;
+      const def = inst.type === "group" && groupsById && groupsById[inst.id];
+      return !!def && (def.instruments || []).some((ch) => CAS_PLACEMENT_TYPES.includes(ch.type));
+    });
+    if (!has) out.push(i);
+  });
+  return out;
+}
+function renderCasWarning() {
+  const missing = screensMissingCas(state.screens, state.schema && state.schema.instruments, state.groupsById);
+  $("screens-bar").querySelectorAll(".screen-tab").forEach((tab, i) =>
+    tab.classList.toggle("cas-missing", missing.includes(i)));
+  const note = $("screen-warn");
+  const on = missing.includes(state.active);
+  note.classList.toggle("hidden", !on);
+  note.textContent = on ? "No CAS window or CAS marker on this screen: crew alerts will not "
+    + "show while it is displayed. pyEfis raises CAS NOT SHOWN. Place one from the palette." : "";
 }
 // canvas -> code: refresh the textarea (unless the user is typing in it, so we
 // never clobber an in-progress edit). Setting .value doesn't fire 'input', so

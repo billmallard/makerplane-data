@@ -26,6 +26,19 @@ and the `configurator`. Semver on the Python package; process in
   back on rollback.
 
 ### Configurator and device config
+- **The `annunciator` instrument: tile and binding editor, and its twin
+  (ANN2 of pyEfis#551, AER-6348).** A placed block of lamps is edited tile by
+  tile: a label, a FIX key from the type-ahead picker, and what lights it (the
+  value, a condition in the Button's clause editor, one of the key's own
+  flags, or a value-to-text map). Every field, flag, level and the level rule
+  come from the schema's `annunciator` block. Red and amber are offered only
+  on the key's own `annunciate` flag, never on a local condition; a tile
+  asking for them otherwise is marked "drawn advisory", as the device draws
+  it. The canvas twin follows the real widget (oracle-pinned over 132 cases),
+  with a canvas-only preview of every tile lit, off or stale.
+- **A screen with no `cas_window` or `cas_marker` gets a warning (CAS3
+  amendment, AER-6348).** A mark on its tab and a note under the screens bar;
+  it never blocks a save, and stays off until the schema carries the CAS types.
 - **The attitude previews draw the flight director (AFC5 twin of
   pyEfis#519, AER-6304).** `atitude_indicator` and `virtual_vfr` take the
   new `fd_style` option from the pyEfis schema (`single_cue`, the default,

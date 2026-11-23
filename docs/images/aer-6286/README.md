@@ -52,7 +52,8 @@ pyEfis checkout:
 ```sh
 QT_QPA_PLATFORM=offscreen PYTHONPATH=$PYEFIS/src:$PYEFIS \
   python3 configurator/tools/ap_annunciator_oracle.py > configurator/test/fixtures/ap_annunciator_pyefis.json
-python3 configurator/tools/ap_annunciator_metrics.py configurator/test/fixtures/ap_annunciator_pyefis.json
+# The font table (QT_BOLD_METRICS) now comes from the annunciator oracle
+# (AER-6348): see docs/images/aer-6348/README.md.
 QT_QPA_PLATFORM=offscreen PYTHONPATH=$PYEFIS/src:$PYEFIS \
   python3 configurator/tools/ap_tape_cues_oracle.py > configurator/test/fixtures/ap_tape_cues_pyefis.json
 ```

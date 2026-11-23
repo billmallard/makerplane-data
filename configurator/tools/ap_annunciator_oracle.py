@@ -26,8 +26,10 @@
 # kern pairs (the `metrics` block): the strip fits its font by
 # horizontalAdvance, and that is the sum of the hinted glyph advances plus the
 # kern pairs, each rounded (for DejaVu Sans Condensed, exact for 99.7% of
-# 2,457 string/size pairs probed at 4-120 px; the rest are 1-2 px out). tools/ap_annunciator_metrics.py
-# turns it into the twin's AP_STRIP_METRICS table.
+# 2,457 string/size pairs probed at 4-120 px; the rest are 1-2 px out). The twin's
+# QT_BOLD_METRICS table now comes from tools/qt_bold_metrics.py over the
+# annunciator oracle's wider fixture (AER-6348); the AP test still checks it
+# against this one.
 #
 # With --render OUT.png W H STATE it instead saves one frame of the strip,
 # the device half of the side-by-side; OPTIONS is optional JSON merged into

@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (c) 2026 Bill Mallard
 #
-# AER-6286: print the editor's AP_STRIP_METRICS table (public/editor.html)
-# from the Qt metrics tools/ap_annunciator_oracle.py recorded in
-# test/fixtures/ap_annunciator_pyefis.json. No Qt needed here.
+# AER-6348: print the editor's QT_BOLD_METRICS table (public/editor.html)
+# from the Qt metrics tools/annunciator_oracle.py recorded in
+# test/fixtures/annunciator_pyefis.json (printable ASCII). No Qt needed here.
 #
-#   python3 tools/ap_annunciator_metrics.py test/fixtures/ap_annunciator_pyefis.json
+#   python3 tools/qt_bold_metrics.py test/fixtures/annunciator_pyefis.json
 #
-# The strip fits its bold font by horizontalAdvance, which is the sum of the
+# The AP strip and the annunciator fit a bold font by horizontalAdvance, which is the sum of the
 # hinted glyph advances plus the font's kern pairs, each rounded to whole
 # pixels. Per family the table holds each glyph's font units (u); per glyph,
 # its residual against Math.round(u * px / 2048) at each pixel size 1..160,
@@ -17,8 +17,10 @@
 # the table's characters, in font units (k). Units are Qt's advances at
 # 2048 px, where they are the font's own. A regenerated fixture with any other
 # residual stops this script rather than writing a table the twin misreads.
-# test/ap_annunciator_twin.test.mjs decodes it and checks it against the
-# fixture, value for value.
+# test/annunciator_twin.test.mjs decodes it and checks it against this
+# fixture, and test/ap_annunciator_twin.test.mjs against the AP strip's,
+# value for value. It replaces tools/ap_annunciator_metrics.py (AER-6286),
+# which covered only the strip's characters.
 
 import json
 import math
@@ -52,8 +54,11 @@ def main(path):
         s = enc(int(r[2]) - jsround(du * r[0] / 2048) for r in t["rows"])
         fams[fam] = {"u": units, "d": d, "au": au, "du": du, "a": a, "s": s,
                      "k": t["kern"]}
-    print("const AP_STRIP_METRICS = %s;" % json.dumps(
-        {"chars": m["chars"], "families": fams}, separators=(",", ":")))
+    # ";" is escaped so the table stays a one-line `const X = ...;` that
+    # test/support/extract.mjs can lift out (JSON has no ";" outside strings).
+    print("const QT_BOLD_METRICS = %s;" % json.dumps(
+        {"chars": m["chars"], "families": fams},
+        separators=(",", ":")).replace(";", "\\u003b"))
 
 
 if __name__ == "__main__":
