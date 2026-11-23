@@ -167,12 +167,15 @@ shipped files are never modified, and every write is atomic.
   file too.
 - **aircraft.ini:** the `fixgw:` block's file is checked against its sha256
   and staged as `init_data/aircraft.ini.pending` in fix-gateway's config
-  folder. In maintenance mode it is first run through fix-gateway's own
-  loader, which refuses a key its database lacks or a value of the wrong
-  type: either one would stop fix-gateway at startup. Then it is installed
-  as `init_data/aircraft.ini` and listed last under `initialization files`
-  in `default.yaml`, once, keeping every other line. fix-gateway is
-  restarted and checked; if it does not stay up, both files are put back.
+  folder. In maintenance mode, when the file names a fuel tank slot above
+  fix-gateway's tank count (`t` in `database/variables.yaml`), the count is
+  raised to that slot first. It is never lowered. The file is then run
+  through fix-gateway's own loader, which refuses a key its database lacks
+  or a value of the wrong type: either one would stop fix-gateway at
+  startup. Then it is installed as `init_data/aircraft.ini` and listed last
+  under `initialization files` in `default.yaml`, once, keeping every other
+  line. fix-gateway is restarted and checked; if it does not stay up,
+  `default.yaml`, `aircraft.ini` and `variables.yaml` are put back.
 - **The change record:** a pull that changed the panel is recorded for the
   Data Status screen until someone acknowledges it; see
   [[The On-Device Updater]].
@@ -214,9 +217,14 @@ own. `pyefis_unit_scope: user` or `system` in `data.yaml` sets it.
 | `new config crashed pyEfis on load; rolled back to ...` | 1 |
 
 Before the restart it may also print `aircraft units: ...`,
-`fix-gateway ownship address: <address>` (or `removed`), and the result of
-restarting fix-gateway. A fix-gateway problem is reported and never fails the
-pull.
+`fix-gateway ownship address: <address>` (or `removed`), what happened to
+`aircraft.ini` (`installed aircraft.ini ...`, `raised fix-gateway's fuel tank
+count to <n> ...`, `aircraft.ini ... is staged ...` or `aircraft.ini not
+installed: ...`), and the result of restarting fix-gateway. In maintenance
+mode the command exits 1 when fix-gateway could not be restarted or did not
+stay up, and, on a pull that found the panel up to date, when the staged
+`aircraft.ini` could not be installed. The new panel stays installed either
+way.
 
 On success it stores the new `config_version` and `config_etag` in `data.yaml`,
 so the next pull sends `If-None-Match` and gets a `304` when nothing changed.

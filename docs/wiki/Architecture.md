@@ -16,17 +16,21 @@ receives.
 |---|---|---|---|---|
 | **Navigation packs** | airports, navaids, procedures, obstacles, terrain, water, roads | Everyone: one public catalog | A **signed** manifest, then a SHA-256 per pack | `pyefis-data update` (daily timer), or `pyefis-data import` from a USB stick |
 | **Panel config** | the screens and instruments designed in the configurator, plus `preferences:` and `fixgw:` blocks and tank bindings from the aircraft profile | One paired device | A per-device **token** over HTTPS | `pyefis-data config-pull`, once at boot |
-| **Aircraft parameters** | V-speeds, gauge bands, engine and fuel limits | One aircraft | The builder downloads the file from their own account | `aircraft.ini`, copied by hand into FIX-Gateway's `init_data` |
+| **Aircraft parameters** | V-speeds, gauge bands, engine and fuel limits | One aircraft | Rides the panel config, so the same per-device token | `aircraft.ini`, installed into FIX-Gateway's `init_data` by `pyefis-data config-pull --maintenance` on the ground, or copied there by hand |
 
 The navigation channel is signed because it is public: anyone can fetch it, so
 the device needs proof of who produced it. The panel config is private to one
 device and is authorised by that device's token. It is not signed.
 
-The aircraft-parameter channel is manual. The configurator's Aircraft page
-builds `aircraft.ini` for download, and its footer says the device push arrives
-later
+The aircraft parameters travel with the panel config. The served config's
+`fixgw:` block carries the profile's values as `aircraft.ini`, with its
+SHA-256. Because FIX-Gateway is the aircraft's data bus, the boot pull only
+stages the file. A pull run on the ground with `--maintenance` checks it with
+FIX-Gateway's own loader, installs it and restarts FIX-Gateway, and puts the
+old files back if FIX-Gateway does not stay up. The Aircraft page can also
+download the same file for a manual install
 ([`configurator/public/aircraft.html`](https://github.com/billmallard/makerplane-data/blob/dev/configurator/public/aircraft.html)).
-Three parts of the profile already travel with the panel config: the altimeter
+Three more parts of the profile ride the same pull: the altimeter
 setting unit (`inHg` or `hPa`), which `config-pull` merges into pyEfis's
 `preferences.yaml.custom`; the ownship address, which it writes into
 FIX-Gateway's; and the label and slot of each tank a panel gauge is bound to,
@@ -57,11 +61,16 @@ What follows from that:
 - **Taking over the website is not enough to ship a bad pack.** A forged pack
   needs a forged signature, which needs the offline secret key. Without it the
   device refuses the catalog and keeps the data it has.
-- **The device trusts one key.** The public key is a constant in
+- **The device trusts a small, fixed set of keys.** The set is a constant,
+  `PUBLIC_KEYS`, in
   [`pyefis_data/cli.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/cli.py),
+  so verifying needs no key file and no network. Today it holds one key,
   copied from
-  [`keys/minisign.pub`](https://github.com/billmallard/makerplane-data/blob/dev/keys/minisign.pub),
-  so verifying needs no key file and no network.
+  [`keys/minisign.pub`](https://github.com/billmallard/makerplane-data/blob/dev/keys/minisign.pub).
+  A key added to the set ahead of a rotation lets a device accept catalogs
+  signed by the new key with no update. The signature names its key, and a catalog signed
+  by any key outside the set is refused. How keys are rotated or revoked:
+  [`docs/signing_key.md`](https://github.com/billmallard/makerplane-data/blob/dev/docs/signing_key.md).
 - **The device checks the bytes it downloaded.** It never re-serializes the
   manifest before checking, so signing and verifying cannot drift apart. Both
   sides run the same code,
@@ -132,7 +141,7 @@ The updater
 ([`pyefis_data/core.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/core.py))
 works in this order:
 
-1. **Verify the catalog** against the embedded key, before caching or using it.
+1. **Verify the catalog** against the embedded keys, before caching or using it.
 2. **Download each pack to `staging/`** under the data root, never on top of
    the live file.
 3. **Check its SHA-256** against the signed catalog. On a mismatch the

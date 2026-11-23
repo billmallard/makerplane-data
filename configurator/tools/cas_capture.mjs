@@ -23,9 +23,9 @@ const SCENES = JSON.parse(readFileSync(new URL("./cas_scenes.json", import.meta.
 const { chromium } = await import(resolve(process.env.PW, "index.mjs"));
 const outDir = process.argv[2];
 const src = editorSource();
-const CONSTS = ["AP_STRIP_METRICS", "CAS_TILE_LEVEL", "CAS_MARKER_TEXT", "CAS_COLORS",
+const CONSTS = ["QT_BOLD_METRICS", "CAS_TILE_LEVEL", "CAS_MARKER_TEXT", "CAS_COLORS",
   "CAS_REVERSE_TEXT"];
-const FUNCS = ["fontScale", "apColor", "apEsc", "apStripFont", "casParseSlot", "casMessages",
+const FUNCS = ["fontScale", "apColor", "apEsc", "qtBoldFont", "casParseSlot", "casMessages",
   "casLines", "casWindowRows", "casFitPx", "casBackground", "casTile", "casWindowGeom",
   "casMarkerGeom", "casSvg"];
 const twin = new Function(`

@@ -5,8 +5,8 @@
 // ModeAnnunciator paints. The expected values are not hand-written: they are
 // dumped by tools/ap_annunciator_oracle.py into
 // test/fixtures/ap_annunciator_pyefis.json (regenerate with the command in
-// that script's header; AP_STRIP_METRICS comes from the same fixture through
-// tools/ap_annunciator_metrics.py). This test runs the REAL editor functions
+// that script's header; QT_BOLD_METRICS comes from
+// tools/qt_bold_metrics.py over the annunciator oracle's fixture). This test runs the REAL editor functions
 // against them (see test/support/extract.mjs).
 
 import { test } from "node:test";
@@ -15,13 +15,13 @@ import { readFileSync } from "node:fs";
 import { editorSource, extractFunction, extractConst } from "./support/extract.mjs";
 
 const src = editorSource();
-const CONSTS = ["AP_STRIP_SLOTS", "AP_STRIP_TEMPLATES", "AP_STRIP_COLORS", "AP_STRIP_METRICS"];
-const FUNCS = ["fontScale", "apColor", "apEsc", "apStripFont", "apStripFit", "apStripSlots",
+const CONSTS = ["AP_STRIP_SLOTS", "AP_STRIP_TEMPLATES", "AP_STRIP_COLORS", "QT_BOLD_METRICS"];
+const FUNCS = ["fontScale", "apColor", "apEsc", "qtBoldFont", "apStripFit", "apStripSlots",
   "apStripCells", "apStripGeom", "apStripSvg"];
 const twin = new Function(`
   ${CONSTS.map((c) => extractConst(src, c)).join("\n")}
   ${FUNCS.map((f) => extractFunction(src, f)).join("\n\n")}
-  return { apStripFont, apStripSlots, apStripCells, apStripGeom, apStripSvg, AP_STRIP_METRICS };
+  return { qtBoldFont, apStripSlots, apStripCells, apStripGeom, apStripSvg, QT_BOLD_METRICS };
 `)();
 
 const FIXTURE = JSON.parse(readFileSync(
@@ -38,7 +38,7 @@ test("the twin's font table is Qt's metrics, value for value", () => {
   const M = FIXTURE.metrics, cols = M.columns;
   for (const [fam, t] of Object.entries(M.families)) {
     for (const r of t.rows) {
-      const f = twin.apStripFont(fam, r[0]);
+      const f = twin.qtBoldFont(fam, r[0]);
       assert.equal(f.ascent, r[cols.indexOf("ascent")], `${fam} ${r[0]}px ascent`);
       assert.equal(f.descent, r[cols.indexOf("descent")], `${fam} ${r[0]}px descent`);
       for (const ch of M.chars) assert.equal(f.advance(ch), r[cols.indexOf(ch)], `${fam} ${r[0]}px "${ch}"`);
@@ -52,7 +52,7 @@ test("a string's advance is Qt's, within 2 px, exact for nearly all", () => {
   let n = 0, exact = 0;
   for (const c of FIXTURE.cases) {
     for (const o of c.ops.filter((x) => x.op === "text")) {
-      const d = Math.abs(twin.apStripFont(o.family, o.pixel_size).advance(o.text) - o.advance);
+      const d = Math.abs(twin.qtBoldFont(o.family, o.pixel_size).advance(o.text) - o.advance);
       assert.ok(d <= 2, `${label(c)} "${o.text}" ${o.pixel_size}px: off by ${d}`);
       n++; if (d === 0) exact++;
     }

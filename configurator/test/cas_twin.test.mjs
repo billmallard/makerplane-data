@@ -14,9 +14,9 @@ import { readFileSync } from "node:fs";
 import { editorSource, extractFunction, extractConst } from "./support/extract.mjs";
 
 const src = editorSource();
-const CONSTS = ["AP_STRIP_METRICS", "CAS_TILE_LEVEL", "CAS_MARKER_TEXT", "CAS_COLORS",
+const CONSTS = ["QT_BOLD_METRICS", "CAS_TILE_LEVEL", "CAS_MARKER_TEXT", "CAS_COLORS",
   "CAS_REVERSE_TEXT", "CAS_PREVIEW_LEVEL"];
-const FUNCS = ["fontScale", "apColor", "apEsc", "apStripFont", "casParseSlot", "casMessages",
+const FUNCS = ["fontScale", "apColor", "apEsc", "qtBoldFont", "casParseSlot", "casMessages",
   "casLines", "casWindowRows", "casFitPx", "casBackground", "casTile", "casWindowGeom",
   "casMarkerGeom", "casSvg"];
 const twin = new Function(`
