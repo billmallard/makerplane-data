@@ -24,8 +24,8 @@ const { chromium } = await import(resolve(process.env.PW, "index.mjs"));
 const [out, W, H] = process.argv.slice(2);
 const w = Number(W), h = Number(H);
 const src = editorSource();
-const CONSTS = ["AP_STRIP_SLOTS", "AP_STRIP_TEMPLATES", "AP_STRIP_COLORS", "AP_STRIP_METRICS"];
-const FUNCS = ["fontScale", "apColor", "apEsc", "apStripFont", "apStripFit", "apStripSlots",
+const CONSTS = ["AP_STRIP_SLOTS", "AP_STRIP_TEMPLATES", "AP_STRIP_COLORS", "QT_BOLD_METRICS"];
+const FUNCS = ["fontScale", "apColor", "apEsc", "qtBoldFont", "apStripFit", "apStripSlots",
   "apStripCells", "apStripGeom", "apStripSvg"];
 const { apStripCells, apStripGeom, apStripSvg } = new Function(`
   ${CONSTS.map((c) => extractConst(src, c)).join("\n")}
