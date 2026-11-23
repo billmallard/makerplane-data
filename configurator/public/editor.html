@@ -3784,7 +3784,10 @@ function renderProps() {
   const opts = { ...state.schema.common_options, ...meta.options };
   if (Object.keys(opts).length) {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
-    for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
+    for (const [name, spec] of Object.entries(opts)) {
+      if (inst.type === "annunciator" && name === ANN_TILES_OPTION) continue;   // renderTiles
+      p.appendChild(optionField(inst, name, spec));
+    }
   }
   const offer = migrationOffer(inst);
   if (offer) p.appendChild(offer);
@@ -3798,6 +3801,9 @@ function renderProps() {
   // Soft-controls: a Button's behaviour is a list of conditions, each firing a
   // list of actions. Its own dedicated editor (below the plain options).
   if (inst.type === "button") p.appendChild(renderConditions(inst));
+  // An annunciator's lamps: the same clause editor, plus the flag and
+  // value-to-text binding kinds (ANN2).
+  if (inst.type === "annunciator") p.appendChild(renderTiles(inst));
 }
 
 // Properties panel for an instrument nested inside a tab_section's active tab
@@ -3832,10 +3838,14 @@ function renderNestedProps(p, container, ns, tab, inst) {
   const opts = { ...state.schema.common_options, ...meta.options };
   if (Object.keys(opts).length) {
     const h = document.createElement("h3"); h.textContent = "Options"; p.appendChild(h);
-    for (const [name, spec] of Object.entries(opts)) p.appendChild(optionField(inst, name, spec));
+    for (const [name, spec] of Object.entries(opts)) {
+      if (inst.type === "annunciator" && name === ANN_TILES_OPTION) continue;   // renderTiles
+      p.appendChild(optionField(inst, name, spec));
+    }
   }
   const offer = migrationOffer(inst);
   if (offer) p.appendChild(offer);
+  if (inst.type === "annunciator") p.appendChild(renderTiles(inst));
 
   const rm = document.createElement("button");
   rm.textContent = "Remove from tab"; rm.style.marginTop = "8px";
@@ -4832,6 +4842,294 @@ function renderConditions(inst) {
   });
   wrap.appendChild(add);
   return wrap;
+}
+
+// --- Annunciator tiles (ANN2) -------------------------------------------------
+// options.tiles is a list of lamps (pyEfis instruments/annunciator). Every
+// field, binding kind, flag, level and the level rule comes from the schema's
+// `annunciator` block; a condition is edited with the Button's clause editor
+// (whenBuilder / whenRaw), and its other keys are derived into
+// condition_keys as the Button's are, so the author never lists them.
+const ANN_TILES_OPTION = "tiles";
+const RAW_WHEN_HELP_TILE = ["e.g. OILP lt 25 and not OILP.old",
+  "Raw pycond over FIX keys and their .old .bad .fail .annunciate flags; comparators "
+  + "eq ne lt le gt ge contains; combine with and / or / not."];
+
+function annTileField(rule, name) { return rule.tile_fields.find((f) => f.name === name) || null; }
+function annBindingFields(rule) { return rule.tile_fields.filter((f) => f.binding); }
+// The binding a tile uses: the first binding field set, or "" (lit while the
+// value is truthy). Two set is an error the card reports.
+function annTileBinding(rule, tile) {
+  const set = annBindingFields(rule).filter((f) => {
+    const v = tile[f.name];
+    return v !== undefined && v !== null && v !== "" && !(annIsMap(v) && !Object.keys(v).length);
+  });
+  return set.length ? set[0].name : "";
+}
+// The levels the editor offers a tile: the alert levels only on an alert
+// binding (Bill, 2026-11-22), never on a local condition. A tile already
+// asking for one the rule refuses keeps it listed, marked, so nothing is
+// silently rewritten.
+function annLevelChoices(rule, tile) {
+  const spec = annSpec({ ...tile, key: tile.key || "_" }, rule);
+  const alertOk = !spec.error && annAlertBound(spec, rule);
+  return rule.levels.filter((l) => alertOk || !rule.alert_levels.includes(l));
+}
+// condition_keys for a `when` tile: the other keys it reads (its own key is
+// read anyway). Gone for any other binding.
+function deriveTileConditionKeys(tile) {
+  const list = typeof tile.when === "string" || typeof tile.when === "boolean"
+    ? whenKeys([tile.when], String(tile.key || "").trim()) : [];
+  if (list.length) tile.condition_keys = list;
+  else delete tile.condition_keys;
+}
+function commitTiles(inst, restructure) {
+  for (const t of inst.options[ANN_TILES_OPTION]) if (annIsMap(t)) deriveTileConditionKeys(t);
+  renderCanvas();
+  if (restructure) renderProps();
+}
+
+function renderTiles(inst) {
+  const wrap = document.createElement("div");
+  const h = document.createElement("h3"); h.textContent = "Tiles"; wrap.appendChild(h);
+  const rule = annRule();
+  if (!rule) {
+    const n = document.createElement("p"); n.className = "muted";
+    n.textContent = "Tile editor unavailable (schema.json has no annunciator block).";
+    wrap.appendChild(n);
+    return wrap;
+  }
+  let tiles = inst.options[ANN_TILES_OPTION];
+  if (annIsMap(tiles)) tiles = [tiles];            // the device reads one mapping as one tile
+  if (!Array.isArray(tiles)) tiles = [];
+  inst.options[ANN_TILES_OPTION] = tiles;
+  const help = document.createElement("p"); help.className = "cond-help";
+  help.textContent = "Each tile is a lamp bound to one FIX key. Lit while the value is "
+    + "true, or bind it to a condition, one of the key's own flags, or a value-to-text "
+    + "map. Red and amber are only for the key's own annunciate flag: the limit lives "
+    + "once, in the gateway.";
+  wrap.appendChild(help);
+
+  const pv = document.createElement("div"); pv.className = "field";
+  pv.appendChild(Object.assign(document.createElement("label"), { textContent: "Preview tiles as" }));
+  const ps = document.createElement("select");
+  for (const [v, t] of [["lit", "Lit"], ["off", "Off"], ["stale", "Stale (keys old)"]]) {
+    const o = document.createElement("option"); o.value = v; o.textContent = t; ps.appendChild(o);
+  }
+  ps.value = ANN_PREVIEW_STATES.includes(state.annPreview) ? state.annPreview : "lit";
+  ps.title = "Canvas preview only; not saved";
+  ps.addEventListener("change", () => { state.annPreview = ps.value; renderCanvas(); });
+  pv.appendChild(ps); wrap.appendChild(pv);
+  if (!tiles.length) {
+    const n = document.createElement("p"); n.className = "cond-help";
+    n.textContent = "No tiles yet: the canvas shows a sample. The device draws nothing until you add one.";
+    wrap.appendChild(n);
+  }
+
+  const list = document.createElement("div"); list.className = "cond-list";
+  tiles.forEach((t, i) => list.appendChild(tileCard(inst, rule, tiles, i)));
+  wrap.appendChild(list);
+  const add = document.createElement("button"); add.className = "mini add";
+  add.textContent = "+ Add tile";
+  add.addEventListener("click", () => {
+    tiles.push({ label: "", key: "", level: rule.alert_fallback_level });
+    commitTiles(inst, true);
+  });
+  wrap.appendChild(add);
+  return wrap;
+}
+
+function tileCard(inst, rule, tiles, i) {
+  const card = document.createElement("div"); card.className = "cond";
+  const head = document.createElement("div"); head.className = "cond-head";
+  const n = document.createElement("span"); n.className = "cond-n"; n.textContent = "Tile #" + (i + 1);
+  head.appendChild(n);
+  const mv = (d, glyph, tip) => {
+    const b = document.createElement("button"); b.className = "mini"; b.textContent = glyph; b.title = tip;
+    const j = i + d;
+    if (j < 0 || j >= tiles.length) b.disabled = true;
+    b.addEventListener("click", () => { [tiles[i], tiles[j]] = [tiles[j], tiles[i]]; commitTiles(inst, true); });
+    head.appendChild(b);
+  };
+  mv(-1, "↑", "Earlier (tiles fill the grid row by row)");
+  mv(1, "↓", "Later");
+  const del = document.createElement("button"); del.className = "mini x"; del.textContent = "✕";
+  del.title = "Delete this tile";
+  del.addEventListener("click", () => { tiles.splice(i, 1); commitTiles(inst, true); });
+  head.appendChild(del);
+  card.appendChild(head);
+
+  const tile = tiles[i];
+  if (!annIsMap(tile)) {
+    const w = document.createElement("p"); w.className = "act-warn";
+    w.textContent = "Not a tile (not a mapping): the device skips it. Delete it, or fix it in the YAML.";
+    card.appendChild(w);
+    return card;
+  }
+  const field = (name, input) => {
+    const spec = annTileField(rule, name);
+    const f = document.createElement("div"); f.className = "field";
+    const l = document.createElement("label"); l.textContent = spec ? spec.label : name;
+    if (spec && spec.help) l.title = spec.help;
+    f.append(l, input);
+    card.appendChild(f);
+    return f;
+  };
+  const text = (name) => {
+    const inp = plainInput(tile[name] == null ? "" : String(tile[name]), (annTileField(rule, name) || {}).help || "", () => {
+      if (inp.value === "") delete tile[name]; else tile[name] = inp.value;
+      commitTiles(inst, false);
+    });
+    return inp;
+  };
+  field("label", text("label"));
+  const key = fixKeyInput(tile.key == null ? "" : String(tile.key), "FIX key", () => {
+    const v = key.value.trim();
+    if (v) tile.key = v; else delete tile.key;
+    commitTiles(inst, false);
+  });
+  field("key", key);
+
+  // The binding kind, then its own editor.
+  const kinds = annBindingFields(rule);
+  const kind = annTileBinding(rule, tile);
+  const ks = document.createElement("select");
+  for (const [v, t] of [["", "Value is true"], ...kinds.map((f) => [f.name, f.label])]) {
+    const o = document.createElement("option"); o.value = v; o.textContent = t; ks.appendChild(o);
+  }
+  ks.value = kind;
+  ks.addEventListener("change", () => {
+    for (const f of kinds) delete tile[f.name];
+    const f = annTileField(rule, ks.value);
+    if (f && f.kind === "condition") tile.when = tile.key ? `${tile.key} gt 0` : "";
+    else if (f && f.kind === "enum") tile[f.name] = f.enum[0];
+    else if (f && f.kind === "map") tile[f.name] = { 0: "" };
+    // A level the new binding may not use falls back, as the device would draw it.
+    if (tile.level && !annLevelChoices(rule, tile).includes(String(tile.level).trim().toLowerCase())) {
+      tile.level = rule.alert_fallback_level;
+    }
+    commitTiles(inst, true);
+  });
+  const bf = document.createElement("div"); bf.className = "field";
+  bf.append(Object.assign(document.createElement("label"), { textContent: "Lit when" }), ks);
+  card.appendChild(bf);
+  const kf = annTileField(rule, kind);
+  if (kf && kf.kind === "condition") {
+    const parsed = parseWhen(tile.when);
+    const raw = !!(inst._tileRaw && inst._tileRaw[i]);
+    const guided = !raw && parsed !== null;
+    const box = document.createElement("div"); box.className = "cond-when";
+    const tgl = document.createElement("button"); tgl.className = "mini";
+    tgl.textContent = guided ? "Raw" : "Guided";
+    tgl.addEventListener("click", () => {
+      inst._tileRaw = inst._tileRaw || [];
+      if (!guided && parseWhen(tile.when) === null) {
+        alert("This expression is too complex for the guided builder; keep editing it as raw text.");
+        return;
+      }
+      inst._tileRaw[i] = guided;
+      renderProps();
+    });
+    box.appendChild(tgl);
+    const commit = (restructure) => commitTiles(inst, restructure);
+    box.appendChild(guided ? whenBuilder(tile, parsed, commit, "fixkeys") : whenRaw(tile, commit, RAW_WHEN_HELP_TILE));
+    card.appendChild(box);
+    const ck = annTileField(rule, "condition_keys");
+    if (ck && tile.condition_keys && tile.condition_keys.length) {
+      const note = document.createElement("p"); note.className = "act-help";
+      note.textContent = `${ck.label}: ${tile.condition_keys.join(", ")} (from the condition; each must be fresh too)`;
+      card.appendChild(note);
+    }
+  } else if (kf && kf.kind === "enum") {
+    const sel = document.createElement("select");
+    const cur = String(tile[kf.name]);
+    for (const v of kf.enum.includes(cur) ? kf.enum : [...kf.enum, cur]) {
+      const o = document.createElement("option"); o.value = v; o.textContent = v; sel.appendChild(o);
+    }
+    sel.value = cur;
+    sel.addEventListener("change", () => { tile[kf.name] = sel.value; commitTiles(inst, true); });
+    field(kf.name, sel);
+  } else if (kf && kf.kind === "map") {
+    card.appendChild(annMapEditor(inst, tile, kf));
+  }
+
+  // Level: the rule's choices only.
+  const choices = annLevelChoices(rule, tile);
+  const lf = annTileField(rule, "level");
+  const ls = document.createElement("select");
+  const curLevel = tile.level == null ? lf.default : String(tile.level).trim().toLowerCase();
+  for (const l of choices.includes(curLevel) ? choices : [...choices, curLevel]) {
+    const o = document.createElement("option"); o.value = l;
+    o.textContent = choices.includes(l) ? l : `${l} (drawn ${rule.alert_fallback_level})`;
+    ls.appendChild(o);
+  }
+  ls.value = curLevel;
+  ls.addEventListener("change", () => { tile.level = ls.value; commitTiles(inst, true); });
+  field("level", ls);
+  if (!choices.some((l) => rule.alert_levels.includes(l))) {
+    const note = document.createElement("p"); note.className = "act-help";
+    note.textContent = `${rule.alert_levels.join(" and ")}: only with the key's own annunciate flag.`;
+    card.appendChild(note);
+  }
+
+  field("on_text", text("on_text"));
+  field("off_text", text("off_text"));
+  const ff = annTileField(rule, "flash_on_change");
+  const fl = document.createElement("input"); fl.type = "number"; fl.min = String(ff.minimum ?? 0);
+  fl.placeholder = String(ff.default ?? 0);
+  if (tile.flash_on_change != null) fl.value = tile.flash_on_change;
+  fl.addEventListener("input", () => {
+    if (fl.value === "") delete tile.flash_on_change; else tile.flash_on_change = parseFloat(fl.value);
+    commitTiles(inst, false);
+  });
+  field("flash_on_change", fl);
+
+  // What the device makes of the entry, in its own words.
+  const spec = annSpec(tile, rule);
+  if (spec.error) {
+    const w = document.createElement("p"); w.className = "act-warn";
+    w.textContent = `Not drawn on the device: ${spec.error}.`;
+    card.appendChild(w);
+  } else if (tile.level != null && spec.level !== String(tile.level).trim().toLowerCase()) {
+    const w = document.createElement("p"); w.className = "act-warn";
+    w.textContent = `Drawn at ${spec.level} on the device, not ${String(tile.level).trim()}.`;
+    card.appendChild(w);
+  }
+  return card;
+}
+
+// Value -> text rows for an `enum` binding. Values are stored as written, so
+// a whole number matches the key's value as the device matches it.
+function annMapEditor(inst, tile, f) {
+  const box = document.createElement("div"); box.className = "acts";
+  const lbl = document.createElement("div"); lbl.className = "acts-label"; lbl.textContent = f.label; box.appendChild(lbl);
+  const entries = Object.entries(tile[f.name] || {});
+  const store = () => {
+    const m = {};
+    for (const [k, v] of entries) if (String(k).trim() !== "") m[String(k).trim()] = v;
+    tile[f.name] = m;
+  };
+  entries.forEach((e, j) => {
+    const row = document.createElement("div"); row.className = "clause";
+    const fields = document.createElement("div"); fields.className = "cl-fields"; fields.style.gridTemplateColumns = "0.6fr 1.4fr";
+    const kv = plainInput(String(e[0]), "value", () => { e[0] = kv.value; store(); commitTiles(inst, false); });
+    const tv = plainInput(String(e[1]), "text", () => { e[1] = tv.value; store(); commitTiles(inst, false); });
+    fields.append(kv, tv); row.appendChild(fields);
+    const rm = document.createElement("button"); rm.className = "mini x"; rm.textContent = "✕";
+    rm.addEventListener("click", () => { entries.splice(j, 1); store(); commitTiles(inst, true); });
+    row.appendChild(rm); box.appendChild(row);
+  });
+  const add = document.createElement("button"); add.className = "mini add"; add.textContent = "+ value";
+  add.addEventListener("click", () => {
+    const used = new Set(entries.map((e) => String(e[0])));
+    let k = 0; while (used.has(String(k))) k++;
+    entries.push([String(k), ""]); store(); commitTiles(inst, true);
+  });
+  box.appendChild(add);
+  const hp = document.createElement("p"); hp.className = "act-help";
+  hp.textContent = (f.help || "") + ". An unmapped value shows itself.";
+  box.appendChild(hp);
+  return box;
 }
 
 // --- Phase 2: bind-a-control surface (control_bindings.md section 7) ---------
