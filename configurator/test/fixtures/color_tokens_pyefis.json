@@ -1,5 +1,5 @@
 {
- "pyefis_commit": "ee35698886fe09a2a26d036bfaf5dc9bda48734b",
+ "pyefis_commit": "0bb0487e61cc950e9771ee139414cbb0e9589b5e",
  "shipped_theme_colors": {},
  "tokens": [
   {
@@ -64,7 +64,7 @@
   },
   {
    "name": "state.warning",
-   "value": null,
+   "value": "#ff0000",
    "description": "exceeded, failed"
   },
   {
@@ -115,6 +115,15 @@
   },
   "altimeter_trend_tape": {
    "bg_color": "surface.base"
+  },
+  "annunciator": {
+   "bg_color": "surface.base",
+   "status_color": "state.valid",
+   "advisory_color": "ink.primary",
+   "info_color": "accent",
+   "off_color": "ink.muted",
+   "caution_color": "state.caution",
+   "warning_color": "state.warning"
   },
   "ap_annunciator": {
    "active_color": "",
