@@ -33,7 +33,7 @@ Global options, before the command: `--config PATH` (default
 | `accept [--yes] [--software NAME=VERSION] [--trigger TEXT]` | Accept the software notice and record it |
 | `advisories [--enable \| --disable] [--check] [--json]` | The opt-in safety advisory feed |
 | `pair CODE [--configurator-url URL]` | Redeem a claim code from the configurator |
-| `config-pull [--no-restart] [--wait-online SECONDS]` | Pull and install this device's panel, restart pyEfis, roll back if it does not come up |
+| `config-pull [--no-restart] [--wait-online SECONDS] [--maintenance]` | Pull and install this device's panel, restart pyEfis, roll back if it does not come up. `--maintenance`, on the ground, also applies fix-gateway changes |
 | `panel-ack [--yes] [--hash HASH] [--json]` | Acknowledge a panel change that `config-pull` installed (below) |
 
 `update` options:
@@ -51,7 +51,9 @@ Global options, before the command: `--config PATH` (default
 Exit codes: `0` success; `2` a verification error, an unreadable or refused
 catalog, or a bad argument; `3` the software notice has not been accepted; `130`
 the update was cancelled. `config-pull` returns `1` when the panel installed
-but pyEfis could not be restarted, or crashed and was rolled back.
+but pyEfis could not be restarted, or crashed and was rolled back, and in
+maintenance mode when fix-gateway did not take its new config (see
+[[Pairing and Config Delivery]]).
 
 ### Cancelling
 
@@ -88,9 +90,10 @@ setting explained is at
 | `base_url` | `https://navdata.aerocommons.org` | Where the catalog and packs come from |
 | `root` | `~/makerplane-data` | The data root, where packs are installed |
 | `track_kinds` | `[navdata, navaids, obstacles, cifp, procedures]` | Kinds tracked automatically, every pack of the kind |
-| `regions` | `[]` | Regions to track for the large kinds: terrain, water, roads |
+| `regions` | `[]` | Regions to track for the large kinds: terrain, water, roads, plates |
 | `packs` | `[]` | Extra pack ids to track, such as `airports-canada` |
 | `stage_next` | `true` | Download the next cycle before it takes effect |
+| `auto_update` | `true` | Let the daily timer run its update (below) |
 | `advisories` | `false` | Check the safety advisory feed |
 | `configurator_url` | `https://pyefis.aerocommons.org` | The configurator this device pairs with |
 | `device_token`, `device_id`, `config_version`, `config_etag` | none | Written by `pair` and `config-pull` |
@@ -113,9 +116,9 @@ each update.
 `auto_update: false` stops the daily timer's update. The timer runs
 `pyefis-data update --scheduled`, and a scheduled run with `auto_update` off
 installs nothing and exits 0. An update started by hand, by the picker or by
-a USB import still runs. A device installed before this change keeps
-updating daily until its `pyefis-data.service` is recopied from
-`pyefis_data/systemd/`.
+a USB import still runs. The setting needs the current
+`pyefis-data.service`: an older copy runs a plain `update`, which ignores
+it, so recopy the unit from `pyefis_data/systemd/`.
 
 There is no storage limit. You control how much is downloaded by choosing
 packs and regions; the picker shows each pack's size and the free space.
