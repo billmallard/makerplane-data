@@ -64,11 +64,11 @@ What follows from that:
 - **The device trusts a small, fixed set of keys.** The set is a constant,
   `PUBLIC_KEYS`, in
   [`pyefis_data/cli.py`](https://github.com/billmallard/makerplane-data/blob/dev/pyefis_data/cli.py),
-  so verifying needs no key file and no network. It holds the current key,
+  so verifying needs no key file and no network. Today it holds one key,
   copied from
-  [`keys/minisign.pub`](https://github.com/billmallard/makerplane-data/blob/dev/keys/minisign.pub),
-  and will also hold the next key once one is made, so a device survives a key
-  rotation with no update. The signature names its key, and a catalog signed
+  [`keys/minisign.pub`](https://github.com/billmallard/makerplane-data/blob/dev/keys/minisign.pub).
+  A key added to the set ahead of a rotation lets a device accept catalogs
+  signed by the new key with no update. The signature names its key, and a catalog signed
   by any key outside the set is refused. How keys are rotated or revoked:
   [`docs/signing_key.md`](https://github.com/billmallard/makerplane-data/blob/dev/docs/signing_key.md).
 - **The device checks the bytes it downloaded.** It never re-serializes the

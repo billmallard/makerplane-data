@@ -59,7 +59,8 @@ attributes each check protects (`protects:`); the per-kind matrix is
 [`docs/data_quality_requirements.md`](https://github.com/billmallard/makerplane-data/blob/dev/docs/data_quality_requirements.md).
 Blocking checks stop a publish when they fail. A check still awaiting review of its definition is marked
 `pending_review` in the record: it runs and is shown, but never stops a
-publish. The `PROC-FAS-*` checks are in that state.
+publish. The `PROC-FAS-*` checks, `TER-006`, `XS-001` and `XS-002` are in
+that state.
 
 | Group | Applies to | Checks |
 |---|---|---|
