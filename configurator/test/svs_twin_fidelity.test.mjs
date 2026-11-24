@@ -30,16 +30,13 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCanvas, loadImage } from "canvas";
-import { editorSource, extractConst, extractFunction } from "./support/extract.mjs";
+import { editorSource, extractFunction, svsSource } from "./support/extract.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = resolve(HERE, "fixtures");
 
-const CONSTS = ["SVS_PALETTES", "SVS_HAZE_RGB"];
-const FUNCS = ["_svsNum", "_svsBool", "_svsHash", "_svsNoise", "renderSVS"];
 const SRC = editorSource();
-const body = CONSTS.map((c) => extractConst(SRC, c)).join("\n")
-  + "\n\n" + FUNCS.map((f) => extractFunction(SRC, f)).join("\n\n");
+const body = svsSource(SRC);
 
 function makeRenderSVS() {
   const build = new Function(`${body}\nreturn renderSVS;`);
