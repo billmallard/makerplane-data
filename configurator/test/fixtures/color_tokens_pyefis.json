@@ -1,5 +1,5 @@
 {
- "pyefis_commit": "0bb0487e61cc950e9771ee139414cbb0e9589b5e",
+ "pyefis_commit": "c505464c16d610ca643d5091709454fa15c6ed59",
  "shipped_theme_colors": {},
  "tokens": [
   {
@@ -150,6 +150,18 @@
   "button": {
    "bg_color": "surface.raised",
    "fg_color": "accent"
+  },
+  "cas_marker": {
+   "warning_color": "",
+   "caution_color": "",
+   "advisory_color": "",
+   "background_color": ""
+  },
+  "cas_window": {
+   "warning_color": "",
+   "caution_color": "",
+   "advisory_color": "",
+   "background_color": ""
   },
   "checklist": {
    "text_color": "ink.primary",
