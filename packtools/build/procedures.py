@@ -12,7 +12,10 @@ Each table addition moves schema_version, see ``packmeta.PROCEDURES_TABLE_SCHEMA
 A new column does not (readers select by name; the published format rule):
 ``airway_legs.min_alt2_ft`` (AER-5460) is the ER record's second Minimum
 Altitude, the MEA for travel against ``seq`` order, NULL where the record
-leaves it blank -- and absent from packs built before it.
+leaves it blank -- and absent from packs built before it. ``airway_legs`` and
+``legs`` ``fix_region`` (AER-6550) is the leg record's fix ICAO code (``K2``,
+``MY``), so a reader can tell same-ident fixes apart; NULL where blank, and
+absent from packs built before it.
 Schema is brief section 3.3/3.4's, with one addition: ``idx_awy_ident`` is a
 UNIQUE index (AER-1979) so a route ident colliding across areas fails the
 build loudly instead of silently merging two airways into one row -- see
@@ -61,7 +64,8 @@ CREATE TABLE airway_legs (
     min_alt_ft  INTEGER,
     max_alt_ft  INTEGER,
     direction   TEXT,
-    min_alt2_ft INTEGER   -- MEA against seq order; NULL = same as min_alt_ft
+    min_alt2_ft INTEGER,  -- MEA against seq order; NULL = same as min_alt_ft
+    fix_region  TEXT      -- the ER record's fix ICAO code (K2, MY); NULL = blank
 );
 CREATE UNIQUE INDEX idx_awy_ident ON airways(ident);
 CREATE INDEX idx_awyleg_awy ON airway_legs(airway_id, seq);
@@ -108,7 +112,8 @@ CREATE TABLE legs (
                                 -- (one leg per procedure carries it; joins msa on airport + centre_fix)
     centre_lat      REAL,
     centre_lon      REAL,
-    arc_radius_nm   REAL        -- RF legs only: great_circle(centre, fix); convenience for the renderer
+    arc_radius_nm   REAL,       -- RF legs only: great_circle(centre, fix); convenience for the renderer
+    fix_region      TEXT        -- the leg record's fix ICAO code (K2, MY); NULL = blank
 );
 CREATE INDEX idx_proc_airport ON procedures(airport, kind);
 CREATE INDEX idx_trans_proc ON transitions(proc_id);
@@ -312,11 +317,11 @@ def _build_airways(con: sqlite3.Connection, path: Path,
                 f"airway {leg.route_ident} seq {leg.seq}")
         con.execute(
             "INSERT INTO airway_legs (airway_id, seq, fix_id, fix_lat, fix_lon, "
-            "fix_type, min_alt_ft, max_alt_ft, direction, min_alt2_ft) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "fix_type, min_alt_ft, max_alt_ft, direction, min_alt2_ft, fix_region) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (airway_id, leg.seq, leg.fix_id, leg.fix_lat, leg.fix_lon,
              leg.fix_type, leg.min_alt_ft, leg.max_alt_ft, leg.direction,
-             leg.min_alt2_ft))
+             leg.min_alt2_ft, leg.fix_icao))
         n += 1
     con.commit()
     return n
@@ -391,13 +396,14 @@ def _build_procedures(con: sqlite3.Connection, path: Path,
             "INSERT INTO legs (transition_id, seq, path_term, fix_id, fix_lat, "
             "fix_lon, fix_type, recd_navaid, theta, rho, course, dist_nm, "
             "time_min, alt_desc, alt1_ft, alt2_ft, speed_kt, turn_dir, rnp, "
-            "flags, centre_fix, centre_lat, centre_lon, arc_radius_nm) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "flags, centre_fix, centre_lat, centre_lon, arc_radius_nm, fix_region) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (trans_id, leg.seq, leg.path_term, leg.fix_id, leg.fix_lat, leg.fix_lon,
              leg.fix_type, leg.recd_navaid, leg.theta, leg.rho, leg.course,
              leg.dist_nm, leg.time_min, leg.alt_desc, leg.alt1_ft, leg.alt2_ft,
              leg.speed_kt, leg.turn_dir, leg.rnp, leg.flags,
-             leg.centre_fix, leg.centre_lat, leg.centre_lon, arc_radius_nm))
+             leg.centre_fix, leg.centre_lat, leg.centre_lon, arc_radius_nm,
+             leg.fix_icao))
         n += 1
     con.commit()
     return n
