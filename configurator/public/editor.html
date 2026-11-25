@@ -343,6 +343,7 @@
 <header>
   <span class="brand">AeroCommons</span><span class="muted">Panel Editor</span>
   <span class="muted" id="ctx"></span>
+  <span id="schema-note" class="hidden" style="color: #e3b341"></span>
   <label class="tsel">Screen <select id="res"></select></label>
   <span id="custom" class="hidden"><input id="cw" type="number" class="num"> × <input id="ch" type="number" class="num"></span>
   <label class="tsel">Size <select id="inches"></select></label>
@@ -389,6 +390,28 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const ASSETS = "/assets/editor";
+// The newest schema.json version this editor has been taught (INS4). A newer
+// one still loads, but the header says so: an option the editor does not
+// know may preview or save wrong. tools/schema_twin_check.mjs refuses a
+// newer schema in pyEfis CI, so the bump lands here first.
+const SCHEMA_VERSION_MAX = 4;
+
+// The header's account of the loaded schema: `title` says which version and
+// which pyEfis commit built it (`pyefis_commit`, when pyEfis stamps it);
+// `warn` is set only when the version is missing or newer than this editor.
+function schemaNotice(schema) {
+  const v = schema && schema.schema_version;
+  const sha = schema && typeof schema.pyefis_commit === "string" && /^[0-9a-f]{7,40}$/.test(schema.pyefis_commit)
+    ? schema.pyefis_commit : null;
+  const title = `Instrument schema v${Number.isInteger(v) ? v : "?"}, `
+    + (sha ? `built from pyEfis ${sha.slice(0, 12)}` : "pyEfis build commit not stated");
+  let warn = null;
+  if (!Number.isInteger(v))
+    warn = "schema.json states no version: previews may be wrong";
+  else if (v > SCHEMA_VERSION_MAX)
+    warn = `schema.json is v${v}; this editor knows up to v${SCHEMA_VERSION_MAX}: some options may preview or save wrong`;
+  return { title, warn };
+}
 const params = new URLSearchParams(location.search);
 const deviceId = params.get("device");
 
@@ -7068,6 +7091,9 @@ async function boot() {
   if (!me.ok) { location.href = "/"; return; }
   $("ctx").textContent = deviceId ? "device #" + deviceId : "(scratch - no device)";
   state.schema = await (await fetch(ASSETS + "/schema.json")).json();
+  const sn = schemaNotice(state.schema);
+  $("ctx").title = sn.title;
+  if (sn.warn) { $("schema-note").textContent = sn.warn; $("schema-note").title = sn.title; $("schema-note").classList.remove("hidden"); }
   try { state.fuelLabel = await import("/fuel_label.js"); } catch (_) { /* bar names draw whole */ }
   try { state.layoutAdvisory = await import("/layout_advisory.js"); } catch (_) { /* no advisory shown or saved */ }
   try {
