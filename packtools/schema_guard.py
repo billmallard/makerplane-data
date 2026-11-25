@@ -156,13 +156,14 @@ CONTRACTS: dict[str, Contract] = {
         required_columns={
             # STATE_CODE / COUNTRY_CODE (NAV) and ICAO_REGION_CODE (FIX) are
             # the holds join keys: (NAV_ID, NAV_TYPE) alone repeats across
-            # states for 33 NDBs in 2611 (docs/hpf_holds.md, Joins).
+            # states for 33 NDBs in 2611 (docs/hpf_holds.md, Joins). FIX_BASE's
+            # STATE_CODE / COUNTRY_CODE become fixes.state / country (AER-6550).
             "NAV_BASE.csv": frozenset({
                 "NAV_ID", "NAV_TYPE", "NAME", "FREQ", "ELEV",
                 "LAT_DECIMAL", "LONG_DECIMAL", "STATE_CODE", "COUNTRY_CODE"}),
             "FIX_BASE.csv": frozenset({
                 "FIX_ID", "FIX_USE_CODE", "LAT_DECIMAL", "LONG_DECIMAL",
-                "ICAO_REGION_CODE"}),
+                "ICAO_REGION_CODE", "STATE_CODE", "COUNTRY_CODE"}),
             # AWY_DESIGNATION is read by the SP filter (docs section 4); it is
             # present today and policed by the enum check below.
             "AWY_BASE.csv": frozenset({
