@@ -36,8 +36,11 @@ export function resolveAircraftRefs(
   // No binding (only empty references): serve the stored text, so the body
   // changes exactly when the ETag's bindings do. pyEfis skips an empty one.
   if (!r.bindings.length) return { yaml: panelYaml, bindings: [] };
+  // The dump drops comments; keep the leading block, which carries the
+  // editor's layout advisory (LAYADV1), so the device still receives it.
+  const head = /^(?:[ \t]*(?:#[^\n]*)?\n)*/.exec(panelYaml)![0];
   return {
-    yaml: yaml.dump(r.doc, { lineWidth: 100, noRefs: true }),
+    yaml: head + yaml.dump(r.doc, { lineWidth: 100, noRefs: true }),
     bindings: r.bindings as Binding[],
   };
 }
