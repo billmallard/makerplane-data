@@ -110,6 +110,12 @@ and the `configurator`. Semver on the Python package; process in
   current one.
 
 ### Packs (packtools)
+- **Procedure and airway legs keep their fix's ICAO region (FPA5, AER-6550).**
+  `airway_legs.fix_region` and `legs.fix_region` hold the leg record's fix
+  ICAO code (`K`, `MY`), so same-ident fixes in different regions stay apart.
+  Additive; `schema_version` does not move. The schema guard now requires
+  FIX_BASE `STATE_CODE` and `COUNTRY_CODE`, which pyEfis
+  `tools/build_navaid_db.py` reads into `fixes.state` and `fixes.country`.
 - **The navaids pack fetches the NASR holding-pattern file, and the schema
   guard polices it (HOLDFIX3, AER-6323).** `nasr_navaid_csv_urls` adds
   `<date>_HPF_CSV.zip`. The navaids contract now requires the HPF_BASE,

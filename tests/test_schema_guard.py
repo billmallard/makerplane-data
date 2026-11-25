@@ -444,7 +444,8 @@ def test_navaids_contract_guards_hpf_holds():
     assert "CHARTING_TYPE_DESC" in contract.required_columns["HPF_CHRT.csv"]
     assert {"STATE_CODE", "COUNTRY_CODE"} <= set(base)
     assert {"STATE_CODE", "COUNTRY_CODE"} <= set(contract.required_columns["NAV_BASE.csv"])
-    assert "ICAO_REGION_CODE" in contract.required_columns["FIX_BASE.csv"]
+    assert {"ICAO_REGION_CODE", "STATE_CODE", "COUNTRY_CODE"} <= set(
+        contract.required_columns["FIX_BASE.csv"])
     assert "HPF_structure.csv" in contract.structure_snapshots
     enums = contract.enum_columns["HPF_BASE.csv"]
     assert enums["TURN_DIRECTION"] == {"L", "R"}

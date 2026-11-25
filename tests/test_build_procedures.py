@@ -265,6 +265,42 @@ def test_build_airways_does_not_merge_across_areas(input_dir, tmp_path):
     assert fixes == {"AAAAA", "BBBBB"}
 
 
+def test_build_procedures_legs_keep_their_fix_region(input_dir, tmp_path):
+    """AER-6550: a fix ident is unique only within its ICAO region, so the
+    pack keeps the leg record's region beside fix_id. Two VORs both named
+    ZZQ, one in MY and one in K2, each on its own airway, must come out
+    with their own fix_region -- not one region for both, and not none."""
+    cifp = input_dir / "FAACIFP18"
+    zbv = next(l.rstrip("\n") for l in cifp.open(encoding="latin-1")
+               if l.startswith("SUSAD        ZBV   MY"))
+    with cifp.open("a", encoding="latin-1") as f:
+        for region in ("MY", "K2"):
+            f.write(zbv[:13] + "ZZQ " + zbv[17:19] + region + zbv[21:] + "\n")
+        for ident, region in (("Z997", "MY"), ("Z998", "K2")):
+            for seq in ("0100", "0200"):
+                line = list(_er_line("USA", ident, seq, "ZZQ"))
+                line[34:36] = region
+                f.write("".join(line) + "\n")
+
+    out = build_procedures(input_dir, tmp_path / "out.pack")
+    con = sqlite3.connect(str(out))
+    rows = con.execute(
+        "SELECT a.ident, al.fix_id, al.fix_region FROM airway_legs al "
+        "JOIN airways a ON a.id = al.airway_id "
+        "WHERE a.ident IN ('Z997', 'Z998') ORDER BY a.ident, al.seq").fetchall()
+    # The fixture's real legs carry their region too: V1's (2611) are K6.
+    v1 = {r[0] for r in con.execute(
+        "SELECT al.fix_region FROM airway_legs al JOIN airways a "
+        "ON a.id = al.airway_id WHERE a.ident = 'V1'")}
+    leg_regions = con.execute(
+        "SELECT COUNT(*), COUNT(fix_region) FROM legs WHERE fix_id IS NOT NULL").fetchone()
+    con.close()
+    assert rows == [("Z997", "ZZQ", "MY"), ("Z997", "ZZQ", "MY"),
+                    ("Z998", "ZZQ", "K2"), ("Z998", "ZZQ", "K2")]
+    assert v1 and None not in v1
+    assert leg_regions[0] > 0 and leg_regions[0] == leg_regions[1]
+
+
 def test_build_procedures_raises_when_no_cifp_file(tmp_path):
     empty = tmp_path / "empty"
     empty.mkdir()
