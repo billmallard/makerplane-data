@@ -13,7 +13,7 @@ collapse, the 0.7 hazard lighting floor and the `svs_terrain_shading` option
 | `compare_<scene>.png` | Top row: SVSSHADE2's Beelink capture on pyEfis dev before the change (clearance), beside the editor twin with `svs_terrain_shading: clearance`. Bottom row: SVSSHADE2's capture of the branch (relief), beside the twin with no option saved (relief). The same four poses (pyEfis `tools/export_svs_preview_patch.py` SCENES), 800x480, the twin at `pitchDegreesShown: 50` (the device default). |
 | `editor_scenes.png` | The real editor page (headless Chromium, `tools/svs_editor_capture.mjs`), one virtual_vfr per scene. Top row: no option saved (relief). Bottom row: `svs_terrain_shading: clearance`. Left to right: coastal, mountains, approach, final. Scaled to 50%. |
 | `editor_inspector.png` | The inspector of the selected virtual_vfr: the "Terrain shading" field, value `relief`, choices `relief` and `clearance`, from the dev site's schema.json. |
-| `fallback/<scene>.webp` | New fallback frames for `assets/editor/svs/<scene>.webp`: terrain-only GL captures on the Pi 5 at the four poses, pyEfis dev `b30b785b` (relief), 1920x1080 like the frames served today. **Not uploaded.** The sidecars (`<scene>.png.json`) describe the PNG each webp was encoded from (PIL, quality 85, method 6); their `sha256` is the PNG's. |
+| `fallback/<scene>.webp` | New fallback frames for `assets/editor/svs/<scene>.webp`: terrain-only GL captures on the Pi 5 at the four poses, pyEfis dev `b30b785b` (relief), 1920x1080 like the frames served before. **On dev since 2026-11-25; production waits** (see Upload below). The sidecars (`<scene>.png.json`) describe the PNG each webp was encoded from (PIL, quality 85, method 6); their `sha256` is the PNG's. |
 
 The device halves of `compare_<scene>.png` carry the SVS symbology; the twin
 draws terrain only. The twin's coastal patch floods the Goleta Slough flats
@@ -48,7 +48,7 @@ removed afterwards):
     ssh wpballard@10.110.10.199 'flock -w 900 /tmp/pyefis-bench.lock \
       sh /tmp/pi6498.sh /home/wpballard/pyEfis/.venv/bin/python /data/makerplane-data'
 
-Upload (not done). Editor assets are per environment (`src/index.ts`
+Upload. Done for dev on 2026-11-25 (Bill, card f0c128fc on AER-6507): `assets/editor/dev/svs/` now serves these four files byte for byte; production's `assets/editor/svs/` is unchanged. The production upload is carried as a step for the pyEfis `qa -> master` release that contains SVSSHADE2 (maos-workspace `makerplane/processes/release_promotion.md`, "Manual production steps carried to `master`"). Editor assets are per environment (`src/index.ts`
 `assetKey`: production reads `assets/editor/`, dev reads
 `assets/editor/dev/`, qa `assets/editor/qa/`), and pyEfis's editor-assets job
 leaves the svs frames to a manual upload. The relief frames belong in an
