@@ -408,6 +408,30 @@ def test_airports_contract_guards_vgsi_fields():
     assert {"VGSI_CODE", "VISUAL_GLIDE_PATH_ANGLE"} <= set(required)
 
 
+def _airports_input(tmp_path, *, drop=()):
+    """Every APT CSV the real airports contract reads, header only, with the
+    named columns left out of whichever file carries them."""
+    idir = tmp_path / "apt"
+    idir.mkdir(parents=True)
+    for fname, cols in CONTRACTS["airports"].required_columns.items():
+        _write_csv(idir / fname, sorted(set(cols) - set(drop)), [])
+    return idir
+
+
+def test_airports_contract_refuses_apt_base_without_icao_id(tmp_path):
+    """FPA4: build_airport_db reads APT_BASE.ICAO_ID into airports.icao_id and
+    the readers name airports by it (PANC, not KANC). If a NASR cycle dropped
+    or renamed it, the column would ship empty and Alaska, Hawaii and the
+    territories would fall back to the K rule with no alarm."""
+    guard = SchemaGuard()
+    guard._check_headers(CONTRACTS["airports"], _airports_input(tmp_path / "ok"))
+    with pytest.raises(SchemaGuardError) as e:
+        guard._check_headers(CONTRACTS["airports"],
+                             _airports_input(tmp_path / "bad", drop={"ICAO_ID"}))
+    assert "APT_BASE.csv" in str(e.value)
+    assert "ICAO_ID" in str(e.value)
+
+
 def test_navaids_contract_guards_hpf_holds():
     """HOLDFIX3: the navaids pack takes its published holds from the NASR HPF
     zip, so the guard must require the columns the holds tables are built from
