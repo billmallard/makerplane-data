@@ -6106,7 +6106,32 @@ function applyCode() {
   const parsed = fromStoredDoc(doc);
   if (!parsed) { codeMsg("Expected a pyEfis config with a 'screens:' block.", true); return false; }
   applyState(parsed);
-  codeMsg(""); return true;
+  codeMsg(annDemotionNotes(parsed.screens, annRule()).join("; ")); return true;
+}
+// The annunciator tiles the device will draw at a lower level than they ask
+// for (Bill's ANN1 ruling: logged on the device, never refused). The tile card
+// marks these; YAML typed into the Code pane is kept as written, so the pane
+// names them instead (AER-6540). One note per tile, from annSpec's own level.
+function annDemotionNotes(screens, rule) {
+  if (!rule) return [];
+  const notes = [];
+  for (const sc of screens || []) {
+    for (const inst of sc.instruments || []) {
+      if (!inst || inst.type !== "annunciator") continue;
+      const o = inst.options || {};
+      const raw = Array.isArray(o[ANN_TILES_OPTION]) ? o[ANN_TILES_OPTION]
+        : annIsMap(o[ANN_TILES_OPTION]) ? [o[ANN_TILES_OPTION]] : [];
+      for (const tile of raw) {
+        const spec = annSpec(tile, rule);
+        if (spec.error || tile.level == null) continue;
+        const asked = String(tile.level).trim().toLowerCase();
+        if (rule.levels.includes(asked) && asked !== spec.level) {
+          notes.push(`${spec.label}: ${asked} drawn ${spec.level} on the device`);
+        }
+      }
+    }
+  }
+  return notes;
 }
 
 // --- the DATA flag twin (AER-5654) ------------------------------------------
