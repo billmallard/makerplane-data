@@ -3,7 +3,7 @@
 #
 # AER-5499 (FUEL1 F3): dump every `aircraft_ref` field the REAL pyEfis editor
 # schema declares (pyEfis#461, editor/schema.py) as the fixture the resolver's
-# reference table (AIRCRAFT_REFS in public/aircraft_refs.js) is tested
+# reference table (FALLBACK_REFS in public/aircraft_refs.js; the live table is refsFromSchema) is tested
 # against: which option on which instrument type, its source, and which
 # options it resolves. The pyEfis source is imported by path from a checkout,
 # never copied here.

@@ -24,6 +24,7 @@
 
 import { ownshipAddress } from "./ownship.ts";
 import { resolveAircraftRefs } from "./aircraft_refs.ts";
+import { FALLBACK_REFS, type RefTable } from "../public/aircraft_refs.js";
 import { aircraftIniLines, buildAircraftIni } from "../public/aircraft_ini.js";
 
 export const BARO_UNITS = ["inHg", "hPa"] as const;
@@ -112,6 +113,8 @@ const shortHash = async (text: string) => (await sha256Hex(text)).slice(0, 12);
 //   re-pulls once when this ships.
 // * `retired` loads the last label of each id the profile no longer has. It
 //   is called only when a reference is unbound.
+// * `refs` is the reference table from the served schema.json
+//   (refsFromSchema); FALLBACK_REFS when it could not be read.
 // * A blob that already has its own top-level `preferences:` or `fixgw:` key
 //   is served without that block (a duplicate key would be resolved silently
 //   by PyYAML).
@@ -120,10 +123,11 @@ export async function serveDeviceConfig(
   version: number | string,
   profile: unknown,
   retired?: () => Promise<Record<string, string>>,
+  table: RefTable = FALLBACK_REFS,
 ): Promise<{ body: string; etag: string }> {
-  let refs = resolveAircraftRefs(panelYaml, profile);
+  let refs = resolveAircraftRefs(panelYaml, profile, {}, table);
   if (retired && refs.bindings.some((b) => b.unbound))
-    refs = resolveAircraftRefs(panelYaml, profile, await retired());
+    refs = resolveAircraftRefs(panelYaml, profile, await retired(), table);
   const panel = refs.yaml;
   let prefs = devicePreferences(profile);
   let fixgw = deviceFixgw(profile);

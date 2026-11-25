@@ -30,7 +30,7 @@ import {
 } from "./db";
 import { checkAircraftProfilePut } from "./aircraft_profile";
 import { orphanedBy } from "./aircraft_refs";
-import { AIRCRAFT_REFS, refItems, retiredLabels } from "../public/aircraft_refs.js";
+import { FALLBACK_REFS, refItems, refsFromSchema, retiredLabels, type RefTable } from "../public/aircraft_refs.js";
 import { claimCode, randomToken, sha256B64url } from "./crypto";
 import { deviceFixgw, devicePreferences, serveDeviceConfig } from "./device_prefs";
 import { emailRequest, emailVerify } from "./email";
@@ -154,12 +154,13 @@ app.post("/api/projects/:id/aircraft/orphans", async (c) => {
   const active = await getAircraftProfile(c.env.DB, userId, projectId);
   const before = active ? active["json"] : null;
   const panels = [];
+  const refs = await schemaRefs(c.env);
   for (const d of (await listDevices(c.env.DB, userId, projectId)) as Record<string, unknown>[]) {
     const latest = await latestConfig(c.env.DB, userId, Number(d["id"]));
     if (!latest) continue;
     const obj = await c.env.CONFIGS.get(String(latest["yaml_r2_key"]));
     if (!obj) continue;
-    const gauges = orphanedBy(await obj.text(), before, candidate);
+    const gauges = orphanedBy(await obj.text(), before, candidate, refs);
     if (gauges.length)
       panels.push({ device_id: d["id"], device: d["name"], version: latest["version"], gauges });
   }
@@ -168,16 +169,38 @@ app.post("/api/projects/:id/aircraft/orphans", async (c) => {
 
 // --- aircraft references (docs/fuel_provider_model.md section 5, F3) -------
 
-const REF_SOURCES = new Set(Object.values(AIRCRAFT_REFS).map((r) => r.source));
+// The reference table is read off the schema.json this environment serves
+// the editor (refsFromSchema), so the served config, the download and the
+// preview agree and a new pyEfis type with a tank option needs no edit here.
+// Cached per isolate for SCHEMA_REFS_TTL_MS; a schema that is missing or does
+// not parse serves FALLBACK_REFS, which is what was served before (INS4).
+const SCHEMA_REFS_TTL_MS = 60_000;
+let schemaRefsCache: { env: string; at: number; refs: RefTable } | null = null;
+
+async function schemaRefs(env: Env["Bindings"]): Promise<RefTable> {
+  const now = Date.now();
+  const which = env.ENV || "prod";
+  if (schemaRefsCache && schemaRefsCache.env === which && now - schemaRefsCache.at < SCHEMA_REFS_TTL_MS)
+    return schemaRefsCache.refs;
+  let refs: RefTable | null = null;
+  try {
+    const obj = await env.CONFIGS.get(assetKey(env.ENV, "assets/editor/schema.json"));
+    if (obj) refs = refsFromSchema(JSON.parse(await obj.text()));
+  } catch { refs = null; }
+  schemaRefsCache = { env: which, at: now, refs: refs || FALLBACK_REFS };
+  return schemaRefsCache.refs;
+}
+
+const refSources = (refs: RefTable) => new Set(Object.values(refs).map((r) => r.source));
 
 // The last label of every id the active profile no longer has, across every
 // reference source: what an orphaned gauge keeps as its name.
 async function retiredForProject(
-  db: D1Database, projectId: number, profile: unknown,
+  db: D1Database, projectId: number, profile: unknown, refs: RefTable,
 ): Promise<Record<string, string>> {
   const history = await aircraftProfileHistory(db, projectId);
   const out: Record<string, string> = {};
-  for (const source of REF_SOURCES) Object.assign(out, retiredLabels(history, source, profile));
+  for (const source of refSources(refs)) Object.assign(out, retiredLabels(history, source, profile));
   return out;
 }
 
@@ -186,8 +209,9 @@ async function retiredForProject(
 // of each id it no longer offers. Same functions the served config uses.
 async function refsResponse(c: Context<Env>, projectId: number, profile: unknown) {
   const source = c.req.query("source") || "";
-  if (!REF_SOURCES.has(source))
-    return c.json({ error: "unknown source", sources: [...REF_SOURCES] }, 400);
+  const sources = refSources(await schemaRefs(c.env));
+  if (!sources.has(source))
+    return c.json({ error: "unknown source", sources: [...sources] }, 400);
   const history = await aircraftProfileHistory(c.env.DB, projectId);
   return c.json({
     source,
@@ -278,8 +302,9 @@ app.get("/api/devices/:id/config/served", async (c) => {
   const projectId = Number(device["project_id"]);
   const row = await getAircraftProfile(c.env.DB, userId, projectId);
   const profile = row ? row["json"] : null;
+  const refs = await schemaRefs(c.env);
   const served = await serveDeviceConfig(await obj.text(), String(latest["version"]), profile,
-    () => retiredForProject(c.env.DB, projectId, profile));
+    () => retiredForProject(c.env.DB, projectId, profile, refs), refs);
   const file = `${String(device["name"]).replace(/[^A-Za-z0-9_.-]+/g, "_")}-v${latest["version"]}.yaml`;
   return c.body(served.body, 200, {
     "content-type": "application/x-yaml",
@@ -360,8 +385,9 @@ app.get("/device/config", async (c) => {
   const obj = await c.env.CONFIGS.get(String(row["yaml_r2_key"]));
   if (!obj) return c.json({ error: "config blob missing" }, 404);
   const projectId = Number(row["project_id"]);
+  const refs = await schemaRefs(c.env);
   const served = await serveDeviceConfig(await obj.text(), String(row["version"]), row["profile_json"],
-    () => retiredForProject(c.env.DB, projectId, row["profile_json"]));
+    () => retiredForProject(c.env.DB, projectId, row["profile_json"], refs), refs);
   if (c.req.header("if-none-match") === served.etag) {
     return c.body(null, 304, { etag: served.etag });
   }

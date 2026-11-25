@@ -398,7 +398,8 @@ const state = {
   // device will receive it in preferences units.Pressure. inHg = pyEfis default.
   baroUnit: "inHg",
   // Aircraft references (FUEL1 F3): the shared resolver module
-  // (/aircraft_refs.js, the one GET /device/config runs) and the profile's
+  // (/aircraft_refs.js, the one GET /device/config runs), the reference table
+  // schema.json declares (refsFromSchema), and the profile's
   // items and retired labels per source, so a gauge bound to a tank previews
   // the dbkey and name the device will receive. null = no device / no module.
   aircraftRefs: null,
@@ -4717,7 +4718,7 @@ function refResolved(inst) {
   if (!R || !inst.options) return inst;
   const pv = state.migrationPreview;
   const opts = pv && pv.inst === inst ? migratedOptions(inst.options, pv.id) : inst.options;
-  const r = R.mod.resolveOptions(inst.type, opts, R.items, R.retired);
+  const r = R.mod.resolveOptions(inst.type, opts, R.items, R.retired, R.refs);
   return r.options === inst.options ? inst : { ...inst, options: r.options };
 }
 
@@ -4729,7 +4730,7 @@ function tankBinding(inst) {
   const id = inst && inst.options ? inst.options.tank : undefined;
   if (id === undefined || id === null || id === "") return null;
   const R = state.aircraftRefs;
-  const spec = R && R.mod.AIRCRAFT_REFS.tank;
+  const spec = R && R.refs.tank;
   if (!R || !spec || !spec.types.includes(inst.type)) return { id: String(id), item: null, orphan: false, label: null };
   const item = (R.items[spec.source] || []).find((i) => i.id === String(id)) || null;
   return { id: String(id), item, orphan: !item,
@@ -4881,7 +4882,7 @@ function optionField(inst, name, spec) {
 function refWrites(inst, name) {
   const R = state.aircraftRefs;
   if (!R || !inst.options) return null;
-  for (const [opt, spec] of Object.entries(R.mod.AIRCRAFT_REFS)) {
+  for (const [opt, spec] of Object.entries(R.refs)) {
     const v = inst.options[opt];
     if (spec.types.includes(inst.type) && v !== undefined && v !== null && v !== ""
         && Object.prototype.hasOwnProperty.call(spec.resolves, name)) return opt;
@@ -4958,7 +4959,7 @@ function unbindTank(inst, name) {
 // a tank in slot n. Never offered for a hand-edited name.
 function migrationTarget(inst) {
   const R = state.aircraftRefs;
-  const spec = R && R.mod.AIRCRAFT_REFS.tank;
+  const spec = R && R.refs.tank;
   const o = inst.options || {};
   if (!spec || !spec.types.includes(inst.type) || !state.schema.instruments[inst.type]?.options?.tank) return null;
   if (o.tank !== undefined && o.tank !== null && o.tank !== "") return null;
@@ -7083,8 +7084,10 @@ async function boot() {
     } catch (_) { /* no profile preferences -- preview the inHg default */ }
     try {
       const mod = await import("/aircraft_refs.js");
-      const refs = { mod, items: {}, retired: {} };
-      for (const src of new Set(Object.values(mod.AIRCRAFT_REFS).map((r) => r.source))) {
+      // The reference table this schema.json declares, as the Worker reads it.
+      const table = mod.refsFromSchema(state.schema) || mod.FALLBACK_REFS;
+      const refs = { mod, refs: table, items: {}, retired: {} };
+      for (const src of new Set(Object.values(table).map((r) => r.source))) {
         const res = await fetch(`/api/devices/${deviceId}/aircraft/refs?source=${encodeURIComponent(src)}`,
           { credentials: "same-origin" });
         if (!res.ok) continue;
