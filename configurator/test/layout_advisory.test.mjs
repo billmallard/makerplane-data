@@ -177,3 +177,37 @@ test("advisoryComment: every line a comment, the YAML under it unchanged, screen
   assert.deepEqual(jsyaml.load(text), d);
   assert.equal(advisoryComment({ findings: [], requirements: [] }), "");
 });
+
+// --- disabled surfaces (Safety's requested fix, AER-6547) ------------------
+
+test("a disabled CAS surface does not count as shown: rule 1 fires and rule 2 names it", () => {
+  for (const marker of [at("cas_marker", 0, 0, 10, 10, { disabled: true }),
+    at("cas_marker", 0, 0, 10, 10, { options: { disabled: true } })]) {
+    const a = layoutAdvisory(doc({ PFD: [at("atitude_indicator"), marker] }));
+    assert.equal(rule(a, 1).length, 1);
+    assert.equal(rule(a, 1)[0].screen, "PFD");
+    assert.equal(rule(a, 3).length, 0, "a disabled surface still puts CAS in use");
+    assert.match(rule(a, 2)[0].text, /^The CAS marker on screen "PFD" is disabled \(disabled: true\), so it never shows\./);
+  }
+});
+
+test("a preference-driven disable is taken as possibly hidden", () => {
+  const a = layoutAdvisory(doc({ PFD: [at("atitude_indicator"), at("cas_window", 0, 0, 10, 10, { options: { disabled: "not CAS" } })] }));
+  assert.equal(rule(a, 1).length, 1);
+  assert.match(rule(a, 2)[0].text, /disabled by the device preference "not CAS", so it may not show/);
+});
+
+test("disabled: false, or a blank string, leaves the surface shown", () => {
+  for (const d of [false, "", "  "]) {
+    const a = layoutAdvisory(doc({ PFD: [at("atitude_indicator"), at("cas_marker", 0, 0, 10, 10, { disabled: d })] }));
+    assert.deepEqual(a.findings, [], String(d));
+  }
+});
+
+test("a disabled cue instrument gives its alert no cue", () => {
+  const a = layoutAdvisory(doc({
+    PFD: [at("atitude_indicator"), at("autopilot_panel", 0, 0, 10, 10, { disabled: true })],
+    R: [at("cas_marker")],
+  }));
+  assert.match(rule(a, 1)[0].text, /AP LINK LOST/);
+});

@@ -19,7 +19,8 @@
 //           CAS window or marker: warn, and list the alerts with no other cue
 //           on that screen. Other screens without one get the conditional
 //           form, since the requirement covers any screen up in flight.
-//   rule 2  a CAS window or marker that runs past its screen's grid.
+//   rule 2  a CAS window or marker that runs past its screen's grid, or is
+//           disabled (a disabled one never counts as shown).
 //   rule 3  no CAS window or marker anywhere: say what that means.
 // Plus the requirements that apply: the field-of-view rule when a CAS
 // surface or annunciator lamp is placed, and one sense only (no tone).
@@ -76,6 +77,20 @@ function walk(instruments, layout, onTab, out) {
   return out;
 }
 
+// How a `disabled` key hides an instrument, in words, or null when it does not.
+// pyEfis reads it top level and under options (screenbuilder.py:254, :221,
+// :200; screenbuilder_config.is_disabled): `true` hides it, a string names a
+// device preference (`not X` inverts it) the configurator cannot see, so the
+// advisory takes it as possibly hidden. AER-6547, Safety's requested fix.
+function disabledHow(inst) {
+  for (const v of [inst.disabled, inst.options && typeof inst.options === "object" ? inst.options.disabled : undefined]) {
+    if (v === true) return "is disabled (disabled: true), so it never shows";
+    if (typeof v === "string" && v.trim())
+      return `is disabled by the device preference "${v.trim().replace(/[\r\n]+/g, " ")}", so it may not show`;
+  }
+  return null;
+}
+
 // The part of a rect outside its grid, in words, or null when it fits.
 function offGrid(inst, layout) {
   const rows = num(layout && layout.rows, 110), cols = num(layout && layout.columns, 200);
@@ -109,10 +124,10 @@ export function layoutAdvisory(doc, casAvailable = true) {
   const lamps = screens.filter((s) => s.items.some((it) => it.inst.type === "annunciator"));
 
   for (const s of screens) {
-    const shown = s.items.some((it) => isSurface(it) && !it.onTab);
+    const shown = s.items.some((it) => isSurface(it) && !it.onTab && !disabledHow(it.inst));
     if (!casInUse || shown) continue;
     const flying = s.items.some((it) => ATTITUDE_TYPES.includes(it.inst.type));
-    const visible = new Set(s.items.filter((it) => !it.onTab).map((it) => it.inst.type));
+    const visible = new Set(s.items.filter((it) => !it.onTab && !disabledHow(it.inst)).map((it) => it.inst.type));
     const silent = CAS_ALERTS.filter((a) => !a.cues.some((t) => visible.has(t))).map((a) => a.text);
     const tail = silent.length
       ? " These alerts have no other cue on that screen: " + silent.join(", ") + "."
@@ -137,12 +152,19 @@ export function layoutAdvisory(doc, casAvailable = true) {
   for (const s of screens) {
     for (const it of s.items) {
       if (!isSurface(it)) continue;
+      const where = `The ${typeName(it.inst.type)} on screen ${quote(s.name)}${it.onTab ? " (on a tab page)" : ""}`;
+      const off = disabledHow(it.inst);
+      if (off) {
+        findings.push({
+          rule: 2, level: "warning", screen: s.name,
+          text: `${where} ${off}. It does not count as showing crew alerts on that screen.`,
+        });
+      }
       const why = offGrid(it.inst, it.layout);
       if (!why) continue;
       findings.push({
         rule: 2, level: "warning", screen: s.name,
-        text: `The ${typeName(it.inst.type)} on screen ${quote(s.name)}${it.onTab ? " (on a tab page)" : ""} ${why},`
-          + " so it may be clipped off the glass. pyEfis does not detect this.",
+        text: `${where} ${why}, so it may be clipped off the glass. pyEfis does not detect this.`,
       });
     }
   }
