@@ -12,6 +12,7 @@ import { editorSource, extractFunction, extractConst } from "./support/extract.m
 const src = editorSource();
 const { screensMissingCas } = new Function(`
   ${extractConst(src, "CAS_PLACEMENT_TYPES")}
+  ${extractFunction(src, "casPlacedIn")}
   ${extractFunction(src, "screensMissingCas")}
   return { screensMissingCas };
 `)();
@@ -24,9 +25,13 @@ test("inert while the schema has neither CAS type", () => {
   assert.deepEqual(screensMissingCas([sc()], undefined, {}), []);
 });
 
-test("lights up once the schema carries either type", () => {
-  assert.deepEqual(screensMissingCas([sc()], { cas_marker: {} }, {}), [0]);
-  assert.deepEqual(screensMissingCas([sc()], { cas_window: {} }, {}), [0]);
+test("lights up once the schema carries either type and the layout places one", () => {
+  assert.deepEqual(screensMissingCas([sc(), sc("cas_marker")], { cas_marker: {} }, {}), [0]);
+  assert.deepEqual(screensMissingCas([sc(), sc("cas_window")], { cas_window: {} }, {}), [0]);
+});
+
+test("a panel with no CAS anywhere gets no banner (Bill, AER-6553)", () => {
+  assert.deepEqual(screensMissingCas([sc(), sc("button")], WITH_CAS, {}), []);
 });
 
 test("a window or a marker satisfies the screen; anything else does not", () => {
@@ -37,11 +42,12 @@ test("a window or a marker satisfies the screen; anything else does not", () => 
 test("a CAS instrument inside a group counts; an unknown or CAS-free group does not", () => {
   const groups = { g1: { instruments: [{ type: "cas_marker" }] } };
   assert.deepEqual(screensMissingCas([sc("group")], WITH_CAS, groups), []);
-  assert.deepEqual(screensMissingCas([sc("group")], WITH_CAS, {}), [0]);
-  assert.deepEqual(screensMissingCas([sc("group")], WITH_CAS, { g1: { instruments: [{ type: "button" }] } }), [0]);
+  assert.deepEqual(screensMissingCas([sc("group"), sc("cas_marker")], WITH_CAS, {}), [0]);
+  assert.deepEqual(screensMissingCas([sc("group"), sc("cas_marker")], WITH_CAS, { g1: { instruments: [{ type: "button" }] } }), [0]);
 });
 
 test("one on a tab page is hidden behind the tab, so it does not count", () => {
-  const tabbed = { instruments: [{ type: "tab_section", options: { tabs: [{ instruments: [{ type: "cas_marker" }] }] } }] };
+  // On the tab page it still puts CAS in use, so the screen is flagged.
+  const tabbed = { instruments: [{ type: "tab_section", tabs: [{ instruments: [{ type: "cas_marker" }] }] }] };
   assert.deepEqual(screensMissingCas([tabbed], WITH_CAS, {}), [0]);
 });

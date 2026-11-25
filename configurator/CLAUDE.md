@@ -78,6 +78,11 @@ npx wrangler deploy          # builds + deploys; provisions the custom domain
 
 Vanilla JS, no build step. Key internals:
 
+- **Twins vs `schema.json` (INS4, `docs/schema_twin_check.md`):** a twin
+  constant that restates a spec enum/default, a new type's twin coverage
+  (`PLACEHOLDER_ONLY`) and `SCHEMA_VERSION_MAX` are checked against the schema
+  pyEfis builds by `tools/schema_twin_check.mjs`, which pyEfis CI runs.
+  The aircraft reference table is read from the schema (`refsFromSchema`), not listed here.
 - `const ASSETS = "/assets/editor"`. `boot()` loads `schema.json` + `groups.json`,
   checks `/api/me`, then loads the device's saved design via
   `GET /api/devices/:id/config`. **Save** = serialize the design to YAML (js-yaml)

@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import yaml from "js-yaml";
 import {
-  AIRCRAFT_REFS, itemsBySource, refItems, resolveDoc, resolveOptions, retiredLabels,
+  FALLBACK_REFS, itemsBySource, refItems, refsFromSchema, resolveDoc, resolveOptions, retiredLabels,
 } from "../public/aircraft_refs.js";
 import { resolveAircraftRefs } from "../src/aircraft_refs.ts";
 import { serveDeviceConfig } from "../src/device_prefs.ts";
@@ -40,7 +40,7 @@ const served = (text) => yaml.load(text).screens.EMS.instruments;
 
 // --- the reference table is pyEfis's -------------------------------------
 
-test("AIRCRAFT_REFS matches every aircraft_ref field the pyEfis schema declares", () => {
+test("FALLBACK_REFS matches every aircraft_ref field the pyEfis v3 schema declares", () => {
   const fromSchema = {};
   for (const f of FIXTURE.fields) {
     const r = (fromSchema[f.option] ||= { source: f.source, resolves: f.resolves, types: [] });
@@ -50,9 +50,65 @@ test("AIRCRAFT_REFS matches every aircraft_ref field the pyEfis schema declares"
     r.types.push(f.type);
   }
   for (const r of Object.values(fromSchema)) r.types.sort();
-  const ours = JSON.parse(JSON.stringify(AIRCRAFT_REFS));
+  const ours = JSON.parse(JSON.stringify(FALLBACK_REFS));
   for (const r of Object.values(ours)) r.types.sort();
   assert.deepEqual(ours, fromSchema);
+});
+
+// --- the table comes from schema.json (INS4) --------------------------------
+
+// A schema.json carrying the fixture's fields, the shape pyEfis emits.
+const TANK = { type: "aircraft_ref", default: null, source: "aircraft.fuel.tanks", multi: false,
+  resolves: { dbkey: "slot_key", name: "label" } };
+const schemaWith = (fields) => {
+  const instruments = { static_text: { options: { text: { type: "string" } } } };
+  for (const f of fields)
+    (instruments[f.type] ||= { options: { dbkey: { type: "fixkey" } } }).options[f.option] =
+      { type: "aircraft_ref", default: null, source: f.source, multi: f.multi, resolves: f.resolves };
+  return { schema_version: 4, instruments };
+};
+
+test("refsFromSchema reads the v3 fixture's fields back as FALLBACK_REFS", () => {
+  assert.deepEqual(refsFromSchema(schemaWith(FIXTURE.fields)), FALLBACK_REFS);
+});
+
+test("a new gauge type with a tank option resolves its tank with no edit here", async () => {
+  const schema = schemaWith(FIXTURE.fields);
+  schema.instruments.round_fuel_gauge = { options: { tank: { ...TANK } } };
+  const refs = refsFromSchema(schema);
+  assert.deepEqual(refs.tank.types,
+    ["arc_gauge", "horizontal_bar_gauge", "round_fuel_gauge", "vertical_bar_gauge"]);
+  const text = panel([bar({ tank: "tk_rm" }, "round_fuel_gauge")]);
+  // The Worker's served config, with the table the schema declares...
+  const r = await serveDeviceConfig(text, 5, profile(THREE), undefined, refs);
+  assert.deepEqual(served(r.body)[0].options, { dbkey: "FUELQ2", name: "R MAIN" });
+  assert.notEqual(r.etag, '"v5"');
+  // ...where the fallback table would have left it unresolved.
+  assert.equal((await serveDeviceConfig(text, 5, profile(THREE))).body, text);
+});
+
+test("refsFromSchema skips what it cannot resolve and reports a clashing option", () => {
+  const schema = schemaWith(FIXTURE.fields);
+  schema.instruments.multi_gauge = { options: { tanks: { ...TANK, multi: true } } };
+  schema.instruments.list_widget = { options: { checklist: { ...TANK, source: "aircraft.checklists" } } };
+  schema.instruments.odd_gauge = { options: { feed: { ...TANK, resolves: { dbkey: "capacity" } } } };
+  schema.instruments.zz_gauge = { options: { tank: { ...TANK, resolves: { dbkey: "slot_key" } } } };
+  const conflicts = [];
+  const refs = refsFromSchema(schema, conflicts);
+  assert.deepEqual(Object.keys(refs), ["tank"]);
+  assert.deepEqual(refs.tank, FALLBACK_REFS.tank);
+  assert.deepEqual(conflicts, [{ type: "zz_gauge", option: "tank" }]);
+});
+
+test("refsFromSchema: no instruments map is null (the caller falls back); none declared is {}", () => {
+  for (const bad of [null, undefined, "", 3, {}, { instruments: [] }, { instruments: "x" }])
+    assert.equal(refsFromSchema(bad), null, JSON.stringify(bad));
+  assert.deepEqual(refsFromSchema(schemaWith([])), {});
+});
+
+test("an empty table serves the panel untouched, even one that says tank:", async () => {
+  const text = panel([bar({ tank: "tk_rm" })]);
+  assert.deepEqual(resolveAircraftRefs(text, profile(THREE), {}, {}), { yaml: text, bindings: [] });
 });
 
 // --- items --------------------------------------------------------------

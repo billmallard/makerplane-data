@@ -129,6 +129,55 @@ saved before this change, it also accepts the **legacy "design" form**
 next save rewrites them in the native form. (`fromStoredDoc()` /
 `toPyefisDoc()` in `public/editor.html`.)
 
+## The layout advisory header (LAYADV1)
+
+Once the schema carries `cas_window` or `cas_marker`, the editor runs a short
+rule list over the layout and writes what it finds as YAML comments at the head
+of the saved file. The same text shows above the canvas as **Layout advisory**.
+It advises and never blocks a save. pyEfis never reads comments, so the panel
+the device runs is unchanged.
+
+```yaml
+# Layout advisory, written by the configurator when this layout was saved.
+# It advises; it does not block. Rules: makerplane-data configurator/public/layout_advisory.js
+#  - WARNING: Screen "PFD" carries an attitude instrument but no CAS window or CAS marker, so
+#    crew alerts do not show while it is up. These alerts have no other cue on that screen: AP
+#    LINK LOST, FUEL QTY <n> NO DATA. This breaks the installation requirement below.
+#  - Installation requirement (pyEfis wiki, Designing Your Panel): ...
+#  - One sense only: pyEfis has no alert tone yet. ...
+main:
+  ...
+```
+
+The rules (`public/layout_advisory.js`; agreed with Safety and Compliance on
+AER-6355) check the installation requirement in the pyEfis wiki page
+*Designing Your Panel*, section **Installation requirement: crew alerts in your
+primary field of view**:
+
+| Rule | When | Level |
+|---|---|---|
+| 1 | CAS is in use (a window or marker anywhere) and a screen has none always showing. A screen carrying `atitude_indicator` or `virtual_vfr` is one you fly from; any other screen gets the conditional form ("if it is ever up in front of you in flight"). Lists the shipped fix-gateway alerts with no cue of their own on that screen | warning |
+| 2 | A window or marker that runs past its screen's grid, has no size, or is disabled (`disabled` at top level or under `options`; a preference-driven one is taken as possibly hidden). A disabled one never counts as shown for rule 1 | warning |
+| 3 | No window or marker anywhere: failures reach the pilot only through each instrument's own flags | note |
+| - | The field-of-view requirement and one sense only, whenever a window, marker or annunciator lamp is placed | requirement |
+
+What the header is and is not:
+
+- **Fixed at save.** It is part of the saved version, so the Code pane, **Download
+  YAML** and the device's pull all carry it, and the served bytes (and the
+  device's panel-change hash) for a version never change under it when the
+  rules change. A layout saved before LAYADV1 has no header until it is saved
+  again.
+- **Kept when the Worker re-dumps.** A panel with a bound tank reference is
+  parsed and dumped to resolve it (`src/aircraft_refs.ts`); the leading comment
+  block is put back in front of the dump.
+- **Not kept on the device.** `pyefis-data config-pull` parses the pulled file
+  and writes pyEfis's own screen files, which carry no comments.
+- **Judged from the layout alone.** The configurator cannot see fix-gateway's
+  `cas.yaml`, so "CAS is in use" means a window or marker is placed, and the
+  alert list is the one fix-gateway ships. A layout edited outside the
+  configurator gets no advisory; pyEfis only logs it (FHA row CAS-1u).
+
 ## How it reaches the device
 
 The saved YAML is stored per device (R2 + a versioned `configs` row) and pulled

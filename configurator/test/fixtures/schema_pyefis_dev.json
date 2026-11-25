@@ -1,0 +1,6261 @@
+{
+  "schema_version": 4,
+  "generated_from": "pyefis.screens.screenbuilder_factory",
+  "grid": {
+    "note": "Coordinates are on the screen's normalised grid; each screen defines its own rows/columns (the shipped screens use 110 rows x 200 columns, ~16:9). z-order is the instrument list order: later entries paint on top."
+  },
+  "layout_fields": {
+    "row": "Grid row of the top-left corner (0-based).",
+    "column": "Grid column of the top-left corner (0-based).",
+    "span": "{rows, columns}: how many grid cells the instrument occupies.",
+    "move": "{shrink: percent, justify: [top|bottom|left|right]} fine placement.",
+    "disabled": "Feature-flag name resolved via the preferences `enabled:` section (string), or a literal bool to hide the instrument."
+  },
+  "common_options": {
+    "font_family": {
+      "type": "enum",
+      "default": "DejaVu Sans Condensed",
+      "label": "Font family",
+      "enum": [
+        "DejaVu Sans Condensed",
+        "DejaVu Sans",
+        "DejaVu Sans Mono",
+        "B612",
+        "Inter",
+        "Roboto",
+        "Open Sans"
+      ]
+    },
+    "font_percent": {
+      "type": "number",
+      "default": null,
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "label": "Font size (fraction of height)"
+    }
+  },
+  "categories": [
+    "airspeed",
+    "altitude",
+    "attitude",
+    "container",
+    "control",
+    "gauge",
+    "list",
+    "navigation",
+    "system",
+    "text",
+    "vertical_speed",
+    "wind"
+  ],
+  "instruments": {
+    "about": {
+      "label": "About / System",
+      "category": "system",
+      "dbkeys": [],
+      "default_options": {
+        "back_screen": {
+          "type": "string",
+          "default": "DataStatus"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "back_screen": {
+          "type": "string",
+          "default": "DataStatus",
+          "label": "Back screen",
+          "help": "screen the Back button returns to"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": true,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "airspeed_box": {
+      "label": "Airspeed Box",
+      "category": "airspeed",
+      "dbkeys": [
+        "IAS",
+        "GS",
+        "TAS"
+      ],
+      "default_options": {},
+      "required_options": [],
+      "options": {},
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": true,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "airspeed_dial": {
+      "label": "Airspeed Dial",
+      "category": "airspeed",
+      "dbkeys": [
+        "IAS"
+      ],
+      "default_options": {
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "required_options": [],
+      "options": {
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100,
+          "label": "Background opacity (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "help": "0 = transparent (show what's behind), 100 = solid"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": true,
+      "hidden": false,
+      "preview": {
+        "value": 110
+      },
+      "fix_values": [
+        {
+          "name": "Vs",
+          "source": "aux",
+          "label": "Stall, clean (Vs)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        },
+        {
+          "name": "Vs0",
+          "source": "aux",
+          "label": "Stall, landing (Vs0)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        },
+        {
+          "name": "Vno",
+          "source": "aux",
+          "label": "Max cruise (Vno)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        },
+        {
+          "name": "Vne",
+          "source": "aux",
+          "label": "Never-exceed (Vne)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        },
+        {
+          "name": "Vfe",
+          "source": "aux",
+          "label": "Flaps-extended (Vfe)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        }
+      ],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "airspeed_tape": {
+      "label": "Airspeed Tape",
+      "category": "airspeed",
+      "dbkeys": [
+        "IAS"
+      ],
+      "default_options": {
+        "edge_fade": {
+          "type": "boolean",
+          "default": false
+        },
+        "show_tas": {
+          "type": "boolean",
+          "default": true
+        },
+        "show_trend": {
+          "type": "boolean",
+          "default": true
+        },
+        "trend_lookahead": {
+          "type": "number",
+          "default": 6.0
+        },
+        "ias_bug": {
+          "type": "boolean",
+          "default": true
+        },
+        "ias_bug_color": {
+          "type": "color",
+          "default": "#00ffff"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required_options": [],
+      "options": {
+        "edge_fade": {
+          "type": "boolean",
+          "default": false,
+          "label": "Fade tape edges",
+          "help": "alpha-fade the top and bottom of the scrolling scale into the background (SVS shows through)"
+        },
+        "show_tas": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show TAS box",
+          "help": "show the true-airspeed readout box (from TAS)"
+        },
+        "show_trend": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show trend arrow",
+          "help": "show the acceleration trend vector along the tape"
+        },
+        "trend_lookahead": {
+          "type": "number",
+          "default": 6.0,
+          "label": "Trend look-ahead (s)",
+          "help": "seconds ahead the trend vector projects current accel"
+        },
+        "ias_bug": {
+          "type": "boolean",
+          "default": true,
+          "label": "IASSEL bug and box",
+          "help": "the IASSEL bug and a target box at the top of the tape, shown while the autopilot reports IAS active or armed"
+        },
+        "ias_bug_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "IASSEL bug color",
+          "help": "colour of the IASSEL bug and the target box value"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true,
+          "label": "Touch to set IASSEL",
+          "help": "touch the IASSEL box, then turn the knob to set the autopilot's target airspeed: inner ring 1 kt, outer ring 10 kt, push syncs to the current airspeed. Only while the box is shown (IAS active or armed)"
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "value": 110,
+        "vs0": 40,
+        "vs": 45,
+        "vno": 125,
+        "vne": 140,
+        "vfe": 70
+      },
+      "fix_values": [
+        {
+          "name": "Vs",
+          "source": "aux",
+          "label": "Stall, clean (Vs)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        },
+        {
+          "name": "Vs0",
+          "source": "aux",
+          "label": "Stall, landing (Vs0)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        },
+        {
+          "name": "Vno",
+          "source": "aux",
+          "label": "Max cruise (Vno)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        },
+        {
+          "name": "Vne",
+          "source": "aux",
+          "label": "Never-exceed (Vne)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        },
+        {
+          "name": "Vfe",
+          "source": "aux",
+          "label": "Flaps-extended (Vfe)",
+          "dbkey": "",
+          "units": "kt",
+          "help": ""
+        }
+      ],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": true,
+        "options": [
+          "touch_edit"
+        ]
+      }
+    },
+    "airspeed_trend_tape": {
+      "label": "Airspeed Trend Tape",
+      "category": "airspeed",
+      "dbkeys": [
+        "IAS"
+      ],
+      "default_options": {},
+      "required_options": [],
+      "options": {},
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "altimeter_dial": {
+      "label": "Altimeter Dial",
+      "category": "altitude",
+      "dbkeys": [
+        "ALT"
+      ],
+      "default_options": {
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "required_options": [],
+      "options": {
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100,
+          "label": "Background opacity (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "help": "0 = transparent (show what's behind), 100 = solid"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": true,
+      "hidden": false,
+      "preview": {
+        "value": 3500
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "altimeter_tape": {
+      "label": "Altimeter Tape",
+      "category": "altitude",
+      "dbkeys": [
+        "ALT"
+      ],
+      "default_options": {
+        "edge_fade": {
+          "type": "boolean",
+          "default": false
+        },
+        "dbkey": {
+          "type": "fixkey",
+          "default": "ALT"
+        },
+        "maxalt": {
+          "type": "integer",
+          "default": 50000
+        },
+        "majorDiv": {
+          "type": "integer",
+          "default": 200
+        },
+        "minorDiv": {
+          "type": "integer",
+          "default": 100
+        },
+        "total_decimals": {
+          "type": "integer",
+          "default": 5
+        },
+        "font_mask": {
+          "type": "string",
+          "default": "00000"
+        },
+        "round_to": {
+          "type": "number",
+          "default": 0
+        },
+        "numeric_box": {
+          "type": "boolean",
+          "default": true
+        },
+        "font_scale": {
+          "type": "number",
+          "default": 1.0
+        },
+        "show_baro": {
+          "type": "boolean",
+          "default": true
+        },
+        "altsel_box": {
+          "type": "boolean",
+          "default": true
+        },
+        "alt_bug_enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "alt_bug_color": {
+          "type": "color",
+          "default": "#00ffff"
+        },
+        "alt_bug_alert_color": {
+          "type": "color",
+          "default": "#ffb000"
+        },
+        "alt_bug_dbkey": {
+          "type": "fixkey",
+          "default": "ALTSEL"
+        },
+        "altsel_capture_color": {
+          "type": "color",
+          "default": "#00ff00"
+        },
+        "vs_bug": {
+          "type": "boolean",
+          "default": false
+        },
+        "vs_bug_color": {
+          "type": "color",
+          "default": "#00ffff"
+        },
+        "vs_bug_dbkey": {
+          "type": "fixkey",
+          "default": "VSSEL"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "edge_fade": {
+          "type": "boolean",
+          "default": false,
+          "label": "Fade tape edges",
+          "help": "alpha-fade the top and bottom of the scrolling scale into the background (SVS shows through)"
+        },
+        "dbkey": {
+          "type": "fixkey",
+          "default": "ALT",
+          "label": "FIX key",
+          "help": "FIX key driving the tape (default ALT)"
+        },
+        "maxalt": {
+          "type": "integer",
+          "default": 50000,
+          "label": "Max altitude",
+          "help": "top of the tape's altitude range (ft)"
+        },
+        "majorDiv": {
+          "type": "integer",
+          "default": 200,
+          "label": "Major division",
+          "help": "altitude between labelled tape ticks (ft)"
+        },
+        "minorDiv": {
+          "type": "integer",
+          "default": 100,
+          "label": "Minor division",
+          "help": "altitude between the small tape ticks (ft)"
+        },
+        "total_decimals": {
+          "type": "integer",
+          "default": 5,
+          "label": "Total digits",
+          "help": "number of digits in the altitude readout"
+        },
+        "font_mask": {
+          "type": "string",
+          "default": "00000",
+          "label": "Font mask",
+          "help": "widest string the readout reserves space for (sizing)"
+        },
+        "round_to": {
+          "type": "number",
+          "default": 0,
+          "label": "Round readout to",
+          "help": "round the readout to this increment (0 = none)"
+        },
+        "numeric_box": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show numeric box",
+          "help": "show the boxed numeric altitude over the tape"
+        },
+        "font_scale": {
+          "type": "number",
+          "default": 1.0,
+          "label": "Scale-number font scale",
+          "help": "multiplier on the tape scale-number font size"
+        },
+        "show_baro": {
+          "type": "boolean",
+          "default": true,
+          "label": "Baro setting box",
+          "help": "touch-selectable altimeter setting box at the bottom of the tape (on for an ALT tape unless the screen has its own BARO readout; off for a VS tape)"
+        },
+        "altsel_box": {
+          "type": "boolean",
+          "default": true,
+          "label": "Selected-altitude box",
+          "help": "touch-settable ALTSEL box at the top of the tape (on for an ALT tape, off for a VS tape)"
+        },
+        "alt_bug_enabled": {
+          "type": "boolean",
+          "default": true,
+          "label": "Altitude bug",
+          "help": "draw the selected-altitude bug on the scale (follows the box unless set)"
+        },
+        "alt_bug_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "Altitude bug color",
+          "help": "colour of the selected-altitude box text and bug"
+        },
+        "alt_bug_alert_color": {
+          "type": "color",
+          "default": "#ffb000",
+          "label": "Altitude alert color",
+          "help": "box text and bug colour while fix-gateway flags an altitude deviation (the key's annunciate flag)"
+        },
+        "alt_bug_dbkey": {
+          "type": "fixkey",
+          "default": "ALTSEL",
+          "label": "Selected-altitude key",
+          "help": "FIX key holding the selected altitude (default ALTSEL)"
+        },
+        "altsel_capture_color": {
+          "type": "color",
+          "default": "#00ff00",
+          "label": "Altitude capture color",
+          "help": "selected-altitude box border while the autopilot captures it (APALTCAP)"
+        },
+        "vs_bug": {
+          "type": "boolean",
+          "default": false,
+          "label": "VSSEL bug",
+          "help": "on a VS tape, the VSSEL bug while the autopilot reports VS active (on for a VS tape, off for an ALT tape)"
+        },
+        "vs_bug_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "VSSEL bug color",
+          "help": "colour of the VSSEL bug"
+        },
+        "vs_bug_dbkey": {
+          "type": "fixkey",
+          "default": "VSSEL",
+          "label": "Selected-VS key",
+          "help": "FIX key holding the selected vertical speed (default VSSEL)"
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "value": 3500
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": true,
+        "options": []
+      }
+    },
+    "altimeter_trend_tape": {
+      "label": "Altimeter Trend Tape",
+      "category": "altitude",
+      "dbkeys": [
+        "VS"
+      ],
+      "default_options": {
+        "maxvs": {
+          "type": "integer",
+          "default": 2500
+        },
+        "minorDiv": {
+          "type": "integer",
+          "default": 100
+        },
+        "numberedDiv": {
+          "type": "integer",
+          "default": 200
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "required_options": [],
+      "options": {
+        "maxvs": {
+          "type": "integer",
+          "default": 2500,
+          "label": "Range (ft/min)",
+          "min": 500,
+          "max": 10000,
+          "step": 100,
+          "help": "full scale, plus and minus; pick to suit the airplane's climb/descent performance (AC 23.1311-1C 8.11)"
+        },
+        "minorDiv": {
+          "type": "integer",
+          "default": 100,
+          "label": "Tick interval (ft/min)",
+          "min": 25,
+          "max": 1000,
+          "step": 25,
+          "help": "minor tick mark every N ft/min"
+        },
+        "numberedDiv": {
+          "type": "integer",
+          "default": 200,
+          "label": "Numbered interval (ft/min)",
+          "min": 50,
+          "max": 2000,
+          "step": 50,
+          "help": "numbered graduation every N ft/min (labels print in hundreds: 2400 ft/min prints as 24)"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000",
+          "label": "Background",
+          "help": "tape face colour"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100,
+          "label": "Background opacity (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "help": "0 = transparent (show what's behind), 100 = solid"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "value": 500
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "annunciator": {
+      "label": "Annunciator",
+      "category": "text",
+      "dbkeys": [],
+      "default_options": {
+        "rows": {
+          "type": "integer",
+          "default": 1
+        },
+        "cols": {
+          "type": "integer",
+          "default": 0
+        },
+        "gap_px": {
+          "type": "integer",
+          "default": 4
+        },
+        "border_width": {
+          "type": "integer",
+          "default": 2
+        },
+        "corner_radius": {
+          "type": "integer",
+          "default": 4
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 75
+        },
+        "status_color": {
+          "type": "color",
+          "default": "#00ff00"
+        },
+        "advisory_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "info_color": {
+          "type": "color",
+          "default": "#00ffff"
+        },
+        "off_color": {
+          "type": "color",
+          "default": "#aaaaaa"
+        },
+        "caution_color": {
+          "type": "color",
+          "default": "#ffaa00"
+        },
+        "warning_color": {
+          "type": "color",
+          "default": "#ff0000"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "tiles": {
+          "type": "string",
+          "default": null,
+          "label": "Tiles",
+          "help": "list of lamps: label, key, and at most one of when (a Button-grammar condition), flag (annunciate, old, bad, fail) or enum (value -> text); plus on_text, off_text, level and flash_on_change seconds. Red/amber levels only with flag: annunciate"
+        },
+        "rows": {
+          "type": "integer",
+          "default": 1,
+          "label": "Rows",
+          "min": 1,
+          "max": 12,
+          "step": 1,
+          "help": "rows of tiles"
+        },
+        "cols": {
+          "type": "integer",
+          "default": 0,
+          "label": "Columns",
+          "min": 0,
+          "max": 12,
+          "step": 1,
+          "help": "columns of tiles; 0 = as many as the tiles need"
+        },
+        "gap_px": {
+          "type": "integer",
+          "default": 4,
+          "label": "Tile gap (px)",
+          "min": 0,
+          "max": 40,
+          "step": 1,
+          "help": "space between and around tiles"
+        },
+        "border_width": {
+          "type": "integer",
+          "default": 2,
+          "label": "Tile outline (px)",
+          "min": 1,
+          "max": 20,
+          "step": 1,
+          "help": "tile outline thickness; doubled while a change flashes"
+        },
+        "corner_radius": {
+          "type": "integer",
+          "default": 4,
+          "label": "Corner radius (px)",
+          "min": 0,
+          "max": 40,
+          "step": 1,
+          "help": "tile corner rounding; 0 = square"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000",
+          "label": "Background colour",
+          "help": "the block's fill"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 75,
+          "label": "Background opacity (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "help": "0 = transparent (show what's behind), 100 = solid"
+        },
+        "status_color": {
+          "type": "color",
+          "default": "#00ff00",
+          "label": "Status colour",
+          "help": "level status: on, normal"
+        },
+        "advisory_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Advisory colour",
+          "help": "level advisory"
+        },
+        "info_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "Info colour",
+          "help": "level info"
+        },
+        "off_color": {
+          "type": "color",
+          "default": "#aaaaaa",
+          "label": "Off colour",
+          "help": "a tile that is off"
+        },
+        "caution_color": {
+          "type": "color",
+          "default": "#ffaa00",
+          "label": "Caution colour",
+          "help": "level caution (flag: annunciate only)"
+        },
+        "warning_color": {
+          "type": "color",
+          "default": "#ff0000",
+          "label": "Warning colour",
+          "help": "level warning (flag: annunciate only)"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "tiles": [
+          {
+            "text": "GEAR DN",
+            "level": "status"
+          },
+          {
+            "text": "PITOT HT",
+            "level": "advisory"
+          },
+          {
+            "text": "FUEL PUMP",
+            "level": "off"
+          },
+          {
+            "text": "ALT2 ON",
+            "level": "status"
+          },
+          {
+            "text": "TRIM",
+            "level": "caution"
+          },
+          {
+            "text": "GPS",
+            "level": "info"
+          }
+        ]
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "ap_annunciator": {
+      "label": "Autopilot Mode Annunciator",
+      "category": "attitude",
+      "dbkeys": [
+        "APENG",
+        "YDENG",
+        "APLAT",
+        "APLATARM",
+        "APVERT",
+        "APVERTARM",
+        "APALTCAP",
+        "APALTREF",
+        "APDISC",
+        "VSSEL",
+        "IASSEL"
+      ],
+      "default_options": {
+        "ap_position": {
+          "type": "enum",
+          "default": "left"
+        },
+        "mode_flash_s": {
+          "type": "number",
+          "default": 10.0
+        },
+        "touch_ack": {
+          "type": "boolean",
+          "default": true
+        },
+        "active_color": {
+          "type": "color",
+          "default": "#00ff00"
+        },
+        "armed_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "warning_color": {
+          "type": "color",
+          "default": "#ff0000"
+        },
+        "background_color": {
+          "type": "color",
+          "default": "#000000"
+        },
+        "background_opacity": {
+          "type": "number",
+          "default": 0.75
+        }
+      },
+      "required_options": [],
+      "options": {
+        "ap_position": {
+          "type": "enum",
+          "default": "left",
+          "label": "AP/YD position",
+          "enum": [
+            "left",
+            "center"
+          ],
+          "help": "left: AP YD | lateral | vertical; center: lateral | AP YD | vertical, the control head's order"
+        },
+        "mode_flash_s": {
+          "type": "number",
+          "default": 10.0,
+          "label": "Mode change flash (s)",
+          "help": "how long a new active mode is boxed and flashes"
+        },
+        "touch_ack": {
+          "type": "boolean",
+          "default": true,
+          "label": "Tap acknowledges disconnect",
+          "help": "a tap on the strip sends APCMD DISC while a disconnect alert (APDISC) is shown and the autopilot is disengaged"
+        },
+        "active_color": {
+          "type": "color",
+          "default": "#00ff00",
+          "label": "Active mode colour",
+          "help": "active modes and AP/YD engaged (AC 25-11B Table 5-1: engaged modes green)"
+        },
+        "armed_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Armed mode colour",
+          "help": "armed modes"
+        },
+        "warning_color": {
+          "type": "color",
+          "default": "#ff0000",
+          "label": "Disconnect warning colour",
+          "help": "the flashing AP of a disconnect alert (APDISC)"
+        },
+        "background_color": {
+          "type": "color",
+          "default": "#000000",
+          "label": "Background colour",
+          "help": "the strip's fill"
+        },
+        "background_opacity": {
+          "type": "number",
+          "default": 0.75,
+          "label": "Background opacity",
+          "help": "0 (clear) to 1 (opaque)"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "lat": "HDG",
+        "lat_arm": "GPS",
+        "ap": "AP",
+        "yd": "YD",
+        "vert": "VS +500",
+        "vert_arm": "ALT"
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "arc_gauge": {
+      "label": "Arc Gauge",
+      "category": "gauge",
+      "dbkeys": [],
+      "default_options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": ""
+        },
+        "name": {
+          "type": "string",
+          "default": ""
+        },
+        "decimal_places": {
+          "type": "integer",
+          "default": 1
+        },
+        "show_units": {
+          "type": "boolean",
+          "default": false
+        },
+        "segments": {
+          "type": "integer",
+          "default": 0
+        },
+        "name_location": {
+          "type": "enum",
+          "default": "top"
+        },
+        "encoder_multiplier": {
+          "type": "number",
+          "default": 1
+        },
+        "encoder_coarse_multiplier": {
+          "type": "number",
+          "default": 10
+        },
+        "encoder_set_real_time": {
+          "type": "boolean",
+          "default": false
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_mask_blank_character": {
+          "type": "string",
+          "default": " "
+        },
+        "encoder_num_enforce_multiplier": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_require_confirm": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_8khz_channels": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_blink_time_on": {
+          "type": "integer",
+          "default": 300
+        },
+        "encoder_num_blink_time_off": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "required_options": [],
+      "options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": "",
+          "label": "FIX key",
+          "help": "FIX-database key whose value this gauge displays"
+        },
+        "name": {
+          "type": "string",
+          "default": "",
+          "label": "Name",
+          "help": "label drawn on the gauge (e.g. OIL P, CHT)"
+        },
+        "decimal_places": {
+          "type": "integer",
+          "default": 1,
+          "label": "Decimal places",
+          "help": "digits after the decimal point in the readout"
+        },
+        "show_units": {
+          "type": "boolean",
+          "default": false,
+          "label": "Show units",
+          "help": "append the FIX key's engineering units to the readout"
+        },
+        "segments": {
+          "type": "integer",
+          "default": 0,
+          "label": "Segments",
+          "help": "0 = solid band; >0 draws a segmented (LED-style) band"
+        },
+        "name_location": {
+          "type": "enum",
+          "default": "top",
+          "label": "Name location",
+          "enum": [
+            "top",
+            "right"
+          ],
+          "help": "where the name label sits relative to the gauge"
+        },
+        "tank": {
+          "type": "aircraft_ref",
+          "default": null,
+          "label": "Tank",
+          "help": "Bind to a tank from the aircraft page",
+          "source": "aircraft.fuel.tanks",
+          "multi": false,
+          "resolves": {
+            "dbkey": "slot_key",
+            "name": "label"
+          }
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        },
+        "encoder_set_key": {
+          "type": "fixkey",
+          "default": null,
+          "label": "Knob writes key",
+          "help": "FIX key the knob writes; blank = the key this gauge displays"
+        },
+        "encoder_multiplier": {
+          "type": "number",
+          "default": 1,
+          "label": "Knob step",
+          "help": "value change per inner-knob detent"
+        },
+        "encoder_coarse_multiplier": {
+          "type": "number",
+          "default": 10,
+          "label": "Outer ring step factor",
+          "help": "the outer ring steps the value by knob step x this"
+        },
+        "encoder_set_real_time": {
+          "type": "boolean",
+          "default": false,
+          "label": "Write while turning",
+          "help": "send each step to the FIX key as the knob turns; a timeout before push still reverts it. Ignored with a digit mask"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": false,
+          "label": "Touch to edit",
+          "help": "touch the gauge to give it the knob; it then marks focus with a ring and edit icon"
+        },
+        "encoder_num_mask": {
+          "type": "string",
+          "default": null,
+          "label": "Digit mask",
+          "help": "set the value one digit at a time, e.g. 000.000 for a radio frequency; push moves to the next digit. Blank = step the whole value"
+        },
+        "encoder_num_mask_blank_character": {
+          "type": "string",
+          "default": " ",
+          "label": "Digit mask blank",
+          "help": "character drawn for the digits not yet set"
+        },
+        "encoder_num_enforce_multiplier": {
+          "type": "boolean",
+          "default": false,
+          "label": "Digits follow knob step",
+          "help": "digit entry offers only digits that give a multiple of the knob step within the key's range"
+        },
+        "encoder_num_require_confirm": {
+          "type": "boolean",
+          "default": false,
+          "label": "Confirm after last digit",
+          "help": "after the last digit the value flashes and one more push saves it"
+        },
+        "encoder_num_8khz_channels": {
+          "type": "boolean",
+          "default": false,
+          "label": "8.33 kHz channels",
+          "help": "digit entry shows 8.33 kHz channel numbers; use with a knob step of 0.008333333333"
+        },
+        "encoder_num_blink_time_on": {
+          "type": "integer",
+          "default": 300,
+          "label": "Digit blink on (ms)",
+          "help": "how long the digit being set shows in each blink"
+        },
+        "encoder_num_blink_time_off": {
+          "type": "integer",
+          "default": 100,
+          "label": "Digit blink off (ms)",
+          "help": "how long the digit being set is hidden in each blink"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": true,
+      "hidden": false,
+      "preview": {
+        "value": "72.0",
+        "fill": 0.72,
+        "low_alarm": 0.1,
+        "low_warn": 0.2,
+        "high_warn": 0.8,
+        "high_alarm": 0.9
+      },
+      "fix_values": [
+        {
+          "name": "Min",
+          "source": "min",
+          "label": "Range minimum",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "Max",
+          "source": "max",
+          "label": "Range maximum",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "lowAlarm",
+          "source": "aux",
+          "label": "Low alarm (red)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "lowWarn",
+          "source": "aux",
+          "label": "Low warning (yellow)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "highWarn",
+          "source": "aux",
+          "label": "High warning (yellow)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "highAlarm",
+          "source": "aux",
+          "label": "High alarm (red)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        }
+      ],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": true,
+        "options": [
+          "encoder_set_key",
+          "encoder_multiplier",
+          "encoder_coarse_multiplier",
+          "encoder_set_real_time",
+          "touch_edit",
+          "encoder_num_mask",
+          "encoder_num_mask_blank_character",
+          "encoder_num_enforce_multiplier",
+          "encoder_num_require_confirm",
+          "encoder_num_8khz_channels",
+          "encoder_num_blink_time_on",
+          "encoder_num_blink_time_off"
+        ]
+      }
+    },
+    "atitude_indicator": {
+      "label": "Attitude Indicator",
+      "category": "attitude",
+      "dbkeys": [
+        "PITCH",
+        "ROLL",
+        "ALAT",
+        "TAS"
+      ],
+      "default_options": {
+        "aircraft_symbol": {
+          "type": "enum",
+          "default": "classic"
+        },
+        "symbol_color": {
+          "type": "color",
+          "default": "#ffff00"
+        },
+        "symbol_scale": {
+          "type": "number",
+          "default": 1.0
+        },
+        "show_fpm": {
+          "type": "boolean",
+          "default": true
+        },
+        "pitchDegreesShown": {
+          "type": "number",
+          "default": 50
+        },
+        "minorDiv": {
+          "type": "integer",
+          "default": 1
+        },
+        "majorDiv": {
+          "type": "integer",
+          "default": 5
+        },
+        "numberedDiv": {
+          "type": "integer",
+          "default": 10
+        },
+        "visiblePitchAngle": {
+          "type": "integer",
+          "default": 25
+        },
+        "pitchOpacity": {
+          "type": "number",
+          "default": 0.6
+        },
+        "bankOpacity": {
+          "type": "number",
+          "default": 1.0
+        },
+        "horizonOpacity": {
+          "type": "number",
+          "default": 1.0
+        },
+        "tick_autoscale": {
+          "type": "boolean",
+          "default": true
+        },
+        "minorDivWidth": {
+          "type": "integer",
+          "default": 10
+        },
+        "majorDivWidth": {
+          "type": "integer",
+          "default": 40
+        },
+        "numberedDivWidth": {
+          "type": "integer",
+          "default": 50
+        },
+        "drawBankMarkers": {
+          "type": "boolean",
+          "default": true
+        },
+        "bankAngleMaximum": {
+          "type": "integer",
+          "default": 25
+        },
+        "excessiveBankDeg": {
+          "type": "integer",
+          "default": 60
+        },
+        "bankBugTolerance": {
+          "type": "number",
+          "default": 5
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true
+        },
+        "bankMarkSize": {
+          "type": "integer",
+          "default": 10
+        },
+        "bank_position": {
+          "type": "number",
+          "default": 50
+        },
+        "bank_radius": {
+          "type": "number",
+          "default": 33.333333333333336
+        },
+        "fd_style": {
+          "type": "enum",
+          "default": "single_cue"
+        },
+        "pitch_ladder_avoid_bank": {
+          "type": "boolean",
+          "default": false
+        },
+        "horizon_heading_marks": {
+          "type": "boolean",
+          "default": false
+        },
+        "horizon_heading_interval": {
+          "type": "integer",
+          "default": 10
+        },
+        "horizon_heading_label_interval": {
+          "type": "integer",
+          "default": 20
+        },
+        "horizon_heading_tick_length": {
+          "type": "integer",
+          "default": 5
+        },
+        "horizon_heading_color": {
+          "type": "color",
+          "default": "#ffffff"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "aircraft_symbol": {
+          "type": "enum",
+          "default": "classic",
+          "label": "Aircraft symbol",
+          "enum": [
+            "classic",
+            "garmin",
+            "brackets",
+            "none"
+          ],
+          "help": "classic split-wing bars + dot; garmin G3X-style two-tone bat wing + horizon barbs; brackets GRT-style L-brackets; none hides the symbol (SVS-as-background) (g1000/gi275 remain accepted in YAML for back-compat)"
+        },
+        "symbol_color": {
+          "type": "color",
+          "default": "#ffff00",
+          "label": "Symbol colour",
+          "help": "colour of the fixed aircraft reference symbol"
+        },
+        "symbol_scale": {
+          "type": "number",
+          "default": 1.0,
+          "label": "Symbol scale",
+          "min": 0.3,
+          "max": 3.0,
+          "step": 0.05,
+          "help": "multiplies the reference symbol size -- wingspan and proportions together (1 = standard)"
+        },
+        "show_fpm": {
+          "type": "boolean",
+          "default": true,
+          "label": "Flight-path marker",
+          "help": "GPS flight-path marker (needs VS/GS/TRACK/HEAD)"
+        },
+        "pitchDegreesShown": {
+          "type": "number",
+          "default": 50,
+          "label": "Pitch field of view (deg)",
+          "help": "total vertical pitch span shown"
+        },
+        "minorDiv": {
+          "type": "integer",
+          "default": 1,
+          "label": "Minor division (deg)",
+          "help": "pitch interval between the smallest ladder ticks"
+        },
+        "majorDiv": {
+          "type": "integer",
+          "default": 5,
+          "label": "Major division (deg)",
+          "help": "pitch interval between the longer ladder ticks"
+        },
+        "numberedDiv": {
+          "type": "integer",
+          "default": 10,
+          "label": "Numbered division (deg)",
+          "help": "pitch interval at which ladder lines get a number"
+        },
+        "visiblePitchAngle": {
+          "type": "integer",
+          "default": 25,
+          "label": "Pitch label range (deg)",
+          "help": "ladder marks fade out beyond this from current pitch"
+        },
+        "pitchOpacity": {
+          "type": "number",
+          "default": 0.6,
+          "label": "Pitch ladder opacity",
+          "min": 0.0,
+          "max": 1.0,
+          "help": "pitch-ladder opacity (0 = invisible, 1 = solid)"
+        },
+        "bankOpacity": {
+          "type": "number",
+          "default": 1.0,
+          "label": "Bank display opacity",
+          "min": 0.0,
+          "max": 1.0,
+          "help": "bank scale, roll pointer, standard-rate diamonds and slip/skid ball together (0 = hidden, 1 = solid)"
+        },
+        "horizonOpacity": {
+          "type": "number",
+          "default": 1.0,
+          "label": "Horizon line opacity",
+          "min": 0.0,
+          "max": 1.0,
+          "help": "the white zero-pitch reference line (0 = hidden, 1 = solid)"
+        },
+        "tick_autoscale": {
+          "type": "boolean",
+          "default": true,
+          "label": "Auto-scale tick widths to font",
+          "help": "off = use the explicit tick-width / bank-size pixels below"
+        },
+        "minorDivWidth": {
+          "type": "integer",
+          "default": 10,
+          "label": "Minor tick width (px)",
+          "help": "length of the minor pitch ticks (auto-scale off)"
+        },
+        "majorDivWidth": {
+          "type": "integer",
+          "default": 40,
+          "label": "Major tick width (px)",
+          "help": "length of the major pitch ticks (auto-scale off)"
+        },
+        "numberedDivWidth": {
+          "type": "integer",
+          "default": 50,
+          "label": "Numbered tick width (px)",
+          "help": "length of the numbered pitch ticks (auto-scale off)"
+        },
+        "drawBankMarkers": {
+          "type": "boolean",
+          "default": true,
+          "label": "Standard-rate bank markers",
+          "help": "show the bank-angle tick arc across the top"
+        },
+        "bankAngleMaximum": {
+          "type": "integer",
+          "default": 25,
+          "label": "Max indicated bank (deg)",
+          "help": "largest bank angle marked on the bank arc"
+        },
+        "excessiveBankDeg": {
+          "type": "integer",
+          "default": 60,
+          "label": "Excessive-bank caution (deg)",
+          "min": 30,
+          "max": 65,
+          "step": 1,
+          "help": "the bank scale and pointer turn amber past this bank; set it above the steepest turn this aircraft is flown in on purpose (60 clears the 45 and 50 deg steep turns)"
+        },
+        "bankBugTolerance": {
+          "type": "number",
+          "default": 5,
+          "label": "Bank bug tolerance (+/- deg)",
+          "min": 1,
+          "max": 10,
+          "step": 1,
+          "help": "half-width of the cyan band around the target-bank bug (BANKBUG); the ACS steep turns are flown to +/-5"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true,
+          "label": "Touch to set bank bug",
+          "help": "touch the bank scale, then turn the knob to set the target-bank bug (BANKBUG) in 5 deg steps, from off up to 60 or the excessive-bank caution if lower; push or the timeout ends the edit"
+        },
+        "bankMarkSize": {
+          "type": "integer",
+          "default": 10,
+          "label": "Bank tick size (px)",
+          "help": "length of the bank-arc ticks (auto-scale off)"
+        },
+        "bank_position": {
+          "type": "number",
+          "default": 50,
+          "label": "Bank scale position (%)",
+          "min": 0,
+          "max": 100,
+          "help": "vertical position of the bank-arc centre, percent up from the bottom (50 = centred, the classic look); the whole cluster incl. pointer and slip ball moves with it"
+        },
+        "bank_radius": {
+          "type": "number",
+          "default": 33.333333333333336,
+          "label": "Bank scale radius (% height)",
+          "min": 10,
+          "max": 60,
+          "step": 0.1,
+          "help": "radius of the bank arc as a percent of widget height (33.3 = the classic height/3); an explicit bankAngleRadius px in YAML overrides it"
+        },
+        "fd_style": {
+          "type": "enum",
+          "default": "single_cue",
+          "label": "Flight director style",
+          "enum": [
+            "single_cue",
+            "cross_pointer",
+            "off"
+          ],
+          "help": "single_cue: a magenta command chevron the aircraft symbol flies into; cross_pointer: separate pitch and roll bars; off: no flight director. Drawn only while FDENG is on and FDPITCH/FDROLL are current"
+        },
+        "pitch_ladder_avoid_bank": {
+          "type": "boolean",
+          "default": false,
+          "label": "Ladder stops below bank arc",
+          "help": "G1000-style declutter: the ladder climbs into the bank arch but stops below the slip/skid ball"
+        },
+        "horizon_heading_marks": {
+          "type": "boolean",
+          "default": false,
+          "label": "Horizon heading marks",
+          "help": "tick marks + labels for compass heading along the horizon"
+        },
+        "horizon_heading_interval": {
+          "type": "integer",
+          "default": 10,
+          "label": "Heading tick interval (deg)",
+          "min": 1,
+          "max": 45,
+          "step": 1,
+          "help": "degrees of heading between the horizon ticks"
+        },
+        "horizon_heading_label_interval": {
+          "type": "integer",
+          "default": 20,
+          "label": "Heading label interval (deg)",
+          "min": 5,
+          "max": 90,
+          "step": 5,
+          "help": "degrees of heading between the numeric labels"
+        },
+        "horizon_heading_tick_length": {
+          "type": "integer",
+          "default": 5,
+          "label": "Heading tick length (px)",
+          "min": 1,
+          "max": 30,
+          "step": 1,
+          "help": "length of the horizon heading ticks (px)"
+        },
+        "horizon_heading_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Heading mark colour",
+          "help": "colour of the horizon heading ticks and labels"
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": true,
+      "keep_aspect": true,
+      "hidden": false,
+      "preview": {
+        "pitch": -2.0,
+        "roll": 4.0,
+        "slip": 1.0
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": false,
+        "options": [
+          "touch_edit"
+        ]
+      }
+    },
+    "autopilot_panel": {
+      "label": "Autopilot Panel",
+      "category": "navigation",
+      "dbkeys": [
+        "APCMD",
+        "APCMDSEQ",
+        "APENG",
+        "FDENG",
+        "YDENG",
+        "APLAT",
+        "APLATARM",
+        "APVERT",
+        "APVERTARM",
+        "APALTCAP",
+        "APCAPS",
+        "APMSG",
+        "HEADBUG",
+        "VSSEL",
+        "IASSEL",
+        "ALTSEL",
+        "HEAD",
+        "VS",
+        "IAS",
+        "ALT"
+      ],
+      "default_options": {
+        "layout": {
+          "type": "enum",
+          "default": "full"
+        },
+        "buttons": {
+          "type": "string",
+          "default": "APR,NAV,HDG,AP,FD,YD,LVL,IAS,VNAV,VS,ALT"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true
+        },
+        "active_color": {
+          "type": "color",
+          "default": "#00ff00"
+        },
+        "armed_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "caution_color": {
+          "type": "color",
+          "default": "#ffaa00"
+        },
+        "key_color": {
+          "type": "color",
+          "default": "#101418"
+        },
+        "level_color": {
+          "type": "color",
+          "default": "#1f5fbf"
+        },
+        "text_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "muted_color": {
+          "type": "color",
+          "default": "#aaaaaa"
+        },
+        "line_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "target_color": {
+          "type": "color",
+          "default": "#00ffff"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "layout": {
+          "type": "enum",
+          "default": "full",
+          "label": "Layout",
+          "enum": [
+            "full",
+            "compact"
+          ],
+          "help": "full: three columns (lateral, centre, vertical), each with its value boxes over its keys; compact: two rows, the boxes over one row of keys, for small panels and side strips"
+        },
+        "buttons": {
+          "type": "string",
+          "default": "APR,NAV,HDG,AP,FD,YD,LVL,IAS,VNAV,VS,ALT",
+          "label": "Buttons",
+          "help": "comma list of the keys shown, from APR, NAV, HDG, TRK, AP, FD, YD, LVL, IAS, VNAV, VS, ALT; drop YD for an airplane with no yaw damper. TRK is off by default. A key the autopilot cannot fly is greyed, never hidden"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true,
+          "label": "Touch to edit",
+          "help": "touch a value box (HDG, VS, IAS, ALT SEL) to give it the knob: inner/outer steps, push to sync"
+        },
+        "active_color": {
+          "type": "color",
+          "default": "#00ff00",
+          "label": "Active colour",
+          "help": "indicator bar of an active mode, and the accent on the active vertical mode's box"
+        },
+        "armed_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Armed colour",
+          "help": "outline of an armed mode's indicator bar"
+        },
+        "caution_color": {
+          "type": "color",
+          "default": "#ffaa00",
+          "label": "Caution colour",
+          "help": "a request not taken, and the no-autopilot-data message"
+        },
+        "key_color": {
+          "type": "color",
+          "default": "#101418",
+          "label": "Key colour",
+          "help": "key face"
+        },
+        "level_color": {
+          "type": "color",
+          "default": "#1f5fbf",
+          "label": "LVL colour",
+          "help": "the LVL key's own face colour, so it can be found without looking for its label"
+        },
+        "text_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Text colour",
+          "help": "key labels and the autopilot message"
+        },
+        "muted_color": {
+          "type": "color",
+          "default": "#aaaaaa",
+          "label": "Unavailable colour",
+          "help": "greyed keys and the box labels"
+        },
+        "line_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Line colour",
+          "help": "key and box borders"
+        },
+        "target_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "Target colour",
+          "help": "the selected values in the boxes"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000",
+          "label": "Background",
+          "help": "panel ground behind the keys and boxes"
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "hdg": "270",
+        "vs": "+500",
+        "ias": "---",
+        "altsel": "8500",
+        "active": [
+          "AP",
+          "FD",
+          "HDG",
+          "VS"
+        ],
+        "armed": [
+          "ALT",
+          "NAV"
+        ],
+        "unavailable": [
+          "VNAV"
+        ],
+        "message": ""
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": true,
+        "options": [
+          "touch_edit"
+        ]
+      }
+    },
+    "button": {
+      "label": "Button",
+      "category": "control",
+      "dbkeys": [],
+      "default_options": {
+        "text": {
+          "type": "string",
+          "default": ""
+        },
+        "type": {
+          "type": "enum",
+          "default": "simple"
+        },
+        "dbkey": {
+          "type": "fixkey",
+          "default": ""
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#101418"
+        },
+        "fg_color": {
+          "type": "color",
+          "default": "#00ffff"
+        },
+        "transparent": {
+          "type": "boolean",
+          "default": false
+        },
+        "hover_show": {
+          "type": "boolean",
+          "default": false
+        },
+        "config": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required_options": [
+        "dbkey"
+      ],
+      "options": {
+        "text": {
+          "type": "string",
+          "default": "",
+          "label": "Text",
+          "help": "button label (use \\n for two lines)"
+        },
+        "type": {
+          "type": "enum",
+          "default": "simple",
+          "label": "Type",
+          "enum": [
+            "simple",
+            "toggle",
+            "repeat"
+          ],
+          "help": "simple = click; toggle = on/off state; repeat = auto-repeat while held"
+        },
+        "dbkey": {
+          "type": "fixkey",
+          "default": "",
+          "label": "FIX key",
+          "help": "backing touchscreen-button key (TSBTN...); the configurator assigns it automatically"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#101418",
+          "label": "Background colour",
+          "help": "button fill colour"
+        },
+        "fg_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "Text colour",
+          "help": "button label colour"
+        },
+        "transparent": {
+          "type": "boolean",
+          "default": false,
+          "label": "Transparent background",
+          "help": "draw no fill so what is behind the button shows through"
+        },
+        "hover_show": {
+          "type": "boolean",
+          "default": false,
+          "label": "Show only on hover",
+          "help": "hide the button until the pointer is over it"
+        },
+        "config": {
+          "type": "string",
+          "default": "",
+          "label": "Config file (legacy)",
+          "help": "path to an external button YAML; blank = use the fields above"
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        }
+      },
+      "offscreen_renderable": false,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "cas_marker": {
+      "label": "CAS Marker",
+      "category": "system",
+      "dbkeys": [
+        "CASMSG1",
+        "CASMSG2",
+        "CASMSG3",
+        "CASMSG4",
+        "CASMSG5",
+        "CASMSG6",
+        "CASMSG7",
+        "CASMSG8",
+        "CASMSG9",
+        "CASMSG10",
+        "CASMSG11",
+        "CASMSG12",
+        "CASCNT",
+        "CASTOP",
+        "CASSEQ",
+        "CASACK"
+      ],
+      "default_options": {
+        "warning_color": {
+          "type": "color",
+          "default": "#ff0000"
+        },
+        "caution_color": {
+          "type": "color",
+          "default": "#ffaa00"
+        },
+        "advisory_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "background_color": {
+          "type": "color",
+          "default": "#000000"
+        },
+        "background_opacity": {
+          "type": "number",
+          "default": 0.75
+        },
+        "status_path": {
+          "type": "string",
+          "default": "~/.makerplane/pyefis/status.json"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "warning_color": {
+          "type": "color",
+          "default": "#ff0000",
+          "label": "Warning colour",
+          "help": "warning lines (red; AC 25.1322-1 reserves it)"
+        },
+        "caution_color": {
+          "type": "color",
+          "default": "#ffaa00",
+          "label": "Caution colour",
+          "help": "caution lines (amber; AC 25.1322-1 reserves it)"
+        },
+        "advisory_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Advisory colour",
+          "help": "advisory lines (white, as G3X and SkyView)"
+        },
+        "background_color": {
+          "type": "color",
+          "default": "#000000",
+          "label": "Background colour",
+          "help": "the fill behind the lines while any is shown"
+        },
+        "background_opacity": {
+          "type": "number",
+          "default": 0.75,
+          "label": "Background opacity",
+          "help": "0 (clear) to 1 (opaque)"
+        },
+        "status_path": {
+          "type": "string",
+          "default": "~/.makerplane/pyefis/status.json",
+          "label": "Updater status file",
+          "help": "the updater's status.json, read for CATALOG REFUSED"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "level": "caution",
+        "text": "CAUTION"
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "cas_window": {
+      "label": "CAS Window",
+      "category": "system",
+      "dbkeys": [
+        "CASMSG1",
+        "CASMSG2",
+        "CASMSG3",
+        "CASMSG4",
+        "CASMSG5",
+        "CASMSG6",
+        "CASMSG7",
+        "CASMSG8",
+        "CASMSG9",
+        "CASMSG10",
+        "CASMSG11",
+        "CASMSG12",
+        "CASCNT",
+        "CASTOP",
+        "CASSEQ",
+        "CASACK"
+      ],
+      "default_options": {
+        "lines": {
+          "type": "integer",
+          "default": 4
+        },
+        "warning_color": {
+          "type": "color",
+          "default": "#ff0000"
+        },
+        "caution_color": {
+          "type": "color",
+          "default": "#ffaa00"
+        },
+        "advisory_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "background_color": {
+          "type": "color",
+          "default": "#000000"
+        },
+        "background_opacity": {
+          "type": "number",
+          "default": 0.75
+        },
+        "status_path": {
+          "type": "string",
+          "default": "~/.makerplane/pyefis/status.json"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "lines": {
+          "type": "integer",
+          "default": 4,
+          "label": "Lines",
+          "min": 1,
+          "max": 12,
+          "step": 1,
+          "help": "message lines the window holds; past that the last line is +k, and a touch on it opens the full list"
+        },
+        "warning_color": {
+          "type": "color",
+          "default": "#ff0000",
+          "label": "Warning colour",
+          "help": "warning lines (red; AC 25.1322-1 reserves it)"
+        },
+        "caution_color": {
+          "type": "color",
+          "default": "#ffaa00",
+          "label": "Caution colour",
+          "help": "caution lines (amber; AC 25.1322-1 reserves it)"
+        },
+        "advisory_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Advisory colour",
+          "help": "advisory lines (white, as G3X and SkyView)"
+        },
+        "background_color": {
+          "type": "color",
+          "default": "#000000",
+          "label": "Background colour",
+          "help": "the fill behind the lines while any is shown"
+        },
+        "background_opacity": {
+          "type": "number",
+          "default": 0.75,
+          "label": "Background opacity",
+          "help": "0 (clear) to 1 (opaque)"
+        },
+        "status_path": {
+          "type": "string",
+          "default": "~/.makerplane/pyefis/status.json",
+          "label": "Updater status file",
+          "help": "the updater's status.json, read for CATALOG REFUSED"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "lines": [
+          "3|0|APLINK|AP LINK LOST|",
+          "2|0|NAVFAIL|NAV FAIL|",
+          "1|1|CASTEST|CAS TEST|"
+        ]
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "checklist": {
+      "label": "Checklist",
+      "category": "list",
+      "dbkeys": [],
+      "default_options": {
+        "hmi_group": {
+          "type": "string",
+          "default": ""
+        },
+        "text_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "response_color": {
+          "type": "color",
+          "default": "#00ffff"
+        },
+        "done_color": {
+          "type": "color",
+          "default": "#00ff00"
+        },
+        "current_color": {
+          "type": "color",
+          "default": "#ffaa00"
+        },
+        "section_color": {
+          "type": "color",
+          "default": "#aaaaaa"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "checklists": {
+          "type": "string",
+          "default": null,
+          "label": "Checklists",
+          "help": "inline checklist set: a list of checklist objects, each {id, title, category, sections|items} (challenge/response items). Phase 1 authors this by hand; later the configurator builds it per-aircraft"
+        },
+        "hmi_group": {
+          "type": "string",
+          "default": "",
+          "label": "HMI group",
+          "help": "optional name so a Button's 'checklist ...' actions can target this checklist; blank = every checklist on the screen"
+        },
+        "text_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Item colour",
+          "help": "colour of an un-acknowledged item's challenge text"
+        },
+        "response_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "Response colour",
+          "help": "colour of the challenge-response value (the right-hand text)"
+        },
+        "done_color": {
+          "type": "color",
+          "default": "#00ff00",
+          "label": "Acknowledged colour",
+          "help": "colour of an item once it has been acknowledged"
+        },
+        "current_color": {
+          "type": "color",
+          "default": "#ffaa00",
+          "label": "Current-row colour",
+          "help": "highlight colour of the current row while the encoder is controlling the checklist"
+        },
+        "section_color": {
+          "type": "color",
+          "default": "#aaaaaa",
+          "label": "Section colour",
+          "help": "colour of section subheaders and the progress line"
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "data_annunciation": {
+      "label": "Data Annunciation",
+      "category": "system",
+      "dbkeys": [],
+      "default_options": {},
+      "required_options": [],
+      "options": {},
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "data_status": {
+      "label": "Data Status",
+      "category": "system",
+      "dbkeys": [],
+      "default_options": {},
+      "required_options": [],
+      "options": {},
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": true,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "flight_plan": {
+      "label": "Flight Plan",
+      "category": "navigation",
+      "dbkeys": [
+        "FPLCOUNT",
+        "FPLNAME",
+        "FPLSEQ",
+        "FPLSTATE",
+        "FPLACTLEG",
+        "FPLAPR",
+        "FPLINTEG"
+      ],
+      "default_options": {
+        "flightplan_dir": {
+          "type": "string",
+          "default": ""
+        },
+        "nasr_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "navaid_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "procedures_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "plates_path": {
+          "type": "string",
+          "default": ""
+        },
+        "hold_speed_kt": {
+          "type": "number",
+          "default": 90.0
+        },
+        "columns": {
+          "type": "string",
+          "default": "DTK,DIS,CUM"
+        },
+        "keypad": {
+          "type": "boolean",
+          "default": true
+        },
+        "keyboard": {
+          "type": "boolean",
+          "default": false
+        },
+        "default_page": {
+          "type": "enum",
+          "default": "fpl"
+        },
+        "hmi_group": {
+          "type": "string",
+          "default": ""
+        },
+        "active_color": {
+          "type": "color",
+          "default": "#ff00ff"
+        },
+        "future_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "past_color": {
+          "type": "color",
+          "default": "#808080"
+        },
+        "row_height_mm": {
+          "type": "number",
+          "default": 14.0
+        }
+      },
+      "required_options": [],
+      "options": {
+        "flightplan_dir": {
+          "type": "string",
+          "default": "",
+          "label": "Flight plan directory",
+          "help": "directory for stored routes/user waypoints/recent list (<dir>/routes/*.json, user_waypoints.json, recent.json); blank disables catalog Store and FastFind's Recent/User tabs"
+        },
+        "nasr_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Airport db path",
+          "help": "NASR airports.sqlite for FastFind/nearest airport lookup (same path as the moving map's nasr_db_path)"
+        },
+        "navaid_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Navaid db path",
+          "help": "navaids.sqlite for FastFind/nearest navaid and fix lookup (same path as the moving map's navaid_db_path)"
+        },
+        "procedures_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Procedures db path",
+          "help": "procedures-conus.pack for SID/STAR/approach lookup (PA5; on the Pi /data/makerplane-data/procedures/current/procedures.sqlite)"
+        },
+        "plates_path": {
+          "type": "string",
+          "default": "",
+          "label": "Plates pack path",
+          "help": "FAA d-TPP plates pack, or a directory holding one or more regional plates packs, for the Charts page (PA12). Blank hides the FPL page's CHARTS key"
+        },
+        "hold_speed_kt": {
+          "type": "number",
+          "default": 90.0,
+          "label": "Hold speed (kt)",
+          "min": 40.0,
+          "max": 250.0,
+          "step": 5.0,
+          "help": "speed a hold coded in minutes is turned into a distance at when the PROC page loads it (one minute at 90 kt = 1.5 nm); the bus carries no leg time"
+        },
+        "columns": {
+          "type": "string",
+          "default": "DTK,DIS,CUM",
+          "label": "Columns",
+          "help": "comma-separated FPL page data columns, in order; choices DTK, DIS, CUM, ETE, ETA"
+        },
+        "keypad": {
+          "type": "boolean",
+          "default": true,
+          "label": "On-screen keypad",
+          "help": "show the gloved-finger on-screen keypad on the Entry/Direct To Waypoint pages and any text/lat-lon prompt"
+        },
+        "keyboard": {
+          "type": "boolean",
+          "default": false,
+          "label": "Physical keyboard",
+          "help": "let a physical keyboard drive an open ident-entry surface (Entry page, Direct To page's Waypoint tab, or a text/lat-lon prompt) while it is open"
+        },
+        "default_page": {
+          "type": "enum",
+          "default": "fpl",
+          "label": "Default page",
+          "enum": [
+            "fpl",
+            "entry"
+          ],
+          "help": "page shown when the instrument first paints"
+        },
+        "hmi_group": {
+          "type": "string",
+          "default": "",
+          "label": "HMI group",
+          "help": "optional name so 'flightplan page'/'flightplan direct to' HMI actions can target this instrument; blank = every flight_plan instrument on the screen"
+        },
+        "active_color": {
+          "type": "color",
+          "default": "#ff00ff",
+          "label": "Active leg colour",
+          "help": "colour of the active (TO) leg's row"
+        },
+        "future_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Future leg colour",
+          "help": "colour of upcoming (not yet flown) legs"
+        },
+        "past_color": {
+          "type": "color",
+          "default": "#808080",
+          "label": "Past leg colour",
+          "help": "colour of already-flown legs"
+        },
+        "row_height_mm": {
+          "type": "number",
+          "default": 14.0,
+          "label": "List row height (mm)",
+          "min": 6.0,
+          "max": 30.0,
+          "step": 0.5,
+          "help": "physical height of one flight-plan row on the glass. Geometry, not text size: it sets the row pitch, the type icon and the row font. A taller pane shows MORE legs at this height rather than fewer, larger ones. Needs screenDiagonalInches to be correct for the device."
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "name": "KSBA-GVO-KSMX",
+        "waypoints": [
+          {
+            "id": "KSBA"
+          },
+          {
+            "id": "GVO"
+          },
+          {
+            "id": "KSMX"
+          }
+        ]
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": true,
+        "options": []
+      }
+    },
+    "heading_display": {
+      "label": "Heading Display",
+      "category": "navigation",
+      "dbkeys": [
+        "HEAD"
+      ],
+      "default_options": {
+        "fg_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "required_options": [],
+      "options": {
+        "fg_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Foreground",
+          "help": "heading-text colour"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000",
+          "label": "Background",
+          "help": "background-box fill colour"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100,
+          "label": "Background opacity (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "help": "0 = transparent (show what's behind), 100 = solid"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": true,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "heading_tape": {
+      "label": "Heading Tape",
+      "category": "navigation",
+      "dbkeys": [
+        "HEAD"
+      ],
+      "default_options": {},
+      "required_options": [],
+      "options": {},
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "heading": 87
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "horizontal_bar_gauge": {
+      "label": "Horizontal Bar Gauge",
+      "category": "gauge",
+      "dbkeys": [],
+      "default_options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": ""
+        },
+        "name": {
+          "type": "string",
+          "default": ""
+        },
+        "decimal_places": {
+          "type": "integer",
+          "default": 1
+        },
+        "show_units": {
+          "type": "boolean",
+          "default": true
+        },
+        "segments": {
+          "type": "integer",
+          "default": 0
+        },
+        "encoder_multiplier": {
+          "type": "number",
+          "default": 1
+        },
+        "encoder_coarse_multiplier": {
+          "type": "number",
+          "default": 10
+        },
+        "encoder_set_real_time": {
+          "type": "boolean",
+          "default": false
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_mask_blank_character": {
+          "type": "string",
+          "default": " "
+        },
+        "encoder_num_enforce_multiplier": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_require_confirm": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_8khz_channels": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_blink_time_on": {
+          "type": "integer",
+          "default": 300
+        },
+        "encoder_num_blink_time_off": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "required_options": [],
+      "options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": "",
+          "label": "FIX key",
+          "help": "FIX-database key whose value this gauge displays"
+        },
+        "name": {
+          "type": "string",
+          "default": "",
+          "label": "Name",
+          "help": "label drawn on the gauge (e.g. OIL P, CHT)"
+        },
+        "decimal_places": {
+          "type": "integer",
+          "default": 1,
+          "label": "Decimal places",
+          "help": "digits after the decimal point in the readout"
+        },
+        "show_units": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show units",
+          "help": "append the FIX key's engineering units to the readout"
+        },
+        "segments": {
+          "type": "integer",
+          "default": 0,
+          "label": "Segments",
+          "help": "0 = solid bar; >0 draws a segmented (LED-style) bar"
+        },
+        "tank": {
+          "type": "aircraft_ref",
+          "default": null,
+          "label": "Tank",
+          "help": "Bind to a tank from the aircraft page",
+          "source": "aircraft.fuel.tanks",
+          "multi": false,
+          "resolves": {
+            "dbkey": "slot_key",
+            "name": "label"
+          }
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        },
+        "encoder_set_key": {
+          "type": "fixkey",
+          "default": null,
+          "label": "Knob writes key",
+          "help": "FIX key the knob writes; blank = the key this gauge displays"
+        },
+        "encoder_multiplier": {
+          "type": "number",
+          "default": 1,
+          "label": "Knob step",
+          "help": "value change per inner-knob detent"
+        },
+        "encoder_coarse_multiplier": {
+          "type": "number",
+          "default": 10,
+          "label": "Outer ring step factor",
+          "help": "the outer ring steps the value by knob step x this"
+        },
+        "encoder_set_real_time": {
+          "type": "boolean",
+          "default": false,
+          "label": "Write while turning",
+          "help": "send each step to the FIX key as the knob turns; a timeout before push still reverts it. Ignored with a digit mask"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": false,
+          "label": "Touch to edit",
+          "help": "touch the gauge to give it the knob; it then marks focus with a ring and edit icon"
+        },
+        "encoder_num_mask": {
+          "type": "string",
+          "default": null,
+          "label": "Digit mask",
+          "help": "set the value one digit at a time, e.g. 000.000 for a radio frequency; push moves to the next digit. Blank = step the whole value"
+        },
+        "encoder_num_mask_blank_character": {
+          "type": "string",
+          "default": " ",
+          "label": "Digit mask blank",
+          "help": "character drawn for the digits not yet set"
+        },
+        "encoder_num_enforce_multiplier": {
+          "type": "boolean",
+          "default": false,
+          "label": "Digits follow knob step",
+          "help": "digit entry offers only digits that give a multiple of the knob step within the key's range"
+        },
+        "encoder_num_require_confirm": {
+          "type": "boolean",
+          "default": false,
+          "label": "Confirm after last digit",
+          "help": "after the last digit the value flashes and one more push saves it"
+        },
+        "encoder_num_8khz_channels": {
+          "type": "boolean",
+          "default": false,
+          "label": "8.33 kHz channels",
+          "help": "digit entry shows 8.33 kHz channel numbers; use with a knob step of 0.008333333333"
+        },
+        "encoder_num_blink_time_on": {
+          "type": "integer",
+          "default": 300,
+          "label": "Digit blink on (ms)",
+          "help": "how long the digit being set shows in each blink"
+        },
+        "encoder_num_blink_time_off": {
+          "type": "integer",
+          "default": 100,
+          "label": "Digit blink off (ms)",
+          "help": "how long the digit being set is hidden in each blink"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "value": "72",
+        "fill": 0.72
+      },
+      "fix_values": [
+        {
+          "name": "Min",
+          "source": "min",
+          "label": "Range minimum",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "Max",
+          "source": "max",
+          "label": "Range maximum",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "lowAlarm",
+          "source": "aux",
+          "label": "Low alarm (red)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "lowWarn",
+          "source": "aux",
+          "label": "Low warning (yellow)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "highWarn",
+          "source": "aux",
+          "label": "High warning (yellow)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "highAlarm",
+          "source": "aux",
+          "label": "High alarm (red)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        }
+      ],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": true,
+        "options": [
+          "encoder_set_key",
+          "encoder_multiplier",
+          "encoder_coarse_multiplier",
+          "encoder_set_real_time",
+          "touch_edit",
+          "encoder_num_mask",
+          "encoder_num_mask_blank_character",
+          "encoder_num_enforce_multiplier",
+          "encoder_num_require_confirm",
+          "encoder_num_8khz_channels",
+          "encoder_num_blink_time_on",
+          "encoder_num_blink_time_off"
+        ]
+      }
+    },
+    "horizontal_situation_indicator": {
+      "label": "Horizontal Situation Indicator (HSI)",
+      "category": "navigation",
+      "dbkeys": [
+        "COURSE",
+        "CDI",
+        "GSI",
+        "HEAD",
+        "BRG1",
+        "BRG2",
+        "BRG1SRC",
+        "BRG2SRC"
+      ],
+      "default_options": {
+        "cdi_enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "gsi_enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "fg_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100
+        },
+        "needle_color": {
+          "type": "color",
+          "default": "#ffff00"
+        },
+        "needle_width": {
+          "type": "integer",
+          "default": 3
+        },
+        "course_color": {
+          "type": "color",
+          "default": "#ff00ff"
+        },
+        "source_auto_color": {
+          "type": "boolean",
+          "default": true
+        },
+        "vloc_color": {
+          "type": "color",
+          "default": "#00ff00"
+        },
+        "source_label_enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "heading_bug_enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "heading_bug_color": {
+          "type": "color",
+          "default": "#00ffff"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true
+        },
+        "track_indicator_enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "track_color": {
+          "type": "color",
+          "default": "#ff00ff"
+        },
+        "track_min_speed": {
+          "type": "integer",
+          "default": 5
+        },
+        "turn_rate_enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "turn_rate_color": {
+          "type": "color",
+          "default": "#ff00ff"
+        },
+        "center_symbol": {
+          "type": "enum",
+          "default": "aircraft"
+        },
+        "readout_layout": {
+          "type": "enum",
+          "default": "top_panel"
+        },
+        "numeral_scale": {
+          "type": "number",
+          "default": 1.5
+        },
+        "depth_rings": {
+          "type": "boolean",
+          "default": false
+        },
+        "shadow_enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "orientation": {
+          "type": "enum",
+          "default": "heading_up"
+        },
+        "bearing1_enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "bearing2_enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "bearing_color": {
+          "type": "color",
+          "default": "#00ffff"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "cdi_enabled": {
+          "type": "boolean",
+          "default": true,
+          "label": "CDI",
+          "help": "show the lateral course-deviation needle (CDI)"
+        },
+        "gsi_enabled": {
+          "type": "boolean",
+          "default": true,
+          "label": "Glideslope",
+          "help": "show the vertical glideslope needle (GSI)"
+        },
+        "fg_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Foreground",
+          "help": "compass card, ring and text colour"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000",
+          "label": "Background",
+          "help": "compass-disc fill colour"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 100,
+          "label": "Background opacity (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "help": "0 = transparent (show what's behind), 100 = solid"
+        },
+        "needle_color": {
+          "type": "color",
+          "default": "#ffff00",
+          "label": "Needle color",
+          "help": "colour of the CDI/GSI deviation needles"
+        },
+        "needle_width": {
+          "type": "integer",
+          "default": 3,
+          "label": "Needle width",
+          "min": 1,
+          "max": 10,
+          "step": 1,
+          "help": "width of the CDI/GSI deviation needles (px)"
+        },
+        "course_color": {
+          "type": "color",
+          "default": "#ff00ff",
+          "label": "Course pointer color",
+          "help": "selected-course pointer (the magenta CRS triangle)"
+        },
+        "source_auto_color": {
+          "type": "boolean",
+          "default": true,
+          "label": "Source auto-color",
+          "help": "colour the course pointer and CDI by nav source -- magenta for GPS, the VOR/LOC colour for a VOR/LOC source (from NAVSRC)"
+        },
+        "vloc_color": {
+          "type": "color",
+          "default": "#00ff00",
+          "label": "VOR/LOC color",
+          "help": "course pointer / CDI colour for a VOR or localizer source when source auto-color is on"
+        },
+        "source_label_enabled": {
+          "type": "boolean",
+          "default": true,
+          "label": "Source label",
+          "help": "show the nav-source annunciation (GPS / VLOC1 / VLOC2, or VOR/LOC when NAVTYPE is available) on the rose face"
+        },
+        "heading_bug_enabled": {
+          "type": "boolean",
+          "default": false,
+          "label": "Heading bug",
+          "help": "show the cyan heading bug at the selected heading (HEADBUG)"
+        },
+        "heading_bug_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "Heading bug color",
+          "help": "heading-bug colour"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true,
+          "label": "Touch to set HDG / CRS",
+          "help": "touch the HDG or CRS readout, then turn the knob to set it: HDG sets HEADBUG, CRS sets NAV1CRS or NAV2CRS for the selected VLOC source. On GPS, CRS is editable only while the flight plan is in OBS: it sets the OBS course, and push syncs it to the bearing to the waypoint. Inner ring 1 deg, outer ring 10 deg; push syncs HDG to the heading or centres the CDI on CRS"
+        },
+        "track_indicator_enabled": {
+          "type": "boolean",
+          "default": true,
+          "label": "Track diamond",
+          "help": "show the magenta GPS ground-track diamond (TRACK), above the speed gate"
+        },
+        "track_color": {
+          "type": "color",
+          "default": "#ff00ff",
+          "label": "Track diamond color",
+          "help": "GPS ground-track diamond colour"
+        },
+        "track_min_speed": {
+          "type": "integer",
+          "default": 5,
+          "label": "Track min speed (kt)",
+          "min": 0,
+          "max": 50,
+          "step": 1,
+          "help": "hide the track diamond below this groundspeed (kt)"
+        },
+        "turn_rate_enabled": {
+          "type": "boolean",
+          "default": true,
+          "label": "Turn-rate trend",
+          "help": "show the magenta turn-rate trend arc from the lubber line to the heading in 6 s at the present rate of turn (ROT), with marks at half and standard rate; hidden when ROT is absent, old, bad or failed"
+        },
+        "turn_rate_color": {
+          "type": "color",
+          "default": "#ff00ff",
+          "label": "Turn-rate trend color",
+          "help": "turn-rate trend arc colour"
+        },
+        "center_symbol": {
+          "type": "enum",
+          "default": "aircraft",
+          "label": "Center symbol",
+          "enum": [
+            "aircraft",
+            "none"
+          ],
+          "help": "fixed ownship symbol at the rose centre; 'aircraft' is a silhouette (deliberately not a triangle -- a triangle reads as the TO/FROM / course indicator)"
+        },
+        "readout_layout": {
+          "type": "enum",
+          "default": "top_panel",
+          "label": "Readout layout",
+          "enum": [
+            "top_panel",
+            "corners",
+            "split",
+            "none"
+          ],
+          "help": "placement of the integral actual-heading (HEAD), selected-heading (HEADBUG) and course (COURSE) readouts. top_panel = one sectioned panel across the top (outside the rose); corners = selected-heading + course boxes in the top corners; split = heading box above the rose, course/bug in the bottom corners"
+        },
+        "numeral_scale": {
+          "type": "number",
+          "default": 1.5,
+          "label": "Numeral size",
+          "min": 0.5,
+          "max": 3.0,
+          "step": 0.1,
+          "help": "compass-rose numeral/letter size as a multiple of the base tick font (larger = bigger rose numbers)"
+        },
+        "depth_rings": {
+          "type": "boolean",
+          "default": false,
+          "label": "Depth rings",
+          "help": "faint concentric rings inside the rose (a light structural cue; real depth comes from the translucent face over the map, so these are off by default)"
+        },
+        "shadow_enabled": {
+          "type": "boolean",
+          "default": false,
+          "label": "Drop shadow",
+          "help": "soft drop shadow on the static elements -- the rose disc and the readout panel -- for a raised, layered look; off by default"
+        },
+        "orientation": {
+          "type": "enum",
+          "default": "heading_up",
+          "label": "Orientation",
+          "enum": [
+            "heading_up",
+            "north_up",
+            "track_up",
+            "arc"
+          ],
+          "help": "compass presentation. heading_up/north_up/track_up show the full 360 rotating rose (today's look); arc shows an expanded forward ~120 sector (finer resolution on the tracked heading, decluttered of the rear rose)"
+        },
+        "bearing1_enabled": {
+          "type": "boolean",
+          "default": false,
+          "label": "Bearing pointer 1",
+          "help": "make the single-bar RMI bearing needle (BRG1) available. It points at VOR1 only (BRG1SRC). It starts Off; the BRG tab steps NONE, BRG 1, BRG 2, BOTH, skipping a pointer on the CDI's own source"
+        },
+        "bearing2_enabled": {
+          "type": "boolean",
+          "default": false,
+          "label": "Bearing pointer 2",
+          "help": "make the double-bar RMI bearing needle (BRG2) available. It points at VOR2 only (BRG2SRC). It starts Off; the BRG tab steps NONE, BRG 1, BRG 2, BOTH, skipping a pointer on the CDI's own source"
+        },
+        "bearing_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "Bearing pointer color",
+          "help": "colour of both bearing needles, their labels and the BRG tab, whatever the source (source colour is the CDI's)"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": true,
+      "hidden": false,
+      "preview": {
+        "heading": 87,
+        "course": 110,
+        "track": 78,
+        "gs": 120,
+        "brg1": 30,
+        "brg2": 250
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": true,
+        "outer_ring": true,
+        "options": [
+          "touch_edit"
+        ]
+      }
+    },
+    "listbox": {
+      "label": "Listbox",
+      "category": "list",
+      "dbkeys": [],
+      "default_options": {},
+      "required_options": [
+        "lists"
+      ],
+      "options": {
+        "lists": {
+          "type": "string",
+          "default": null,
+          "label": "Lists",
+          "help": "selectable lists -- list of {name, file} entries"
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "moving_map": {
+      "label": "Moving Map",
+      "category": "navigation",
+      "dbkeys": [
+        "LAT",
+        "LONG",
+        "TRACKM",
+        "TRACK"
+      ],
+      "default_options": {
+        "range_nm": {
+          "type": "number",
+          "default": 10.0
+        },
+        "range_key": {
+          "type": "fixkey",
+          "default": ""
+        },
+        "range_ladder": {
+          "type": "string",
+          "default": "2,5,10,20,40,80,160"
+        },
+        "zoom_rail": {
+          "type": "boolean",
+          "default": false
+        },
+        "zoom_rail_side": {
+          "type": "enum",
+          "default": "left"
+        },
+        "orientation": {
+          "type": "enum",
+          "default": "track_up"
+        },
+        "orientation_key": {
+          "type": "fixkey",
+          "default": ""
+        },
+        "nd_mode": {
+          "type": "enum",
+          "default": "off"
+        },
+        "nd_mode_key": {
+          "type": "fixkey",
+          "default": ""
+        },
+        "touch_gestures": {
+          "type": "boolean",
+          "default": true
+        },
+        "gesture_timeout": {
+          "type": "number",
+          "default": 30
+        },
+        "gesture_frame_rate": {
+          "type": "number",
+          "default": 30
+        },
+        "pinch_rotate_threshold_deg": {
+          "type": "number",
+          "default": 15
+        },
+        "pinch_pan_threshold_px": {
+          "type": "number",
+          "default": 20
+        },
+        "ownship_position": {
+          "type": "number",
+          "default": 50
+        },
+        "symbol_color": {
+          "type": "color",
+          "default": "#ffff00"
+        },
+        "map_style": {
+          "type": "enum",
+          "default": "standard"
+        },
+        "layer_water": {
+          "type": "boolean",
+          "default": true
+        },
+        "layer_range_rings": {
+          "type": "boolean",
+          "default": true
+        },
+        "range_ring_fractions": {
+          "type": "string",
+          "default": "0.5,1"
+        },
+        "range_ring_labels": {
+          "type": "boolean",
+          "default": true
+        },
+        "range_ring_label_angle": {
+          "type": "integer",
+          "default": 0
+        },
+        "range_ring_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "range_ring_opacity": {
+          "type": "integer",
+          "default": 55
+        },
+        "range_ring_width": {
+          "type": "number",
+          "default": 0
+        },
+        "range_ring_label_size": {
+          "type": "integer",
+          "default": 0
+        },
+        "layer_terrain": {
+          "type": "boolean",
+          "default": true
+        },
+        "tile_path": {
+          "type": "string",
+          "default": ""
+        },
+        "layer_roads": {
+          "type": "boolean",
+          "default": true
+        },
+        "highway_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "road_color": {
+          "type": "color",
+          "default": "#c0c0c0"
+        },
+        "road_casing_color": {
+          "type": "color",
+          "default": "#5a5a5a"
+        },
+        "layer_rivers": {
+          "type": "boolean",
+          "default": true
+        },
+        "river_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "river_color": {
+          "type": "color",
+          "default": "#4a6d8c"
+        },
+        "layer_airports": {
+          "type": "boolean",
+          "default": true
+        },
+        "nasr_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "layer_navaids": {
+          "type": "boolean",
+          "default": true
+        },
+        "layer_fixes": {
+          "type": "boolean",
+          "default": false
+        },
+        "layer_airways": {
+          "type": "boolean",
+          "default": false
+        },
+        "navaid_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "layer_flight_plan": {
+          "type": "boolean",
+          "default": true
+        },
+        "layer_traffic": {
+          "type": "boolean",
+          "default": true
+        },
+        "terrain_mode": {
+          "type": "enum",
+          "default": "relief"
+        },
+        "terrain_palette": {
+          "type": "enum",
+          "default": "clearance"
+        },
+        "clearance_green_ft": {
+          "type": "number",
+          "default": 1000
+        },
+        "clearance_yellow_ft": {
+          "type": "number",
+          "default": 500
+        },
+        "water_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "water_max_vertices": {
+          "type": "number",
+          "default": 512
+        },
+        "water_raster": {
+          "type": "enum",
+          "default": "numpy"
+        },
+        "water_polygon_max_nm": {
+          "type": "number",
+          "default": 20.0
+        },
+        "map_perf_log": {
+          "type": "boolean",
+          "default": false
+        },
+        "map_perf_overlay": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required_options": [],
+      "options": {
+        "range_nm": {
+          "type": "number",
+          "default": 10.0,
+          "label": "Range (NM)",
+          "min": 1,
+          "max": 500,
+          "help": "distance from the ownship anchor to the top edge (to the compass arc in ND mode)",
+          "bindable": {
+            "semantics": "index_ladder",
+            "key_option": "range_key",
+            "ladder_option": "range_ladder"
+          }
+        },
+        "range_key": {
+          "type": "fixkey",
+          "default": "",
+          "label": "Range control key",
+          "help": "optional FIX key that cycles the range at runtime (a button 'change value wrap' / the knob steps the ladder index). Empty = fixed range"
+        },
+        "range_ladder": {
+          "type": "string",
+          "default": "2,5,10,20,40,80,160",
+          "label": "Range ladder",
+          "help": "comma list of ranges the range buttons step through"
+        },
+        "zoom_rail": {
+          "type": "boolean",
+          "default": false,
+          "label": "Zoom rail",
+          "help": "one-finger range control under the status chip: a vertical rail with one detent per range ladder rung, zoom in at the top. Tap +/- to step one rung, tap the rail to jump to a rung, or drag the thumb. Its touch zone is 20 mm wide and claims every touch inside it"
+        },
+        "zoom_rail_side": {
+          "type": "enum",
+          "default": "left",
+          "label": "Zoom rail side",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "help": "map edge the zoom rail sits on"
+        },
+        "orientation": {
+          "type": "enum",
+          "default": "track_up",
+          "label": "Orientation",
+          "enum": [
+            "track_up",
+            "north_up"
+          ],
+          "help": "track-up rotates the world; north-up rotates ownship",
+          "bindable": {
+            "semantics": "enum",
+            "key_option": "orientation_key"
+          }
+        },
+        "orientation_key": {
+          "type": "fixkey",
+          "default": "",
+          "label": "Orientation control key",
+          "help": "optional FIX key that switches orientation at runtime (0=track_up, 1=north_up). Empty = fixed"
+        },
+        "nd_mode": {
+          "type": "enum",
+          "default": "off",
+          "label": "ND mode",
+          "enum": [
+            "off",
+            "expanded",
+            "ctr"
+          ],
+          "help": "off = the plain moving map; expanded = Navigation Display EXPANDED MAP: track-up compass arc at the selected range, ownship low (82% down), corner data blocks and a vertical deviation scale from GSI/GSV at the right edge; ctr = CTR MAP: the same with a full compass rose and ownship at the centre. Overrides orientation and ownship position while on",
+          "bindable": {
+            "semantics": "enum",
+            "key_option": "nd_mode_key"
+          }
+        },
+        "nd_mode_key": {
+          "type": "fixkey",
+          "default": "",
+          "label": "ND mode control key",
+          "help": "optional FIX key that switches the ND mode at runtime (0=off, 1=expanded, 2=ctr). Empty = fixed"
+        },
+        "touch_gestures": {
+          "type": "boolean",
+          "default": true,
+          "label": "Touch gestures",
+          "help": "two-finger pinch=zoom, drag=pan, twist=rotate; mouse wheel zooms and left-drag pans / Shift-drag rotates on desktop; a tap selects (map pointer, Direct To / Insert banner) and a double-tap or the CTR chip re-centres. Off = touch/wheel/drag/tap input ignored"
+        },
+        "gesture_timeout": {
+          "type": "number",
+          "default": 30,
+          "label": "Gesture auto-revert (s)",
+          "min": 0,
+          "max": 600,
+          "help": "seconds after a two-finger pan/rotate before the view re-locks to ownship and the configured orientation. 0 = stay where left until a double-tap, the CTR chip or an HMI recenter"
+        },
+        "gesture_frame_rate": {
+          "type": "number",
+          "default": 30,
+          "label": "Gesture frame rate (Hz)",
+          "min": 10,
+          "max": 60,
+          "help": "repaint clock rate while a pinch/pan/rotate gesture is live (zoom_by/pan_by/rotate_by mark a frame dirty rather than repainting per event); the normal frame rate applies the rest of the time"
+        },
+        "pinch_rotate_threshold_deg": {
+          "type": "number",
+          "default": 15,
+          "label": "Pinch rotate threshold (deg)",
+          "min": 0,
+          "max": 90,
+          "help": "cumulative twist a pinch must reach before it rotates the view; below this a pinch is zoom-only, so a couple of degrees of finger wobble does not nudge orientation (#202)"
+        },
+        "pinch_pan_threshold_px": {
+          "type": "number",
+          "default": 20,
+          "label": "Pinch pan threshold (px)",
+          "min": 0,
+          "max": 200,
+          "help": "centroid movement (screen px) a pinch must reach before it pans the view; below this a pinch is zoom-only (#202)"
+        },
+        "ownship_position": {
+          "type": "number",
+          "default": 50,
+          "label": "Ownship position (%)",
+          "min": 0,
+          "max": 100,
+          "help": "ownship anchor, percent up from the bottom (30 = classic look-ahead offset)"
+        },
+        "symbol_color": {
+          "type": "color",
+          "default": "#ffff00",
+          "label": "Ownship colour",
+          "help": "colour of the top-down ownship symbol"
+        },
+        "map_style": {
+          "type": "enum",
+          "default": "standard",
+          "label": "Map style",
+          "enum": [
+            "standard",
+            "nav_only"
+          ],
+          "help": "standard = terrain map; nav_only = terrain relief off (whatever layer_terrain says) and the nav layers repainted for a plain black background. Water follows layer_water, every other layer keeps its own switch"
+        },
+        "layer_water": {
+          "type": "boolean",
+          "default": true,
+          "label": "Layer: water (nav_only)",
+          "help": "under map_style nav_only: lakes and coastline as a flat dark-blue fill, no relief. Under standard, water is part of the terrain image and this switch is not used"
+        },
+        "layer_range_rings": {
+          "type": "boolean",
+          "default": true,
+          "label": "Layer: range rings",
+          "help": "concentric range rings around ownship with distance labels (half and full range unless range ring fractions says otherwise)"
+        },
+        "range_ring_fractions": {
+          "type": "string",
+          "default": "0.5,1",
+          "label": "Range ring fractions",
+          "help": "comma list of ring radii as fractions of the current range (1 = the top edge). 0.5,1 = half and full range (ND convention); 0.25,0.5,0.75,1 = four even rings. Values outside 0-2 are ignored"
+        },
+        "range_ring_labels": {
+          "type": "boolean",
+          "default": true,
+          "label": "Range ring labels",
+          "help": "print each ring's distance on the ring. The current range stays in the top-left status chip either way"
+        },
+        "range_ring_label_angle": {
+          "type": "integer",
+          "default": 0,
+          "label": "Range ring label position (deg)",
+          "min": 0,
+          "max": 359,
+          "step": 1,
+          "help": "where the labels sit on each ring, clockwise from straight up on the screen: 0 = top, 90 = right, 180 = bottom, 270 = left. Move it off a data block"
+        },
+        "range_ring_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Range ring colour",
+          "help": "ring and ring-label colour"
+        },
+        "range_ring_opacity": {
+          "type": "integer",
+          "default": 55,
+          "label": "Range ring opacity (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "help": "ring and ring-label opacity"
+        },
+        "range_ring_width": {
+          "type": "number",
+          "default": 0,
+          "label": "Range ring width (px)",
+          "min": 0,
+          "max": 10,
+          "step": 0.5,
+          "help": "ring line width; 0 = auto (0.2% of the map width, at least 1 px)"
+        },
+        "range_ring_label_size": {
+          "type": "integer",
+          "default": 0,
+          "label": "Range ring label size (px)",
+          "min": 0,
+          "max": 48,
+          "step": 1,
+          "help": "ring label font pixel size; 0 = auto (2.5% of the map width, at least 8 px)"
+        },
+        "layer_terrain": {
+          "type": "boolean",
+          "default": true,
+          "label": "Layer: terrain",
+          "help": "hillshaded hypsometric terrain relief"
+        },
+        "tile_path": {
+          "type": "string",
+          "default": "",
+          "label": "Terrain tile path",
+          "help": "GLO-30/SRTM HGT tree (the SVS tile_path; on the Pi /data/makerplane-data/terrain/tiles)"
+        },
+        "layer_roads": {
+          "type": "boolean",
+          "default": true,
+          "label": "Layer: roads",
+          "help": "roads from the highways pack, LOD by range: interstates when zoomed out (<=80 NM), arterials added as you zoom in (primary <=20 NM, secondary <=5 NM)"
+        },
+        "highway_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Roads db path",
+          "help": "highways.sqlite (the SVS highway_db_path; on the Pi /data/makerplane-data/highways/current/highways.sqlite)"
+        },
+        "road_color": {
+          "type": "color",
+          "default": "#c0c0c0",
+          "label": "Road colour",
+          "help": "road line colour (arterial classes draw thinner and slightly transparent)"
+        },
+        "road_casing_color": {
+          "type": "color",
+          "default": "#5a5a5a",
+          "label": "Road casing colour",
+          "help": "outline drawn under a road once zoomed in far enough that it draws at its true width (a few NM and in)"
+        },
+        "layer_rivers": {
+          "type": "boolean",
+          "default": true,
+          "label": "Layer: rivers",
+          "help": "rivers/waterways as lines from the rivers pack (#92), LOD by range: major rivers when zoomed out, canals and streams added close in"
+        },
+        "river_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Rivers db path",
+          "help": "rivers.sqlite (shares the highways schema; on the Pi /data/makerplane-data/rivers/current/rivers.sqlite)"
+        },
+        "river_color": {
+          "type": "color",
+          "default": "#4a6d8c",
+          "label": "River colour",
+          "help": "waterway line colour (smaller waterways draw thinner and slightly transparent)"
+        },
+        "layer_airports": {
+          "type": "boolean",
+          "default": true,
+          "label": "Layer: airports",
+          "help": "FAA sectional airport symbols with ident labels (declutters by zoom)"
+        },
+        "nasr_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Airport db path",
+          "help": "NASR airports.sqlite (the SVS nasr_db_path; on the Pi /data/makerplane-data/navdata/current/airports.sqlite)"
+        },
+        "layer_navaids": {
+          "type": "boolean",
+          "default": true,
+          "label": "Layer: navaids",
+          "help": "VOR/NDB symbols with ident and frequency"
+        },
+        "layer_fixes": {
+          "type": "boolean",
+          "default": false,
+          "label": "Layer: waypoints",
+          "help": "named fixes as open triangles (shown at/below 20 NM)"
+        },
+        "layer_airways": {
+          "type": "boolean",
+          "default": false,
+          "label": "Layer: airways",
+          "help": "victor/T-route segments with idents"
+        },
+        "navaid_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Navaid db path",
+          "help": "navaids.sqlite (tools/build_navaid_db.py; on the Pi /data/makerplane-data/navaids/current/navaids.sqlite)"
+        },
+        "layer_flight_plan": {
+          "type": "boolean",
+          "default": true,
+          "label": "Layer: flight plan",
+          "help": "active route: past/active/future legs, waypoint symbols, direct-to and the suspended-at-MAP extended final course (FP6; no database, reads the FIX flight-plan bus)"
+        },
+        "layer_traffic": {
+          "type": "boolean",
+          "default": true,
+          "label": "Layer: traffic",
+          "help": "ADS-B traffic from the FIX TFC block: relative altitude (needs PALT), trend arrow, alerted targets flash yellow, degraded targets drawn open, stale ones grey; TFC FAIL when a working receiver stops (no database)"
+        },
+        "terrain_mode": {
+          "type": "enum",
+          "default": "relief",
+          "label": "Terrain mode",
+          "enum": [
+            "relief",
+            "caution"
+          ],
+          "help": "relief = sectional-style hypsometric; caution = the same relief with the SVS hazard bands over it: amber and red by clearance below ownship, magenta above"
+        },
+        "terrain_palette": {
+          "type": "enum",
+          "default": "clearance",
+          "label": "Terrain hazard palette",
+          "enum": [
+            "clearance",
+            "subdued",
+            "high_contrast"
+          ],
+          "help": "caution-mode band colours; the same schemes as the SVS palette"
+        },
+        "clearance_green_ft": {
+          "type": "number",
+          "default": 1000,
+          "label": "Caution clearance (ft)",
+          "help": "caution mode: amber below this height over terrain (the SVS default)"
+        },
+        "clearance_yellow_ft": {
+          "type": "number",
+          "default": 500,
+          "label": "Warning clearance (ft)",
+          "help": "caution mode: red below this height over terrain (the SVS default)"
+        },
+        "water_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Water db path",
+          "help": "water.sqlite (the SVS water_db_path; on the Pi /data/makerplane-data/water/current/water.sqlite). When set, lakes and coastline from the water pack are rasterized into the terrain image"
+        },
+        "water_max_vertices": {
+          "type": "number",
+          "default": 512,
+          "label": "Water vertex cap",
+          "min": 16,
+          "max": 1024,
+          "step": 16,
+          "help": "per-polygon vertex cap for map water rasterization (higher = more coastline/lake detail per rebuild)"
+        },
+        "water_raster": {
+          "type": "enum",
+          "default": "numpy",
+          "label": "Water raster path",
+          "enum": [
+            "numpy",
+            "qt"
+          ],
+          "help": "numpy = vectorised even-odd scanline fill (MP5, default); qt = legacy per-vertex QPointF/QPolygonF/drawPath path, kept for one release of A/B"
+        },
+        "water_polygon_max_nm": {
+          "type": "number",
+          "default": 20.0,
+          "label": "Water polygon cutover (NM)",
+          "min": 0,
+          "max": 320,
+          "step": 5,
+          "help": "above this range the crisp coastline/lake polygon overlay is skipped in favour of the terrain pack's water-mask channel (one gather, MP10c); packs with no mask at the chosen level always draw polygons"
+        },
+        "map_perf_log": {
+          "type": "boolean",
+          "default": false,
+          "label": "Perf: log summary",
+          "help": "print a MapPerfStats summary every 2s (frames, paint ms p50/p95/max, per-layer job counts, water counts, settle latency, GUI-thread gap probe) -- mirrors svs_perf_log. Dev/bench diagnostic; off by default"
+        },
+        "map_perf_overlay": {
+          "type": "boolean",
+          "default": false,
+          "label": "Perf: overlay chip",
+          "help": "draw a small on-screen perf stats chip (dev only)"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "nav_status": {
+      "label": "Nav Status",
+      "category": "navigation",
+      "dbkeys": [
+        "FPLSTATE",
+        "FPLPHASE",
+        "WPFROM",
+        "WPNAME",
+        "WPNEXT",
+        "WPDIS",
+        "WPETE",
+        "FPLAPRTYPE",
+        "FPLDBCYC",
+        "FPLTURN"
+      ],
+      "default_options": {
+        "show_distance": {
+          "type": "boolean",
+          "default": true
+        },
+        "show_ete": {
+          "type": "boolean",
+          "default": true
+        },
+        "show_phase": {
+          "type": "boolean",
+          "default": true
+        },
+        "show_procedure": {
+          "type": "boolean",
+          "default": true
+        },
+        "show_turn": {
+          "type": "boolean",
+          "default": true
+        },
+        "hmi_group": {
+          "type": "string",
+          "default": ""
+        },
+        "tap_screen": {
+          "type": "string",
+          "default": ""
+        },
+        "active_color": {
+          "type": "color",
+          "default": "#ff00ff"
+        },
+        "text_color": {
+          "type": "color",
+          "default": "#ffffff"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "show_distance": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show distance",
+          "help": "distance to the TO waypoint (WPDIS), nm"
+        },
+        "show_ete": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show ETE",
+          "help": "time to the TO waypoint (WPETE), H:MM; '--:--' below 30 kt ground speed"
+        },
+        "show_phase": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show phase",
+          "help": "flight phase / CDI scale annunciation (FPLPHASE): ENR, TERM, LNAV, ... green; LOI yellow"
+        },
+        "show_procedure": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show procedure",
+          "help": "loaded approach type (FPLAPRTYPE) and AIRAC cycle (FPLDBCYC); the cycle and EXPIRED in amber once it has expired"
+        },
+        "show_turn": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show turn",
+          "help": "TURN L / TURN R while the engine flies the coded turn that opens a DF leg (FPLTURN)"
+        },
+        "hmi_group": {
+          "type": "string",
+          "default": "",
+          "label": "HMI group",
+          "help": "hmi_group of the flight_plan instrument a tap opens; blank = every flight_plan instrument"
+        },
+        "tap_screen": {
+          "type": "string",
+          "default": "",
+          "label": "Tap screen",
+          "help": "screen to show before opening the FPL page on a tap (the screen holding the flight_plan instrument); blank = stay on this screen"
+        },
+        "active_color": {
+          "type": "color",
+          "default": "#ff00ff",
+          "label": "Active waypoint colour",
+          "help": "colour of the TO waypoint ident (WPNAME)"
+        },
+        "text_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Text colour",
+          "help": "colour of the FROM/NEXT idents, separators and data"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "state": "LEG",
+        "from": "KSBA",
+        "to": "GVO",
+        "next": "RZS",
+        "dis": "12.4 NM",
+        "ete": "0:06",
+        "phase": "TERM"
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "numeric_display": {
+      "label": "Numeric Display",
+      "category": "text",
+      "dbkeys": [],
+      "default_options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": ""
+        },
+        "decimal_places": {
+          "type": "integer",
+          "default": 1
+        },
+        "font_mask": {
+          "type": "string",
+          "default": "000"
+        },
+        "show_units": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_multiplier": {
+          "type": "number",
+          "default": 1
+        },
+        "encoder_coarse_multiplier": {
+          "type": "number",
+          "default": 10
+        },
+        "encoder_set_real_time": {
+          "type": "boolean",
+          "default": false
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_mask_blank_character": {
+          "type": "string",
+          "default": " "
+        },
+        "encoder_num_enforce_multiplier": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_require_confirm": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_8khz_channels": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_blink_time_on": {
+          "type": "integer",
+          "default": 300
+        },
+        "encoder_num_blink_time_off": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "required_options": [],
+      "options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": "",
+          "label": "FIX key",
+          "help": "FIX-database key whose value is displayed"
+        },
+        "decimal_places": {
+          "type": "integer",
+          "default": 1,
+          "label": "Decimal places",
+          "help": "digits after the decimal point in the readout"
+        },
+        "font_mask": {
+          "type": "string",
+          "default": "000",
+          "label": "Font mask",
+          "help": "widest string the readout reserves space for (sizing)"
+        },
+        "show_units": {
+          "type": "boolean",
+          "default": false,
+          "label": "Show units",
+          "help": "append the FIX key's engineering units to the readout"
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        },
+        "encoder_set_key": {
+          "type": "fixkey",
+          "default": null,
+          "label": "Knob writes key",
+          "help": "FIX key the knob writes; blank = the key this gauge displays"
+        },
+        "encoder_multiplier": {
+          "type": "number",
+          "default": 1,
+          "label": "Knob step",
+          "help": "value change per inner-knob detent"
+        },
+        "encoder_coarse_multiplier": {
+          "type": "number",
+          "default": 10,
+          "label": "Outer ring step factor",
+          "help": "the outer ring steps the value by knob step x this"
+        },
+        "encoder_set_real_time": {
+          "type": "boolean",
+          "default": false,
+          "label": "Write while turning",
+          "help": "send each step to the FIX key as the knob turns; a timeout before push still reverts it. Ignored with a digit mask"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": false,
+          "label": "Touch to edit",
+          "help": "touch the gauge to give it the knob; it then marks focus with a ring and edit icon"
+        },
+        "encoder_num_mask": {
+          "type": "string",
+          "default": null,
+          "label": "Digit mask",
+          "help": "set the value one digit at a time, e.g. 000.000 for a radio frequency; push moves to the next digit. Blank = step the whole value"
+        },
+        "encoder_num_mask_blank_character": {
+          "type": "string",
+          "default": " ",
+          "label": "Digit mask blank",
+          "help": "character drawn for the digits not yet set"
+        },
+        "encoder_num_enforce_multiplier": {
+          "type": "boolean",
+          "default": false,
+          "label": "Digits follow knob step",
+          "help": "digit entry offers only digits that give a multiple of the knob step within the key's range"
+        },
+        "encoder_num_require_confirm": {
+          "type": "boolean",
+          "default": false,
+          "label": "Confirm after last digit",
+          "help": "after the last digit the value flashes and one more push saves it"
+        },
+        "encoder_num_8khz_channels": {
+          "type": "boolean",
+          "default": false,
+          "label": "8.33 kHz channels",
+          "help": "digit entry shows 8.33 kHz channel numbers; use with a knob step of 0.008333333333"
+        },
+        "encoder_num_blink_time_on": {
+          "type": "integer",
+          "default": 300,
+          "label": "Digit blink on (ms)",
+          "help": "how long the digit being set shows in each blink"
+        },
+        "encoder_num_blink_time_off": {
+          "type": "integer",
+          "default": 100,
+          "label": "Digit blink off (ms)",
+          "help": "how long the digit being set is hidden in each blink"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [
+        {
+          "name": "Min",
+          "source": "min",
+          "label": "Range minimum",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "Max",
+          "source": "max",
+          "label": "Range maximum",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "lowAlarm",
+          "source": "aux",
+          "label": "Low alarm (red)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "lowWarn",
+          "source": "aux",
+          "label": "Low warning (yellow)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "highWarn",
+          "source": "aux",
+          "label": "High warning (yellow)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "highAlarm",
+          "source": "aux",
+          "label": "High alarm (red)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        }
+      ],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": true,
+        "options": [
+          "encoder_set_key",
+          "encoder_multiplier",
+          "encoder_coarse_multiplier",
+          "encoder_set_real_time",
+          "touch_edit",
+          "encoder_num_mask",
+          "encoder_num_mask_blank_character",
+          "encoder_num_enforce_multiplier",
+          "encoder_num_require_confirm",
+          "encoder_num_8khz_channels",
+          "encoder_num_blink_time_on",
+          "encoder_num_blink_time_off"
+        ]
+      }
+    },
+    "static_text": {
+      "label": "Static Text",
+      "category": "text",
+      "dbkeys": [],
+      "default_options": {
+        "text": {
+          "type": "string",
+          "default": "Text"
+        },
+        "alignment": {
+          "type": "enum",
+          "default": "AlignLeft"
+        },
+        "font_mask": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required_options": [
+        "text"
+      ],
+      "options": {
+        "text": {
+          "type": "string",
+          "default": "Text",
+          "label": "Text",
+          "help": "the fixed text to display"
+        },
+        "alignment": {
+          "type": "enum",
+          "default": "AlignLeft",
+          "label": "Alignment",
+          "enum": [
+            "AlignLeft",
+            "AlignCenter",
+            "AlignRight"
+          ],
+          "help": "horizontal text alignment within the widget"
+        },
+        "font_mask": {
+          "type": "string",
+          "default": "",
+          "label": "Font mask",
+          "help": "widest string the text reserves space for (sizing)"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "tab_section": {
+      "label": "Tab Section",
+      "category": "container",
+      "dbkeys": [],
+      "default_options": {
+        "default_tab": {
+          "type": "integer",
+          "default": 0
+        },
+        "tab_position": {
+          "type": "enum",
+          "default": "top"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "default_tab": {
+          "type": "integer",
+          "default": 0,
+          "label": "Default tab",
+          "min": 0,
+          "help": "tab index shown on screen load/power-up -- always this fixed tab, never the last one selected (v1, see pyEfis#131 open question 2)"
+        },
+        "tab_position": {
+          "type": "enum",
+          "default": "top",
+          "label": "Tab bar edge",
+          "enum": [
+            "top",
+            "bottom",
+            "left",
+            "right"
+          ],
+          "help": "which edge of the container the tab bar sits on; left/right also rotate the tab labels"
+        },
+        "fg_color": {
+          "type": "color",
+          "default": null,
+          "label": "Tab bar foreground",
+          "help": "tab label colour; unset inherits the screen's legible default"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": null,
+          "label": "Tab bar background",
+          "help": "tab bar fill colour; unset inherits the screen's legible default"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [
+        {
+          "name": "tabs",
+          "label": "Tabs",
+          "help": "ordered list of {label, layout, instruments} tab pages; each tab is built as its own nested screen (same layout+instruments shape as a top-level screen) laid out against this container's own box, not the screen's"
+        }
+      ],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "turn_coordinator": {
+      "label": "Turn Coordinator",
+      "category": "attitude",
+      "dbkeys": [
+        "ROT",
+        "ALAT"
+      ],
+      "default_options": {},
+      "required_options": [],
+      "options": {},
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": true,
+      "hidden": false,
+      "preview": {
+        "rate": 8,
+        "ball": 2
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "value_text": {
+      "label": "Value Text",
+      "category": "text",
+      "dbkeys": [],
+      "default_options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": ""
+        },
+        "font_mask": {
+          "type": "string",
+          "default": ""
+        },
+        "number_format": {
+          "type": "string",
+          "default": ""
+        },
+        "prefix_text": {
+          "type": "string",
+          "default": ""
+        },
+        "prefix_font_family": {
+          "type": "enum",
+          "default": "Open Sans"
+        },
+        "prefix_font_percent": {
+          "type": "integer",
+          "default": 50
+        },
+        "prefix_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "value_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "border_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "border_width": {
+          "type": "integer",
+          "default": 0
+        },
+        "border_opacity": {
+          "type": "integer",
+          "default": 100
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 0
+        }
+      },
+      "required_options": [],
+      "options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": "",
+          "label": "FIX key",
+          "help": "FIX-database key whose value is displayed"
+        },
+        "font_mask": {
+          "type": "string",
+          "default": "",
+          "label": "Font mask",
+          "help": "widest string the text reserves space for (sizing)"
+        },
+        "number_format": {
+          "type": "string",
+          "default": "",
+          "label": "Number format",
+          "help": "Digit mask: blank = as-is; 000 = 089 (rounded, zero-padded); 000.0 = 089.0 (with decimals)"
+        },
+        "prefix_text": {
+          "type": "string",
+          "default": "",
+          "label": "Prefix text",
+          "help": "static label drawn before the value (e.g. HDG, CRS)"
+        },
+        "prefix_font_family": {
+          "type": "enum",
+          "default": "Open Sans",
+          "label": "Prefix font",
+          "enum": [
+            "DejaVu Sans Condensed",
+            "DejaVu Sans",
+            "DejaVu Sans Mono",
+            "B612",
+            "Inter",
+            "Roboto",
+            "Open Sans"
+          ],
+          "help": "font family for the prefix label"
+        },
+        "prefix_font_percent": {
+          "type": "integer",
+          "default": 50,
+          "label": "Prefix font size (%)",
+          "min": 1,
+          "max": 100,
+          "step": 1,
+          "help": "prefix height as a percent of the widget height"
+        },
+        "prefix_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Prefix colour",
+          "help": "colour of the prefix label"
+        },
+        "value_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Value colour",
+          "help": "colour of the data value (good/normal state)"
+        },
+        "border_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Border colour",
+          "help": "colour of the box border"
+        },
+        "border_width": {
+          "type": "integer",
+          "default": 0,
+          "label": "Border width (px)",
+          "min": 0,
+          "max": 20,
+          "step": 1,
+          "help": "box border thickness in pixels; 0 = no border"
+        },
+        "border_opacity": {
+          "type": "integer",
+          "default": 100,
+          "label": "Border opacity (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "help": "box border opacity"
+        },
+        "bg_color": {
+          "type": "color",
+          "default": "#000000",
+          "label": "Background colour",
+          "help": "box background fill colour"
+        },
+        "bg_opacity": {
+          "type": "integer",
+          "default": 0,
+          "label": "Background opacity (%)",
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "help": "box background opacity; 0 = transparent (no fill)"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "vertical_bar_gauge": {
+      "label": "Vertical Bar Gauge",
+      "category": "gauge",
+      "dbkeys": [],
+      "default_options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": ""
+        },
+        "name": {
+          "type": "string",
+          "default": ""
+        },
+        "decimal_places": {
+          "type": "integer",
+          "default": 1
+        },
+        "show_units": {
+          "type": "boolean",
+          "default": true
+        },
+        "segments": {
+          "type": "integer",
+          "default": 0
+        },
+        "encoder_multiplier": {
+          "type": "number",
+          "default": 1
+        },
+        "encoder_coarse_multiplier": {
+          "type": "number",
+          "default": 10
+        },
+        "encoder_set_real_time": {
+          "type": "boolean",
+          "default": false
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_mask_blank_character": {
+          "type": "string",
+          "default": " "
+        },
+        "encoder_num_enforce_multiplier": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_require_confirm": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_8khz_channels": {
+          "type": "boolean",
+          "default": false
+        },
+        "encoder_num_blink_time_on": {
+          "type": "integer",
+          "default": 300
+        },
+        "encoder_num_blink_time_off": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "required_options": [],
+      "options": {
+        "dbkey": {
+          "type": "fixkey",
+          "default": "",
+          "label": "FIX key",
+          "help": "FIX-database key whose value this gauge displays"
+        },
+        "name": {
+          "type": "string",
+          "default": "",
+          "label": "Name",
+          "help": "label drawn on the gauge (e.g. OIL P, CHT)"
+        },
+        "decimal_places": {
+          "type": "integer",
+          "default": 1,
+          "label": "Decimal places",
+          "help": "digits after the decimal point in the readout"
+        },
+        "show_units": {
+          "type": "boolean",
+          "default": true,
+          "label": "Show units",
+          "help": "append the FIX key's engineering units to the readout"
+        },
+        "segments": {
+          "type": "integer",
+          "default": 0,
+          "label": "Segments",
+          "help": "0 = solid bar; >0 draws a segmented (LED-style) bar"
+        },
+        "tank": {
+          "type": "aircraft_ref",
+          "default": null,
+          "label": "Tank",
+          "help": "Bind to a tank from the aircraft page",
+          "source": "aircraft.fuel.tanks",
+          "multi": false,
+          "resolves": {
+            "dbkey": "slot_key",
+            "name": "label"
+          }
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        },
+        "encoder_set_key": {
+          "type": "fixkey",
+          "default": null,
+          "label": "Knob writes key",
+          "help": "FIX key the knob writes; blank = the key this gauge displays"
+        },
+        "encoder_multiplier": {
+          "type": "number",
+          "default": 1,
+          "label": "Knob step",
+          "help": "value change per inner-knob detent"
+        },
+        "encoder_coarse_multiplier": {
+          "type": "number",
+          "default": 10,
+          "label": "Outer ring step factor",
+          "help": "the outer ring steps the value by knob step x this"
+        },
+        "encoder_set_real_time": {
+          "type": "boolean",
+          "default": false,
+          "label": "Write while turning",
+          "help": "send each step to the FIX key as the knob turns; a timeout before push still reverts it. Ignored with a digit mask"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": false,
+          "label": "Touch to edit",
+          "help": "touch the gauge to give it the knob; it then marks focus with a ring and edit icon"
+        },
+        "encoder_num_mask": {
+          "type": "string",
+          "default": null,
+          "label": "Digit mask",
+          "help": "set the value one digit at a time, e.g. 000.000 for a radio frequency; push moves to the next digit. Blank = step the whole value"
+        },
+        "encoder_num_mask_blank_character": {
+          "type": "string",
+          "default": " ",
+          "label": "Digit mask blank",
+          "help": "character drawn for the digits not yet set"
+        },
+        "encoder_num_enforce_multiplier": {
+          "type": "boolean",
+          "default": false,
+          "label": "Digits follow knob step",
+          "help": "digit entry offers only digits that give a multiple of the knob step within the key's range"
+        },
+        "encoder_num_require_confirm": {
+          "type": "boolean",
+          "default": false,
+          "label": "Confirm after last digit",
+          "help": "after the last digit the value flashes and one more push saves it"
+        },
+        "encoder_num_8khz_channels": {
+          "type": "boolean",
+          "default": false,
+          "label": "8.33 kHz channels",
+          "help": "digit entry shows 8.33 kHz channel numbers; use with a knob step of 0.008333333333"
+        },
+        "encoder_num_blink_time_on": {
+          "type": "integer",
+          "default": 300,
+          "label": "Digit blink on (ms)",
+          "help": "how long the digit being set shows in each blink"
+        },
+        "encoder_num_blink_time_off": {
+          "type": "integer",
+          "default": 100,
+          "label": "Digit blink off (ms)",
+          "help": "how long the digit being set is hidden in each blink"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "value": "72",
+        "fill": 0.72
+      },
+      "fix_values": [
+        {
+          "name": "Min",
+          "source": "min",
+          "label": "Range minimum",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "Max",
+          "source": "max",
+          "label": "Range maximum",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "lowAlarm",
+          "source": "aux",
+          "label": "Low alarm (red)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "lowWarn",
+          "source": "aux",
+          "label": "Low warning (yellow)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "highWarn",
+          "source": "aux",
+          "label": "High warning (yellow)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        },
+        {
+          "name": "highAlarm",
+          "source": "aux",
+          "label": "High alarm (red)",
+          "dbkey": "",
+          "units": "",
+          "help": ""
+        }
+      ],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": true,
+        "options": [
+          "encoder_set_key",
+          "encoder_multiplier",
+          "encoder_coarse_multiplier",
+          "encoder_set_real_time",
+          "touch_edit",
+          "encoder_num_mask",
+          "encoder_num_mask_blank_character",
+          "encoder_num_enforce_multiplier",
+          "encoder_num_require_confirm",
+          "encoder_num_8khz_channels",
+          "encoder_num_blink_time_on",
+          "encoder_num_blink_time_off"
+        ]
+      }
+    },
+    "virtual_vfr": {
+      "label": "Virtual VFR / Synthetic Vision",
+      "category": "attitude",
+      "dbkeys": [
+        "PITCH",
+        "LAT",
+        "LONG",
+        "ALT",
+        "ROLL",
+        "ALAT",
+        "TAS"
+      ],
+      "default_options": {
+        "aircraft_symbol": {
+          "type": "enum",
+          "default": "classic"
+        },
+        "symbol_color": {
+          "type": "color",
+          "default": "#ffff00"
+        },
+        "symbol_scale": {
+          "type": "number",
+          "default": 1.0
+        },
+        "horizon_position": {
+          "type": "integer",
+          "default": 50
+        },
+        "preview_scene": {
+          "type": "enum",
+          "default": "mountains"
+        },
+        "show_fpm": {
+          "type": "boolean",
+          "default": true
+        },
+        "pitchDegreesShown": {
+          "type": "number",
+          "default": 50
+        },
+        "minorDiv": {
+          "type": "integer",
+          "default": 1
+        },
+        "majorDiv": {
+          "type": "integer",
+          "default": 5
+        },
+        "numberedDiv": {
+          "type": "integer",
+          "default": 10
+        },
+        "visiblePitchAngle": {
+          "type": "integer",
+          "default": 25
+        },
+        "pitchOpacity": {
+          "type": "number",
+          "default": 0.6
+        },
+        "bankOpacity": {
+          "type": "number",
+          "default": 1.0
+        },
+        "horizonOpacity": {
+          "type": "number",
+          "default": 1.0
+        },
+        "tick_autoscale": {
+          "type": "boolean",
+          "default": true
+        },
+        "minorDivWidth": {
+          "type": "integer",
+          "default": 10
+        },
+        "majorDivWidth": {
+          "type": "integer",
+          "default": 40
+        },
+        "numberedDivWidth": {
+          "type": "integer",
+          "default": 50
+        },
+        "drawBankMarkers": {
+          "type": "boolean",
+          "default": true
+        },
+        "bankAngleMaximum": {
+          "type": "integer",
+          "default": 25
+        },
+        "excessiveBankDeg": {
+          "type": "integer",
+          "default": 60
+        },
+        "bankBugTolerance": {
+          "type": "number",
+          "default": 5
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true
+        },
+        "bankMarkSize": {
+          "type": "integer",
+          "default": 10
+        },
+        "bank_position": {
+          "type": "number",
+          "default": 50
+        },
+        "bank_radius": {
+          "type": "number",
+          "default": 33.333333333333336
+        },
+        "fd_style": {
+          "type": "enum",
+          "default": "single_cue"
+        },
+        "pitch_ladder_avoid_bank": {
+          "type": "boolean",
+          "default": false
+        },
+        "horizon_heading_marks": {
+          "type": "boolean",
+          "default": false
+        },
+        "horizon_heading_interval": {
+          "type": "integer",
+          "default": 10
+        },
+        "horizon_heading_label_interval": {
+          "type": "integer",
+          "default": 20
+        },
+        "horizon_heading_tick_length": {
+          "type": "integer",
+          "default": 5
+        },
+        "horizon_heading_color": {
+          "type": "color",
+          "default": "#ffffff"
+        },
+        "svs_enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "svs_tile_path": {
+          "type": "string",
+          "default": ""
+        },
+        "svs_range_nm": {
+          "type": "number",
+          "default": 50
+        },
+        "svs_auto_range": {
+          "type": "boolean",
+          "default": true
+        },
+        "svs_min_range_nm": {
+          "type": "number",
+          "default": 8
+        },
+        "svs_palette": {
+          "type": "enum",
+          "default": "clearance"
+        },
+        "svs_terrain_shading": {
+          "type": "enum",
+          "default": "relief"
+        },
+        "svs_clearance_green_ft": {
+          "type": "number",
+          "default": 1000
+        },
+        "svs_clearance_yellow_ft": {
+          "type": "number",
+          "default": 500
+        },
+        "svs_terrain_grid": {
+          "type": "number",
+          "default": 0.35
+        },
+        "svs_terrain_texture": {
+          "type": "number",
+          "default": 0.35
+        },
+        "svs_safe_gradient": {
+          "type": "boolean",
+          "default": true
+        },
+        "svs_earth_curvature": {
+          "type": "boolean",
+          "default": true
+        },
+        "svs_haze": {
+          "type": "boolean",
+          "default": true
+        },
+        "svs_haze_distance_nm": {
+          "type": "number",
+          "default": 40
+        },
+        "svs_dof_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "svs_water_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "svs_highway_db_path": {
+          "type": "string",
+          "default": ""
+        },
+        "svs_road_color": {
+          "type": "color",
+          "default": "#535353"
+        },
+        "svs_road_casing_color": {
+          "type": "color",
+          "default": "#4a4a4a"
+        },
+        "svs_road_casing_m": {
+          "type": "number",
+          "default": 2.5
+        },
+        "svs_road_min_px": {
+          "type": "number",
+          "default": 1.5
+        },
+        "svs_road_subdivide_m": {
+          "type": "number",
+          "default": 150.0
+        },
+        "svs_road_subdivide_nm": {
+          "type": "number",
+          "default": 4.0
+        },
+        "svs_road_lift_ft": {
+          "type": "number",
+          "default": 2.0
+        },
+        "svs_road_max_vertices": {
+          "type": "integer",
+          "default": 400000
+        },
+        "svs_papi": {
+          "type": "boolean",
+          "default": true
+        },
+        "svs_traffic": {
+          "type": "boolean",
+          "default": true
+        },
+        "svs_traffic_range_nm": {
+          "type": "number",
+          "default": 10.0
+        },
+        "svs_perf_log": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required_options": [],
+      "options": {
+        "aircraft_symbol": {
+          "type": "enum",
+          "default": "classic",
+          "label": "Aircraft symbol",
+          "enum": [
+            "classic",
+            "garmin",
+            "brackets",
+            "none"
+          ],
+          "help": "classic split-wing bars + dot; garmin G3X-style two-tone bat wing + horizon barbs; brackets GRT-style L-brackets; none hides the symbol (SVS-as-background) (g1000/gi275 remain accepted in YAML for back-compat)"
+        },
+        "symbol_color": {
+          "type": "color",
+          "default": "#ffff00",
+          "label": "Symbol colour",
+          "help": "colour of the fixed aircraft reference symbol"
+        },
+        "symbol_scale": {
+          "type": "number",
+          "default": 1.0,
+          "label": "Symbol scale",
+          "min": 0.3,
+          "max": 3.0,
+          "step": 0.05,
+          "help": "multiplies the reference symbol size -- wingspan and proportions together (1 = standard)"
+        },
+        "horizon_position": {
+          "type": "integer",
+          "default": 50,
+          "label": "Horizon position (% up)",
+          "min": 40,
+          "max": 80,
+          "step": 1,
+          "help": "50 = centred (default); ~67 = two-thirds up the screen"
+        },
+        "preview_scene": {
+          "type": "enum",
+          "default": "mountains",
+          "label": "Preview scene (editor)",
+          "enum": [
+            "mountains",
+            "approach",
+            "final"
+          ],
+          "help": "which stylised backdrop the editor twin shows (preview only; the device renders real terrain)"
+        },
+        "show_fpm": {
+          "type": "boolean",
+          "default": true,
+          "label": "Flight-path marker",
+          "help": "GPS flight-path marker (needs VS/GS/TRACK/HEAD)"
+        },
+        "pitchDegreesShown": {
+          "type": "number",
+          "default": 50,
+          "label": "Pitch field of view (deg)",
+          "help": "total vertical pitch span shown"
+        },
+        "minorDiv": {
+          "type": "integer",
+          "default": 1,
+          "label": "Minor division (deg)",
+          "help": "pitch interval between the smallest ladder ticks"
+        },
+        "majorDiv": {
+          "type": "integer",
+          "default": 5,
+          "label": "Major division (deg)",
+          "help": "pitch interval between the longer ladder ticks"
+        },
+        "numberedDiv": {
+          "type": "integer",
+          "default": 10,
+          "label": "Numbered division (deg)",
+          "help": "pitch interval at which ladder lines get a number"
+        },
+        "visiblePitchAngle": {
+          "type": "integer",
+          "default": 25,
+          "label": "Pitch label range (deg)",
+          "help": "ladder marks fade out beyond this from current pitch"
+        },
+        "pitchOpacity": {
+          "type": "number",
+          "default": 0.6,
+          "label": "Pitch ladder opacity",
+          "min": 0.0,
+          "max": 1.0,
+          "help": "pitch-ladder opacity (0 = invisible, 1 = solid)"
+        },
+        "bankOpacity": {
+          "type": "number",
+          "default": 1.0,
+          "label": "Bank display opacity",
+          "min": 0.0,
+          "max": 1.0,
+          "help": "bank scale, roll pointer, standard-rate diamonds and slip/skid ball together (0 = hidden, 1 = solid)"
+        },
+        "horizonOpacity": {
+          "type": "number",
+          "default": 1.0,
+          "label": "Horizon line opacity",
+          "min": 0.0,
+          "max": 1.0,
+          "help": "the white zero-pitch reference line (0 = hidden, 1 = solid)"
+        },
+        "tick_autoscale": {
+          "type": "boolean",
+          "default": true,
+          "label": "Auto-scale tick widths to font",
+          "help": "off = use the explicit tick-width / bank-size pixels below"
+        },
+        "minorDivWidth": {
+          "type": "integer",
+          "default": 10,
+          "label": "Minor tick width (px)",
+          "help": "length of the minor pitch ticks (auto-scale off)"
+        },
+        "majorDivWidth": {
+          "type": "integer",
+          "default": 40,
+          "label": "Major tick width (px)",
+          "help": "length of the major pitch ticks (auto-scale off)"
+        },
+        "numberedDivWidth": {
+          "type": "integer",
+          "default": 50,
+          "label": "Numbered tick width (px)",
+          "help": "length of the numbered pitch ticks (auto-scale off)"
+        },
+        "drawBankMarkers": {
+          "type": "boolean",
+          "default": true,
+          "label": "Standard-rate bank markers",
+          "help": "show the bank-angle tick arc across the top"
+        },
+        "bankAngleMaximum": {
+          "type": "integer",
+          "default": 25,
+          "label": "Max indicated bank (deg)",
+          "help": "largest bank angle marked on the bank arc"
+        },
+        "excessiveBankDeg": {
+          "type": "integer",
+          "default": 60,
+          "label": "Excessive-bank caution (deg)",
+          "min": 30,
+          "max": 65,
+          "step": 1,
+          "help": "the bank scale and pointer turn amber past this bank; set it above the steepest turn this aircraft is flown in on purpose (60 clears the 45 and 50 deg steep turns)"
+        },
+        "bankBugTolerance": {
+          "type": "number",
+          "default": 5,
+          "label": "Bank bug tolerance (+/- deg)",
+          "min": 1,
+          "max": 10,
+          "step": 1,
+          "help": "half-width of the cyan band around the target-bank bug (BANKBUG); the ACS steep turns are flown to +/-5"
+        },
+        "touch_edit": {
+          "type": "boolean",
+          "default": true,
+          "label": "Touch to set bank bug",
+          "help": "touch the bank scale, then turn the knob to set the target-bank bug (BANKBUG) in 5 deg steps, from off up to 60 or the excessive-bank caution if lower; push or the timeout ends the edit"
+        },
+        "bankMarkSize": {
+          "type": "integer",
+          "default": 10,
+          "label": "Bank tick size (px)",
+          "help": "length of the bank-arc ticks (auto-scale off)"
+        },
+        "bank_position": {
+          "type": "number",
+          "default": 50,
+          "label": "Bank scale position (%)",
+          "min": 0,
+          "max": 100,
+          "help": "vertical position of the bank-arc centre, percent up from the bottom (50 = centred, the classic look); the whole cluster incl. pointer and slip ball moves with it"
+        },
+        "bank_radius": {
+          "type": "number",
+          "default": 33.333333333333336,
+          "label": "Bank scale radius (% height)",
+          "min": 10,
+          "max": 60,
+          "step": 0.1,
+          "help": "radius of the bank arc as a percent of widget height (33.3 = the classic height/3); an explicit bankAngleRadius px in YAML overrides it"
+        },
+        "fd_style": {
+          "type": "enum",
+          "default": "single_cue",
+          "label": "Flight director style",
+          "enum": [
+            "single_cue",
+            "cross_pointer",
+            "off"
+          ],
+          "help": "single_cue: a magenta command chevron the aircraft symbol flies into; cross_pointer: separate pitch and roll bars; off: no flight director. Drawn only while FDENG is on and FDPITCH/FDROLL are current"
+        },
+        "pitch_ladder_avoid_bank": {
+          "type": "boolean",
+          "default": false,
+          "label": "Ladder stops below bank arc",
+          "help": "G1000-style declutter: the ladder climbs into the bank arch but stops below the slip/skid ball"
+        },
+        "horizon_heading_marks": {
+          "type": "boolean",
+          "default": false,
+          "label": "Horizon heading marks",
+          "help": "tick marks + labels for compass heading along the horizon"
+        },
+        "horizon_heading_interval": {
+          "type": "integer",
+          "default": 10,
+          "label": "Heading tick interval (deg)",
+          "min": 1,
+          "max": 45,
+          "step": 1,
+          "help": "degrees of heading between the horizon ticks"
+        },
+        "horizon_heading_label_interval": {
+          "type": "integer",
+          "default": 20,
+          "label": "Heading label interval (deg)",
+          "min": 5,
+          "max": 90,
+          "step": 5,
+          "help": "degrees of heading between the numeric labels"
+        },
+        "horizon_heading_tick_length": {
+          "type": "integer",
+          "default": 5,
+          "label": "Heading tick length (px)",
+          "min": 1,
+          "max": 30,
+          "step": 1,
+          "help": "length of the horizon heading ticks (px)"
+        },
+        "horizon_heading_color": {
+          "type": "color",
+          "default": "#ffffff",
+          "label": "Heading mark colour",
+          "help": "colour of the horizon heading ticks and labels"
+        },
+        "svs_enabled": {
+          "type": "boolean",
+          "default": false,
+          "label": "Synthetic vision enabled",
+          "help": "master on/off (rendered on the device; not shown in the editor preview). Off shows the plain sky/ground attitude view"
+        },
+        "svs_tile_path": {
+          "type": "string",
+          "default": "",
+          "label": "Terrain tile path",
+          "help": "SRTM3 HGT tile directory on the device"
+        },
+        "svs_range_nm": {
+          "type": "number",
+          "default": 50,
+          "label": "Range (NM)",
+          "help": "(rendered on the device; not shown in the editor preview)"
+        },
+        "svs_auto_range": {
+          "type": "boolean",
+          "default": true,
+          "label": "Auto range by altitude",
+          "help": "(rendered on the device; not shown in the editor preview)"
+        },
+        "svs_min_range_nm": {
+          "type": "number",
+          "default": 8,
+          "label": "Min auto range (NM)",
+          "help": "(rendered on the device; not shown in the editor preview)"
+        },
+        "svs_palette": {
+          "type": "enum",
+          "default": "clearance",
+          "label": "Terrain palette",
+          "enum": [
+            "clearance",
+            "subdued",
+            "high_contrast"
+          ],
+          "help": "clearance-band colour scheme (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_terrain_shading": {
+          "type": "enum",
+          "default": "relief",
+          "label": "Terrain shading",
+          "enum": [
+            "relief",
+            "clearance"
+          ],
+          "help": "relief = the moving map's elevation colours, with amber, red and magenta only where clearance is low; clearance = every patch coloured by its clearance (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_clearance_green_ft": {
+          "type": "number",
+          "default": 1000,
+          "label": "Safe clearance (ft)",
+          "help": "amber below this height over terrain (green at/above it under clearance shading)"
+        },
+        "svs_clearance_yellow_ft": {
+          "type": "number",
+          "default": 500,
+          "label": "Caution clearance (ft)",
+          "help": "amber above this; red below"
+        },
+        "svs_terrain_grid": {
+          "type": "number",
+          "default": 0.35,
+          "label": "Terrain grid",
+          "min": 0.0,
+          "max": 1.0,
+          "help": "(rendered on the device; not shown in the editor preview)"
+        },
+        "svs_terrain_texture": {
+          "type": "number",
+          "default": 0.35,
+          "label": "Terrain texture",
+          "min": 0.0,
+          "max": 1.0,
+          "help": "(rendered on the device; not shown in the editor preview)"
+        },
+        "svs_safe_gradient": {
+          "type": "boolean",
+          "default": true,
+          "label": "Safe-band gradient",
+          "help": "(rendered on the device; not shown in the editor preview)"
+        },
+        "svs_earth_curvature": {
+          "type": "boolean",
+          "default": true,
+          "label": "Earth curvature",
+          "help": "(rendered on the device; not shown in the editor preview)"
+        },
+        "svs_haze": {
+          "type": "boolean",
+          "default": true,
+          "label": "Distance haze",
+          "help": "(rendered on the device; not shown in the editor preview)"
+        },
+        "svs_haze_distance_nm": {
+          "type": "number",
+          "default": 40,
+          "label": "Haze distance (NM)",
+          "help": "(rendered on the device; not shown in the editor preview)"
+        },
+        "svs_dof_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Obstacle DB path",
+          "help": "FAA DOF database on the device (optional)"
+        },
+        "svs_water_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Water DB path",
+          "help": "water-polygon database on the device (optional)"
+        },
+        "svs_highway_db_path": {
+          "type": "string",
+          "default": "",
+          "label": "Highway DB path",
+          "help": "highway database on the device (optional)"
+        },
+        "svs_road_color": {
+          "type": "color",
+          "default": "#535353",
+          "label": "Road colour",
+          "help": "ribbon fill colour (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_road_casing_color": {
+          "type": "color",
+          "default": "#4a4a4a",
+          "label": "Road casing colour",
+          "help": "darker outline drawn under the fill (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_road_casing_m": {
+          "type": "number",
+          "default": 2.5,
+          "label": "Road casing width (m)",
+          "min": 0.0,
+          "max": 20.0,
+          "help": "casing half-width add-on over the class width (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_road_min_px": {
+          "type": "number",
+          "default": 1.5,
+          "label": "Road minimum width (px)",
+          "min": 0.5,
+          "max": 10.0,
+          "step": 0.1,
+          "help": "screen-space floor so distant ribbons never drop below this many pixels wide (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_road_subdivide_m": {
+          "type": "number",
+          "default": 150.0,
+          "label": "Road subdivide length (m)",
+          "min": 20.0,
+          "max": 1000.0,
+          "help": "segments longer than this, within subdivide range, are split so the ribbon follows rolling terrain (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_road_subdivide_nm": {
+          "type": "number",
+          "default": 4.0,
+          "label": "Road subdivide range (NM)",
+          "min": 0.0,
+          "max": 20.0,
+          "help": "subdivision only applies this close to the aircraft (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_road_lift_ft": {
+          "type": "number",
+          "default": 2.0,
+          "label": "Road lift (ft)",
+          "min": 0.0,
+          "max": 50.0,
+          "help": "height above sampled terrain the ribbon is drawn at (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_road_max_vertices": {
+          "type": "integer",
+          "default": 400000,
+          "label": "Road vertex cap",
+          "min": 10000,
+          "max": 1000000,
+          "help": "hard cap on extruded vertices per array (casing/fill each); over the cap, far-tier ramps are dropped first, then far-tier trunks (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_papi": {
+          "type": "boolean",
+          "default": true,
+          "label": "PAPI lights",
+          "help": "draw the installed PAPI at its published glide path angle and side, from the NASR airports pack (only where one is installed) (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_traffic": {
+          "type": "boolean",
+          "default": true,
+          "label": "Traffic",
+          "help": "draw ADS-B traffic from the TFC block in the scene, with the moving map's symbols, relative-altitude tag and climb/descent arrow; never hidden by terrain (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_traffic_range_nm": {
+          "type": "number",
+          "default": 10.0,
+          "label": "Traffic range (NM)",
+          "min": 1.0,
+          "max": 50.0,
+          "help": "targets farther than this are left to the map (rendered on the device; not shown in the editor preview)"
+        },
+        "svs_perf_log": {
+          "type": "boolean",
+          "default": false,
+          "label": "Perf: log summary",
+          "help": "print an SVS per-frame profiler summary every 2s (collector/draw timings) to the log -- mirrors map_perf_log. Dev/bench diagnostic; off by default (rendered on the device; not shown in the editor preview)"
+        },
+        "encoder_order": {
+          "type": "integer",
+          "default": null,
+          "label": "Knob order",
+          "step": 1,
+          "help": "place on the screen's knob walk: turning the knob visits instruments in ascending order, and push gives the highlighted one the knob; blank = not on the walk"
+        }
+      },
+      "offscreen_renderable": false,
+      "svs_capable": true,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": true,
+        "editable": true,
+        "outer_ring": false,
+        "options": [
+          "touch_edit"
+        ]
+      }
+    },
+    "vsi_dial": {
+      "label": "VSI Dial",
+      "category": "vertical_speed",
+      "dbkeys": [
+        "VS"
+      ],
+      "default_options": {},
+      "required_options": [],
+      "options": {},
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": true,
+      "hidden": false,
+      "preview": {
+        "value": -350
+      },
+      "fix_values": [
+        {
+          "name": "Min",
+          "source": "min",
+          "label": "Range minimum",
+          "dbkey": "",
+          "units": "ft/min",
+          "help": ""
+        },
+        {
+          "name": "Max",
+          "source": "max",
+          "label": "Range maximum",
+          "dbkey": "",
+          "units": "ft/min",
+          "help": ""
+        }
+      ],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "vsi_pfd": {
+      "label": "VSI (PFD)",
+      "category": "vertical_speed",
+      "dbkeys": [
+        "VS"
+      ],
+      "default_options": {
+        "vs_bug": {
+          "type": "boolean",
+          "default": true
+        },
+        "vs_bug_color": {
+          "type": "color",
+          "default": "#00ffff"
+        }
+      },
+      "required_options": [],
+      "options": {
+        "vs_bug": {
+          "type": "boolean",
+          "default": true,
+          "label": "VSSEL bug",
+          "help": "the VSSEL bug on the scale while the autopilot reports VS active"
+        },
+        "vs_bug_color": {
+          "type": "color",
+          "default": "#00ffff",
+          "label": "VSSEL bug color",
+          "help": "colour of the VSSEL bug"
+        }
+      },
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {
+        "value": -350
+      },
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "weston": {
+      "label": "Weston",
+      "category": "system",
+      "dbkeys": [],
+      "default_options": {},
+      "required_options": [
+        "socket",
+        "ini",
+        "command",
+        "args"
+      ],
+      "options": {
+        "socket": {
+          "type": "string",
+          "default": null,
+          "label": "Wayland socket",
+          "help": "weston -S socket name"
+        },
+        "ini": {
+          "type": "string",
+          "default": null,
+          "label": "weston.ini",
+          "help": "path (under the config dir) to weston.ini"
+        },
+        "command": {
+          "type": "string",
+          "default": null,
+          "label": "Command",
+          "help": "program to launch inside the compositor"
+        },
+        "args": {
+          "type": "string",
+          "default": null,
+          "label": "Arguments",
+          "help": "arguments passed to the command"
+        }
+      },
+      "offscreen_renderable": false,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    },
+    "wind_display": {
+      "label": "Wind Display",
+      "category": "wind",
+      "dbkeys": [
+        "HWIND",
+        "XWIND"
+      ],
+      "default_options": {},
+      "required_options": [],
+      "options": {},
+      "offscreen_renderable": true,
+      "svs_capable": false,
+      "keep_aspect": false,
+      "hidden": false,
+      "preview": {},
+      "fix_values": [],
+      "containers": [],
+      "encoder": {
+        "selectable": false,
+        "editable": false,
+        "outer_ring": false,
+        "options": []
+      }
+    }
+  },
+  "actions": [
+    {
+      "verb": "change value",
+      "label": "Change value by",
+      "group": "value",
+      "arg": {
+        "kind": "fixkey_number",
+        "number_label": "Delta"
+      },
+      "help": "add a delta to a FIX key (clamped at its min/max)"
+    },
+    {
+      "verb": "change value wrap",
+      "label": "Change value (wrap)",
+      "group": "value",
+      "arg": {
+        "kind": "fixkey_number",
+        "number_label": "Delta"
+      },
+      "help": "add a delta, wrapping within the key's range -- e.g. a heading bug stepping down through 0 to just below max"
+    },
+    {
+      "verb": "set value",
+      "label": "Set value",
+      "group": "value",
+      "arg": {
+        "kind": "fixkey_number",
+        "number_label": "Value"
+      },
+      "help": "set a FIX key to a fixed value"
+    },
+    {
+      "verb": "sync value",
+      "label": "Copy value",
+      "group": "value",
+      "arg": {
+        "kind": "fixkey_fixkey",
+        "labels": [
+          "Into key",
+          "From key"
+        ]
+      },
+      "help": "copy one key's value into another"
+    },
+    {
+      "verb": "toggle bit",
+      "label": "Toggle",
+      "group": "value",
+      "arg": {
+        "kind": "fixkey"
+      },
+      "help": "flip a boolean FIX key on/off"
+    },
+    {
+      "verb": "show screen",
+      "label": "Show screen",
+      "group": "screen",
+      "arg": {
+        "kind": "screen"
+      },
+      "help": "jump to a named screen"
+    },
+    {
+      "verb": "show next screen",
+      "label": "Next screen",
+      "group": "screen",
+      "arg": {
+        "kind": "none"
+      },
+      "help": "cycle to the next screen"
+    },
+    {
+      "verb": "show previous screen",
+      "label": "Previous screen",
+      "group": "screen",
+      "arg": {
+        "kind": "none"
+      },
+      "help": "cycle to the previous screen"
+    },
+    {
+      "verb": "set bg color",
+      "label": "Set background colour",
+      "group": "style",
+      "arg": {
+        "kind": "color"
+      },
+      "help": "change the button's fill colour"
+    },
+    {
+      "verb": "set fg color",
+      "label": "Set text colour",
+      "group": "style",
+      "arg": {
+        "kind": "color"
+      },
+      "help": "change the button's label colour"
+    },
+    {
+      "verb": "set text",
+      "label": "Set text",
+      "group": "style",
+      "arg": {
+        "kind": "text"
+      },
+      "help": "change the button's label"
+    },
+    {
+      "verb": "set airspeed mode",
+      "label": "Set airspeed mode",
+      "group": "mode",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "switch the airspeed display mode"
+    },
+    {
+      "verb": "set egt mode",
+      "label": "Set EGT mode",
+      "group": "mode",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "switch the EGT gauge display mode"
+    },
+    {
+      "verb": "set instrument units",
+      "label": "Set instrument units",
+      "group": "mode",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "switch an instrument's units"
+    },
+    {
+      "verb": "checklist next item",
+      "label": "Checklist: next item",
+      "group": "checklist",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "move the checklist cursor to the next item (blank arg = all checklists; else a target group)"
+    },
+    {
+      "verb": "checklist previous item",
+      "label": "Checklist: previous item",
+      "group": "checklist",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "move the checklist cursor to the previous item"
+    },
+    {
+      "verb": "checklist toggle item",
+      "label": "Checklist: toggle item",
+      "group": "checklist",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "acknowledge / un-acknowledge the current checklist item"
+    },
+    {
+      "verb": "checklist next unacked",
+      "label": "Checklist: next unacknowledged",
+      "group": "checklist",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "jump to the next un-acknowledged checklist item"
+    },
+    {
+      "verb": "checklist next list",
+      "label": "Checklist: next list",
+      "group": "checklist",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "switch to the next checklist in the set"
+    },
+    {
+      "verb": "checklist previous list",
+      "label": "Checklist: previous list",
+      "group": "checklist",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "switch to the previous checklist in the set"
+    },
+    {
+      "verb": "checklist reset",
+      "label": "Checklist: reset",
+      "group": "checklist",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "clear every acknowledgement in the active checklist"
+    },
+    {
+      "verb": "flightplan page",
+      "label": "Flight plan: show page",
+      "group": "flightplan",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "switch the flight_plan instrument's page ('fpl', 'dto', 'catalog', 'proc' or 'charts')"
+    },
+    {
+      "verb": "flightplan direct to",
+      "label": "Flight plan: direct to",
+      "group": "flightplan",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "blank opens the Direct To page; an ident stages and activates direct-to that waypoint immediately"
+    },
+    {
+      "verb": "activate menu",
+      "label": "Activate menu",
+      "group": "menu",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "open an HMI menu"
+    },
+    {
+      "verb": "activate menu item",
+      "label": "Activate menu item",
+      "group": "menu",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "select an item in the active menu"
+    },
+    {
+      "verb": "menu encoder",
+      "label": "Menu encoder",
+      "group": "menu",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "route encoder turns to the active menu"
+    },
+    {
+      "verb": "set menu focus",
+      "label": "Set menu focus",
+      "group": "menu",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "move focus within the menu"
+    },
+    {
+      "verb": "exit",
+      "label": "Send command / exit",
+      "group": "advanced",
+      "arg": {
+        "kind": "string"
+      },
+      "help": "send a command to named instruments (<names>:<command>)"
+    },
+    {
+      "verb": "evaluate",
+      "label": "Evaluate (raw Python)",
+      "group": "advanced",
+      "arg": {
+        "kind": "raw"
+      },
+      "warn": "runs arbitrary Python on the device -- use with care",
+      "help": "evaluate a raw Python expression (advanced)"
+    }
+  ],
+  "annunciator": {
+    "tile_fields": [
+      {
+        "name": "label",
+        "kind": "string",
+        "label": "Label",
+        "help": "the caption; also the default on and off text"
+      },
+      {
+        "name": "key",
+        "kind": "fixkey",
+        "label": "FIX key",
+        "required": true,
+        "help": "the key the tile follows"
+      },
+      {
+        "name": "when",
+        "kind": "condition",
+        "label": "Condition",
+        "binding": true,
+        "help": "lit while this Button-grammar condition is true"
+      },
+      {
+        "name": "flag",
+        "kind": "enum",
+        "label": "Key flag",
+        "binding": true,
+        "enum": [
+          "annunciate",
+          "old",
+          "bad",
+          "fail"
+        ],
+        "help": "lit while the key's own flag is set"
+      },
+      {
+        "name": "enum",
+        "kind": "map",
+        "label": "Value to text",
+        "binding": true,
+        "help": "shows the text mapped to the key's value"
+      },
+      {
+        "name": "condition_keys",
+        "kind": "fixkey_list",
+        "label": "Other keys read",
+        "help": "other keys the condition reads (each must be fresh too)"
+      },
+      {
+        "name": "on_text",
+        "kind": "string",
+        "label": "On text",
+        "help": "text while lit; blank = the label"
+      },
+      {
+        "name": "off_text",
+        "kind": "string",
+        "label": "Off text",
+        "help": "text while off (drawn dim); blank = the label"
+      },
+      {
+        "name": "level",
+        "kind": "enum",
+        "label": "Level",
+        "enum": [
+          "warning",
+          "caution",
+          "status",
+          "advisory",
+          "info",
+          "off"
+        ],
+        "default": "advisory",
+        "help": "the colour while lit"
+      },
+      {
+        "name": "flash_on_change",
+        "kind": "number",
+        "label": "Flash on change (s)",
+        "default": 0,
+        "minimum": 0,
+        "help": "seconds a change is boxed and flashes; 0 = never"
+      }
+    ],
+    "levels": [
+      "warning",
+      "caution",
+      "status",
+      "advisory",
+      "info",
+      "off"
+    ],
+    "alert_levels": [
+      "warning",
+      "caution"
+    ],
+    "alert_bindings": [
+      {
+        "field": "flag",
+        "value": "annunciate"
+      }
+    ],
+    "alert_fallback_level": "advisory"
+  }
+}

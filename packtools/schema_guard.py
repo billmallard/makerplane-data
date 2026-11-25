@@ -124,7 +124,9 @@ class Contract:
 # required_columns: every column the pyEfis builder actually reads (verified
 #   against tools/build_airport_db.py / build_navaid_db.py, 2026-07-05; VGSI_CODE
 #   + VISUAL_GLIDE_PATH_ANGLE added 2026-08-01 when build_airport_db began
-#   ingesting them, VG1/CAP-123).
+#   ingesting them, VG1/CAP-123; APT_BASE ICAO_ID added 2026-11-25 when it began
+#   feeding airports.icao_id, the name the readers show -- PANC, not KANC --
+#   FPA4/AER-6548, pyEfis#583).
 # floors: 50% of the 2607 build, derived 2026-07-05 from the inputs under
 #   work/localwork/. Airports: 19436 / 23208 / 23731. Navaids: 1629 / 70031 /
 #   17307. Do NOT invent or tighten these without re-deriving from a real build.
@@ -135,7 +137,7 @@ CONTRACTS: dict[str, Contract] = {
         required_columns={
             "APT_BASE.csv": frozenset({
                 "SITE_NO", "ARPT_ID", "ARPT_NAME", "LAT_DECIMAL", "LONG_DECIMAL",
-                "ELEV", "MAG_VARN", "MAG_HEMIS", "STATE_CODE", "CITY"}),
+                "ELEV", "MAG_VARN", "MAG_HEMIS", "STATE_CODE", "CITY", "ICAO_ID"}),
             "APT_RWY.csv": frozenset({
                 "SITE_NO", "RWY_ID", "RWY_LEN", "RWY_WIDTH",
                 "SURFACE_TYPE_CODE", "RWY_LGT_CODE"}),
