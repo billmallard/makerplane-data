@@ -59,12 +59,13 @@ const profile = (tanks) => JSON.stringify({ schema_version: 1, meta: { fuel: { s
 const THREE = [tank("tk_lm", "L MAIN", 1), tank("tk_rm", "R MAIN", 2), tank("tk_lt", "L TIP", 3)];
 const SCHEMA = { instruments: Object.fromEntries(
   ["vertical_bar_gauge", "horizontal_bar_gauge", "arc_gauge"].map((t) =>
-    [t, { options: { tank: { type: "aircraft_ref", source: "aircraft.fuel.tanks" } } }])) };
+    [t, { options: { tank: { type: "aircraft_ref", source: "aircraft.fuel.tanks", multi: false,
+      resolves: { dbkey: "slot_key", name: "label" } } } }])) };
 
 function editor({ dev = { w: 65, h: 327 }, canvas = dev, tanks = THREE, retired = {} } = {}) {
   const state = {
     schema: SCHEMA, fuelLabel, migrationPreview: null,
-    aircraftRefs: { mod: refs, items: refs.itemsBySource(profile(tanks)), retired },
+    aircraftRefs: { mod: refs, refs: refs.refsFromSchema(SCHEMA), items: refs.itemsBySource(profile(tanks)), retired },
   };
   const calls = [];
   const f = new Function("document", "state", "rect", "mapDevicePx", "svgFromString",

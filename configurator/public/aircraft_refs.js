@@ -12,15 +12,57 @@
 // every reference as unbound.
 
 // The reference options pyEfis declares (field type `aircraft_ref` in its
-// schema.json), by option name. test/aircraft_refs.test.mjs pins this table
-// to the pyEfis schema fixture; change both or neither.
-export const AIRCRAFT_REFS = {
+// schema.json), by option name: {source, resolves, types}. refsFromSchema()
+// reads them off the schema the editor and the Worker load, so a new
+// instrument type with a tank option resolves its tank with no edit here.
+//
+// FALLBACK_REFS is only what a caller uses when no schema could be read: the
+// table schema v3 declared (test/aircraft_refs.test.mjs pins it to that
+// fixture), so a failed schema read serves what was served before.
+export const FALLBACK_REFS = {
   tank: {
     source: "aircraft.fuel.tanks",
     resolves: { dbkey: "slot_key", name: "label" },
     types: ["arc_gauge", "horizontal_bar_gauge", "vertical_bar_gauge"],
   },
 };
+
+// The sources this module can resolve, and the fields each item carries
+// (refItems below). A reference to any other source, or one that resolves a
+// field its items do not carry, is left alone: the option reaches the device
+// as stored, as every option did before references existed.
+export const REF_SOURCE_FIELDS = {
+  "aircraft.fuel.tanks": ["id", "label", "slot", "role", "slot_key"],
+};
+
+// The reference table a schema.json declares, or null when `schema` has no
+// instruments map (the caller falls back). Options are matched by name, so an
+// option that two types declare with a different source or resolves is kept
+// for the first type in name order and `conflicts` lists the rest;
+// tools/schema_twin_check.mjs reds pyEfis CI on any. A `multi` reference is
+// skipped: nothing resolves a list yet.
+export function refsFromSchema(schema, conflicts = []) {
+  const inst = schema && typeof schema === "object" ? schema.instruments : null;
+  if (!inst || typeof inst !== "object" || Array.isArray(inst)) return null;
+  const out = {};
+  for (const type of Object.keys(inst).sort()) {
+    const opts = inst[type] && inst[type].options;
+    if (!opts || typeof opts !== "object") continue;
+    for (const name of Object.keys(opts).sort()) {
+      const f = opts[name];
+      if (!f || f.type !== "aircraft_ref" || f.multi) continue;
+      const fields = REF_SOURCE_FIELDS[f.source];
+      const res = f.resolves;
+      if (!fields || !res || typeof res !== "object" || !Object.keys(res).length
+          || !Object.values(res).every((v) => fields.includes(v))) continue;
+      const r = out[name];
+      if (!r) out[name] = { source: f.source, resolves: { ...res }, types: [type] };
+      else if (r.source === f.source && JSON.stringify(r.resolves) === JSON.stringify(res)) r.types.push(type);
+      else conflicts.push({ type, option: name });
+    }
+  }
+  return out;
+}
 
 const parse = (profile) => {
   let doc = profile;
@@ -75,13 +117,14 @@ export function retiredLabels(profiles, source, current) {
 //   option keeps the last label known for the id, else the panel's own.
 // * An empty reference is no reference: it is removed, nothing else changes.
 //
+// `refs` is the reference table (refsFromSchema), FALLBACK_REFS when omitted.
 // Returns {options, bindings}; options is the input object when nothing
 // applies. Each binding is what the ETag covers.
-export function resolveOptions(type, options, items, retired) {
+export function resolveOptions(type, options, items, retired, refs = FALLBACK_REFS) {
   if (!options || typeof options !== "object") return { options, bindings: [] };
   let out = options;
   const bindings = [];
-  for (const [opt, spec] of Object.entries(AIRCRAFT_REFS)) {
+  for (const [opt, spec] of Object.entries(refs || {})) {
     if (!(opt in options) || !spec.types.includes(type)) continue;
     if (out === options) out = { ...options };
     const raw = out[opt];
@@ -115,7 +158,7 @@ export function resolveOptions(type, options, items, retired) {
 // tab_section's `tabs`). Returns {doc, bindings}; doc is a copy wherever an
 // instrument changed and the input is never mutated. Each binding carries
 // `at`, the instrument's path, so two gauges on one tank stay distinct.
-export function resolveDoc(doc, items, retired) {
+export function resolveDoc(doc, items, retired, refs = FALLBACK_REFS) {
   const bindings = [];
   const walkList = (list, at) => {
     if (!Array.isArray(list)) return list;
@@ -130,7 +173,7 @@ export function resolveDoc(doc, items, retired) {
   const walkInst = (inst, at) => {
     if (!inst || typeof inst !== "object" || Array.isArray(inst)) return inst;
     let out = inst;
-    const r = resolveOptions(inst.type, inst.options, items, retired);
+    const r = resolveOptions(inst.type, inst.options, items, retired, refs);
     for (const b of r.bindings) bindings.push({ at, ...b });
     if (r.options !== inst.options) out = { ...inst, options: r.options };
     for (const [k, v] of Object.entries(inst)) {
@@ -163,8 +206,8 @@ export function resolveDoc(doc, items, retired) {
 }
 
 // The sources a panel can reference, and their items, for one profile.
-export function itemsBySource(profile) {
+export function itemsBySource(profile, refs = FALLBACK_REFS) {
   const out = {};
-  for (const spec of Object.values(AIRCRAFT_REFS)) out[spec.source] = refItems(profile, spec.source);
+  for (const spec of Object.values(refs || {})) out[spec.source] = refItems(profile, spec.source);
   return out;
 }

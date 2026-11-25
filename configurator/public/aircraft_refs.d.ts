@@ -16,13 +16,17 @@ export interface RefItem {
 }
 export type RefBinding = Record<string, unknown> & { option: string; id: string; unbound?: true };
 
-export const AIRCRAFT_REFS: Record<string, RefSpec>;
+export type RefTable = Record<string, RefSpec>;
+export const FALLBACK_REFS: RefTable;
+export const REF_SOURCE_FIELDS: Record<string, string[]>;
+export function refsFromSchema(schema: unknown, conflicts?: { type: string; option: string }[]): RefTable | null;
 export function refItems(profile: unknown, source: string): RefItem[];
 export function retiredLabels(profiles: unknown[], source: string, current: unknown): Record<string, string>;
 export function resolveOptions(
   type: string, options: unknown, items: Record<string, RefItem[]>, retired?: Record<string, string>,
+  refs?: RefTable,
 ): { options: unknown; bindings: RefBinding[] };
 export function resolveDoc(
-  doc: unknown, items: Record<string, RefItem[]>, retired?: Record<string, string>,
+  doc: unknown, items: Record<string, RefItem[]>, retired?: Record<string, string>, refs?: RefTable,
 ): { doc: unknown; bindings: (RefBinding & { at: string })[] };
-export function itemsBySource(profile: unknown): Record<string, RefItem[]>;
+export function itemsBySource(profile: unknown, refs?: RefTable): Record<string, RefItem[]>;

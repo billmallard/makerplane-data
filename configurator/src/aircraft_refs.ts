@@ -7,12 +7,14 @@
 // Imported by device_prefs.ts, so node:test can load it directly.
 
 import yaml from "js-yaml";
-import { AIRCRAFT_REFS, itemsBySource, resolveDoc } from "../public/aircraft_refs.js";
+import { FALLBACK_REFS, itemsBySource, resolveDoc, type RefTable } from "../public/aircraft_refs.js";
 
 export type Binding = Record<string, unknown> & { at: string; option: string; id: string };
 
 // A reference option at the start of a YAML key, in block or flow style.
-const MENTION = new RegExp(`(^|[\\s{,])(${Object.keys(AIRCRAFT_REFS).join("|")})\\s*:`, "m");
+// The names come from schema.json, so they are escaped.
+const mention = (refs: RefTable) => new RegExp(
+  `(^|[\\s{,])(${Object.keys(refs).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\s*:`, "m");
 
 // * A panel that mentions no reference option is returned as the same text,
 //   unparsed, so a panel with no references reaches the device byte for byte
@@ -24,15 +26,18 @@ const MENTION = new RegExp(`(^|[\\s{,])(${Object.keys(AIRCRAFT_REFS).join("|")})
 // * A panel that does not parse is returned unchanged: the device's own
 //   validation judges it.
 // * `retired` maps an id the profile no longer has to its last label.
+// * `refs` is the reference table the served schema.json declares
+//   (refsFromSchema); FALLBACK_REFS when the schema could not be read.
 export function resolveAircraftRefs(
   panelYaml: string,
   profile: unknown,
   retired: Record<string, string> = {},
+  refs: RefTable = FALLBACK_REFS,
 ): { yaml: string; bindings: Binding[] } {
-  if (!MENTION.test(panelYaml)) return { yaml: panelYaml, bindings: [] };
+  if (!Object.keys(refs).length || !mention(refs).test(panelYaml)) return { yaml: panelYaml, bindings: [] };
   let doc: unknown;
   try { doc = yaml.load(panelYaml); } catch { return { yaml: panelYaml, bindings: [] }; }
-  const r = resolveDoc(doc, itemsBySource(profile), retired);
+  const r = resolveDoc(doc, itemsBySource(profile, refs), retired, refs);
   // No binding (only empty references): serve the stored text, so the body
   // changes exactly when the ETag's bindings do. pyEfis skips an empty one.
   if (!r.bindings.length) return { yaml: panelYaml, bindings: [] };
@@ -52,9 +57,11 @@ export type Orphan = { at: string; option: string; id: string; label: string | n
 // (brief section 5). A reference already unbound before is not counted, and
 // nothing is ever refused here -- removing a tank is legitimate; the caller
 // only warns.
-export function orphanedBy(panelYaml: string, before: unknown, after: unknown): Orphan[] {
-  const was = resolveAircraftRefs(panelYaml, before).bindings;
-  const now = new Map(resolveAircraftRefs(panelYaml, after).bindings.map((b) => [`${b.at}|${b.option}`, b]));
+export function orphanedBy(
+  panelYaml: string, before: unknown, after: unknown, refs: RefTable = FALLBACK_REFS,
+): Orphan[] {
+  const was = resolveAircraftRefs(panelYaml, before, {}, refs).bindings;
+  const now = new Map(resolveAircraftRefs(panelYaml, after, {}, refs).bindings.map((b) => [`${b.at}|${b.option}`, b]));
   const out: Orphan[] = [];
   for (const b of was) {
     if (b.unbound) continue;

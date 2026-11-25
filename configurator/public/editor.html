@@ -343,6 +343,7 @@
 <header>
   <span class="brand">AeroCommons</span><span class="muted">Panel Editor</span>
   <span class="muted" id="ctx"></span>
+  <span id="schema-note" class="hidden" style="color: #e3b341"></span>
   <label class="tsel">Screen <select id="res"></select></label>
   <span id="custom" class="hidden"><input id="cw" type="number" class="num"> × <input id="ch" type="number" class="num"></span>
   <label class="tsel">Size <select id="inches"></select></label>
@@ -389,6 +390,28 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const ASSETS = "/assets/editor";
+// The newest schema.json version this editor has been taught (INS4). A newer
+// one still loads, but the header says so: an option the editor does not
+// know may preview or save wrong. tools/schema_twin_check.mjs refuses a
+// newer schema in pyEfis CI, so the bump lands here first.
+const SCHEMA_VERSION_MAX = 4;
+
+// The header's account of the loaded schema: `title` says which version and
+// which pyEfis commit built it (`pyefis_commit`, when pyEfis stamps it);
+// `warn` is set only when the version is missing or newer than this editor.
+function schemaNotice(schema) {
+  const v = schema && schema.schema_version;
+  const sha = schema && typeof schema.pyefis_commit === "string" && /^[0-9a-f]{7,40}$/.test(schema.pyefis_commit)
+    ? schema.pyefis_commit : null;
+  const title = `Instrument schema v${Number.isInteger(v) ? v : "?"}, `
+    + (sha ? `built from pyEfis ${sha.slice(0, 12)}` : "pyEfis build commit not stated");
+  let warn = null;
+  if (!Number.isInteger(v))
+    warn = "schema.json states no version: previews may be wrong";
+  else if (v > SCHEMA_VERSION_MAX)
+    warn = `schema.json is v${v}; this editor knows up to v${SCHEMA_VERSION_MAX}: some options may preview or save wrong`;
+  return { title, warn };
+}
 const params = new URLSearchParams(location.search);
 const deviceId = params.get("device");
 
@@ -398,7 +421,8 @@ const state = {
   // device will receive it in preferences units.Pressure. inHg = pyEfis default.
   baroUnit: "inHg",
   // Aircraft references (FUEL1 F3): the shared resolver module
-  // (/aircraft_refs.js, the one GET /device/config runs) and the profile's
+  // (/aircraft_refs.js, the one GET /device/config runs), the reference table
+  // schema.json declares (refsFromSchema), and the profile's
   // items and retired labels per source, so a gauge bound to a tank previews
   // the dbkey and name the device will receive. null = no device / no module.
   aircraftRefs: null,
@@ -493,18 +517,26 @@ function baroSample(o) {
 // pyEfis text-widget defaults, matched class-by-class so an unset font / size /
 // alignment previews exactly what the device draws (fidelity rule):
 //   static_text      misc.StaticText        DejaVu Sans Condensed, AlignLeft, full height
-//   value_text       misc.ValueDisplay      Open Sans, AlignLeft, 0.9 height
+//   value_text       misc.ValueDisplay      DejaVu Sans Condensed, AlignLeft, 0.9 height
 //   numeric_display  gauges.NumericDisplay  DejaVu Sans Condensed, AlignLeft (fits "000")
 //   heading_display  hsi.HeadingDisplay     DejaVu Sans Condensed, centred (fits "999")
+// value_text's font is the screen builder's, not ValueDisplay's: its
+// constructor says Open Sans, but apply_preferences passes "DejaVu Sans
+// Condensed" whenever a config names no font, so Open Sans is never drawn.
 // Colours are not here: an unset fg_color / bg_color previews the schema's
 // default (the widget's own, exported from its Prop), so a pyEfis default
 // change reaches the preview with the next schema.json and no edit here.
 const TEXT_DEFAULTS = {
   static_text:     { font: "DejaVu Sans Condensed", pct: 1.0 },
-  value_text:      { font: "Open Sans",             pct: 0.9 },
+  value_text:      { font: "DejaVu Sans Condensed", pct: 0.9 },
   numeric_display: { font: "DejaVu Sans Condensed", pct: 0.85 },
   heading_display: { font: "DejaVu Sans Condensed", pct: 0.75, bold: true, framed: true },
 };
+// value_text's box and prefix when the option is unset: misc.ValueDisplay's
+// own defaults, which schema.json states too. tools/schema_twin_check.mjs
+// compares these with the schema in pyEfis CI.
+const VALUE_TEXT_DEFAULTS = { prefix_color: "#ffffff", prefix_font_percent: 50, border_color: "#ffffff",
+  border_width: 0, border_opacity: 100, bg_opacity: 0 };
 // Apply an opacity (0-1) to a hex colour -> rgba(); pass-through for names/opaque.
 function rgbaFromColor(c, op) {
   if (op == null || op >= 1) return c;
@@ -720,7 +752,7 @@ function buildAttitude(inst) {
 // left, the "both" column of pyEfis docs/aer-6052-evidence/styles.png. The
 // bars show command minus attitude, so the picture is the same on any pose.
 const FD_PREVIEW_ERROR = { pitch: 4, roll: -25 };
-const FD_STYLES = ["single_cue", "cross_pointer", "off"];
+const FD_STYLES = ["single_cue", "cross_pointer", "off"];  // [0]: the widget's default
 const FD_ROLL_FULL_SCALE_DEG = 30;
 
 // Port of pyEfis AI._draw_flight_director. Returns the magenta bars as SVG in
@@ -731,8 +763,8 @@ const FD_ROLL_FULL_SCALE_DEG = 30;
 // px floors), so devH converts: one viewBox unit is devH * sc / 100 px.
 function flightDirectorSVG(o, pitchErr, rollErr, opts) {
   const { sc, aspect, devH, ppd, hoff, conformal } = opts;
-  let style = String(o.fd_style ?? "single_cue").toLowerCase();
-  if (!FD_STYLES.includes(style)) style = "single_cue";
+  let style = String(o.fd_style ?? FD_STYLES[0]).toLowerCase();
+  if (!FD_STYLES.includes(style)) style = FD_STYLES[0];
   if (style === "off") return "";
   const u = devH * sc / 100;
   const ss = Math.max(0.3, Math.min(3, Number(o.symbol_scale) || 1));
@@ -3533,13 +3565,13 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
       // value_text: optional box (border + background) on the widget bounds.
       // bg_opacity defaults to 0 (transparent), matching misc.ValueDisplay.
       if (inst.type === "value_text") {
-        const _bgo = o.bg_opacity != null ? Math.max(0, Math.min(1, Number(o.bg_opacity) / 100)) : 0;
+        const _bgo = Math.max(0, Math.min(1, Number(o.bg_opacity ?? VALUE_TEXT_DEFAULTS.bg_opacity) / 100));
         content.style.background = o.bg_color ? rgbaFromColor(o.bg_color, _bgo) : "transparent";
-        const _bw = Number(o.border_width) || 0;
+        const _bw = Number(o.border_width ?? VALUE_TEXT_DEFAULTS.border_width) || 0;
         if (_bw > 0) {
           content.style.boxSizing = "border-box";
-          const _bo = o.border_opacity != null ? Math.max(0, Math.min(1, Number(o.border_opacity) / 100)) : 1;
-          content.style.border = _bw + "px solid " + rgbaFromColor(o.border_color || "#ffffff", _bo);
+          const _bo = Math.max(0, Math.min(1, Number(o.border_opacity ?? VALUE_TEXT_DEFAULTS.border_opacity) / 100));
+          content.style.border = _bw + "px solid " + rgbaFromColor(o.border_color || VALUE_TEXT_DEFAULTS.border_color, _bo);
         } else {
           content.style.border = "none";
         }
@@ -3551,8 +3583,8 @@ function buildInstrumentTwin(el, inst, meta, ci, depth) {
         const pre = document.createElement("span");
         pre.textContent = o.prefix_text;
         pre.style.fontFamily = '"' + (o.prefix_font_family || o.font_family || def.font) + '"';
-        pre.style.color = o.prefix_color || "#ffffff";
-        let _pfp = o.prefix_font_percent != null ? Number(o.prefix_font_percent) : 50;
+        pre.style.color = o.prefix_color || VALUE_TEXT_DEFAULTS.prefix_color;
+        let _pfp = Number(o.prefix_font_percent ?? VALUE_TEXT_DEFAULTS.prefix_font_percent);
         if (_pfp > 1) _pfp = _pfp / 100;
         pre.style.fontSize = Math.max(6, _pfp * _vh) + "px";
         pre.style.marginRight = "0.3em";
@@ -4717,7 +4749,7 @@ function refResolved(inst) {
   if (!R || !inst.options) return inst;
   const pv = state.migrationPreview;
   const opts = pv && pv.inst === inst ? migratedOptions(inst.options, pv.id) : inst.options;
-  const r = R.mod.resolveOptions(inst.type, opts, R.items, R.retired);
+  const r = R.mod.resolveOptions(inst.type, opts, R.items, R.retired, R.refs);
   return r.options === inst.options ? inst : { ...inst, options: r.options };
 }
 
@@ -4729,7 +4761,7 @@ function tankBinding(inst) {
   const id = inst && inst.options ? inst.options.tank : undefined;
   if (id === undefined || id === null || id === "") return null;
   const R = state.aircraftRefs;
-  const spec = R && R.mod.AIRCRAFT_REFS.tank;
+  const spec = R && R.refs.tank;
   if (!R || !spec || !spec.types.includes(inst.type)) return { id: String(id), item: null, orphan: false, label: null };
   const item = (R.items[spec.source] || []).find((i) => i.id === String(id)) || null;
   return { id: String(id), item, orphan: !item,
@@ -4881,7 +4913,7 @@ function optionField(inst, name, spec) {
 function refWrites(inst, name) {
   const R = state.aircraftRefs;
   if (!R || !inst.options) return null;
-  for (const [opt, spec] of Object.entries(R.mod.AIRCRAFT_REFS)) {
+  for (const [opt, spec] of Object.entries(R.refs)) {
     const v = inst.options[opt];
     if (spec.types.includes(inst.type) && v !== undefined && v !== null && v !== ""
         && Object.prototype.hasOwnProperty.call(spec.resolves, name)) return opt;
@@ -4958,7 +4990,7 @@ function unbindTank(inst, name) {
 // a tank in slot n. Never offered for a hand-edited name.
 function migrationTarget(inst) {
   const R = state.aircraftRefs;
-  const spec = R && R.mod.AIRCRAFT_REFS.tank;
+  const spec = R && R.refs.tank;
   const o = inst.options || {};
   if (!spec || !spec.types.includes(inst.type) || !state.schema.instruments[inst.type]?.options?.tank) return null;
   if (o.tank !== undefined && o.tank !== null && o.tank !== "") return null;
@@ -7062,6 +7094,9 @@ async function boot() {
   if (!me.ok) { location.href = "/"; return; }
   $("ctx").textContent = deviceId ? "device #" + deviceId : "(scratch - no device)";
   state.schema = await (await fetch(ASSETS + "/schema.json")).json();
+  const sn = schemaNotice(state.schema);
+  $("ctx").title = sn.title;
+  if (sn.warn) { $("schema-note").textContent = sn.warn; $("schema-note").title = sn.title; $("schema-note").classList.remove("hidden"); }
   try { state.fuelLabel = await import("/fuel_label.js"); } catch (_) { /* bar names draw whole */ }
   try { state.layoutAdvisory = await import("/layout_advisory.js"); } catch (_) { /* no advisory shown or saved */ }
   try {
@@ -7083,8 +7118,10 @@ async function boot() {
     } catch (_) { /* no profile preferences -- preview the inHg default */ }
     try {
       const mod = await import("/aircraft_refs.js");
-      const refs = { mod, items: {}, retired: {} };
-      for (const src of new Set(Object.values(mod.AIRCRAFT_REFS).map((r) => r.source))) {
+      // The reference table this schema.json declares, as the Worker reads it.
+      const table = mod.refsFromSchema(state.schema) || mod.FALLBACK_REFS;
+      const refs = { mod, refs: table, items: {}, retired: {} };
+      for (const src of new Set(Object.values(table).map((r) => r.source))) {
         const res = await fetch(`/api/devices/${deviceId}/aircraft/refs?source=${encodeURIComponent(src)}`,
           { credentials: "same-origin" });
         if (!res.ok) continue;

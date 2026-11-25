@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
-import { AIRCRAFT_REFS } from "../public/aircraft_refs.js";
+import { FALLBACK_REFS } from "../public/aircraft_refs.js";
 import { serveDeviceConfig } from "../src/device_prefs.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -40,7 +40,7 @@ const PANEL = yaml.dump({
   main: { screenWidth: 1280, screenHeight: 800, defaultScreen: "EMS" },
   screens: { EMS: { module: "pyefis.screens.screenbuilder", title: "EMS",
     layout: { rows: 110, columns: 200 },
-    instruments: Object.keys(AIRCRAFT_REFS).map((opt) => gauge({ [opt]: "tk_l" })) } },
+    instruments: Object.keys(FALLBACK_REFS).map((opt) => gauge({ [opt]: "tk_l" })) } },
 }, { lineWidth: 100, noRefs: true });
 
 test("the footer names exactly the settings config-pull receives", async () => {
@@ -54,7 +54,7 @@ test("the footer names exactly the settings config-pull receives", async () => {
     ...Object.keys(doc).filter((k) => !panelKeys.includes(k))
       .flatMap((k) => Object.keys(doc[k])).filter((k) => !k.endsWith("_sha256")),
     // A resolved reference shows as its resolved options on the instrument.
-    ...Object.entries(AIRCRAFT_REFS)
+    ...Object.entries(FALLBACK_REFS)
       .filter(([, r]) => doc.screens.EMS.instruments.some((i) =>
         Object.keys(r.resolves).every((k) => i.options[k] !== undefined)))
       .map(([opt]) => opt),
