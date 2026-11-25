@@ -1922,9 +1922,11 @@ function buildAirspeedTrend(inst) {
 // The virtual_vfr twin renders REAL terrain: a per-scene JSON patch (exported
 // by pyEfis tools/export_svs_preview_patch.py from SRTM + NASR, served from
 // R2) drawn on a canvas as a static frame and re-rendered on option change.
-// The colour model is a direct port of svs.py/svs_gl.py: the palette
-// constants, clearance bands, elevation-gated airport-proximity collapse,
-// SAFE_LOW gradient, exponential haze, world grid/texture. Like the device,
+// The colour model is a direct port of svs.py/svs_gl.py and the shared
+// terrain_shading.py: the palette constants, clearance bands,
+// elevation-gated airport-proximity collapse, the relief base and hazard
+// lighting floor (terrain_shading: relief), the SAFE_LOW gradient
+// (clearance), exponential haze, world grid/texture. Like the device,
 // there is no depth test -- painter's order, far to near.
 // HANDOFF: full notes (fidelity constants with their pyEfis source locations,
 // asset regeneration + Pi capture recipes, validation workflow, known gaps)
@@ -1937,8 +1939,63 @@ const SVS_PALETTES = {   // safe, caution, warning, conflict, water (svs.py)
   high_contrast: [[0,170,0],[245,190,0],[235,35,0],[230,0,230],[0,120,215]],
 };
 const SVS_HAZE_RGB = [166, 196, 230];   // svs_gl HAZE_COLOR
+// SVSSHADE2 (pyEfis terrain_shading.py): one band rule and one hypsometric
+// base for the SVS and the moving map. `terrain_shading: relief` (the
+// default) paints HYPSO under the hazard bands and lifts a lit band to at
+// least the floor; `clearance` is the all-over clearance colouring from
+// before. test/svs_shading_twin.test.mjs pins these against the module.
+const SVS_HYPSO_STOPS = [   // elevation ft, r, g, b
+  [-1000, 60, 110, 160], [0, 92, 130, 82], [1000, 110, 145, 88], [2000, 150, 160, 95],
+  [4000, 185, 160, 100], [7000, 170, 130, 90], [10000, 160, 120, 105], [14000, 235, 235, 235],
+];
+const SVS_BAND = { NONE: 0, CAUTION: 1, WARNING: 2, CONFLICT: 3 };
+const SVS_HAZARD_LIGHT_FLOOR = 0.7;
+const SVS_LIGHT = { ambient: 0.35, diffuse: 0.65, sun: [-1, 1, 2] };   // svs_gl AMBIENT/DIFFUSE/sun_dir
 function _svsNum(v, d) { const x = Number(v); return (v == null || v === "" || !isFinite(x)) ? d : x; }
 function _svsBool(v, d) { if (v == null || v === "") return d; return v === true || v === "true" || v === 1 || v === "1"; }
+// terrain_shading.shading_mode: anything unknown is relief.
+function _svsShading(v) { const s = String(v == null ? "" : v).toLowerCase(); return s === "clearance" ? "clearance" : "relief"; }
+// terrain_shading.hypso_rgb: linear between stops, clamped at both ends.
+function _svsHypso(e) {
+  const S = SVS_HYPSO_STOPS;
+  if (e <= S[0][0]) return S[0].slice(1);
+  for (let i = 1; i < S.length; i++) {
+    if (e < S[i][0]) {
+      const t = (e - S[i - 1][0]) / (S[i][0] - S[i - 1][0]);
+      return [1, 2, 3].map(k => S[i - 1][k] + (S[i][k] - S[i - 1][k]) * t);
+    }
+  }
+  return S[S.length - 1].slice(1);
+}
+// terrain_shading.collapse_gate_ft: MSL elevation below which terrain near an
+// airport gets no band; null when not near one, 1e9 when the field has no
+// elevation (collapse everything, the pre-#32 scheme).
+function _svsGate(near, fieldElevFt, aglFt) {
+  if (!near) return null;
+  return fieldElevFt == null ? 1.0e9 : fieldElevFt + aglFt;
+}
+// svs_gl terrain_band() / terrain_shading.band(): conflict, airport
+// collapse, warning, caution -- in that order.
+function _svsBand(clr, elev, gate, greenFt, yellowFt) {
+  if (clr < 0) return SVS_BAND.CONFLICT;
+  if (gate != null && elev < gate) return SVS_BAND.NONE;
+  if (clr < yellowFt) return SVS_BAND.WARNING;
+  if (clr < greenFt) return SVS_BAND.CAUTION;
+  return SVS_BAND.NONE;
+}
+// svs_gl vertex lighting, AMBIENT + DIFFUSE * max(0, n . sun), with the
+// normal from the cell's corner elevations (m; nw, ne, se, sw) over its
+// east/north size (m) -- the same finite difference the vertex shader takes.
+function _svsLight(nw, ne, se, sw, wM, hM) {
+  const dE = ((ne - nw) + (se - sw)) / 2 / Math.max(wM, 1);
+  const dN = ((nw - sw) + (ne - se)) / 2 / Math.max(hM, 1);
+  const mag = Math.sqrt(dE * dE + dN * dN + 1);
+  const [sx, sy, sz] = SVS_LIGHT.sun, sl = Math.hypot(sx, sy, sz);
+  const diff = Math.max(0, Math.min(1, (-dE * sx - dN * sy + sz) / mag / sl));
+  return SVS_LIGHT.ambient + SVS_LIGHT.diffuse * diff;
+}
+// hazard_light(): a painted band is never lit below the floor.
+function _svsHazardLight(band, lit) { return band > SVS_BAND.NONE ? Math.max(lit, SVS_HAZARD_LIGHT_FLOOR) : lit; }
 function _svsHash(i, j) { const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); }
 function _svsNoise(x, y) {   // smooth value noise on the SRTM sample lattice
   const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
@@ -1966,10 +2023,12 @@ function renderSVS(canvas, patch, o) {
   const gridAmp = _svsNum(o.svs_terrain_grid, 0.35);
   const texAmp = _svsNum(o.svs_terrain_texture, 0.35);
   const safeGrad = _svsBool(o.svs_safe_gradient, true);
+  const relief = _svsShading(o.svs_terrain_shading) === "relief";
   const curve = _svsBool(o.svs_earth_curvature, true);
   const rangeM = Math.min(_svsNum(o.svs_range_nm, meta.range_nm), meta.range_nm) * 1852 * 1.35;
-  const nearApt = meta.near_airport;
-  const gateFt = (meta.field_elev_ft != null ? meta.field_elev_ft : 0) + 400;
+  // near_airport and field elevation are resolved at export time; the gate
+  // height is terrain_shading.AIRPORT_GATE_AGL_FT (no editor option).
+  const gateFt = _svsGate(meta.near_airport, meta.field_elev_ft, 400);
   // sky (the AI scene gradient) + hazy far-field backdrop below the horizon
   const sky = ctx.createLinearGradient(0, 0, 0, Math.max(horizonY, 1));
   sky.addColorStop(0, "#1f6fd0"); sky.addColorStop(1, "#57a0e8");
@@ -2039,20 +2098,30 @@ function renderSVS(canvas, patch, o) {
     if (water) c = pal[4].slice();
     else {
       const clear = altFt - elevFt;              // svs_gl fragment shader
-      if (clear < 0) c = pal[3].slice();
-      else if (nearApt && elevFt < gateFt) c = pal[0].slice();
-      else if (clear < yellowFt) c = pal[2].slice();
-      else if (clear < greenFt) c = pal[1].slice();
+      const band = _svsBand(clear, elevFt, gateFt, greenFt, yellowFt);
+      if (band === SVS_BAND.CONFLICT) c = pal[3].slice();
+      else if (band === SVS_BAND.WARNING) c = pal[2].slice();
+      else if (band === SVS_BAND.CAUTION) c = pal[1].slice();
+      else if (relief) c = _svsHypso(elevFt);
       else {
         c = pal[0].slice();
-        if (safeGrad) {                          // mix(SAFE_LOW, SAFE, t/2500)
+        if (safeGrad && !(gateFt != null && elevFt < gateFt)) {   // mix(SAFE_LOW, SAFE, t/2500)
           const t = Math.max(0, Math.min(1, (clear - greenFt) / 2500));
           c = [lerp(128, c[0], t), lerp(117, c[1], t), lerp(56, c[2], t)];
         }
       }
-      // slope shading + world-anchored texture noise (faded by ~4 NM)
-      const sl = Math.max(-1, Math.min(1, (raw[3] - raw[0] + raw[2] - raw[1]) / (60 * (ti === 0 ? 1 : 0.35))));
-      c = c.map(v => v * (1 + sl * 0.12));
+      if (relief) {
+        // the device's lighting, base * max(lit, floor) on a hazard band
+        const lit = _svsLight(el(raw[0]), el(raw[1]), el(raw[2]), el(raw[3]),
+                              tier.dlon * mPerLon, tier.dlat * mPerLat);
+        const k = _svsHazardLight(band, lit);
+        c = c.map(v => v * k);
+      } else {
+        // clearance: the preview's own slope tone, unchanged since AER-1424
+        const sl = Math.max(-1, Math.min(1, (raw[3] - raw[0] + raw[2] - raw[1]) / (60 * (ti === 0 ? 1 : 0.35))));
+        c = c.map(v => v * (1 + sl * 0.12));
+      }
+      // world-anchored texture noise (faded by ~4 NM)
       if (texAmp > 0) {
         const nse = _svsNoise(lat0 * 1200 / 3, lon0 * 1200 / 3);
         const fade = Math.max(0.15, 1 - dSl / (4 * 1852));

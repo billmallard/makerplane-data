@@ -26,6 +26,13 @@ and the `configurator`. Semver on the Python package; process in
   back on rollback.
 
 ### Configurator and device config
+- **The SVS preview follows the shared terrain shading (SVSSHADE3, AER-6498).**
+  `renderSVS()` ports pyEfis SVSSHADE2 (#563): with `svs_terrain_shading:
+  relief`, the new default, terrain with no hazard band takes the moving
+  map's elevation colours, lit as the GL vertex shader lights it, and a hazard
+  band is never lit below 0.7. `clearance` previews exactly as before. The
+  band rule, gate, relief stops and floor are tested against a fixture dumped
+  from `terrain_shading.py`.
 - **The `annunciator` instrument: tile and binding editor, and its twin
   (ANN2 of pyEfis#551, AER-6348).** A placed block of lamps is edited tile by
   tile: a label, a FIX key from the type-ahead picker, and what lights it (the

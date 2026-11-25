@@ -137,10 +137,20 @@ RWY 9), `final` (**1 NM final RWY 7 KSBA at 600 ft AGL** — user-requested).
 **Fidelity: the renderer is a PORT of svs.py/svs_gl.py, not an imitation.**
 If you touch it, keep these tied to the pyEfis source (all verified against
 the GL shader in `src/pyefis/instruments/ai/svs_gl.py`):
-- Palettes + band logic: `_PALETTES`/`_clearance_color` (svs.py) and the
-  fragment shader (conflict < 0 clearance; airport-proximity collapse is
-  **elevation-gated**: `near_airport && elev_ft < field_elev + 400` → SAFE).
-- Safe gradient: `mix(SAFE_LOW(128,117,56), SAFE, clearance-green/2500)`.
+- Palettes + band logic: pyEfis `terrain_shading.py` (SVSSHADE2, #563; the
+  GL shader generates its constants from it) -- `band()` in the order
+  conflict (< 0 clearance), airport collapse (**elevation-gated**:
+  `near_airport && elev_ft < field_elev + 400` -> no band; no field elevation
+  collapses everything), warning, caution. Twin: `_svsBand`, `_svsGate`.
+- `svs_terrain_shading` (default `relief`, AER-6498): relief paints the
+  map's hypsometric stops (`_svsHypso`) where there is no band, lit as the
+  vertex shader does (`_svsLight`: AMBIENT 0.35 + DIFFUSE 0.65 x n.sun, sun
+  (-1,1,2)), with hazard bands lifted to at least 0.7 (`_svsHazardLight`).
+  `clearance` keeps the preview's older approximate slope tone, byte for
+  byte. `test/svs_shading_twin.test.mjs` pins all of it against
+  `test/fixtures/svs_shading_pyefis.json` from `tools/svs_shading_oracle.py`;
+  regenerate the fixture when terrain_shading.py moves.
+- Safe gradient (clearance shading only): `mix(SAFE_LOW(128,117,56), SAFE, clearance-green/2500)`.
 - Haze: `1 - exp(-d/haze_eff)` toward HAZE (166,196,230), where `haze_eff =
   min(max(haze_nm, 0.9*1.22*sqrt(alt_ft)), 200)` NM and `d` is **3D slant**
   distance (GL fogs by v_dist). Runway surface fogs at 0.4 strength.

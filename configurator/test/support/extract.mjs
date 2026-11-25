@@ -46,3 +46,15 @@ export function ndModeSource(src) {
   if (start === -1 || end <= start) throw new Error("ND mode block not found in editor.html");
   return src.slice(start, end);
 }
+
+/** Source text of the SVS preview block: its consts and helpers, from
+ *  "// ---- SVS data-driven preview" through the end of renderSVS(). A new
+ *  helper in that block reaches every SVS test without a list to update. */
+export function svsSource(src) {
+  const start = src.indexOf("// ---- SVS data-driven preview");
+  if (start === -1) throw new Error("SVS preview block not found in editor.html");
+  const fn = extractFunction(src, "renderSVS");
+  const end = src.indexOf(fn, start);
+  if (end === -1) throw new Error("renderSVS not inside the SVS preview block");
+  return src.slice(start, end + fn.length);
+}

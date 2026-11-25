@@ -1,0 +1,58 @@
+{
+ "schema": "evidence-sidecar/1",
+ "commit": "b30b785b",
+ "run": "local: tools/svs_capture.py --out /home/wpballard/bench-scratch/aer6498/out/mountains.png --lat 39.20 --lon -106.85 --alt 12500 --heading 150 --tiles /data/makerplane-data/terrain/tiles --nasr /data/makerplane-data/navdata/current/airports.sqlite --water /data/makerplane-data/water/current/water.sqlite --offscreen --width 1920 --height 1080 --range 15 --terrain-only",
+ "device": "Raspberry Pi 5 Model B Rev 1.1 (eglfs)",
+ "sha256": "074917a880d0cb7dd416e92db7ca9609e3f146ee3309607363d04da4a787d249",
+ "created_utc": "2026-11-24T15:47:28Z",
+ "platform": {
+  "board": "Raspberry Pi 5 Model B Rev 1.1",
+  "soc": "brcm,bcm2712",
+  "cpu_part": "0x41:0xd0b",
+  "cpu_model": "Cortex-A76",
+  "revision": "d04171",
+  "cpus_online": "0-3",
+  "cpus_online_count": 4,
+  "cpufreq": [
+   {
+    "policy": "policy0",
+    "cpus": "0 1 2 3",
+    "driver": "cpufreq-dt",
+    "governor": "ondemand",
+    "min_khz": 1500000,
+    "max_khz": 2400000,
+    "hw_min_khz": 1500000,
+    "hw_max_khz": 2400000,
+    "cur_khz": 2400000
+   }
+  ],
+  "governor": "ondemand",
+  "affinity": "0-3",
+  "affinity_count": 4,
+  "throttle": {
+   "get_throttled": "0xe0000",
+   "now": [],
+   "since_boot": [
+    "arm_freq_capped",
+    "throttled",
+    "soft_temp_limit"
+   ],
+   "under_voltage_alarm": false
+  },
+  "temperature_c": {
+   "cpu-thermal": 57.85
+  },
+  "soc_temp_c": 57.85
+ },
+ "pyefis_rev": "b30b785b",
+ "capture_mode": "offscreen",
+ "requested_size": [
+  1920,
+  1080
+ ],
+ "actual_size": [
+  1920,
+  1080
+ ],
+ "argv": "tools/svs_capture.py --out /home/wpballard/bench-scratch/aer6498/out/mountains.png --lat 39.20 --lon -106.85 --alt 12500 --heading 150 --tiles /data/makerplane-data/terrain/tiles --nasr /data/makerplane-data/navdata/current/airports.sqlite --water /data/makerplane-data/water/current/water.sqlite --offscreen --width 1920 --height 1080 --range 15 --terrain-only"
+}
