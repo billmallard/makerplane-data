@@ -517,15 +517,18 @@ function baroSample(o) {
 // pyEfis text-widget defaults, matched class-by-class so an unset font / size /
 // alignment previews exactly what the device draws (fidelity rule):
 //   static_text      misc.StaticText        DejaVu Sans Condensed, AlignLeft, full height
-//   value_text       misc.ValueDisplay      Open Sans, AlignLeft, 0.9 height
+//   value_text       misc.ValueDisplay      DejaVu Sans Condensed, AlignLeft, 0.9 height
 //   numeric_display  gauges.NumericDisplay  DejaVu Sans Condensed, AlignLeft (fits "000")
 //   heading_display  hsi.HeadingDisplay     DejaVu Sans Condensed, centred (fits "999")
+// value_text's font is the screen builder's, not ValueDisplay's: its
+// constructor says Open Sans, but apply_preferences passes "DejaVu Sans
+// Condensed" whenever a config names no font, so Open Sans is never drawn.
 // Colours are not here: an unset fg_color / bg_color previews the schema's
 // default (the widget's own, exported from its Prop), so a pyEfis default
 // change reaches the preview with the next schema.json and no edit here.
 const TEXT_DEFAULTS = {
   static_text:     { font: "DejaVu Sans Condensed", pct: 1.0 },
-  value_text:      { font: "Open Sans",             pct: 0.9 },
+  value_text:      { font: "DejaVu Sans Condensed", pct: 0.9 },
   numeric_display: { font: "DejaVu Sans Condensed", pct: 0.85 },
   heading_display: { font: "DejaVu Sans Condensed", pct: 0.75, bold: true, framed: true },
 };

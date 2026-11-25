@@ -25,10 +25,9 @@ const SRC = editorSource();
 const TOOL = fileURLToPath(new URL("../tools/schema_twin_check.mjs", import.meta.url));
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 
-// The two gaps the dev schema still has (INS4's pyEfis half closes both).
+// The one gap the dev schema still has (INS4's pyEfis half closes it).
 const settled = (s) => {
   s.pyefis_commit = SHA;
-  s.instruments.value_text.options.font_family = { ...s.common_options.font_family, default: "Open Sans" };
   return s;
 };
 const only = (r, re) => {
@@ -36,16 +35,15 @@ const only = (r, re) => {
   for (const e of r.errors) assert.match(e, re);
 };
 
-test("the dev schema: no errors, and the two warnings are the missing stamp and value_text's font", () => {
+test("the dev schema: no errors, and the one warning is the missing stamp", () => {
   const r = checkSchemaTwins(fresh(), SRC);
   assert.deepEqual(r.errors, []);
-  assert.equal(r.warnings.length, 2);
+  assert.equal(r.warnings.length, 1);
   assert.match(r.warnings[0], /^pyefis_commit:/);
-  assert.match(r.warnings[1], /^value_text: the twin's font is "Open Sans".*"DejaVu Sans Condensed"/);
   assert.deepEqual(r.notes, []);
 });
 
-test("with the stamp and a per-type value_text font, nothing is left to report", () => {
+test("with the stamp, nothing is left to report", () => {
   assert.deepEqual(checkSchemaTwins(settled(fresh()), SRC), { errors: [], warnings: [], notes: [] });
 });
 
@@ -93,8 +91,18 @@ test("a new colour option the twin does not know, and a value_text default that 
 
 test("a per-type font default the text twin disagrees with is an error", () => {
   const s = settled(fresh());
-  s.instruments.value_text.options.font_family.default = "Roboto";
-  only(checkSchemaTwins(s, SRC), /^TEXT_DEFAULTS\.value_text\.font "Open Sans" != value_text\.font_family default "Roboto"/);
+  s.instruments.value_text.options.font_family = { ...s.common_options.font_family, default: "Roboto" };
+  only(checkSchemaTwins(s, SRC), /^TEXT_DEFAULTS\.value_text\.font "DejaVu Sans Condensed" != value_text\.font_family default "Roboto"/);
+});
+
+test("a common font default the text twins do not use, with no per-type one, is a warning for each", () => {
+  const s = settled(fresh());
+  s.common_options.font_family.default = "Roboto";
+  const r = checkSchemaTwins(s, SRC);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings.map((w) => w.split(":")[0]).sort(),
+    ["heading_display", "numeric_display", "static_text", "value_text"]);
+  for (const w of r.warnings) assert.match(w, /the twin's font is "DejaVu Sans Condensed".*the common one is "Roboto"/);
 });
 
 // --- twin coverage --------------------------------------------------------
