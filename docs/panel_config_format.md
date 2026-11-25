@@ -157,7 +157,7 @@ primary field of view**:
 | Rule | When | Level |
 |---|---|---|
 | 1 | CAS is in use (a window or marker anywhere) and a screen has none always showing. A screen carrying `atitude_indicator` or `virtual_vfr` is one you fly from; any other screen gets the conditional form ("if it is ever up in front of you in flight"). Lists the shipped fix-gateway alerts with no cue of their own on that screen | warning |
-| 2 | A window or marker that runs past its screen's grid, or has no size | warning |
+| 2 | A window or marker that runs past its screen's grid, has no size, or is disabled (`disabled` at top level or under `options`; a preference-driven one is taken as possibly hidden). A disabled one never counts as shown for rule 1 | warning |
 | 3 | No window or marker anywhere: failures reach the pilot only through each instrument's own flags | note |
 | - | The field-of-view requirement and one sense only, whenever a window, marker or annunciator lamp is placed | requirement |
 
