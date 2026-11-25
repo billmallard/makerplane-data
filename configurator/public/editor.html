@@ -6968,8 +6968,21 @@ function renderScreensBar() {
 // nag before pyEfis can satisfy it. Only instruments always on the screen count
 // (top level, or inside a group); one on a tab page is hidden behind the tab.
 const CAS_PLACEMENT_TYPES = ["cas_window", "cas_marker"];
+// Bill, AER-6553 (2026-11-25): only when CAS is in use, i.e. a window or marker
+// sits somewhere in the layout, a tab page included. A panel with no CAS at
+// all is not a fault; the layout advisory's note covers it (LAYADV1 rule 3).
+function casPlacedIn(instruments, groupsById) {
+  return (instruments || []).some((inst) => {
+    if (!inst) return false;
+    if (CAS_PLACEMENT_TYPES.includes(inst.type)) return true;
+    const def = inst.type === "group" && groupsById && groupsById[inst.id];
+    if (def && casPlacedIn(def.instruments, groupsById)) return true;
+    return (Array.isArray(inst.tabs) ? inst.tabs : []).some((tab) => tab && casPlacedIn(tab.instruments, groupsById));
+  });
+}
 function screensMissingCas(screens, schemaInstruments, groupsById) {
   if (!CAS_PLACEMENT_TYPES.some((t) => schemaInstruments && schemaInstruments[t])) return [];
+  if (!screens.some((sc) => casPlacedIn(sc.instruments, groupsById))) return [];
   const out = [];
   screens.forEach((sc, i) => {
     const has = (sc.instruments || []).some((inst) => {
