@@ -10,8 +10,9 @@ so the header the save writes shows under the canvas.
   own RADIO screen. Rule 1 warns on PFD (attitude instrument, HSI covers HDG
   and NAV) and, conditionally, on EMS.
 - `editor_no_cas_vfr.png`, `advisory_no_cas_vfr.png`: a VFR panel with no CAS
-  at all. Rule 3's note only, no warning. The amber bar above it is the older
-  per-screen CAS warning (AER-6348), not the advisory.
+  at all. Rule 3's note only, no warning. Since Bill's ruling on AER-6553 the
+  older amber per-screen CAS banner (AER-6348) no longer shows on such a panel;
+  it shows only when a CAS window or marker is placed somewhere.
 
 Regenerate (from `configurator/`; the library and font paths are this
 container's, see the script header):
