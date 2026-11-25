@@ -69,20 +69,22 @@ list.
 ## What pyEfis needs to do (INS4's pyEfis half, AVIONICS)
 
 The makerplane-data side merges first (AER-6212 order). Against today's dev
-schema the check reports no errors and two warnings. These pyEfis changes
-clear both, and then `--strict` passes:
+schema the check reports no errors and one warning, the missing stamp. These
+pyEfis changes clear it, and then `--strict` passes:
 
 1. **Stamp the build commit.** Add a top-level `"pyefis_commit": "<40-hex SHA>"`
    to `schema.json`: the commit the schema was generated from. The editor
    shows it in its header tooltip.
-2. **State the per-type font default.** `value_text` defaults to Open Sans
-   (`instruments/misc/__init__.py:85`), but the schema gives every type
-   `common_options.font_family`, which defaults to DejaVu Sans Condensed
-   (`editor/schema.py:120`). Emit `instruments.value_text.options.font_family`
-   with the widget's own default. The editor already merges
-   `{...common_options, ...options}`, so a per-type entry overrides the
-   common one with no editor change. Do the same for any other type whose
-   widget default differs from the common one.
+2. **Keep the common font default the screen builder's.** No per-type font
+   is needed. `ValueDisplay`'s constructor says Open Sans, but
+   `apply_preferences` passes "DejaVu Sans Condensed" whenever a config names
+   no font, so every type, `value_text` included, draws DejaVu Sans Condensed
+   on the glass. The editor's `TEXT_DEFAULTS` say the same (AER-6598).
+   pyEfis pins `common_options.font_family`'s default to the screen builder's
+   with `test_common_font_default_is_the_screen_builders`. If a widget ever
+   draws a different font when none is set, emit a per-type
+   `instruments.<type>.options.font_family` with it: the editor merges
+   `{...common_options, ...options}`, and the check holds the twin to it.
 3. **Run the check in CI**, after the schema is built, against makerplane-data
    **`dev`**. This follows the fix-gateway precedent (#224, `ref: dev`). Use
    `dev` rather than `main`: makerplane-data `main` lags `dev`, and its editor
