@@ -58,6 +58,13 @@
   .screen-tab.cas-missing::after { content: " !"; color: #d29922; font-weight: 600; }
   .screen-warn { margin: 6px 10px 0; padding: 5px 10px; border: 1px solid #9e6a03; border-radius: 6px;
     background: #2b2111; color: #e3b341; font-size: 12px; }
+  .advisory { margin: 6px 10px 0; padding: 5px 10px; border: 1px solid #30363d; border-radius: 6px;
+    background: #161b22; color: #c9d1d9; font-size: 12px; }
+  .advisory summary { cursor: pointer; color: #8b949e; }
+  .advisory.has-warning summary { color: #e3b341; }
+  .advisory ul { margin: 6px 0 2px; padding-left: 18px; }
+  .advisory li { margin: 3px 0; }
+  .advisory li.warning { color: #e3b341; }
   .screen-actions { margin-left: auto; display: flex; gap: 6px; }
   .screen-act { font: inherit; font-size: 12px; background: none; border: 1px solid #30363d; color: #8b949e;
     padding: 4px 9px; border-radius: 6px; cursor: pointer; }
@@ -369,6 +376,7 @@
   <div class="center">
     <div class="screens-bar" id="screens-bar"></div>
     <div class="screen-warn hidden" id="screen-warn"></div>
+    <details class="advisory hidden" id="advisory"><summary id="advisory-sum"></summary><ul id="advisory-body"></ul></details>
     <div class="stage" id="stage"><div id="canvas"><div id="guides"></div><div id="align"></div></div></div>
     <div id="code-pane">
       <div class="code-bar"><span class="muted">YAML — edits apply live</span><span id="code-msg" class="muted"></span></div>
@@ -397,6 +405,8 @@ const state = {
   // The tank-label module (/fuel_label.js, FUEL1 F6): the bar twin's name
   // line. null until it loads.
   fuelLabel: null,
+  // The layout advisory module (/layout_advisory.js, LAYADV1), loaded at boot.
+  layoutAdvisory: null,
   // A stock-bar migration being previewed in the twin (hover on its offer):
   // {inst, id}, or null.
   migrationPreview: null,
@@ -6029,9 +6039,15 @@ function toPyefisDoc() {
   }
   return { main, screens };
 }
+// The advisory rides at the head of the YAML as comments (LAYADV1), so it is
+// in the saved version, the Code pane, the download and the device's pull.
+// pyEfis never reads comments. Fixed at save: the served file for a version
+// does not change under the device when the rules do.
 function serializeDesign() {
-  return window.jsyaml ? jsyaml.dump(toPyefisDoc(), { lineWidth: 100, noRefs: true })
-                       : JSON.stringify(toPyefisDoc(), null, 2);
+  if (!window.jsyaml) return JSON.stringify(toPyefisDoc(), null, 2);
+  const adv = currentAdvisory();
+  const head = adv ? state.layoutAdvisory.advisoryComment(adv) : "";
+  return head + jsyaml.dump(toPyefisDoc(), { lineWidth: 100, noRefs: true });
 }
 function codeMsg(s, err) { const m = $("code-msg"); m.textContent = s; m.style.color = err ? "#ff7b9c" : "#8b949e"; }
 
@@ -6950,11 +6966,42 @@ function renderCasWarning() {
   note.textContent = on ? "No CAS window or CAS marker on this screen: crew alerts will not "
     + "show while it is displayed. pyEfis raises CAS NOT SHOWN. Place one from the palette." : "";
 }
+// LAYADV1: the per-layout advisory (public/layout_advisory.js). Run over the
+// same document the save writes, so what the builder reads here is what the
+// saved file's header says. Inert, like the CAS warning above, until the
+// schema carries a CAS type; absent if the module failed to load.
+function currentAdvisory() {
+  const mod = state.layoutAdvisory;
+  if (!mod || !state.schema) return null;
+  const si = state.schema.instruments || {};
+  return mod.layoutAdvisory(toPyefisDoc(), mod.CAS_SURFACE_TYPES.some((t) => si[t]));
+}
+function renderAdvisory() {
+  const box = $("advisory");
+  const adv = currentAdvisory();
+  const n = adv ? adv.findings.length + adv.requirements.length : 0;
+  box.classList.toggle("hidden", !n);
+  if (!n) return;
+  const warns = adv.findings.filter((f) => f.level === "warning").length;
+  box.classList.toggle("has-warning", warns > 0);
+  $("advisory-sum").textContent = "Layout advisory: " + (warns ? warns + " warning" + (warns > 1 ? "s" : "") : "no warnings")
+    + " (saved with the layout; it never blocks a save)";
+  const ul = $("advisory-body");
+  ul.innerHTML = "";
+  adv.findings.forEach((f) => {
+    const li = document.createElement("li");
+    li.className = f.level;
+    li.textContent = (f.level === "warning" ? "Warning: " : "Note: ") + f.text;
+    ul.appendChild(li);
+  });
+  adv.requirements.forEach((r) => { const li = document.createElement("li"); li.textContent = r; ul.appendChild(li); });
+}
 // canvas -> code: refresh the textarea (unless the user is typing in it, so we
 // never clobber an in-progress edit). Setting .value doesn't fire 'input', so
 // there's no loop back to the canvas.
 let _codeTimer = null;
 function syncCode() {
+  renderAdvisory();
   if (document.activeElement === $("code-text")) return;
   $("code-text").value = serializeDesign(); codeMsg("");
 }
@@ -6978,6 +7025,7 @@ async function boot() {
   $("ctx").textContent = deviceId ? "device #" + deviceId : "(scratch - no device)";
   state.schema = await (await fetch(ASSETS + "/schema.json")).json();
   try { state.fuelLabel = await import("/fuel_label.js"); } catch (_) { /* bar names draw whole */ }
+  try { state.layoutAdvisory = await import("/layout_advisory.js"); } catch (_) { /* no advisory shown or saved */ }
   try {
     const fk = await (await fetch(ASSETS + "/fix_keys.json")).json();
     state.fixKeys = fk.keys || [];
