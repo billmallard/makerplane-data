@@ -802,6 +802,88 @@ def test_cli_stores_etag_and_rollback_restores_the_old_one(tmp_path, monkeypatch
     assert (cfg.config_version, cfg.config_etag) == (5, '"v5-pabc"')
 
 
+# --- display roles: nodeID + AuralEnabled (DSP1, AER-6686) -----------------
+
+def _served_roles(*screens, **roles):
+    doc = _doc(*screens)
+    doc["main"].update(roles)
+    return yaml.safe_dump(doc, sort_keys=False)
+
+
+def test_served_roles_overlay_the_devices_own_main(tmp_path):
+    cd = _config_dir(tmp_path)
+    summary = config_pull.install_config(
+        _served_roles("PFD_AI_ONLY", nodeID=2, AuralEnabled=False), cd=cd)
+    assert summary["main"] == {"nodeID": 2, "AuralEnabled": False}
+    custom = _read(cd, "preferences.yaml.custom")
+    assert custom["includes"]["MAIN_CONFIG"] == "main/managed.yaml"
+    assert custom["style"] == {"basic": True}
+    managed = _read(cd, "main/managed.yaml")
+    assert managed == {"include": "main/default.yaml", "nodeID": 2, "AuralEnabled": False}
+    # pyEfis's loader lets a later key win: the include must come first.
+    assert list(managed) == ["include", "nodeID", "AuralEnabled"]
+    # The device's own main file is never edited.
+    assert _read(cd, "main/default.yaml") == {"nodeID": 1, "defaultScreen": "PFD_AI_ONLY"}
+
+
+def test_served_roles_multi_screen_path(tmp_path):
+    cd = _config_dir(tmp_path)
+    summary = config_pull.install_config(
+        _served_roles("PFD", "EMS", nodeID=3, AuralEnabled=True), cd=cd)
+    assert summary["mode"] == "multi"
+    assert _read(cd, "preferences.yaml.custom")["includes"]["MAIN_CONFIG"] == "main/managed.yaml"
+    assert _read(cd, "main/managed.yaml")["nodeID"] == 3
+
+
+def test_overlay_includes_the_base_main_config_not_the_override(tmp_path):
+    cd = _config_dir(tmp_path)
+    (cd / "preferences.yaml").write_text(
+        "includes:\n  SCREENS_CONFIG: screens/default_list.yaml\n"
+        "  MAIN_CONFIG: main/cockpit.yaml\n", encoding="utf-8")
+    config_pull.install_config(_served_roles("PFD_AI_ONLY", nodeID=2), cd=cd)
+    config_pull.install_config(_served_roles("PFD_AI_ONLY", nodeID=2), cd=cd)  # no self-include
+    assert _read(cd, "main/managed.yaml")["include"] == "main/cockpit.yaml"
+
+
+def test_one_device_project_removes_only_our_override(tmp_path):
+    cd = _config_dir(tmp_path)
+    config_pull.install_config(_served_roles("PFD_AI_ONLY", nodeID=2, AuralEnabled=False), cd=cd)
+    summary = config_pull.install_config(_served_roles("PFD_AI_ONLY"), cd=cd)
+    assert summary["main"] == {}
+    assert "MAIN_CONFIG" not in _read(cd, "preferences.yaml.custom")["includes"]
+    # A MAIN_CONFIG the user set by hand is not ours to remove.
+    cd2 = _config_dir(tmp_path / "b", custom={"includes": {"MAIN_CONFIG": "main/mine.yaml"}})
+    config_pull.install_config(_served_roles("PFD_AI_ONLY"), cd=cd2)
+    assert _read(cd2, "preferences.yaml.custom")["includes"]["MAIN_CONFIG"] == "main/mine.yaml"
+
+
+def test_malformed_roles_are_left_to_the_device(tmp_path):
+    cd = _config_dir(tmp_path)
+    for bad in ({"nodeID": "2"}, {"nodeID": 0}, {"nodeID": True},
+                {"AuralEnabled": "no"}, {"AuralEnabled": 0}):
+        summary = config_pull.install_config(_served_roles("PFD_AI_ONLY", **bad), cd=cd)
+        assert summary["main"] == {}, bad
+        assert "MAIN_CONFIG" not in _read(cd, "preferences.yaml.custom")["includes"], bad
+    summary = config_pull.install_config(
+        _served_roles("PFD_AI_ONLY", nodeID=2, AuralEnabled="no"), cd=cd)
+    assert summary["main"] == {"nodeID": 2}
+
+
+def test_rollback_restores_the_previous_roles(tmp_path):
+    cd = _config_dir(tmp_path)
+    config_pull.install_config(_served_roles("PFD_AI_ONLY", nodeID=2, AuralEnabled=False), cd=cd)
+    config_pull.install_config(_served_roles("PFD_AI_ONLY", nodeID=3, AuralEnabled=True), cd=cd)
+    assert config_pull.rollback(cd) == "previous panel"
+    assert _read(cd, "main/managed.yaml")["nodeID"] == 2
+    assert _read(cd, "main/managed.yaml")["AuralEnabled"] is False
+    # A first install's overlay rolls back to no override at all.
+    cd2 = _config_dir(tmp_path / "b")
+    config_pull.install_config(_served("PFD_AI_ONLY", prefs=None), cd=cd2)
+    config_pull.install_config(_served_roles("PFD_AI_ONLY", nodeID=2), cd=cd2)
+    config_pull.rollback(cd2)
+    assert "MAIN_CONFIG" not in _read(cd2, "preferences.yaml.custom")["includes"]
+
+
 # --- fix-gateway ownship address (P3f, AER-5458) ------------------------------
 
 # Exactly what GET /device/config appends for a profile with registration
