@@ -24,8 +24,10 @@ import {
   listDevices,
   listProjects,
   nextConfigVersion,
+  projectDeviceRoles,
   saveAircraftProfile,
   setClaimCode,
+  setDeviceRoles,
   touchLastPull,
 } from "./db";
 import { checkAircraftProfilePut } from "./aircraft_profile";
@@ -33,6 +35,7 @@ import { orphanedBy } from "./aircraft_refs";
 import { FALLBACK_REFS, refItems, refsFromSchema, retiredLabels, type RefTable } from "../public/aircraft_refs.js";
 import { claimCode, randomToken, sha256B64url } from "./crypto";
 import { deviceFixgw, devicePreferences, serveDeviceConfig } from "./device_prefs";
+import { effectiveRoles, MAX_NODE, servedRoles } from "./device_roles";
 import { emailRequest, emailVerify } from "./email";
 import { googleCallback, googleStart } from "./google";
 import { endSession, requireUser } from "./session";
@@ -93,8 +96,11 @@ app.get("/api/projects/:id", async (c) => {
   const projectId = Number(c.req.param("id"));
   const project = await getProject(c.env.DB, userId, projectId);
   if (!project) return c.json({ error: "not found" }, 404);
-  const devices = await listDevices(c.env.DB, userId, projectId);
-  return c.json({ project, devices });
+  const devices = (await listDevices(c.env.DB, userId, projectId)) as Record<string, unknown>[];
+  // Each device's effective display roles (DSP1), so the dashboard shows the
+  // node and the tone switch the device is served.
+  const roles = effectiveRoles(await projectDeviceRoles(c.env.DB, projectId));
+  return c.json({ project, devices: devices.map((d) => ({ ...d, roles: roles.get(Number(d["id"])) })) });
 });
 
 // --- aircraft parameter profile (docs/canfix_configurator.md Phase A) ------
@@ -257,6 +263,37 @@ app.post("/api/projects/:id/devices", async (c) => {
   return c.json({ device }, 201);
 });
 
+// Display-role overrides (DSP1): { aural: true|false|null, node_id: 1..MAX_NODE|null },
+// null = automatic; an omitted field is left as it is. A node number another
+// device in the project has set is refused (409); automatic ones move aside.
+app.patch("/api/devices/:id", async (c) => {
+  const userId = c.get("userId");
+  const device = await getDevice(c.env.DB, userId, Number(c.req.param("id")));
+  if (!device) return c.json({ error: "device not found" }, 404);
+  const body = await c.req.json<{ aural?: unknown; node_id?: unknown }>()
+    .catch(() => ({}) as { aural?: unknown; node_id?: unknown });
+  const rows = await projectDeviceRoles(c.env.DB, Number(device["project_id"]));
+  const me = rows.find((r) => r.id === Number(device["id"]))!;
+  let aural = me.aural;
+  let nodeId = me.node_id;
+  if ("aural" in body) {
+    if (body.aural !== null && typeof body.aural !== "boolean")
+      return c.json({ error: "aural must be true, false or null" }, 400);
+    aural = body.aural === null ? null : body.aural ? 1 : 0;
+  }
+  if ("node_id" in body) {
+    const n = body.node_id;
+    if (n !== null && !(Number.isInteger(n) && (n as number) >= 1 && (n as number) <= MAX_NODE))
+      return c.json({ error: `node_id must be 1-${MAX_NODE} or null` }, 400);
+    if (n !== null && rows.some((r) => r.id !== me.id && r.node_id === n))
+      return c.json({ error: `node ${n} is already set on another device in this project` }, 409);
+    nodeId = n as number | null;
+  }
+  await setDeviceRoles(c.env.DB, userId, me.id, aural, nodeId);
+  const after = rows.map((r) => (r.id === me.id ? { ...r, aural, node_id: nodeId } : r));
+  return c.json({ ok: true, roles: effectiveRoles(after).get(me.id) });
+});
+
 app.delete("/api/devices/:id", async (c) => {
   await deleteDevice(c.env.DB, c.get("userId"), Number(c.req.param("id")));
   return c.json({ ok: true });
@@ -303,8 +340,9 @@ app.get("/api/devices/:id/config/served", async (c) => {
   const row = await getAircraftProfile(c.env.DB, userId, projectId);
   const profile = row ? row["json"] : null;
   const refs = await schemaRefs(c.env);
+  const roles = servedRoles(await projectDeviceRoles(c.env.DB, projectId), Number(device["id"]));
   const served = await serveDeviceConfig(await obj.text(), String(latest["version"]), profile,
-    () => retiredForProject(c.env.DB, projectId, profile, refs), refs);
+    () => retiredForProject(c.env.DB, projectId, profile, refs), refs, roles);
   const file = `${String(device["name"]).replace(/[^A-Za-z0-9_.-]+/g, "_")}-v${latest["version"]}.yaml`;
   return c.body(served.body, 200, {
     "content-type": "application/x-yaml",
@@ -363,7 +401,8 @@ app.post("/device/pair", async (c) => {
 // The device pulls its latest panel config (native pyEfis YAML), plus the
 // `preferences:` (#108) and `fixgw:` (P3f) blocks from the project's aircraft
 // profile, with its aircraft references resolved against that profile
-// (aircraft_refs.ts). Authed by the device token (Bearer). ETag = config
+// (aircraft_refs.ts), and the display roles in `main:` (DSP1, device_roles.ts)
+// when the project has more than one device. Authed by the device token (Bearer). ETag = config
 // version (+ a hash of the blocks and the resolved references when there are
 // any -- see device_prefs.ts), so the on-Pi updater can
 // send If-None-Match and get a cheap 304 when nothing changed. #65 P2.
@@ -386,8 +425,9 @@ app.get("/device/config", async (c) => {
   if (!obj) return c.json({ error: "config blob missing" }, 404);
   const projectId = Number(row["project_id"]);
   const refs = await schemaRefs(c.env);
+  const roles = servedRoles(await projectDeviceRoles(c.env.DB, projectId), deviceId);
   const served = await serveDeviceConfig(await obj.text(), String(row["version"]), row["profile_json"],
-    () => retiredForProject(c.env.DB, projectId, row["profile_json"], refs), refs);
+    () => retiredForProject(c.env.DB, projectId, row["profile_json"], refs), refs, roles);
   if (c.req.header("if-none-match") === served.etag) {
     return c.body(null, 304, { etag: served.etag });
   }

@@ -232,6 +232,48 @@ preferences:
   `GET /api/devices/:id/preferences` and shows a `pressure: true`
   `numeric_display` in that unit.
 
+### Display roles in `main:`: one aural host, one node each (DSP1)
+
+Two pyEfis `main:` keys only make sense across the whole aircraft. `nodeID`
+replaces `{id}` in touchscreen-button and HMI keys, so two displays on one
+fix-gateway need different ones. `AuralEnabled` (CAS4, pyEfis #567) turns the
+alert tones on, and it defaults to on, so two displays into one intercom would
+play every tone twice. In a project with two or more devices the server writes
+both into the served panel's `main:` block (`src/device_roles.ts`):
+
+```yaml
+main:
+  nodeID: 2
+  AuralEnabled: false
+  screenWidth: 1280
+  ...
+```
+
+- **Defaults:** the first device created in the project plays the tones and the
+  others do not; nodes follow creation order (1, 2, ...). The dashboard shows
+  each device's values and can override either (`PATCH /api/devices/:id`,
+  `{aural: true|false|null, node_id: 1-5|null}`, null = automatic, stored in
+  `devices.aural` / `devices.node_id`). One device set to "plays them" makes
+  every automatic device silent. A node number another device has set is
+  refused; automatic numbers move around it. fix-gateway defines node keys for
+  nodes 1 to 5 only (`database/variables.yaml`, `n: 5`).
+- **One device:** served only what was set by hand, so with nothing set the body
+  and the ETag are exactly what they were before DSP1.
+- **ETag** covers the roles, so a device whose node or tone switch changes
+  re-pulls. Adding or removing a device can change a sibling's automatic roles
+  and so its ETag; that device reinstalls on its next pull.
+- The keys are written into the existing block as text, not re-serialised. A
+  key the stored panel's own `main:` sets is left to the panel.
+- **On the device**, `pyefis-data config-pull` writes `main/managed.yaml`: an
+  `include:` of the device's own main config (the base `preferences.yaml`
+  `MAIN_CONFIG`), then the served keys, which pyEfis's loader lets win. It points
+  `MAIN_CONFIG` at that file in `preferences.yaml.custom`. Every other `main:`
+  key stays the device's. A pull with no roles removes the override only if it
+  is config-pull's. The file is snapshotted with the panel and rolled back with
+  it.
+- A display that does not play the tones has visual-only local alerts: its own
+  `GATEWAY LINK LOST` or `CAS FAIL` cannot sound on another display.
+
 ### fix-gateway block: the ownship address (P3f)
 
 The ADS-B traffic writer in fix-gateway drops reports carrying the aircraft's

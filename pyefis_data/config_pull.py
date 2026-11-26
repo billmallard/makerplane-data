@@ -81,6 +81,15 @@ re-parsed, snapshotted with the others, and put back on rollback.
 Every fix-gateway restart, including the one the ownship address asks for,
 happens only in maintenance mode.
 
+**Display roles** (DSP1, AER-6686): in a project with more than one device the
+served ``main:`` block also carries ``nodeID`` (unique in the project) and
+``AuralEnabled`` (true on one device only), so two displays on one intercom do
+not both play every alert tone. They are written to ``main/managed.yaml``,
+which includes the device's own main config and then sets just those keys, and
+``MAIN_CONFIG`` is pointed at it in preferences.yaml.custom. Every other
+``main:`` key stays the device's. A served block without them (a one-device
+project) removes the override only if config-pull wrote it.
+
 The shipped config files are never modified. Before each install the current
 panel state is snapshotted to ``.panel_backup/`` so a config that crashes pyEfis
 is rolled back to the last working panel. Every write is atomic (temp +
@@ -110,6 +119,13 @@ _BACKUP_DIR = ".panel_backup"
 # (from the served preferences block), so a group the profile no longer sets is
 # removed without touching one the user set by hand. Snapshotted with the panel.
 _PREFS_RECORD = ".panel_prefs.yaml"
+
+# The display-role overlay (DSP1): the pyEfis main: keys config-pull manages,
+# the file that sets them over the device's own main config, and the stock
+# include it falls back to when the base preferences.yaml names none.
+_MAIN_KEYS = ("nodeID", "AuralEnabled")
+_MAIN_MANAGED = "main/managed.yaml"
+_MAIN_STOCK = "main/default.yaml"
 
 # fix-gateway's user config dir (its server copies the package config here and
 # merges preferences.yaml.custom over preferences.yaml) and the one key
@@ -437,6 +453,8 @@ def _managed_rel_paths(cd: Path) -> list[str]:
     bd = cd / "buttons"
     if bd.is_dir():
         rels += [f"buttons/{p.name}" for p in sorted(bd.glob("managed-next*.yaml"))]
+    if (cd / _MAIN_MANAGED).exists():
+        rels.append(_MAIN_MANAGED)
     return rels
 
 
@@ -585,6 +603,62 @@ def _apply_preferences(cd: Path, custom: dict, prefs) -> dict:
     if served or previous:
         _update_record(cd, "units", sorted(served))
     return served
+
+
+def _served_main_roles(main) -> dict:
+    """The display-role keys of a served ``main:`` block (DSP1): ``nodeID`` as
+    a positive int, ``AuralEnabled`` as a bool. A key that is absent or not of
+    that type is left out, so a typo leaves the device's own value. Never
+    raises."""
+    if not isinstance(main, dict):
+        return {}
+    out = {}
+    node = main.get("nodeID")
+    if isinstance(node, int) and not isinstance(node, bool) and node > 0:
+        out["nodeID"] = node
+    aural = main.get("AuralEnabled")
+    if isinstance(aural, bool):
+        out["AuralEnabled"] = aural
+    return out
+
+
+def _base_main_include(cd: Path) -> str:
+    """The device's own ``MAIN_CONFIG`` from the BASE preferences.yaml (not the
+    custom override, which may already point at the managed file)."""
+    import yaml
+    try:
+        prefs = yaml.safe_load((cd / "preferences.yaml").read_text("utf-8")) or {}
+        rel = (prefs.get("includes") or {}).get("MAIN_CONFIG")
+        if isinstance(rel, str) and rel.strip() and rel.strip() != _MAIN_MANAGED:
+            return rel.strip()
+    except Exception:
+        pass
+    return _MAIN_STOCK
+
+
+def _apply_main(cd: Path, custom: dict, main) -> dict:
+    """Set the served display roles over the device's main config (DSP1).
+
+    Writes ``main/managed.yaml`` = ``include:`` the device's own main file,
+    then the served keys (pyEfis's loader lets a later key win, so they come
+    after the include), and points ``MAIN_CONFIG`` in ``custom`` at it.
+    With no served roles, an override config-pull wrote is removed and a
+    ``MAIN_CONFIG`` the user set is left. Returns the roles now set."""
+    import yaml
+    roles = _served_main_roles(main)
+    inc = custom.setdefault("includes", {})
+    if not roles:
+        if inc.get("MAIN_CONFIG") == _MAIN_MANAGED:
+            del inc["MAIN_CONFIG"]
+        return {}
+    doc = {"include": _base_main_include(cd), **roles}
+    _atomic_write(cd / _MAIN_MANAGED,
+                  "# Display roles from the configurator (pyefis-data config-pull):\n"
+                  "# the device's own main config, then this device's node and\n"
+                  "# whether it plays the alert tones.\n"
+                  + yaml.safe_dump(doc, sort_keys=False))
+    inc["MAIN_CONFIG"] = _MAIN_MANAGED
+    return roles
 
 
 def _served_ownship(block):
@@ -1093,10 +1167,11 @@ def install_config(yaml_text: str, cd: Path | None = None,
     legacy = legacy_overlay(cd, scope)  # which pyEfis: does virtual_vfr need dbpath?
 
     _snapshot(cd, fcd)                  # capture the working state for rollback
+    main = doc.get("main")
     if len(screens) == 1:
-        summary = _install_single(cd, screens[default_name], boot, prefs, legacy)
+        summary = _install_single(cd, screens[default_name], boot, prefs, legacy, main)
     else:
-        summary = _install_multi(cd, screens, default_name, boot, prefs, legacy)
+        summary = _install_multi(cd, screens, default_name, boot, prefs, legacy, main)
     summary["fixgw"] = _apply_fixgw(cd, fcd, doc.get("fixgw"))
     summary["aircraft_ini"] = _apply_aircraft_ini(cd, fcd, doc.get("fixgw"), maintenance)
     summary["config_dir"] = str(cd)
@@ -1105,7 +1180,7 @@ def install_config(yaml_text: str, cd: Path | None = None,
 
 
 def _install_single(cd: Path, screen_def: dict, boot: str, prefs=None,
-                    legacy: str = LEGACY_NONE) -> dict:
+                    legacy: str = LEGACY_NONE, main=None) -> dict:
     """Original proven path: one managed screen named after the device's
     defaultScreen, activated by overriding only that screen's include while
     KEEPING the device's stock screen list."""
@@ -1119,9 +1194,10 @@ def _install_single(cd: Path, screen_def: dict, boot: str, prefs=None,
     inc[f"SCREEN_{boot}"] = "screens/managed.yaml"
     _ensure_boot_loaded(cd, inc, boot)   # boot may be a non-stock name
     units = _apply_preferences(cd, custom, prefs)
+    roles = _apply_main(cd, custom, main)
     _write_custom(cd, custom)
     return {"mode": "single", "boot_screen": boot, "screens": 1,
-            "screen_names": [boot], "units": units}
+            "screen_names": [boot], "units": units, "main": roles}
 
 
 _STOCK_SCREEN_LIST = "screens/default_list.yaml"
@@ -1176,7 +1252,7 @@ def _ensure_boot_loaded(cd: Path, inc: dict, boot: str) -> None:
 
 
 def _install_multi(cd: Path, screens: dict, default_name: str, boot: str,
-                   prefs=None, legacy: str = LEGACY_NONE) -> dict:
+                   prefs=None, legacy: str = LEGACY_NONE, main=None) -> dict:
     """Multi-screen path (#72). The hard constraint: a SHORT screen list + the
     SVS GL widget segfaults the eglfs ``QOpenGLCompositor`` (a real eglfs bug that
     correlates with screen count, independent of pyEfis #274). So we KEEP the full
@@ -1249,9 +1325,10 @@ def _install_multi(cd: Path, screens: dict, default_name: str, boot: str,
     # (boot is stock + no additional screens -> keep the stock SCREENS_CONFIG)
 
     units = _apply_preferences(cd, custom, prefs)
+    roles = _apply_main(cd, custom, main)
     _write_custom(cd, custom)
     return {"mode": "multi", "boot_screen": boot, "screens": len(screens),
-            "screen_names": on_names, "units": units}
+            "screen_names": on_names, "units": units, "main": roles}
 
 
 # The systemd unit that runs pyEfis. The Raspberry Pi image runs it as a

@@ -804,6 +804,12 @@ def cmd_config_pull(args) -> int:
     if summary.get("units"):
         print("aircraft units: " + ", ".join(
             f"{g} {u}" for g, u in summary["units"].items()))
+    roles = summary.get("main") or {}
+    if roles:
+        tones = roles.get("AuralEnabled")
+        print("display role: " + ", ".join(
+            ([f"node {roles['nodeID']}"] if "nodeID" in roles else [])
+            + ([] if tones is None else ["plays alert tones" if tones else "alert tones off"])))
     fixgw = summary.get("fixgw") or {}
     if fixgw.get("skipped"):
         print(f"fix-gateway ownship address not written: {fixgw['skipped']}",
