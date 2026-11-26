@@ -3402,6 +3402,14 @@ function buildButton(inst) {
 // fix-gateway variables.yaml) among the design's own buttons. Cross-device
 // collision avoidance (stock + injected switch buttons) is Phase C hardening
 // (makerplane-data/docs/soft_controls_configurator.md).
+//
+// The keys in TSBTN_BOUND are skipped: pyEfis binds them to panel commands on
+// every screen (baro, trim, dimmer, heading bug, CDI source --
+// pyEfis src/pyefis/config/databindings/default.yaml, DSP2). A button on a
+// bound key makes pyEfis switch that binding off, so the panel command stops
+// working, and a simple button there would fire whenever hardware writes the
+// key. Only new buttons are allocated here; a loaded design keeps its keys.
+const TSBTN_BOUND = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 27, 28, 29, 30, 31, 32, 33]);
 function allocateTsbtn() {
   const used = new Set();
   for (const it of state.instruments) {
@@ -3410,7 +3418,7 @@ function allocateTsbtn() {
       if (m) used.add(Number(m[1]));
     }
   }
-  for (let n = 1; n <= 40; n++) if (!used.has(n)) return "TSBTN{id}" + n;
+  for (let n = 1; n <= 40; n++) if (!used.has(n) && !TSBTN_BOUND.has(n)) return "TSBTN{id}" + n;
   return "TSBTN{id}40";
 }
 
