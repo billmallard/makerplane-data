@@ -241,8 +241,39 @@
       edit.textContent = "Edit panel";
       edit.href = "/editor?device=" + d.id + "&project=" + currentProject;
       li.append(name, kind, status, pair, edit);
+      if (d.roles) li.appendChild(rolesRow(d));
       ul.appendChild(li);
     }
+  }
+
+  // Display roles (DSP1): which display plays the alert tones (one per
+  // aircraft, or every tone plays twice into the intercom) and its node
+  // number. "auto" is the first device for the tones and creation order for
+  // the node; the served values are shown in the auto option.
+  function rolesRow(d) {
+    const row = document.createElement("div");
+    row.className = "row roles";
+    row.style.cssText = "flex-basis:100%;width:100%;margin-top:6px;font-size:13px;color:#8b949e";
+    const tones = document.createElement("select");
+    const auto = d.roles.AuralEnabled ? "plays them" : "silent";
+    for (const [v, t] of [["auto", "auto (" + auto + ")"], ["on", "plays them"], ["off", "silent"]]) {
+      tones.add(new Option(t, v, false, v === (d.aural == null ? "auto" : d.aural ? "on" : "off")));
+    }
+    tones.addEventListener("change", () => setRoles(d.id,
+      { aural: tones.value === "auto" ? null : tones.value === "on" }));
+    const node = document.createElement("select");
+    node.add(new Option("auto (" + d.roles.nodeID + ")", "auto", false, d.node_id == null));
+    for (let n = 1; n <= 5; n++) node.add(new Option(String(n), String(n), false, d.node_id === n));
+    node.addEventListener("change", () => setRoles(d.id,
+      { node_id: node.value === "auto" ? null : Number(node.value) }));
+    row.append("Alert tones:", tones, "Node:", node);
+    return row;
+  }
+
+  async function setRoles(id, body) {
+    const res = await fetch("/api/devices/" + id, { ...opts, method: "PATCH", body: JSON.stringify(body) });
+    if (!res.ok) alert((await res.json().catch(() => ({}))).error || "Could not save.");
+    openProject(currentProject, currentProjectName);   // a change can move a sibling's auto value
   }
 
   function relTime(sqlts) {
