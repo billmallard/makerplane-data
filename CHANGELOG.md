@@ -7,6 +7,12 @@ and the `configurator`. Semver on the Python package; process in
 ## Unreleased
 
 ### Device updater (pyefis_data)
+- **`config-pull` sets the display roles the configurator serves in `main:`
+  (DSP1, AER-6686).** `nodeID` and `AuralEnabled` are written to
+  `main/managed.yaml`, which includes the device's own main config and then
+  sets just those two keys; `MAIN_CONFIG` points at it. A pull without them
+  removes only an override `config-pull` wrote. Snapshotted and rolled back
+  with the panel.
 - **`config-pull` delivers `aircraft.ini` to fix-gateway, in maintenance mode
   only (ACINI1, AER-5993).** The served `fixgw:` block now carries the
   aircraft profile's values as `aircraft_ini` with its sha256. The boot pull
@@ -26,6 +32,14 @@ and the `configurator`. Semver on the Python package; process in
   back on rollback.
 
 ### Configurator and device config
+- **One aural host per aircraft (DSP1, AER-6686).** In a project with two or
+  more devices, the served `main:` block carries a unique `nodeID` and
+  `AuralEnabled: true` on one device only (the first created, by default), so
+  two displays into one intercom no longer both play every alert tone. The
+  dashboard shows each device's tone switch and node and can override them
+  (`PATCH /api/devices/:id`; migration `0003_device_roles.sql`). A one-device
+  project is served exactly what it was before. See
+  [docs/panel_config_format.md](docs/panel_config_format.md).
 - **The SVS preview follows the shared terrain shading (SVSSHADE3, AER-6498).**
   `renderSVS()` ports pyEfis SVSSHADE2 (#563): with `svs_terrain_shading:
   relief`, the new default, terrain with no hazard band takes the moving
