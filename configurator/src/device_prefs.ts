@@ -26,6 +26,7 @@ import { ownshipAddress } from "./ownship.ts";
 import { resolveAircraftRefs } from "./aircraft_refs.ts";
 import { FALLBACK_REFS, type RefTable } from "../public/aircraft_refs.js";
 import { aircraftIniLines, buildAircraftIni } from "../public/aircraft_ini.js";
+import { injectMainRoles, type MainRoles } from "./device_roles.ts";
 
 export const BARO_UNITS = ["inHg", "hPa"] as const;
 export type BaroUnit = (typeof BARO_UNITS)[number];
@@ -118,17 +119,24 @@ const shortHash = async (text: string) => (await sha256Hex(text)).slice(0, 12);
 // * A blob that already has its own top-level `preferences:` or `fixgw:` key
 //   is served without that block (a duplicate key would be resolved silently
 //   by PyYAML).
+// * `roles` (DSP1, device_roles.ts) are written into the panel's `main:`
+//   block, and the hash covers them, so a device whose node or tone switch
+//   changes re-pulls. No roles (a one-device project with nothing set) leaves
+//   the body and the ETag exactly as before DSP1.
 export async function serveDeviceConfig(
   panelYaml: string,
   version: number | string,
   profile: unknown,
   retired?: () => Promise<Record<string, string>>,
   table: RefTable = FALLBACK_REFS,
+  roles: MainRoles = {},
 ): Promise<{ body: string; etag: string }> {
   let refs = resolveAircraftRefs(panelYaml, profile, {}, table);
   if (retired && refs.bindings.some((b) => b.unbound))
     refs = resolveAircraftRefs(panelYaml, profile, await retired(), table);
-  const panel = refs.yaml;
+  const main = injectMainRoles(refs.yaml, roles);
+  const panel = main.yaml;
+  const withRoles = Object.keys(main.roles).length > 0;
   let prefs = devicePreferences(profile);
   let fixgw = deviceFixgw(profile);
   if (/^preferences\s*:/m.test(panel)) prefs = {};
@@ -136,7 +144,7 @@ export async function serveDeviceConfig(
   const withPrefs = !isEmpty(prefs);
   const withFixgw = fixgw.ownship_address !== undefined || fixgw.aircraft_ini !== undefined;
   const withRefs = refs.bindings.length > 0;
-  if (!withPrefs && !withFixgw && !withRefs) {
+  if (!withPrefs && !withFixgw && !withRefs && !withRoles) {
     return { body: panel, etag: `"v${version}"` };
   }
   let body = panel.replace(/\s*$/, "\n");
@@ -162,7 +170,9 @@ export async function serveDeviceConfig(
           .map((l) => (l ? "    " + l : "")).join("\n") + "\n";
     }
   }
-  const block = withRefs ? JSON.stringify({ preferences: prefs, fixgw, refs: refs.bindings })
+  const block = withRoles
+    ? JSON.stringify({ preferences: prefs, fixgw, refs: refs.bindings, main: main.roles })
+    : withRefs ? JSON.stringify({ preferences: prefs, fixgw, refs: refs.bindings })
     : withFixgw ? JSON.stringify({ preferences: prefs, fixgw }) : JSON.stringify(prefs);
   return { body, etag: `"v${version}-p${await shortHash(block)}"` };
 }

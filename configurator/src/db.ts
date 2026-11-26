@@ -2,6 +2,7 @@
 // D1 access helpers. Designs (project blobs) will live in R2; D1 holds the
 // records that tie users -> projects -> devices -> configs.
 
+import type { DeviceRoleRow } from "./device_roles";
 import type { User } from "./types";
 
 export async function upsertUser(
@@ -109,7 +110,7 @@ export async function listDevices(
 ): Promise<unknown[]> {
   const res = await db
     .prepare(
-      `SELECT d.id, d.kind, d.name, d.width, d.height,
+      `SELECT d.id, d.kind, d.name, d.width, d.height, d.aural, d.node_id,
               d.claimed_at, d.last_pull_at, d.created_at,
               c.version AS latest_version, c.created_at AS latest_config_at
          FROM devices d JOIN projects p ON p.id = d.project_id
@@ -170,6 +171,40 @@ export async function deleteDevice(
     )
     .bind(deviceId, userId)
     .run();
+}
+
+// Every device's role columns in one project (DSP1, device_roles.ts). Not
+// user-scoped: callers reach it through a device they already resolved
+// (an owned device, or a device token).
+export async function projectDeviceRoles(
+  db: D1Database,
+  projectId: number,
+): Promise<DeviceRoleRow[]> {
+  const res = await db
+    .prepare(`SELECT id, aural, node_id FROM devices WHERE project_id = ?1 ORDER BY id`)
+    .bind(projectId)
+    .all<DeviceRoleRow>();
+  return res.results;
+}
+
+// Set an owned device's role overrides (NULL = automatic). False if not
+// owned/found.
+export async function setDeviceRoles(
+  db: D1Database,
+  userId: number,
+  deviceId: number,
+  aural: number | null,
+  nodeId: number | null,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE devices SET aural = ?3, node_id = ?4
+        WHERE id = ?1
+          AND project_id IN (SELECT id FROM projects WHERE user_id = ?2)`,
+    )
+    .bind(deviceId, userId, aural, nodeId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
 }
 
 // --- pairing ---------------------------------------------------------------
