@@ -320,6 +320,7 @@
   .act-head select { flex: 1; }
   .act-args { display: grid; gap: 5px; }
   .act-args.two { grid-template-columns: 1fr 1fr; }
+  .act-args.three { grid-template-columns: 1fr 1fr 1fr; }
   .act input, .act select, .clause input, .clause select {
     width: 100%; font: inherit; font-size: 12px; background: #0d1117; color: #e6edf3;
     border: 1px solid #30363d; border-radius: 5px; padding: 4px 6px;
@@ -5879,11 +5880,26 @@ function argEditor(inst, act, verb, meta) {
     const inp = fixKeyInput(String(cur == null ? "" : cur), "FIX key", () => commit(inp.value.trim()));
     w.appendChild(inp);
   } else if (kind === "fixkey_number") {
-    const [k, num] = splitArg(cur, 2);
-    const set = () => commit([keyInp.value.trim(), numInp.value.trim()].join(","));
+    // `change value wrap` takes an optional third field, the period (pyEfis
+    // #608: "HEADBUG, -1, 360" steps 000 to 359; without it HEADBUG lands on
+    // 358.9). Any field past the ones shown is carried through an edit, never
+    // dropped (AER-6708).
+    const parts = String(cur == null ? "" : cur).split(",").map((s) => s.trim());
+    const [k = "", num = ""] = parts;
+    const periodLabel = meta.arg.period_label || (verb === "change value wrap" ? "Period (optional)" : null);
+    const rest = parts.slice(periodLabel ? 3 : 2);
+    const set = () => {
+      const f = [keyInp.value.trim(), numInp.value.trim()];
+      if (periodInp) f.push(periodInp.value.trim());
+      f.push(...rest);
+      while (f.length > 2 && f[f.length - 1] === "") f.pop();
+      commit(f.join(","));
+    };
     const keyInp = fixKeyInput(k, "FIX key", set);
     const numInp = plainInput(num, meta.arg.number_label || "value", set);
-    w.className = "act-args two"; w.append(keyInp, numInp);
+    const periodInp = periodLabel ? plainInput(parts[2] || "", periodLabel, set) : null;
+    w.className = periodInp ? "act-args three" : "act-args two";
+    w.append(keyInp, numInp, ...(periodInp ? [periodInp] : []));
   } else if (kind === "fixkey_fixkey") {
     const [a, b] = splitArg(cur, 2);
     const labels = meta.arg.labels || ["key", "key"];
