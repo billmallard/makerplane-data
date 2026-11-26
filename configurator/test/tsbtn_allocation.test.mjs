@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Bill Mallard
 //
 // DSP2c (AER-6676): a new button's TSBTN key skips the keys pyEfis binds to
-// panel commands on every screen (pyEfis #591, AER-6630: TSBTN{id}1..11 and
-// 27..33 in src/pyefis/config/databindings/default.yaml). A button on a bound
-// key makes pyEfis switch that binding off, so the panel command stops working.
+// panel commands on every screen (pyEfis #591, AER-6630, #602: TSBTN{id}1..11,
+// 27..33 and 36..39 in src/pyefis/config/databindings/default.yaml). A button
+// on a bound key makes pyEfis switch that binding off, so the panel command
+// stops working.
 //
 // Runs the REAL allocateTsbtn out of editor.html (test/support/extract.mjs).
 
@@ -20,7 +21,7 @@ try { bound = extractConst(src, "TSBTN_BOUND"); } catch { bound = "const TSBTN_B
 const body = bound + "\n" + extractFunction(src, "allocateTsbtn");
 
 // The bound set as pyEfis dev carries it; a change there must change both.
-const PYEFIS_BOUND = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 27, 28, 29, 30, 31, 32, 33];
+const PYEFIS_BOUND = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 27, 28, 29, 30, 31, 32, 33, 36, 37, 38, 39];
 
 function makeEditor(instruments) {
   const state = { instruments };
@@ -63,4 +64,12 @@ test("the gap between the trim and dimmer keys is used before the top range", ()
   for (let n = 12; n <= 26; n++) used.push(button("TSBTN{id}" + n));
   const { allocateTsbtn } = makeEditor(used);
   assert.equal(allocateTsbtn(), "TSBTN{id}34");
+});
+
+test("the map-range and baro-focus keys (pyEfis #602) are skipped in the top range", () => {
+  const used = [];
+  for (let n = 12; n <= 26; n++) used.push(button("TSBTN{id}" + n));
+  used.push(button("TSBTN{id}34"), button("TSBTN{id}35"));
+  const { allocateTsbtn } = makeEditor(used);
+  assert.equal(allocateTsbtn(), "TSBTN{id}40");
 });
