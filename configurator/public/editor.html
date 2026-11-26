@@ -3402,6 +3402,15 @@ function buildButton(inst) {
 // fix-gateway variables.yaml) among the design's own buttons. Cross-device
 // collision avoidance (stock + injected switch buttons) is Phase C hardening
 // (makerplane-data/docs/soft_controls_configurator.md).
+//
+// The keys in TSBTN_BOUND are skipped: pyEfis binds them to panel commands on
+// every screen (baro, trim, dimmer, heading bug, CDI source, map range, baro
+// and map focus -- pyEfis src/pyefis/config/databindings/default.yaml, DSP2;
+// a new binding there needs its key added here). A button on a
+// bound key makes pyEfis switch that binding off, so the panel command stops
+// working, and a simple button there would fire whenever hardware writes the
+// key. Only new buttons are allocated here; a loaded design keeps its keys.
+const TSBTN_BOUND = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 27, 28, 29, 30, 31, 32, 33, 36, 37, 38, 39]);
 function allocateTsbtn() {
   const used = new Set();
   for (const it of state.instruments) {
@@ -3410,7 +3419,7 @@ function allocateTsbtn() {
       if (m) used.add(Number(m[1]));
     }
   }
-  for (let n = 1; n <= 40; n++) if (!used.has(n)) return "TSBTN{id}" + n;
+  for (let n = 1; n <= 40; n++) if (!used.has(n) && !TSBTN_BOUND.has(n)) return "TSBTN{id}" + n;
   return "TSBTN{id}40";
 }
 
@@ -4866,12 +4875,14 @@ function optionField(inst, name, spec) {
   if (spec.type === "boolean") {
     inp = document.createElement("input"); inp.type = "checkbox";
     inp.checked = cur !== undefined ? !!cur : !!spec.default;
-    inp.addEventListener("change", () => setOpt(inst, name, inp.checked));
+    const shown = inp.checked;
+    inp.addEventListener("change", () => setOpt(inst, name, roundTrip(cur, shown, inp.checked)));
   } else if (spec.type === "enum") {
     inp = document.createElement("select");
     for (const o of spec.enum) { const op = document.createElement("option"); op.value = o; op.textContent = o; inp.appendChild(op); }
     inp.value = cur ?? spec.default ?? spec.enum[0];
-    inp.addEventListener("change", () => setOpt(inst, name, inp.value));
+    const shown = inp.value;
+    inp.addEventListener("change", () => setOpt(inst, name, roundTrip(cur, shown, inp.value)));
   } else if (spec.type === "color") {
     inp = colorTokenField(inst, name, spec, cur);
   } else if (spec.type === "number" || spec.type === "integer") {
@@ -5027,6 +5038,17 @@ function migrationOffer(inst) {
   });
   box.append(txt, btn);
   return box;
+}
+
+// A checkbox or select put back to what it showed when the panel opened
+// restores the option as it was, so an unset option goes back to unset rather
+// than to an explicit copy of the schema default. The schema default is not
+// always what the device does when the option is unset: an altimeter_tape
+// shows Baro and Selected-altitude on, but pyEfis turns both off for a VS
+// tape, and an unset show_baro on an ALT tape yields to the screen's own BARO
+// readout where an explicit true does not (G100, pyEfis #580).
+function roundTrip(orig, shown, value) {
+  return value === shown ? orig : value;
 }
 
 function setOpt(inst, name, value) {
