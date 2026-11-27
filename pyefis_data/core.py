@@ -65,6 +65,10 @@ SQLITE_KINDS: dict[str, tuple[str, str]] = {
     # plates/<pack_id>/current/plates.sqlite, and pyEfis's plates_path points
     # at the plates/ directory (docs/plates.md "On the device").
     "plates": ("plates", "plates.sqlite"),
+    # Not sqlite, but installed the same way (one verified file, then the
+    # current symlink flips): the GPS almanac + NANUs for RAIM prediction
+    # (RAIM1, docs/gnss.md). fix-gateway reads <root>/gnss/current/gnss.json.
+    "gnss": ("gnss", "gnss.json"),
 }
 
 # Kinds where multiple packs coexist, so the install path is keyed by pack id
@@ -108,6 +112,7 @@ KIND_LABELS = {
     "highways": "Roads & Highways",
     "rivers": "Rivers & Waterways",
     "plates": "Approach Plates",
+    "gnss": "GPS Almanac & NANUs",
 }
 
 # status -> display severity. Subtle by design: expired/out-of-window is amber,
