@@ -84,17 +84,26 @@ the same inputs give the same bytes. `pack_meta` is a top-level key
 ```
 schema        "mp-gnss/1"
 generated     build time, UTC
-almanac       format "yuma", week (full), week_mod1024, toa_s,
-              toa_gps (ISO; GPS time, which is ahead of UTC by the leap seconds, 18 s since 2017)
-satellites[]  prn, health, e, toa_s, i0, omega_dot, sqrt_a, omega0, w, m0, af0, af1
-              (YUMA units: rad, rad/s, m^1/2, s, s/s)
-nanu          latest, latest_dtg, considered[] (every NANU number read), lookback_days
-outages[]     prn, svn, type, start, stop (null = until further notice), nanu, ref
-general[]     nanu, type, dtg, text
-sources[]     url, sha256, retrieved
+almanac       format "yuma", origin "navcen", week (full), week_mod1024, toa_s,
+              toa_gps (ISO; GPS time, which is ahead of UTC by the leap seconds, 18 s since 2017),
+              satellites[]  prn, health, e, toa_s, i0, omega_dot, sqrt_a, omega0, w, m0, af0, af1
+                            (YUMA units: rad, rad/s, m^1/2, s, s/s)
+              sources[]     url, sha256, retrieved
+nanu          latest, latest_dtg, considered[] (every NANU number read), lookback_days,
+              outages[]     prn, svn, type, start, stop (null = until further notice), nanu, ref
+              general[]     nanu, type, dtg, text
+              sources[]     url, sha256, retrieved
 license, license_url, attribution
 pack_meta     id, kind "gnss", cycle, effective, expires, ...
 ```
+
+The `almanac` and `nanu` sections are separable, and each carries its own
+sources. A receiver that exports the broadcast almanac (RAIM7: subframes 4 and
+5, or `$GPALM`) can be decoded into the same `almanac` object with a different
+`origin`. The engine then uses whichever almanac is newer. NANUs are not
+broadcast, so the `nanu` section only ever comes from this pack. A consumer
+reports two ages: the almanac's (`almanac.toa_gps`) and the NANUs'
+(`nanu.latest_dtg`).
 
 `outages` keeps windows that are still open or that ended within the lookback.
 A consumer filters by its own time window. A satellite with `health` other than
@@ -103,7 +112,7 @@ A consumer filters by its own time window. A satellite with `health` other than
 ## Currency
 
 The cycle is the build date (`YYMMDD`). The pack expires 14 days later
-(`gnss.VALID_DAYS`). The updater shows any pack as EXPIRES (white) within 7 days
+(`gnss.VALID_DAYS`; Bill accepted 14 days on 2026-11-27, AER-6755). The updater shows any pack as EXPIRES (white) within 7 days
 of its expiry, and as EXPIRED (amber) after it. So a device that has gone a
 week without a fresh pack shows white, and one that has gone two weeks shows
 amber. It keeps using the pack either way. This is pack currency only. The
@@ -144,6 +153,8 @@ this kind.
 - Publish-gate checks for a JSON pack. The gate's checks are written for sqlite
   and zip packs, and `report.previous_from` reads any JSON file as a test
   record.
-- A scheduled daily workflow that runs `make-gnss`, then the gate, then the
-  publish.
+- The daily build. Per Bill (2026-11-27) it runs inside the existing daily
+  `cyclical.yml` / `run_cyclical`, not a workflow of its own. It is not held
+  to the AIRAC boundary: a new pack publishes on most days, because NANUs
+  change daily. Devices pick it up on the existing `pyefis-data.timer` pull.
 - The first publish, after the kind reaches `main` and Bill approves it.

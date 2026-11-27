@@ -40,7 +40,7 @@ def test_fixture_build_almanac():
     # mod 1024 is full week 2447 (the third rollover), 2026-11-29 17:04 GPS.
     assert (a["week"], a["week_mod1024"], a["toa_s"]) == (2447, 399, 61440.0)
     assert a["toa_gps"] == "2026-11-29T17:04:00Z"
-    sats = doc["satellites"]
+    sats = doc["almanac"]["satellites"]
     assert [s["prn"] for s in sats] == list(range(1, 33))
     prn1 = sats[0]
     assert prn1["health"] == 0
@@ -53,7 +53,7 @@ def test_fixture_build_nanus():
     doc = _doc()
     assert doc["nanu"]["latest"] == 2026105
     assert doc["nanu"]["latest_dtg"] == "2026-11-25T16:57:00Z"
-    by_nanu = {w["nanu"]: w for w in doc["outages"]}
+    by_nanu = {w["nanu"]: w for w in doc["nanu"]["outages"]}
     # The newest NANU: PRN06 Delta-V, JDAY 337/1600 - 338/0400.
     assert by_nanu[2026105] == {"prn": 6, "svn": 67, "type": "FCSTDV", "ref": None,
                                 "nanu": 2026105, "start": "2026-12-03T16:00:00Z",
@@ -66,18 +66,33 @@ def test_fixture_build_nanus():
         ("2026-11-22T09:37:00Z", "2026-11-22T13:04:00Z")
     # A forecast that later got its summary is not listed twice.
     assert 2026101 not in by_nanu and by_nanu[2026102]["ref"] == 2026101
-    assert len(doc["outages"]) == 9
+    assert len(doc["nanu"]["outages"]) == 9
 
 
 def test_fixture_build_provenance():
     doc = _doc()
     assert doc["license"] == "LicenseRef-US-Government-Work"
     assert "NAVCEN" in doc["attribution"]
-    src = {s["url"]: s for s in doc["sources"]}
+    alm = {s["url"]: s for s in doc["almanac"]["sources"]}
+    nanu = {s["url"]: s for s in doc["nanu"]["sources"]}
     yuma = FIXTURE / "sites/default/files/gps/almanac/current_yuma.alm"
-    assert src[gnss.YUMA_URL]["sha256"] == signing.sha256_file(yuma)
-    assert gnss.CURRENT_NANU_URL in src and gnss.CONSTELLATION_URL in src
-    assert all(u.startswith("https://navcen.uscg.gov/") for u in src)
+    assert list(alm) == [gnss.YUMA_URL]
+    assert alm[gnss.YUMA_URL]["sha256"] == signing.sha256_file(yuma)
+    assert gnss.CURRENT_NANU_URL in nanu and gnss.CONSTELLATION_URL in nanu
+    assert gnss.YUMA_URL not in nanu
+    assert all(u.startswith("https://navcen.uscg.gov/") for u in {**alm, **nanu})
+
+
+def test_almanac_and_nanu_sections_are_separable():
+    """RAIM7: a receiver-decoded almanac replaces the ``almanac`` object alone,
+    so each section must stand on its own, with its own age and sources."""
+    doc = _doc()
+    assert set(doc) == {"schema", "generated", "almanac", "nanu",
+                        "license", "license_url", "attribution"}
+    a, n = doc["almanac"], doc["nanu"]
+    assert {"toa_gps", "satellites", "sources", "format", "origin"} <= set(a)
+    assert {"latest_dtg", "outages", "general", "sources"} <= set(n)
+    assert not any(k in json.dumps(a) for k in ("outages", "latest_dtg"))
 
 
 def test_build_is_deterministic():

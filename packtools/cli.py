@@ -566,8 +566,8 @@ def cmd_make_gnss(args) -> int:
         return 2
     out = gnss.write(doc, args.out)
     print(f"wrote {out}: almanac week {doc['almanac']['week']} "
-          f"(TOA {doc['almanac']['toa_gps']} GPS), {len(doc['satellites'])} satellites, "
-          f"NANU {doc['nanu']['latest']}, {len(doc['outages'])} outage window(s)")
+          f"(TOA {doc['almanac']['toa_gps']} GPS), {len(doc['almanac']['satellites'])} satellites, "
+          f"NANU {doc['nanu']['latest']}, {len(doc['nanu']['outages'])} outage window(s)")
     return 0
 
 

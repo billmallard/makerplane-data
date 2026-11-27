@@ -496,32 +496,42 @@ def build(get: Getter, now: _dt.datetime, *, retrieved: str | None = None,
                for n in got["nanus"] if n.type in TEXT_TYPES
                and (n.dtg is None or n.dtg >= _iso(cutoff))]
     stamp = retrieved or _iso(now)
+
+    def sources(urls) -> list[dict]:
+        return [{"url": u, "sha256": hashlib.sha256(got["raw"][u]).hexdigest(),
+                 "retrieved": stamp} for u in sorted(urls)]
+
+    # The two sections are separable on purpose (RAIM7): a receiver-decoded
+    # almanac is written as the same ``almanac`` object, and a consumer
+    # reports the almanac's age (toa_gps) and the NANUs' age (latest_dtg)
+    # separately. Each section carries its own sources.
     return {
         "schema": SCHEMA,
         "generated": _iso(now),
         "almanac": {
             "format": "yuma",
+            "origin": "navcen",
             "week": week,
             "week_mod1024": sats[0]["week"],
             "toa_s": sats[0]["toa_s"],
             # GPS time, not UTC: GPS runs ahead of UTC by the leap seconds
             # since 1980 (18 s since 2017).
             "toa_gps": _iso(toa),
+            "satellites": [{k: s[k] for k in ("prn", "health", "e", "toa_s", "i0",
+                                              "omega_dot", "sqrt_a", "omega0", "w",
+                                              "m0", "af0", "af1")} for s in sats],
+            "sources": sources([YUMA_URL]),
         },
-        "satellites": [{k: s[k] for k in ("prn", "health", "e", "toa_s", "i0",
-                                          "omega_dot", "sqrt_a", "omega0", "w",
-                                          "m0", "af0", "af1")} for s in sats],
         "nanu": {
             "latest": newest.number,
             "latest_dtg": newest.dtg,
             "considered": [n.number for n in got["nanus"]],
             "lookback_days": lookback_days,
+            "outages": [{**w, "start": _iso(w["start"]), "stop": _iso(w["stop"])}
+                        for w in windows],
+            "general": general,
+            "sources": sources(u for u in got["raw"] if u != YUMA_URL),
         },
-        "outages": [{**w, "start": _iso(w["start"]), "stop": _iso(w["stop"])}
-                    for w in windows],
-        "general": general,
-        "sources": [{"url": u, "sha256": hashlib.sha256(b).hexdigest(),
-                     "retrieved": stamp} for u, b in sorted(got["raw"].items())],
         "license": LICENSE,
         "license_url": LICENSE_URL,
         "attribution": ATTRIBUTION,
