@@ -36,6 +36,7 @@ in the workspace ledger (`makerplane/STATE.md`, local umbrella dir).
 | [knob_encoder_configurator.md](knob_encoder_configurator.md) | SPEC — knob/encoder bindings (awaiting hardware) |
 | [soft_controls_configurator.md](soft_controls_configurator.md) | Soft-controls configurator notes |
 | [hpf_holds.md](hpf_holds.md) | VERIFIED 2026-11-22 (HOLDFIX3, AER-6323) — NASR HPF as the source of published holds: fields, CIFP cross-check, proposed `holds` tables, rollout order |
+| [gnss.md](gnss.md) | RAIM1 (AER-6755) — the `gnss` pack: NAVCEN almanac + NANUs, the `mp-gnss/1` JSON, fail-closed checks, the device path for fix-gateway; built, not yet published |
 | [nasr_2601_dpn_prep.md](nasr_2601_dpn_prep.md) | Prep for the NASR 26-01 DPN subscriber change (companion PDF here) |
 | [regionalize_bulk_packs.md](regionalize_bulk_packs.md) | PLAN — extend the provider model to water/highways/obstacles |
 | [canadian_airports.md](canadian_airports.md) | Airport provider model via OurAirports — prototype proven |

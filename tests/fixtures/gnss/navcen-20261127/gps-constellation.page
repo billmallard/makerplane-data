@@ -1,0 +1,1430 @@
+
+<!DOCTYPE html>
+<html lang="en" dir="ltr" class="h-100">
+  <head>
+    <meta charset="utf-8" />
+<meta name="Generator" content="Drupal 10 (https://www.drupal.org)" />
+<meta name="MobileOptimized" content="width" />
+<meta name="HandheldFriendly" content="true" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>GPS Constellation | Navigation Center</title>
+    <link rel="stylesheet" media="all" href="/core/assets/vendor/normalize-css/normalize.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/align.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/fieldgroup.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/container-inline.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/clearfix.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/details.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/hidden.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/item-list.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/js.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/nowrap.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/position-container.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/reset-appearance.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/resize.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/system-status-counter.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/system-status-report-counters.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/system-status-report-general-info.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/system/css/components/tablesort.module.css?top815" />
+<link rel="stylesheet" media="all" href="/core/modules/views/css/views.module.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/action-links.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/breadcrumb.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/container-inline.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/details.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/exposed-filters.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/field.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/form.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/icons.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/inline-form.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/item-list.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/links.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/menu.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/more-link.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/pager.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/tabledrag.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/tableselect.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/tablesort.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/textarea.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/ui-dialog.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/components/messages.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/style.css?top815" />
+<link rel="stylesheet" media="all" href="/themes/bootstrap4/css/custom.css?top815" />
+
+    
+  </head>
+  <body class="path-gps-constellation   d-flex flex-column h-100">
+        <a href="#main-content" class="visually-hidden focusable skip-link">
+      Skip to main content
+    </a>
+    
+      <div class="dialog-off-canvas-main-canvas d-flex flex-column h-100" data-off-canvas-main-canvas>
+    
+
+<header>
+    <div class="region region-header">
+    <div id="block-govwsblock" class="block block-block-content block-block-content2271e655-c301-4a8d-b4b0-23cc4975c385">
+  
+    
+      
+            <div class="clearfix text-formatted field field--name-body field--type-text-with-summary field--label-hidden field__item"><div id="govWebsiteBanner" style="background-color:#15263b;width:100%;">
+	<img src="/sites/default/files/images/us_flag.png" style="margin: 0 10px;">
+	<div class="text-white" style="display: inline-block;font-size:0.8rem;">An official website of the United States government</div>
+</div></div>
+      
+  </div>
+
+  </div>
+  
+
+  
+</header>
+
+<main role="main">
+  <a id="main-content" tabindex="-1"></a>
+    
+    
+  
+
+  <div class="container-fluid m-0 p-0">
+            <div class="region region-breadcrumb">
+    <div id="block-siteheader-3" class="block block-block-content block-block-content096c52f0-f922-481b-80c8-8e450a429715">
+  
+    
+      
+            <div class="clearfix text-formatted field field--name-body field--type-text-with-summary field--label-hidden field__item"><style>
+html, body {
+	overflow-x: hidden;
+}
+main div div.row.no-gutters {
+     max-width: 1140px;
+     margin: 0 auto;
+}
+#mainHeader {
+	background: linear-gradient(to right, #003e67, #001d3f) !important;
+	padding: 5px 0;
+}
+.homepageHeaderText1 {
+	color: white;
+	font-size: min(5vw, 2rem) !important;
+	font-weight: bold;
+}
+.homepageHeaderText2 {
+	color: white;
+	font-size: min(3vw, 1rem) !important;
+}
+.homepageHeaderText3 {
+	color: white;
+	font-size: min(3vw, 1rem) !important;
+}
+#navcenLogo img, #dhsLogo img{
+	/*max-width: 125px !important;*/
+}
+body {
+	overflow-x: hidden
+}
+#block-breadcrumbs {
+	max-width: 1140px;
+	margin: 0 auto;
+}
+#main_menu_pancake {
+	display: block !important;
+	color: white;
+	padding-right: 10%;
+	float: left;
+	cursor: pointer;
+}
+#block-navcenmainmenu-3 {
+	display: block !important;
+}
+#headerTools {
+	padding: 1% 0;
+}
+</style>
+<div class="container-fluid">
+	<div class="row" id="mainHeader">
+		<div class="d-block col-lg-2 col-1"> </div>
+		<div class="d-none d-lg-block col-lg-1"> 
+			<div id="navcenLogo">
+				<a href="/" rel="home" title="Home">
+				<img class="img-fluid" src="/sites/default/files/images/navcen_logo7.png" alt="Home"></a>
+			</div>
+		</div>
+		<div class="d-block col-lg-5 col-md-5 col-10">
+			<div id="homepageHeaderText">
+				<div class="homepageHeaderText1">Navigation Center</div>
+				<div class="homepageHeaderText2">United States Coast Guard</div>
+				<div class="homepageHeaderText3">U.S. Department of Homeland Security</div>
+			</div>
+		</div>
+		<div class="d-block col-lg-1 col-md-1 col-1" id="headerTools"> 
+			<div data-target="#main_menu_modal" data-toggle="modal" id="main_menu_pancake">☰</div>
+			<div id="searchIconNew">
+				<a href="/search/website">
+				<!-- License: CC Attribution. Made by geakstr: https://github.com/geakstr/entypo-icons -->
+				<svg width="20px" height="20px" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" fill="white"><path d="M17.545 15.467l-3.779-3.779a6.15 6.15 0 0 0 .898-3.21c0-3.417-2.961-6.377-6.378-6.377A6.185 6.185 0 0 0 2.1 8.287c0 3.416 2.961 6.377 6.377 6.377a6.15 6.15 0 0 0 3.115-.844l3.799 3.801a.953.953 0 0 0 1.346 0l.943-.943c.371-.371.236-.84-.135-1.211zM4.004 8.287a4.282 4.282 0 0 1 4.282-4.283c2.366 0 4.474 2.107 4.474 4.474a4.284 4.284 0 0 1-4.283 4.283c-2.366-.001-4.473-2.109-4.473-4.474z"/></svg>
+				</a>
+			</div>
+		</div>
+		<div class="d-none d-lg-block col-lg-1"> 
+			<div id="dhsLogo">
+				<img class="img-fluid" src="/sites/default/files/images/dhs_logo.png" alt="DHS">
+			</div>
+		</div>
+		<div class="d-none d-lg-block d-md-block col-lg-2 col-md-1"> </div>
+	</div>
+</div></div>
+      
+  </div>
+<div id="block-breadcrumbs" class="block block-block-content block-block-content4a4429dd-59e9-49c9-9459-1a835b415207">
+  
+    
+      
+            <div class="clearfix text-formatted field field--name-body field--type-text-with-summary field--label-hidden field__item"><div class="row mb-2">
+<div class="col-11">
+<div id="breadcrumbs">
+<ul class="custom_breadcrumbs">
+	<li><a href="/">Home</a></li>
+</ul>
+</div>
+</div>
+
+<div class="col-1"><button class="btn btn-outline-info btn-sm p-0 pl-1 pr-1 float-right" id="printer_friendly_button" type="button">Print</button></div>
+</div>
+</div>
+      
+  </div>
+
+  </div>
+
+        <div class="row no-gutters">
+              <div class="order-2 order-lg-1 col-12 col-lg-3">
+            <div class="region region-sidebar-first">
+    <nav role="navigation" aria-labelledby="block-navcenmainmenu-menu" id="block-navcenmainmenu" class="block block-menu navigation menu--navcen-main-menu">
+            
+  <h5 class="visually-hidden" id="block-navcenmainmenu-menu">NAVCEN Main Menu - desktop</h5>
+  
+
+        
+              <ul class="nav navbar-nav">
+              
+            
+      <li class="nav-item">
+        <a href="/" class="nav-link" data-drupal-link-system-path="&lt;front&gt;">Home</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/search/website" class="nav-link" data-drupal-link-system-path="search/website">Search</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/resources" class="nav-link" data-drupal-link-system-path="node/656">Resources</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/maritime-safety-information" class="nav-link" data-drupal-link-system-path="node/611">Maritime Safety Information</a>
+              </li>
+          
+                        
+      <li class="nav-item">
+        <a href="/navigation-systems-and-services" class="nav-link active" aria-current="page" data-drupal-link-system-path="node/600">Nav Systems and Services</a>
+                                <ul class="list-unstyled ml-3">
+              
+            
+      <li class="nav-item">
+        <a href="/automatic-identification-system-overview" class="nav-link" data-drupal-link-system-path="node/82">AIS Overview</a>
+              </li>
+          
+                        
+      <li class="nav-item">
+        <a href="/global-positioning-system-overview" class="nav-link active" aria-current="page" data-drupal-link-system-path="node/168">GPS Overview</a>
+                                <ul class="list-unstyled ml-3">
+              
+            
+      <li class="nav-item">
+        <a href="/contact/cgsic-registration-form" class="nav-link" data-drupal-link-system-path="contact/cgsic_registration_form">CGSIC</a>
+              </li>
+          
+                        
+      <li class="nav-item">
+        <a href="/gps-constellation" class="nav-link active is-active" aria-current="page" data-drupal-link-system-path="gps-constellation">GPS Constellation</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-nanus-almanacs-opsadvisories-sof" class="nav-link" data-drupal-link-system-path="node/853">GPS NANUS, Almanacs, OPS Advisories, &amp; SOF</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/guide-tool" class="nav-link" data-drupal-link-system-path="guide-tool">GUIDE Tool</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-service-interruptions" class="nav-link" data-drupal-link-system-path="node/185">GPS Interruption Notices</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-technical-references" class="nav-link" data-drupal-link-system-path="node/556">Technical References</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-space-weather-information-and-ephemeris-data" class="nav-link" data-drupal-link-system-path="node/186">Space Weather</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-references" class="nav-link" data-drupal-link-system-path="node/183">GPS References</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-frequently-asked-questions" class="nav-link" data-drupal-link-system-path="node/167">GPS FAQs</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-acronyms-abbreviations" class="nav-link" data-drupal-link-system-path="node/165">GPS Acronyms Abbreviations</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-operational-advisory-tutorial" class="nav-link" data-drupal-link-system-path="node/187">GPS Operational Advisory Tutorial</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/lband-antenna-panel-patterns-and-performance" class="nav-link" data-drupal-link-system-path="node/599">L Band Antenna Panel Patterns</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/nanu-abbreviations-and-descriptions" class="nav-link" data-drupal-link-system-path="node/173">NANU Abbreviations and Descriptions</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/more-information-on-gps-gov" class="nav-link" data-drupal-link-system-path="node/601">More Info on GPS.Gov</a>
+              </li>
+        </ul>
+  
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/long-range-identification-and-tracking-overview" class="nav-link" data-drupal-link-system-path="node/205">LRIT Overview</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/nav-pubs-and-documents-general-library" class="nav-link" data-drupal-link-system-path="node/289">Nav Pubs and Documents</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/charts-and-nautical-supplies" class="nav-link" data-drupal-link-system-path="node/190">Charts and Supplies</a>
+              </li>
+        </ul>
+  
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/waterways" class="nav-link" data-drupal-link-system-path="node/23380">Waterways</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/coast-guard-navcen-services" class="nav-link" data-drupal-link-system-path="node/625">Coast Guard / NAVCEN Services</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/sarsat" class="nav-link" data-drupal-link-system-path="node/72038">SARSAT - Home</a>
+              </li>
+        </ul>
+  
+
+
+  </nav>
+<nav role="navigation" aria-labelledby="block-navcenmainmenu-3-menu" id="block-navcenmainmenu-3" class="block block-menu navigation menu--navcen-main-menu">
+            
+  <h5 class="visually-hidden" id="block-navcenmainmenu-3-menu">NAVCEN Main Menu - mobile</h5>
+  
+
+        
+              <ul class="nav navbar-nav">
+              
+            
+      <li class="nav-item">
+        <a href="/" class="nav-link" data-drupal-link-system-path="&lt;front&gt;">Home</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/search/website" class="nav-link" data-drupal-link-system-path="search/website">Search</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/resources" class="nav-link" data-drupal-link-system-path="node/656">Resources</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/maritime-safety-information" class="nav-link" data-drupal-link-system-path="node/611">Maritime Safety Information</a>
+              </li>
+          
+                        
+      <li class="nav-item">
+        <a href="/navigation-systems-and-services" class="nav-link active" aria-current="page" data-drupal-link-system-path="node/600">Nav Systems and Services</a>
+                                <ul class="list-unstyled ml-3">
+              
+            
+      <li class="nav-item">
+        <a href="/automatic-identification-system-overview" class="nav-link" data-drupal-link-system-path="node/82">AIS Overview</a>
+              </li>
+          
+                        
+      <li class="nav-item">
+        <a href="/global-positioning-system-overview" class="nav-link active" aria-current="page" data-drupal-link-system-path="node/168">GPS Overview</a>
+                                <ul class="list-unstyled ml-3">
+              
+            
+      <li class="nav-item">
+        <a href="/contact/cgsic-registration-form" class="nav-link" data-drupal-link-system-path="contact/cgsic_registration_form">CGSIC</a>
+              </li>
+          
+                        
+      <li class="nav-item">
+        <a href="/gps-constellation" class="nav-link active is-active" aria-current="page" data-drupal-link-system-path="gps-constellation">GPS Constellation</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-nanus-almanacs-opsadvisories-sof" class="nav-link" data-drupal-link-system-path="node/853">GPS NANUS, Almanacs, OPS Advisories, &amp; SOF</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/guide-tool" class="nav-link" data-drupal-link-system-path="guide-tool">GUIDE Tool</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-service-interruptions" class="nav-link" data-drupal-link-system-path="node/185">GPS Interruption Notices</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-technical-references" class="nav-link" data-drupal-link-system-path="node/556">Technical References</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-space-weather-information-and-ephemeris-data" class="nav-link" data-drupal-link-system-path="node/186">Space Weather</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-references" class="nav-link" data-drupal-link-system-path="node/183">GPS References</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-frequently-asked-questions" class="nav-link" data-drupal-link-system-path="node/167">GPS FAQs</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-acronyms-abbreviations" class="nav-link" data-drupal-link-system-path="node/165">GPS Acronyms Abbreviations</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/gps-operational-advisory-tutorial" class="nav-link" data-drupal-link-system-path="node/187">GPS Operational Advisory Tutorial</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/lband-antenna-panel-patterns-and-performance" class="nav-link" data-drupal-link-system-path="node/599">L Band Antenna Panel Patterns</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/nanu-abbreviations-and-descriptions" class="nav-link" data-drupal-link-system-path="node/173">NANU Abbreviations and Descriptions</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/more-information-on-gps-gov" class="nav-link" data-drupal-link-system-path="node/601">More Info on GPS.Gov</a>
+              </li>
+        </ul>
+  
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/long-range-identification-and-tracking-overview" class="nav-link" data-drupal-link-system-path="node/205">LRIT Overview</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/nav-pubs-and-documents-general-library" class="nav-link" data-drupal-link-system-path="node/289">Nav Pubs and Documents</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/charts-and-nautical-supplies" class="nav-link" data-drupal-link-system-path="node/190">Charts and Supplies</a>
+              </li>
+        </ul>
+  
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/waterways" class="nav-link" data-drupal-link-system-path="node/23380">Waterways</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/coast-guard-navcen-services" class="nav-link" data-drupal-link-system-path="node/625">Coast Guard / NAVCEN Services</a>
+              </li>
+          
+            
+      <li class="nav-item">
+        <a href="/sarsat" class="nav-link" data-drupal-link-system-path="node/72038">SARSAT - Home</a>
+              </li>
+        </ul>
+  
+
+
+  </nav>
+
+  </div>
+
+        </div>
+            <div class="order-1 order-lg-2 col-12 col-lg-9">
+          <div class="region region-content">
+    
+<div id="block-bootstrap4-page-title" class="block block-core block-page-title-block">
+  
+    
+      
+  <h1 class="page-title">GPS Constellation</h1>
+
+
+  </div>
+<div id="block-mainmenumodal" class="block block-block-content block-block-contenta21c6ca1-2e7f-44bc-afcd-1dae35f1312d">
+  
+    
+      
+            <div class="clearfix text-formatted field field--name-body field--type-text-with-summary field--label-hidden field__item"><div aria-hidden="true" aria-labelledby="ModalLabel" class="modal fade" id="main_menu_modal" role="dialog" tabindex="-1">
+<div class="modal-dialog" role="document">
+<div class="modal-content">
+<div class="modal-header"><button aria-label="Close" class="close" data-dismiss="modal" type="button"><span aria-hidden="true">×</span></button></div>
+
+<div class="modal-body" id="main_menu_modal_body">&nbsp;</div>
+</div>
+</div>
+</div>
+</div>
+      
+  </div>
+<div class="views-element-container"><div class="view view-gps-constellation view-id-gps_constellation view-display-id-page_1 js-view-dom-id-69ff0d5a7f6a4699d9d07507459a0aca34c029037c463472dd920ce53d7c697c">
+  
+    
+      <div class="view-header">
+      <div class="container">
+	<div class="row">
+		<div class="col-lg-9">
+			<p>The Global Positioning System Directorate has approved a change to the Navstar GPS Control Segment to User Support Community Interfaces (ICD-GPS-240 and ICD-GPS-870) which will remove GPS satellite plane/slot and clock information from the Operational Advisory message. This change proposal was approved by the GPS Interface Control Working Group in December of 2018. SVN/PRN, Block Type, and NANU details will continue to be included.</p>
+		</div>
+		<div class="col-lg-3">
+			<a href="/sites/default/files/pdf/gps/current.pdf" target="_blank">
+				<img src="/sites/default/files/images/gps/current.jpg" class="img-fluid" alt="Satellite Locations">
+				<div>Click image for full size</div>
+			</a>
+		</div>
+	</div>
+	<div class="row">
+		<div class="col-lg-8">
+			<p>A depiction of the GPS constellation of satellites with slot and plane designations is provided here as an easy-to-read graphic which will be updated as satellites enter or leave the constellation. During the GPS modernization process, the orbital configuration, as indicated by the constellation slant chart, and control station configuration may not match over the long term. For modelling purposes, the slant chart indicates actual orbital slot and plane assignments. It should be noted that the graphic merely identifies orbital slot and plane assignments and does not reflect the operational status of GPS satellites. The operational status of the GPS constellation is detailed below.</p>
+		</div>
+		<div class="col-lg-4 mt-4">
+                        <small>Expandable Slot Designations</small>
+			<table class="table table-bordered">
+				<thead>
+					<tr>
+						<th scope="col">B</th>
+						<th scope="col">D</th>
+						<th scope="col">F</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>B5=B1F</td>
+						<td>D5=D2F</td>
+						<td>F5=F2F</td>
+					</tr>
+					<tr>
+						<td>B1=B1A</td>
+						<td>D2=D2A</td>
+						<td>F2=F2A</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+	</div>
+</div>
+<span class="text-center"><h5>GPS CONSTELLATION STATUS FOR <span id="gps_con_date"> </span></h5></span>
+    </div>
+      
+      <div class="view-content">
+      <table class="table table-striped views-table views-view-table cols-10">
+        <thead>
+      <tr>
+                                                  <th id="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane" scope="col"><a href="?order=field_gps_con_plane&amp;sort=asc" title="sort by Plane" rel="nofollow">Plane</a></th>
+                                                  <th id="view-field-gps-con-slot-table-column" aria-sort="ascending" class="views-field views-field-field-gps-con-slot is-active" scope="col"><a href="?order=field_gps_con_slot&amp;sort=desc" title="sort by Slot" rel="nofollow">Slot<span class="tablesort tablesort--desc">
+  <span class="visually-hidden">
+    Sort descending
+      </span>
+</span>
+</a></th>
+                                                  <th id="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn" scope="col"><a href="?order=field_gps_svn&amp;sort=asc" title="sort by SVN" rel="nofollow">SVN</a></th>
+                                                  <th id="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn" scope="col"><a href="?order=field_gps_prn&amp;sort=asc" title="sort by PRN" rel="nofollow">PRN</a></th>
+                                                  <th id="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type" scope="col"><a href="?order=field_gps_con_block_type&amp;sort=asc" title="sort by Block-Type" rel="nofollow">Block-Type</a></th>
+                                                  <th id="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock" scope="col"><a href="?order=field_gps_con_clock&amp;sort=asc" title="sort by Clock" rel="nofollow">Clock</a></th>
+                                                  <th id="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date" scope="col"><a href="?order=field_nanu_outage_start_date&amp;sort=asc" title="sort by Outage Start" rel="nofollow">Outage Start</a></th>
+                                                  <th id="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type" scope="col"><a href="?order=field_nanu_type&amp;sort=asc" title="sort by NANU Type" rel="nofollow">NANU Type</a></th>
+                                                  <th id="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject" scope="col"><a href="?order=field_nanu_subject&amp;sort=asc" title="sort by NANU Subject" rel="nofollow">NANU Subject</a></th>
+                            <th class="views-field views-field-field-nanu-subject" scope="col"></th>
+              </tr>
+    </thead>
+    <tbody>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">F          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">1          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">70          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">32          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">01 JUL 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTDV          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026047.nnu" target="_blank">SVN70 (PRN32) FORECAST OUTAGE JDAY 182/2130 - JDAY 183/0930</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">E          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">1          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">69          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">3          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">09 JUL 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026054.nnu" target="_blank">SVN69 (PRN03) FORECAST OUTAGE SUMMARY JDAY 190/2337 - JDAY 191/0755</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">B          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">1          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">56          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">16          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">04 SEP 2025          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2025/2025066.nnu" target="_blank">SVN56 (PRN16) FORECAST OUTAGE SUMMARY JDAY 247/2129 - JDAY 248/0315</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">C          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">1          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">57          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">29          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR-M          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">11 AUG 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026063.nnu" target="_blank">SVN57 (PRN29) FORECAST OUTAGE SUMMARY JDAY 223/1449 - JDAY 223/2006</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">D          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">1          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">61          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">2          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">09 APR 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026031.nnu" target="_blank">SVN61 (PRN02) FORECAST OUTAGE SUMMARY JDAY 099/2249 - JDAY 100/0420</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">A          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">1          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">65          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">24          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">13 AUG 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026064.nnu" target="_blank">SVN65 (PRN24) FORECAST OUTAGE SUMMARY JDAY 225/2303 - JDAY 226/0343</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">E          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">2          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">73          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">10          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">09 JAN 2025          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2025/2025002.nnu" target="_blank">SVN73 (PRN10) FORECAST OUTAGE SUMMARY JDAY 009/1004 - JDAY 009/1609</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">D          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">2          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">80          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">1          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">18 SEP 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026075.nnu" target="_blank">SVN80 (PRN01) FORECAST OUTAGE SUMMARY JDAY 261/0309 - JDAY 261/0836</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">A          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">2          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">52          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">31          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR-M          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">13 OCT 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026089.nnu" target="_blank">SVN52 (PRN31) FORECAST OUTAGE SUMMARY JDAY 286/1813 - JDAY 286/2106</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">F          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">2          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">55          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">15          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR-M          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">27 OCT 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026098.nnu" target="_blank">SVN55 (PRN15) FORECAST OUTAGE SUMMARY JDAY 300/1617 - JDAY 300/1920</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">C          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">2          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">66          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">27          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">08 MAY 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026043.nnu" target="_blank">SVN66 (PRN27) FORECAST OUTAGE SUMMARY JDAY 128/1800 - JDAY 139/2124</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">B          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">2          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">62          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">25          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">29 SEP 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026080.nnu" target="_blank">SVN62 (PRN25) FORECAST OUTAGE SUMMARY JDAY 272/2206 - JDAY 273/0315</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">B          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">3          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">44          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">22          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">24 APR 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026036.nnu" target="_blank">SVN44 (PRN22) FORECAST OUTAGE SUMMARY JDAY 114/0207 - JDAY 114/0729</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">C          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">3          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">72          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">8          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">23 OCT 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026096.nnu" target="_blank">SVN72 (PRN08) FORECAST OUTAGE SUMMARY JDAY 296/0245 - JDAY 296/0709</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">F          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">3          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">68          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">9          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">05 FEB 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026017.nnu" target="_blank">SVN68 (PRN09) FORECAST OUTAGE SUMMARY JDAY 036/1241 - JDAY 036/1834</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">A          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">3          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">64          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">30          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">16 DEC 2025          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2025/2025087.nnu" target="_blank">SVN64 (PRN30) FORECAST OUTAGE SUMMARY JDAY 350/1927 - JDAY 351/0149</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">E          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">3          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">50          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">5          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR-M          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">08 OCT 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026085.nnu" target="_blank">SVN50 (PRN05) FORECAST OUTAGE SUMMARY JDAY 281/1609 - JDAY 281/1945</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">D          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">4          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">67          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">6          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">03 DEC 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTDV          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026105.nnu" target="_blank">SVN67 (PRN06) FORECAST OUTAGE JDAY 337/1600 - JDAY 338/0400</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">1          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">B          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">4          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">58          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">12          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR-M          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">10 NOV 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026102.nnu" target="_blank">SVN58 (PRN12) FORECAST OUTAGE SUMMARY JDAY 314/2057 - JDAY 315/0333</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">C          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">4          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">53          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">17          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR-M          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">15 OCT 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026090.nnu" target="_blank">SVN53 (PRN17) FORECAST OUTAGE SUMMARY JDAY 288/1718 - JDAY 288/1940</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">A          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">4          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">48          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">7          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR-M          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">06 OCT 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026084.nnu" target="_blank">SVN48 (PRN07) FORECAST OUTAGE SUMMARY JDAY 279/1708 - JDAY 279/2006</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">F          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">4          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">74          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">4          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">16 OCT 2025          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTDV          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2025/2025073.nnu" target="_blank">SVN74 (PRN04) FORECAST OUTAGE JDAY 289/1815 - JDAY 290/0615</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">D          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">5          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">78          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">11          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">26 JUN 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">UNUSABLE          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026049.nnu" target="_blank">SVN78 (PRN11) UNUSABLE JDAY 177/1612 - JDAY 177/1908</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">E          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">5          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">76          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">23          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">11 SEP 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026072.nnu" target="_blank">SVN76 (PRN23) FORECAST OUTAGE SUMMARY JDAY 254/0252 - JDAY 254/0834</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">A          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">5          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">83          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">13          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">15 SEP 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026074.nnu" target="_blank">SVN83 (PRN13) FORECAST OUTAGE SUMMARY JDAY 258/1910 - JDAY 259/0149</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">B          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">5          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">71          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">26          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIF          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">17 JUL 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026056.nnu" target="_blank">SVN71 (PRN26) FORECAST OUTAGE SUMMARY JDAY 198/0046 - JDAY 198/0605</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">C          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">5          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">59          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">19          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">IIR          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">20 AUG 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026066.nnu" target="_blank">SVN59 (PRN19) FORECAST OUTAGE SUMMARY JDAY 232/2120 - JDAY 233/0348</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">F          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">5          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">82          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">20          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">17 APR 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026033.nnu" target="_blank">SVN82 (PRN20) FORECAST OUTAGE SUMMARY JDAY 107/0225 - JDAY 107/0834</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">D          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">6          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">75          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">18          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">29 OCT 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026100.nnu" target="_blank">SVN75 (PRN18) FORECAST OUTAGE SUMMARY JDAY 302/2131 - JDAY 303/0304</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">B          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">6          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">77          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">14          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">31 JUL 2025          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">FCSTSUMM          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2025/2025054.nnu" target="_blank">SVN77 (PRN14) FORECAST OUTAGE SUMMARY JDAY 212/0830 - JDAY 212/1322</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">A          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">6          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">79          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">28          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">19 MAY 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">UNUSABLE          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026044.nnu" target="_blank">SVN79 (PRN28) UNUSABLE JDAY 139/1359 - JDAY 141/1816</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">0          </td>
+              </tr>
+          <tr>
+                                                                                        <td headers="view-field-gps-con-plane-table-column" class="views-field views-field-field-gps-con-plane">E          </td>
+                                                                                        <td headers="view-field-gps-con-slot-table-column" class="views-field views-field-field-gps-con-slot is-active">6          </td>
+                                                                                        <td headers="view-field-gps-svn-table-column" class="views-field views-field-field-gps-svn">81          </td>
+                                                                                        <td headers="view-field-gps-prn-table-column" class="views-field views-field-field-gps-prn">21          </td>
+                                                                                        <td headers="view-field-gps-con-block-type-table-column" class="views-field views-field-field-gps-con-block-type">III          </td>
+                                                                                        <td headers="view-field-gps-con-clock-table-column" class="views-field views-field-field-gps-con-clock">RB          </td>
+                                                                                        <td headers="view-field-nanu-outage-start-date-table-column" class="views-field views-field-field-nanu-outage-start-date">22 NOV 2026          </td>
+                                                                                        <td headers="view-field-nanu-type-table-column" class="views-field views-field-field-nanu-type">UNUSABLE          </td>
+                                                                                        <td headers="view-field-nanu-subject-table-column" class="views-field views-field-field-nanu-subject"><a href="/sites/default/files/gps/nanu/2026/2026104.nnu" target="_blank">SVN81 (PRN21) UNUSABLE JDAY 326/0937 - JDAY 326/1304</a>          </td>
+                            <td class="nanu-active-check views-field views-field-field-nanu-subject">1          </td>
+              </tr>
+      </tbody>
+</table>
+
+    </div>
+  
+          </div>
+</div>
+<div class="views-element-container block block-views block-views-blockgps-constellation-nanus-block-1" id="block-views-block-gps-constellation-nanus-block-1">
+  
+    
+      <div><div class="view view-gps-constellation-nanus view-id-gps_constellation_nanus view-display-id-block_1 js-view-dom-id-a3a5baa9611ac84843de8fe7011d8ad091f59d5897e159975c9eaf69a2daa425">
+  
+    
+      <div class="view-header">
+      <hr>
+<h5 class="text-center">General Information NANUs</h5>
+    </div>
+      
+      <div class="view-content">
+      <table class="table table-striped views-table views-view-table cols-0">
+      <tbody>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2020089
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2020089 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+Please disregard NANU 2020088 due to an error in the naming convention. Outage start and stop times remain accurate. The correct NANU will be labeled UNUSABLE.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS OPERATIONS CENTER at HTTPS://GPS.AFSPC.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GPS.AFSPC.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2022002
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2022002 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+On approximately 20 JAN 2022, SVN41 will resume transmitting L-band utilizing PRN22.<br />
+<br />
+On 20 JAN 2022, after 2200Z, GPS will transition SVN41 (PRN22) into the broadcast almanac for all satellites:<br />
+- The almanac transition, accomplished one satellite at a time, will require approximately 24 hours to complete<br />
+- Before, during, and after transition SVN41 (PRN22) will remain unusable until further notice<br />
+- Future NANUs will notify users of any changes to the above stated status<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS OPERATIONS CENTER at HTTPS://GPS.AFSPC.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GPS.AFSPC.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2022016
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2022016 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+PLEASE DISREGARD NANU 2022015 DUE TO AN ERROR IN THE NAMING CONVENTION. OUTAGE START AND STOP TIMES REMAIN ACCURATE. THE CORRECT NANU WILL BE LABELED UNUSABLE.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS OPERATIONS CENTER at HTTPS://GPS.AFSPC.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GPS.AFSPC.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2022042
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2022042 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+NANU 2022040 Labelled Incorrectly. NANU 2022041 Reflects Correct Label.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS OPERATIONS CENTER at HTTPS://GPS.AFSPC.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GPS.AFSPC.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2022054
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2022054 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+NANU 2022053 Outage Stop Time Incorrect, Outage Ongoing. UNUSABLE to Follow. NANU 2022053 is to be Disregarded.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS OPERATIONS CENTER at HTTPS://GPS.AFSPC.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GPS.AFSPC.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2022086
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2022086 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+On approximately 27 OCT 2022, SVN49 will resume transmitting L-band utilizing PRN28; at L-band activation, SVN49/PRN28 will be unusable until further notice (additionally, no broadcast almanacs will include SVN49/PRN28 until further notice).<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS OPERATIONS CENTER at HTTPS://GPS.AFSPC.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GPS.AFSPC.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2022104
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2022104 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+Please disregard NANU 2022101. Please reference NANU 2022103 instead.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS OPERATIONS CENTER at HTTPS://GPS.AFSPC.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GPS.AFSPC.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2023042
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2023042 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+On approximately 14 AUG 2023, SVN44 will resume transmitting L-band utilizing PRN22.<br />
+<br />
+On 10 AUG 2023, GPS will transition SVN44 (PRN22) into the broadcast almanac for all satellites. The almanac transition, accomplished one satellite at a time, will require approximately 24 hours to complete. Before, during, and after transition SVN44 (PRN22) will remain unusable until further notice.  Future NANUs will notify users of any changes to the above stated status.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS WARFIGHTER COLLABORATION CELL at HTTPS://GPS.AFSPC.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GPS.AFSPC.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2024014
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2024014 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+The Space Force?s 2d Space Operations Squadron (2 SOPS) and the National Geospatial Intelligence Agency?s Global Navigation Satellite System Division (SFNG) worked collaboratively to deliver an updated WGS 84 reference frame to worldwide users of GPS. <br />
+<br />
+NGA is responsible for maintaining the World Geodetic System 1984 (WGS 84) Terrestrial Reference frame which is used by the U.S. Department of Defense for its geolocation needs. In order to ensure adherence to international standards, facilitate interoperability with other GNSS, and satisfy US agreements and public commitments, NGA aligns the WGS 84 Terrestrial Reference Frame (TRF) to the International Terrestrial Reference Frame (ITRF) as closely as possible. In this case, alignment involves updating both the positions of the GPS monitor stations which define the WGS 84 TRF as well as the Antenna Phase Center Offsets of the GPS satellites as contained in the IGS20 ANTEX file.  <br />
+<br />
+On 07 January 2024, 2 SOPS and NGA adopted the new IGS20 ANTEX values at virtually the same time, ensuring that NGA?s orbit products and the operational GPS constellation remain consistent. As of 04 March 2024, both 2 SOPS and NGA have adopted the newly updated GPS monitor station locations completing the implementation of the new WGS 84 realization. This new WGS 84 realization, WGS 84 (G2296) is aligned to both the ITRF2020, the most recent ITRF realization, and the IGS20, the frame used by the International GNSS Service. <br />
+<br />
+These updates represent an improvement in positioning for high accuracy users and ensures that the United States maintains its public commitment that WGS 84, the implicit reference frame for all users of GPS, remains consistent with international standards.<br />
+<br />
+For more information on this update to WGS 84, see the document at the following link: https://earth-info.nga.mil/php/download.php?file=WGS%2084(G2296).pdf<br />
+<br />
+POCs: geomatics@nga.mil, GPSOperationsCenter@us.af.mil<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2024020
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2024020 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+On approximately 22 APR 2024, SVN49 will resume transmitting L-band utilizing PRN01; at L-band activation, SVN49/PRN01 will be unusable until further notice (additionally, no broadcast almanacs will include SVN49/PRN01 until further notice).<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2024055
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2024055 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+NANU 2024042 Outage Start Time Incorrect. Correct Outage Start Time is JDAY 257/0324Z.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2025003
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2025003 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+On 22 Jan 2025, after 2200Z GPS will transition SVN44 (PRN22) into the broadcast almanac for all satellites. The almanac transition, one satellite at a time, will require approximately 24 hours to complete. Before, during and after the transition SVN44 (PRN22) will remain unusable until further notice. Future NANUs will notify users of any changes to the above stated status.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2025017
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2025017 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+Testing will be occurring through CY 2025 using PRNs 35, 36, 37 on residual SVs broadcasting UNHEALTHY navigation messages.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2025067
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2025067 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+On 29 September 2025, GPS will transition SVN 51 (PRN 20) into the broadcast almanac for all satellites. The almanac transition, accomplished one satellite at a time, will require approximately 24 hours to complete. Before, during, and after transition SVN 51 (PRN 20) will remain unusable until further notice. Future NANUs will notify users of any changes to the above stated status. On approximately 30 September 2025, SVN 51 will resume transmitting L-band utilizing PRN 20.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2025075
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2025075 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+Testing will be starting no earlier than JDAY 315 (11NOV25) using PRN 34 with the third Navigation Technology Satellite (NTS-3) and is planned to continue through June 2027.  GPS users should not attempt to track or use the signals transmitted by NTS-3 since they will not be IS/ICD compliant. <br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+ POC: CIVILIAN and MILITARY - AFRL.RV.NTS3@us.af.mil          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2025077
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2025077 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS *** <br />
+This is an amendment to NANU 2025075.<br />
+<br />
+OPERATIONAL NOTICE:<br />
+Testing will be starting no earlier than JDAY 339 (05DEC25) using PRN 34 with the third Navigation Technology Satellite (NTS-3) and is planned to continue through June 2027.  GPS users should not attempt to track or use the signals transmitted by NTS-3 since they will not be IS/ICD compliant. <br />
+<br />
+TECHNICAL INFORMATION:<br />
+To mitigate the risk of backward-compatibility issues with GPS user equipment, the NTS-3 PRN34 L1 C/A-code transmissions will include modified Legacy Navigation (LNAV) data comprising alternating 1&#039;s and 0&#039;s in the message content portion of words 3-10 of subframes 1-5 with proper (32,26) Hamming Code parity bits throughout. The most significant bit (MSB) of the six-bit space vehicle (SV) health indication in subframe 1 will be set to 1, indicating &quot;some or all LNAV data are bad&quot;.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+POC: CIVILIAN and MILITARY -- AFRL.RV.NTS3@us.af.mil<br />
+          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2025085
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2025085 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+Correction to NANU 2025-083 sent on J347<br />
+NANU 2025-083 type was FCSTSUMM should have been UNUSABLE<br />
+Outage times from NANU 2025-083 were correct<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2026001
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2026001 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+This is a correction to NANU 2025-090.<br />
+ <br />
+CORRECTION: NANU 2025-090 start calendar date is 02 JAN 2026 with a stop calendar date of 03 JAN 2026.<br />
+ <br />
+CORRECTION: GPS SATELLITE SVN67 (PRN06) WILL BE UNSABLE ON JDAY 002 (02 JAN 2026) BEGINNING 1515 ZULU UNTIL JDAY 003 (03 JAN 2026) ENDING 0315 ZULU.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 703-313-5900, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GPS WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/GPSOC, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN 276-3526. COMM 805-606-3526.<br />
+   JSPOCCOMBATOPS@US.AF.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2026026
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2026026 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+Testing will be occurring through CY 2026 using PRNs 35, 36, 37 on residual SVs broadcasting UNHEALTHY navigation messages.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 866-944-5748, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GLOBAL WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN    276-3526, <br />
+   COMM 805-605-3526, JSPOCCOMBATOPS@SPACEFORCE.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2026027
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2026027 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+Correction to NANU 2026026<br />
+<br />
+Testing will be occurring through CY 2026 using PRNs 35 and 36 on residual SVs broadcasting UNHEALTHY navigation messages.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 866-944-5748, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GLOBAL WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN    276-3526, <br />
+   COMM 805-605-3526, JSPOCCOMBATOPS@SPACEFORCE.MIL          </td>
+              </tr>
+          <tr>
+                                                                                        <td class="views-field views-field-field-nanu-number is-active"><strong>
+                              2026079
+                            </strong>          </td>
+                                                                                        <td class="views-field views-field-field-nanu-message-body">NOTICE ADVISORY TO NAVSTAR USERS (NANU) 2026079 NANU TYPE: GENERAL<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+Testing will be starting no earlier than JDAY 273 (30SEP26) using PRN 39 with the third Navigation Technology Satellite (NTS-3) in near-geosynchronous orbit and is planned to continue through June 2027. GPS users should not attempt to track or use the signals transmitted by NTS-3 since they will not be IS/ICD compliant. To avoid backward issues, the NTS-3 PRN39 L1 C/A-code transmissions will include modified Legacy Navigation (LNAV) data comprising alternating 1âs and 0âs in the message content portion of words 3-10 of subframes 1-5 with proper (32,26) Hamming Code parity bits throughout. The most significant bit (MSB) of the six-bit space vehicle (SV) health indication in subframe 1 will be set to 1, indicating âsome or all LNAV data are badâ. Reference (NANU) 2025077.<br />
+*** GENERAL MESSAGE TO ALL GPS USERS ***<br />
+<br />
+   POC: CIVILIAN - NAVCEN AT 866-944-5748, HTTPS://WWW.NAVCEN.USCG.GOV<br />
+   MILITARY - GLOBAL WARFIGHTER COLLABORATION CELL at HTTPS://GWCC-WS.CCE.AF.MIL/, DSN 560-2541,<br />
+   COMM 719-567-2541, gpsoperationscenter@us.af.mil, HTTPS://GWCC-WS.CCE.AF.MIL <br />
+   MILITARY ALTERNATE - JOINT SPACE OPERATIONS CENTER, DSN    276-3526, <br />
+   COMM 805-605-3526, JSPOCCOMBATOPS@SPACEFORCE.MIL          </td>
+              </tr>
+      </tbody>
+</table>
+
+    </div>
+  
+          </div>
+</div>
+
+  </div>
+
+  </div>
+
+      </div>
+          </div>
+  </div>
+
+</main>
+
+<footer class="mt-auto   footer-dark text-light bg-secondary">
+  <div class="container-fluid m-0 p-0">
+      <div class="region region-footer">
+    <div id="block-googleanalytics" class="block block-block-content block-block-contentb5b8ab30-b855-4914-a9ec-f249ede359ad">
+  
+    
+      
+            <div class="clearfix text-formatted field field--name-body field--type-text-with-summary field--label-hidden field__item"><style type="text/css">
+	footer {display: none;}
+</style>
+<!-- Google Analytics -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-1N0LDYLV91"></script>
+<script>
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){
+		dataLayer.push(arguments);
+		dataLayer.push({
+			event: "hdr_request_created",
+			hdr_request_number: "HDR-12345"
+		});
+	}
+	gtag('js', new Date());
+	gtag('config', 'G-1N0LDYLV91');
+</script>
+<!-- DAP Analytics -->
+<script async="" type="text/javascript" src="https://dap.digitalgov.gov/Universal-Federated-Analytics-Min.js?agency=DHS" id="_fed_an_ua_tag"></script>
+<!-- Google Tag Manager -->
+<script>
+var googleTMInsert1 = document.createElement('script');
+googleTMInsert1.textContent = "(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-M5F3FWR');";
+document.head.appendChild(googleTMInsert1);
+
+var googleTMInsert2 = document.createElement('noscript');
+var googleTMInsert3 = document.createElement('iframe');
+googleTMInsert3.src = "https://www.googletagmanager.com/ns.html?id=GTM-M5F3FWR";
+googleTMInsert3.style.display = "none";
+googleTMInsert3.style.visibility = "hidden";
+googleTMInsert3.style.height = 0;
+googleTMInsert3.style.width = 0;
+googleTMInsert2.appendChild(googleTMInsert3);
+document.body.prepend(googleTMInsert2);
+</script></div>
+      
+  </div>
+
+  </div>
+
+  </div>
+</footer>
+
+  </div>
+
+    
+    <script src="/core/assets/vendor/jquery/jquery.min.js?v=3.7.1"></script>
+<script src="/themes/bootstrap4/dist/bootstrap/4.6.2/dist/js/bootstrap.bundle.min.js?v=4.6.2.1"></script>
+<script src="/themes/bootstrap4/js/custom.js?top815"></script>
+<script src="/themes/bootstrap4/js/flatpickr.js?top815"></script>
+
+  </body>
+</html>
