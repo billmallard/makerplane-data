@@ -10,6 +10,7 @@ one logical metadata schema:
     is invisible to the renderer.
   * **zip packs** (terrain tiles, later charts, CIFP file-sets): a
     ``pack_meta.json`` member alongside the payload.
+  * **json packs** (gnss): a top-level ``pack_meta`` key in the document.
 
 The manifest entry for a pack is a superset of pack_meta (it adds url,
 bytes, sha256, regions). pack_meta is the subset that is intrinsic to the
@@ -37,8 +38,14 @@ SCHEMA_VERSION = 1
 # publish notes"), a new kind must merge to `dev` -- the branch devices
 # actually track -- before its first R2 publish; promoting this kind to
 # `main` and enabling publish is a separate, later step.
+#
+# "gnss" (RAIM1, AER-6755): the GPS almanac and active NANUs from USCG NAVCEN,
+# one small JSON document (packtools/gnss.py, docs/gnss.md). Same rule: it
+# merges to `dev` before its first publish, and the publish gate has no gnss
+# checks yet, so `build-pack --upload` refuses it.
 KINDS = ("navdata", "obstacles", "cifp", "water", "terrain", "highways",
-         "rivers", "airports", "navaids", "airspace", "procedures", "plates")
+         "rivers", "airports", "navaids", "airspace", "procedures", "plates",
+         "gnss")
 
 
 @dataclass
@@ -131,13 +138,47 @@ def read_zip(path: str | Path) -> PackMeta:
         return PackMeta.from_dict(json.loads(z.read(_ZIP_META_NAME)))
 
 
+# --- json packs -----------------------------------------------------------
+
+_JSON_META_KEY = "pack_meta"
+
+
+def is_json_pack(path: str | Path) -> bool:
+    """A json pack is a UTF-8 JSON object; sqlite and zip files never start
+    with ``{``."""
+    with open(path, "rb") as f:
+        return f.read(64).lstrip().startswith(b"{")
+
+
+def embed_json(path: str | Path, meta: PackMeta) -> None:
+    """Add/replace the top-level ``pack_meta`` key of a json pack, rewriting it
+    in canonical form (sorted keys, fixed separators) so the same document and
+    meta always give the same bytes."""
+    path = Path(path)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(doc, dict):
+        raise ValueError(f"{path}: a json pack must be a JSON object")
+    doc[_JSON_META_KEY] = meta.as_dict()
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(doc, sort_keys=True, indent=1, separators=(",", ": ")) + "\n",
+                   encoding="utf-8")
+    tmp.replace(path)
+
+
+def read_json(path: str | Path) -> PackMeta:
+    return PackMeta.from_dict(
+        json.loads(Path(path).read_text(encoding="utf-8"))[_JSON_META_KEY])
+
+
 # --- dispatch -------------------------------------------------------------
 
 def read(path: str | Path) -> PackMeta:
-    """Read pack_meta from either container type, detected by content."""
+    """Read pack_meta from any container type, detected by content."""
     path = Path(path)
     if zipfile.is_zipfile(path):
         return read_zip(path)
+    if is_json_pack(path):
+        return read_json(path)
     return read_sqlite(path)
 
 

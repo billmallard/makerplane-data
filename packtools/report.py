@@ -133,7 +133,7 @@ OSM_MEASURE_MIN = {"length_km": 100.0, "area_km2": 10.0}
 # Terrain has no default here: make-terrain passes TERRAIN_ORIGIN ("agency").
 ORIGIN_BY_KIND = {
     "navdata": "federal", "navaids": "federal", "obstacles": "federal",
-    "procedures": "federal", "cifp": "federal", "plates": "federal",
+    "procedures": "federal", "cifp": "federal", "plates": "federal", "gnss": "federal",
     "airports": "community", "water": "community", "highways": "community",
     "rivers": "community", "airspace": "community",
 }
@@ -150,6 +150,8 @@ UNGATED = {
                 "no device probe (pyEfis has no airspace reader yet)",
     "plates": "a zip pack: only PACK-001..004 and a not-run ACC-001; no content check and "
               "no device probe",
+    "gnss": "a json pack (RAIM1): only the common checks; no content check and no device "
+            "probe yet, and build-pack --upload refuses the kind (docs/gnss.md)",
 }
 
 _FEDERAL_SQLITE = ("navdata", "navaids", "obstacles", "procedures")
@@ -2080,7 +2082,7 @@ def dq_matrix() -> dict[str, dict[str, list[str]]]:
 def catalogue(kind: str, *, is_zip: bool) -> list[Check]:
     """The checks for one pack kind, in report order."""
     checks = list(_COMMON)
-    if not is_zip:
+    if not is_zip and kind not in _JSON_KINDS:
         checks += _SQLITE
     if kind in _GUARD_BUILDER:
         checks += _FEDERAL
@@ -2101,6 +2103,8 @@ def catalogue(kind: str, *, is_zip: bool) -> list[Check]:
 
 #: Kinds whose packs are zip archives rather than SQLite files.
 _ZIP_KINDS = ("terrain", "plates")
+#: Kinds whose packs are one JSON document (packmeta.embed_json).
+_JSON_KINDS = ("gnss",)
 
 
 def all_checks() -> dict[str, list[Check]]:
