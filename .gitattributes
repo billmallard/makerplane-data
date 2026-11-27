@@ -4,3 +4,7 @@
 # Signature/key files are ASCII but order-sensitive — keep them verbatim LF.
 *.pub text eol=lf
 *.minisig text eol=lf
+
+# Recorded upstream responses are kept byte for byte (their sha256 is part
+# of what the gnss tests check).
+tests/fixtures/gnss/navcen-*/** -text

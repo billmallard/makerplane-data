@@ -106,6 +106,13 @@ def cmd_build_pack(args) -> int:
     if not src.exists():
         raise SystemExit(f"source not found: {src}")
 
+    if args.kind == "gnss" and args.upload:
+        # The publish gate's checks are sqlite/zip ones, and its previous-
+        # edition reader takes any JSON file for a test record: a gnss pack
+        # cannot be gated yet, so it cannot be published (RAIM1, AER-6755).
+        raise SystemExit("build-pack --upload: the publish gate has no gnss checks yet; "
+                         "a gnss pack can be built and signed locally, not published")
+
     # Resolve the cycle + currency window. An explicit --cycle is enough
     # (non-cyclical kinds like water/terrain/highways have no effective/expires);
     # otherwise auto-compute from the kind's cadence.
@@ -113,6 +120,13 @@ def cmd_build_pack(args) -> int:
         cycle = args.cycle
         effective = args.effective
         expires = args.expires
+    elif args.kind == "gnss":
+        # Rebuilt daily: the cycle is the build date, and the pack expires
+        # gnss.VALID_DAYS later (docs/gnss.md "Currency").
+        from . import gnss
+        cycle = date.strftime("%y%m%d")
+        effective = date.isoformat()
+        expires = (date + _dt.timedelta(days=gnss.VALID_DAYS)).isoformat()
     else:
         cadence = _KIND_CADENCE.get(args.kind)
         if cadence is None:
@@ -121,6 +135,12 @@ def cmd_build_pack(args) -> int:
         cycle = cur.cycle
         effective = cur.effective.isoformat()
         expires = cur.expires.isoformat()
+
+    if args.kind == "gnss":
+        from . import gnss
+        args.attribution = args.attribution or gnss.ATTRIBUTION
+        args.license = args.license or gnss.LICENSE
+        args.license_url = args.license_url or gnss.LICENSE_URL
 
     # The pyEfis commit the source was built from goes into pack_meta as well
     # as the test record (CERT5a): the pack names its builder on its own.
@@ -139,11 +159,13 @@ def cmd_build_pack(args) -> int:
     print(f"copying {src} -> {pack_path} ...")
     shutil.copy2(src, pack_path)
 
-    # Embed pack_meta (sqlite table or zip member).
+    # Embed pack_meta (sqlite table, zip member or json key).
     import zipfile
     from . import packmeta
     if zipfile.is_zipfile(pack_path):
         packmeta.embed_zip(pack_path, meta)
+    elif packmeta.is_json_pack(pack_path):
+        packmeta.embed_json(pack_path, meta)
     else:
         # highways, procedures: schema_version has to speak for the
         # on-disk tables, not just PackMeta's own fields -- detect it from
@@ -520,6 +542,35 @@ def _published_at(store, secret, edition: str) -> set[str]:
     return {p.id for p in (live.packs if live else []) if p.cycle == edition}
 
 
+def cmd_make_gnss(args) -> int:
+    """Fetch (or replay) NAVCEN's almanac + NANUs and write the gnss payload.
+    ``build-pack <out> --kind gnss`` then packs and signs it."""
+    from . import gnss
+    now = (_dt.datetime.fromisoformat(args.now.replace("Z", "+00:00"))
+           if args.now else _dt.datetime.now(_dt.timezone.utc))
+    if now.tzinfo is None:
+        raise SystemExit("--now needs a UTC offset (e.g. 2026-11-27T16:00:00Z)")
+    now = now.astimezone(_dt.timezone.utc)
+    if args.fixture and args.record:
+        raise SystemExit("--fixture replays a recording; --record makes one: pick one")
+    if args.fixture:
+        get = gnss.fixture_getter(Path(args.fixture))
+    else:
+        get = gnss.http_getter()
+        if args.record:
+            get = gnss.recording_getter(get, Path(args.record))
+    try:
+        doc = gnss.build(get, now, retrieved=args.retrieved)
+    except gnss.GnssError as e:
+        print(f"make-gnss: refused: {e}", file=sys.stderr)
+        return 2
+    out = gnss.write(doc, args.out)
+    print(f"wrote {out}: almanac week {doc['almanac']['week']} "
+          f"(TOA {doc['almanac']['toa_gps']} GPS), {len(doc['almanac']['satellites'])} satellites, "
+          f"NANU {doc['nanu']['latest']}, {len(doc['nanu']['outages'])} outage window(s)")
+    return 0
+
+
 def cmd_make_terrain(args) -> int:
     from . import make_terrain
     compress = not args.no_compress
@@ -873,7 +924,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--comment", default="makerplane-data public key")
     g.set_defaults(func=cmd_genkey)
 
-    b = sub.add_parser("build-pack", help="turn a built sqlite/zip into a signed pack")
+    b = sub.add_parser("build-pack", help="turn a built sqlite/zip/json into a signed pack")
     b.add_argument("source")
     b.add_argument("--id", required=True)
     b.add_argument("--kind", required=True, choices=KINDS)
@@ -1053,6 +1104,16 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("manifest")
     v.add_argument("--pub", default="keys/minisign.pub")
     v.set_defaults(func=cmd_verify)
+
+    gn = sub.add_parser("make-gnss", help="fetch NAVCEN's GPS almanac + NANUs and write "
+                        "the gnss payload (pack it with build-pack --kind gnss)")
+    gn.add_argument("--out", default="work/gnss/gnss.json")
+    gn.add_argument("--fixture", help="replay a recorded NAVCEN copy instead of fetching")
+    gn.add_argument("--record", help="fetch live and save every response under this dir")
+    gn.add_argument("--now", help="ISO-8601 UTC build time (default: now)")
+    gn.add_argument("--retrieved", help="ISO-8601 UTC time to stamp the sources with "
+                    "(a fixture build passes the recording time; default: --now)")
+    gn.set_defaults(func=cmd_make_gnss)
 
     t = sub.add_parser("make-terrain", help="build terrain packs from an HGT tile tree")
     t.add_argument("source", help="root of the HGT tile tree (e.g. .../glo30hgt)")

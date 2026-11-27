@@ -618,8 +618,9 @@ def test_osm_region_wording_when_every_region_grew(tmp_path):
 def test_kinds_without_an_accepted_catalogue_are_declared_ungated(tmp_path):
     # AER-4102: rivers, cifp, airspace and plates have no content check
     # beyond the common ones and no device probe. A record may be emitted,
-    # but it must not count as a gate.
-    assert set(report.UNGATED) == {"rivers", "cifp", "airspace", "plates"}
+    # but it must not count as a gate. gnss (RAIM1) is a json pack with the
+    # common checks only.
+    assert set(report.UNGATED) == {"rivers", "cifp", "airspace", "plates", "gnss"}
     pack = _hwy_pack(tmp_path / "r.pack", "r1", {CA: 5})
     packmeta.embed_sqlite(pack, PackMeta(id="rivers-conus", kind="rivers", cycle="r1",
                                          attribution="OSM", license="ODbL-1.0"))

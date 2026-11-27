@@ -40,6 +40,7 @@ that kind's catalogue covers.
 | airports | `GEO-001`, `XS-001` | none | `SQL-001`, `UNQ-001` | `PACK-002`, `PACK-003`, `PACK-004` | none | `ROW-001`, `ROW-002`, `ROW-003` | `PACK-001`, `ACC-001`, `SQL-001`, `ROW-003` |
 | airspace | `ASP-002` | none | `SQL-001` | `PACK-002`, `PACK-003`, `PACK-004` | none | `ROW-001`, `ROW-002`, `ROW-003`, `ASP-003` | `PACK-001`, `ACC-001`, `SQL-001`, `ROW-003`, `ASP-001` |
 | cifp | none | none | `SQL-001` | `PACK-002`, `PACK-003`, `PACK-004` | none | `ROW-001`, `ROW-002`, `ROW-003` | `PACK-001`, `ACC-001`, `SQL-001`, `ROW-003` |
+| gnss | none | none | none | `PACK-002`, `PACK-003`, `PACK-004` | none | none | `PACK-001`, `ACC-001` |
 | highways | none | none | `SQL-001`, `IDX-001` | `PACK-002`, `PACK-003`, `PACK-004` | none | `ROW-001`, `ROW-002`, `ROW-003`, `OSM-001`, `OSM-002`, `OSM-006`, `OSM-005` | `PACK-001`, `ACC-001`, `SQL-001`, `ROW-003`, `OSM-004`, `OSM-003` |
 | navaids | `GEO-001`, `GEO-002`, `GLD-001` | none | `SQL-001`, `UNQ-001`, `UNQ-002` | `PACK-002`, `PACK-003`, `PACK-004` | none | `ROW-001`, `ROW-002`, `ROW-003`, `SG-002`, `SG-004` | `PACK-001`, `ACC-001`, `SQL-001`, `ROW-003`, `SG-001`, `SG-002`, `SG-003` |
 | navdata | `GEO-001`, `GEO-002`, `XS-001`, `GLD-001` | none | `SQL-001`, `UNQ-001` | `PACK-002`, `PACK-003`, `PACK-004` | none | `ROW-001`, `ROW-002`, `ROW-003`, `SG-002`, `SG-004` | `PACK-001`, `ACC-001`, `SQL-001`, `ROW-003`, `SG-001`, `SG-002`, `SG-003` |
@@ -89,6 +90,7 @@ listed below.
 | procedures, cifp, airspace | FAA CIFP | federal (default) | as CIFP publishes (ARINC 424 field resolution) | AIRAC 28-day window |
 | obstacles | FAA DOF | federal (default) | DOF assigns each verified obstacle a horizontal and a vertical accuracy code (for example 1 = 20 ft horizontal, A = 3 ft vertical; [DOF README](https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/dof/media/DOF_README_11-20-2017.pdf)). The pack does not carry them | DOF 56-day window |
 | plates | FAA d-TPP | federal (default) | the plate PDFs as published | AIRAC 28-day window |
+| gnss | USCG NAVCEN (GPS almanac, NANUs) | federal (default) | the YUMA almanac and NANU times as published; NANU times to the minute | daily build, 14-day expiry (docs/gnss.md) |
 | airports | OurAirports (Canada) | community (default) | none stated by the source | edition-tagged |
 | water, highways, rivers | OpenStreetMap | community (default) | none stated by the source | edition-tagged (quarterly) |
 | terrain | Copernicus DEM GLO-30 | none by default; every live pack is labelled `federal` (below) | absolute vertical under 4 m LE90, absolute horizontal under 6 m CE90, 1 arc-second latitude spacing ([Copernicus DEM product handbook](https://dataspace.copernicus.eu/sites/default/files/media/files/2024-06/geo1988-copernicusdem-spe-002_producthandbook_i5.0.pdf), figures as quoted in search abstracts, not re-read in full) | edition-tagged (`2024edr<N>`) |
