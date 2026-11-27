@@ -79,7 +79,9 @@ preserve verify-then-swap; don't introduce a path that installs before verifying
 
 **Pack kinds** (`packmeta.KINDS`): `navdata` (airports/runways), `navaids`
 (NASR NAV/FIX/AWY), `obstacles` (FAA DOF), `terrain` (Copernicus GLO-30 region
-tiles), `water` + `highways` (OSM, ODbL), plus `airports`/`cifp`. **CIFP build
+tiles), `water` + `highways` (OSM, ODbL), `gnss` (NAVCEN GPS almanac + NANUs,
+one JSON file, RAIM1; built and installable, not yet published, docs/gnss.md),
+plus `airports`/`cifp`. **CIFP build
 is deferred** — its indexer is GPL and the tools here are permissively licensed;
 it's registered as a source but not built.
 
